@@ -183,7 +183,7 @@ class TestWrapperFunctionsBenchmarks:
             db.sql_insert("users", {"name": f"User{counter[0]}", "age": 25})
             counter[0] += 1
         
-        result = benchmark(insert_single)
+        benchmark(insert_single)
         db.close()
     
     def test_sql_update_single(self, benchmark, db_path):
@@ -202,7 +202,7 @@ class TestWrapperFunctionsBenchmarks:
             db.sql_update("users", {"age": 26}, "id = ?", (counter[0] % 100,))
             counter[0] += 1
         
-        result = benchmark(update_single)
+        benchmark(update_single)
         db.close()
     
     def test_upsert(self, benchmark, db_path):
@@ -221,7 +221,7 @@ class TestWrapperFunctionsBenchmarks:
             db.upsert("users", {"id": counter[0] % 50, "name": f"User{counter[0]}", "age": 25})
             counter[0] += 1
         
-        result = benchmark(upsert_op)
+        benchmark(upsert_op)
         db.close()
     
     def test_query_with_pagination(self, benchmark, db_path):
@@ -238,7 +238,7 @@ class TestWrapperFunctionsBenchmarks:
         def query_page():
             return db.query_with_pagination("items", limit=10, offset=0, order_by="id ASC")
         
-        result = benchmark(query_page)
+        benchmark(query_page)
         db.close()
     
     def test_count_operation(self, benchmark, db_path):
@@ -255,7 +255,7 @@ class TestWrapperFunctionsBenchmarks:
         def count_records():
             return db.count("items", "value > ?", (500,))
         
-        result = benchmark(count_records)
+        benchmark(count_records)
         db.close()
     
     def test_exists_check(self, benchmark, db_path):
@@ -272,11 +272,11 @@ class TestWrapperFunctionsBenchmarks:
         def check_exists():
             return db.exists("users", "email = ?", ("user500@example.com",))
         
-        result = benchmark(check_exists)
+        benchmark(check_exists)
         db.close()
     
     def test_export_import_roundtrip(self, benchmark, db_path):
-        """export/import往復"""
+        """export/import往復（エクスポート部分のみ計測）"""
         from nanasqlite import NanaSQLite
         
         db = NanaSQLite(db_path)
@@ -286,12 +286,12 @@ class TestWrapperFunctionsBenchmarks:
         data_list = [{"id": i, "value": f"data{i}"} for i in range(100)]
         db.import_from_dict_list("export_test", data_list)
         
-        def export_import():
+        def export_operation():
+            # エクスポート操作のパフォーマンスを計測
             exported = db.export_table_to_dict("export_test")
-            # エクスポートのみをベンチマーク
             return exported
         
-        result = benchmark(export_import)
+        benchmark(export_operation)
         db.close()
     
     def test_transaction_context(self, benchmark, db_path):
@@ -307,7 +307,7 @@ class TestWrapperFunctionsBenchmarks:
                 db.sql_insert("logs", {"id": counter[0], "message": f"Log{counter[0]}"})
                 counter[0] += 1
         
-        result = benchmark(transaction_op)
+        benchmark(transaction_op)
         db.close()
 
 
