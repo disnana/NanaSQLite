@@ -8,6 +8,7 @@ NanaSQLite: APSW SQLite-backed dict wrapper with memory caching.
 """
 
 import json
+import re
 from typing import Any, Iterator, Optional, Union, Type, List, Tuple
 import apsw
 
@@ -865,7 +866,7 @@ class NanaSQLite:
             values.extend(parameters)
         
         cursor = self.execute(sql, tuple(values))
-        return cursor.getconnection().changes()
+        return self._connection.changes()
     
     def sql_delete(self, table_name: str, where: str, parameters: tuple = None) -> int:
         """
@@ -884,7 +885,7 @@ class NanaSQLite:
         """
         sql = f"DELETE FROM {table_name} WHERE {where}"
         cursor = self.execute(sql, parameters)
-        return cursor.getconnection().changes()
+        return self._connection.changes()
     
     def upsert(self, table_name: str, data: dict, 
               conflict_columns: List[str] = None) -> int:
@@ -918,7 +919,15 @@ class NanaSQLite:
             # ON CONFLICT を使用
             conflict_cols = ", ".join(conflict_columns)
             update_items = [f"{col} = excluded.{col}" for col in columns if col not in conflict_columns]
-            update_clause = ", ".join(update_items) if update_items else f"{columns[0]} = excluded.{columns[0]}"
+            
+            if update_items:
+                update_clause = ", ".join(update_items)
+            else:
+                # 全カラムが競合カラムの場合は、何もしない（既存データを保持）
+                sql = f"INSERT INTO {table_name} ({columns_sql}) VALUES ({placeholders}) "
+                sql += f"ON CONFLICT({conflict_cols}) DO NOTHING"
+                self.execute(sql, tuple(values))
+                return self.get_last_insert_rowid()
             
             sql = f"INSERT INTO {table_name} ({columns_sql}) VALUES ({placeholders}) "
             sql += f"ON CONFLICT({conflict_cols}) DO UPDATE SET {update_clause}"
@@ -1044,13 +1053,12 @@ class NanaSQLite:
             pragma_cursor = self.execute(f"PRAGMA table_info({table_name})")
             col_names = [row[1] for row in pragma_cursor]
         else:
-            # カラム名からAS句を考慮
+            # カラム名からAS句を考慮（case-insensitive）
             col_names = []
             for col in columns:
-                if " as " in col.lower():
-                    col_names.append(col.split(" as ")[-1].strip())
-                elif " AS " in col:
-                    col_names.append(col.split(" AS ")[-1].strip())
+                parts = re.split(r'\s+as\s+', col, flags=re.IGNORECASE)
+                if len(parts) > 1:
+                    col_names.append(parts[-1].strip())
                 else:
                     col_names.append(col.strip())
         
