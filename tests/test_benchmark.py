@@ -8,12 +8,10 @@ import os
 import tempfile
 import pytest
 
+import importlib.util
+
 # pytest-benchmarkがインストールされているか確認
-pytest_benchmark_available = True
-try:
-    import pytest_benchmark
-except ImportError:
-    pytest_benchmark_available = False
+pytest_benchmark_available = importlib.util.find_spec("pytest_benchmark") is not None
 
 
 # テスト用のフィクスチャ
