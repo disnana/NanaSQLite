@@ -71,6 +71,41 @@ with NanaSQLite("mydata.db") as db:
 - [English Documentation](docs/en/README.md)
 - [API Reference](docs/en/reference.md)
 
+### ✨ New Features (v1.0.3rc3+)
+
+**Pydantic Support:**
+```python
+from pydantic import BaseModel
+
+class User(BaseModel):
+    name: str
+    age: int
+
+db.set_model("user", User(name="Nana", age=20))
+user = db.get_model("user", User)
+```
+
+**Direct SQL Execution:**
+```python
+# Execute custom SQL
+cursor = db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
+rows = db.fetch_all("SELECT key, value FROM data")
+```
+
+**SQLite Wrapper Functions:**
+```python
+# Create tables and indexes easily
+db.create_table("users", {
+    "id": "INTEGER PRIMARY KEY",
+    "name": "TEXT NOT NULL",
+    "email": "TEXT UNIQUE"
+})
+db.create_index("idx_users_email", "users", ["email"])
+
+# Simple queries
+results = db.query(table_name="users", where="age > ?", parameters=(20,))
+```
+
 ---
 
 ## 日本語
@@ -132,6 +167,41 @@ with NanaSQLite("mydata.db") as db:
 
 - [日本語ドキュメント](docs/ja/README.md)
 - [APIリファレンス](docs/ja/reference.md)
+
+### ✨ 新機能 (v1.0.3rc3+)
+
+**Pydantic互換性:**
+```python
+from pydantic import BaseModel
+
+class User(BaseModel):
+    name: str
+    age: int
+
+db.set_model("user", User(name="Nana", age=20))
+user = db.get_model("user", User)
+```
+
+**直接SQL実行:**
+```python
+# カスタムSQLの実行
+cursor = db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
+rows = db.fetch_all("SELECT key, value FROM data")
+```
+
+**SQLiteラッパー関数:**
+```python
+# テーブルとインデックスを簡単に作成
+db.create_table("users", {
+    "id": "INTEGER PRIMARY KEY",
+    "name": "TEXT NOT NULL",
+    "email": "TEXT UNIQUE"
+})
+db.create_index("idx_users_email", "users", ["email"])
+
+# シンプルなクエリ
+results = db.query(table_name="users", where="age > ?", parameters=(20,))
+```
 
 ---
 

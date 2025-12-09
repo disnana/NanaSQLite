@@ -228,6 +228,88 @@ users_db["alice"] = {"name": "Alice", "age": 30}
 config_db["theme"] = "dark"
 ```
 
+### Pydantic互換性 (v1.0.3rc3+)
+
+PydanticモデルをそのままNanaSQLiteに保存・取得できます：
+
+```python
+from pydantic import BaseModel
+from nanasqlite import NanaSQLite
+
+# Pydanticモデルの定義
+class User(BaseModel):
+    name: str
+    age: int
+    email: str
+
+# データベース作成
+db = NanaSQLite("mydata.db")
+
+# Pydanticモデルを保存
+user = User(name="Nana", age=20, email="nana@example.com")
+db.set_model("user", user)
+
+# Pydanticモデルとして取得
+retrieved_user = db.get_model("user", User)
+print(retrieved_user.name)  # "Nana"
+print(retrieved_user.age)   # 20
+```
+
+### 直接SQL実行 (v1.0.3rc3+)
+
+SQLiteの全機能を活用するために、カスタムSQLを直接実行できます：
+
+```python
+# SELECT文の実行
+cursor = db.execute("SELECT key, value FROM data WHERE key LIKE ?", ("user%",))
+for row in cursor:
+    print(row)
+
+# 複数パラメータで一括実行
+db.execute_many(
+    "INSERT INTO custom (id, name) VALUES (?, ?)",
+    [(1, "Alice"), (2, "Bob"), (3, "Charlie")]
+)
+
+# 便利な取得メソッド
+row = db.fetch_one("SELECT * FROM data WHERE key = ?", ("config",))
+rows = db.fetch_all("SELECT * FROM data ORDER BY key")
+```
+
+### SQLiteラッパー関数 (v1.0.3rc3+)
+
+SQLiteを簡単に使えるラッパー関数を提供：
+
+```python
+# テーブル作成
+db.create_table("users", {
+    "id": "INTEGER PRIMARY KEY",
+    "name": "TEXT NOT NULL",
+    "email": "TEXT UNIQUE",
+    "age": "INTEGER"
+})
+
+# インデックス作成
+db.create_index("idx_users_email", "users", ["email"], unique=True)
+
+# シンプルなクエリ
+results = db.query(
+    table_name="users",
+    columns=["name", "age"],
+    where="age > ?",
+    parameters=(20,),
+    order_by="name ASC",
+    limit=10
+)
+
+# テーブル管理
+if db.table_exists("users"):
+    print("usersテーブルが存在します")
+
+tables = db.list_tables()
+print(f"データベース内のテーブル: {tables}")
+```
+
 ### パフォーマンスチューニング
 
 ```python
