@@ -570,14 +570,7 @@ class TestStandardCompatibility:
 
     def test_equality(self, db):
         """等価比較の検証"""
-        from collections.abc import MutableMapping
-        print(f"DEBUG: type(db)={type(db)}")
-        print(f"DEBUG: isinstance(db, MutableMapping)={isinstance(db, MutableMapping)}")
-        print(f"DEBUG: db.items()={list(db.items())}")
-        
         db["a"] = 1
-        print(f"DEBUG: db == {{'a': 1}} -> {db == {'a': 1}}")
-        
         assert db == {"a": 1}
         assert {"a": 1} == db
         assert db != {"a": 2}
