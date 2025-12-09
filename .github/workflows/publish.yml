@@ -118,13 +118,61 @@ jobs:
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         password: ${{ secrets.PYPI_TOKEN }}
+
+  release:
+    needs: [check-version, build, publish]
+    if: needs.check-version.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: dist
+        path: dist/
+    
+    - name: Create source zip
+      run: |
+        zip -r nanasqlite-${{ needs.check-version.outputs.local_version }}-src.zip src/ README.md LICENSE pyproject.toml
+    
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ needs.check-version.outputs.local_version }}
+        name: v${{ needs.check-version.outputs.local_version }}
+        body: |
+          ## NanaSQLite v${{ needs.check-version.outputs.local_version }}
+          
+          ### インストール / Installation
+          ```bash
+          pip install nanasqlite==${{ needs.check-version.outputs.local_version }}
+          ```
+          
+          ### ダウンロード / Downloads
+          - 📦 **wheel**: ビルド済みパッケージ
+          - 📁 **tar.gz**: ソース配布物
+          - 🗂️ **src.zip**: ソースコードのみ
+          
+          詳細は [CHANGELOG.md](CHANGELOG.md) を参照してください。
+        files: |
+          dist/*
+          nanasqlite-${{ needs.check-version.outputs.local_version }}-src.zip
+        draft: false
+        prerelease: false
     
     - name: Summary
       run: |
-        echo "## 🎉 Published to PyPI" >> $GITHUB_STEP_SUMMARY
+        echo "## 🎉 Release Complete" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Version:** ${{ needs.check-version.outputs.local_version }}" >> $GITHUB_STEP_SUMMARY
-        echo "**Previous:** ${{ needs.check-version.outputs.pypi_version }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Version:** v${{ needs.check-version.outputs.local_version }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Published to:" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ PyPI" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ GitHub Releases" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
         echo "pip install nanasqlite==${{ needs.check-version.outputs.local_version }}" >> $GITHUB_STEP_SUMMARY
