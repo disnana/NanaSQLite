@@ -37,13 +37,22 @@ jobs:
           echo "is_prerelease=false" >> $GITHUB_OUTPUT
         fi
         
-        # Get PyPI version (returns 0.0.0 if package doesn't exist)
-        PYPI_VERSION=$(curl -s https://pypi.org/pypi/nanasqlite/json 2>/dev/null | grep -oP '"version"\s*:\s*"\K[^"]+' | head -1 || echo "0.0.0")
-        if [ -z "$PYPI_VERSION" ]; then
-          PYPI_VERSION="0.0.0"
+        # Get all PyPI versions including prereleases
+        ALL_VERSIONS=$(curl -s https://pypi.org/pypi/nanasqlite/json 2>/dev/null | grep -oP '"releases"\s*:\s*\{\s*"\K[^"]+' || echo "")
+        
+        # Get the latest version (first in releases, or check if our version exists)
+        if curl -s "https://pypi.org/pypi/nanasqlite/${LOCAL_VERSION}/json" 2>/dev/null | grep -q '"version"'; then
+          PYPI_VERSION="$LOCAL_VERSION"
+          echo "PyPI version: $PYPI_VERSION (exact match found)"
+        else
+          # Get latest stable version as fallback
+          PYPI_VERSION=$(curl -s https://pypi.org/pypi/nanasqlite/json 2>/dev/null | grep -oP '"version"\s*:\s*"\K[^"]+' | head -1 || echo "0.0.0")
+          if [ -z "$PYPI_VERSION" ]; then
+            PYPI_VERSION="0.0.0"
+          fi
+          echo "PyPI version: $PYPI_VERSION (latest stable)"
         fi
         echo "pypi_version=$PYPI_VERSION" >> $GITHUB_OUTPUT
-        echo "PyPI version: $PYPI_VERSION"
         
         # Compare versions
         if [ "$LOCAL_VERSION" != "$PYPI_VERSION" ]; then
