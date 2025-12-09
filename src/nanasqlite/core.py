@@ -8,11 +8,12 @@ NanaSQLite: APSW SQLite-backed dict wrapper with memory caching.
 """
 
 import json
-from typing import Any, Iterator, Optional, Union
+from typing import Any, Iterator, Optional, Union, TYPE_CHECKING
+from collections.abc import MutableMapping
 import apsw
 
 
-class NanaSQLite:
+class NanaSQLite(MutableMapping):
     """
     APSW SQLite-backed dict wrapper.
     
@@ -343,6 +344,10 @@ class NanaSQLite:
         """全データをPython dictとして取得"""
         self.load_all()
         return dict(self._data)
+    
+    def copy(self) -> dict:
+        """浅いコピーを作成（標準dictを返す）"""
+        return self.to_dict()
     
     def close(self) -> None:
         """データベース接続を閉じる"""

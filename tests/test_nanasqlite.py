@@ -14,7 +14,7 @@ import time
 import pytest
 
 # テスト実行時のパス設定
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 from nanasqlite import NanaSQLite
 
 
@@ -392,6 +392,22 @@ class TestCacheBehavior:
         assert db.is_cached("key1")
         
         db.close()
+    
+    def test_refresh_all(self, db_path):
+        """全キャッシュのリフレッシュ"""
+        db = NanaSQLite(db_path)
+        db["k"] = "v"
+        assert db.is_cached("k")
+        
+        # 全リフレッシュ
+        db.refresh()
+        
+        # キャッシュがクリアされていること
+        assert not db.is_cached("k")
+        
+        # 再取得可能
+        assert db["k"] == "v"
+        db.close()
 
 
 # ==================== dictメソッドテスト ====================
@@ -519,6 +535,52 @@ class TestDictMethods:
         
         assert isinstance(result, dict)
         assert result == {"x": {"nested": True}, "y": [1, 2, 3]}
+
+
+class TestStandardCompatibility:
+    """標準dict機能との互換性テスト"""
+    
+    def test_popitem(self, db):
+        """popitemの動作検証"""
+        db["a"] = 1
+        db["b"] = 2
+        
+        item = db.popitem()
+        assert item in [("a", 1), ("b", 2)]
+        assert len(db) == 1
+        
+        item2 = db.popitem()
+        assert len(db) == 0
+        
+        with pytest.raises(KeyError):
+            db.popitem()
+
+    def test_copy(self, db):
+        """copyの動作検証"""
+        db["a"] = 1
+        copied = db.copy()
+        
+        assert isinstance(copied, dict)
+        assert copied == {"a": 1}
+        assert copied is not db
+        
+        # 構造の変更が波及しないこと
+        copied["b"] = 2
+        assert "b" not in db
+
+    def test_equality(self, db):
+        """等価比較の検証"""
+        from collections.abc import MutableMapping
+        print(f"DEBUG: type(db)={type(db)}")
+        print(f"DEBUG: isinstance(db, MutableMapping)={isinstance(db, MutableMapping)}")
+        print(f"DEBUG: db.items()={list(db.items())}")
+        
+        db["a"] = 1
+        print(f"DEBUG: db == {{'a': 1}} -> {db == {'a': 1}}")
+        
+        assert db == {"a": 1}
+        assert {"a": 1} == db
+        assert db != {"a": 2}
 
 
 # ==================== バッチ操作テスト ====================
