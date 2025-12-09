@@ -75,16 +75,16 @@ jobs:
         if [ -f benchmark.json ]; then
           echo "| Test | Mean | Rounds |" >> $GITHUB_STEP_SUMMARY
           echo "|------|------|--------|" >> $GITHUB_STEP_SUMMARY
-          python -c "
-import json
-with open('benchmark.json') as f:
-    data = json.load(f)
-for bench in data.get('benchmarks', []):
-    name = bench['name'].split('::')[-1]
-    mean = bench['stats']['mean'] * 1000  # ms
-    rounds = bench['stats']['rounds']
-    print(f'| {name} | {mean:.3f}ms | {rounds} |')
-" >> $GITHUB_STEP_SUMMARY || echo "ベンチマーク結果の解析に失敗しました" >> $GITHUB_STEP_SUMMARY
+          python3 << 'EOF' >> $GITHUB_STEP_SUMMARY
+        import json
+        with open('benchmark.json') as f:
+            data = json.load(f)
+        for bench in data.get('benchmarks', []):
+            name = bench['name'].split('::')[-1]
+            mean = bench['stats']['mean'] * 1000
+            rounds = bench['stats']['rounds']
+            print(f'| {name} | {mean:.3f}ms | {rounds} |')
+        EOF
         else
           echo "ベンチマーク結果が見つかりません" >> $GITHUB_STEP_SUMMARY
         fi
