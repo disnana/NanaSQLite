@@ -8,7 +8,6 @@ NanaSQLite 追加機能テストスイート
 - トランザクション制御
 """
 
-import json
 import os
 import sys
 import tempfile
@@ -475,14 +474,13 @@ class TestTransactionControl:
         """トランザクションコンテキストマネージャ（例外時ロールバック）"""
         db.create_table("test", {"id": "INTEGER PRIMARY KEY", "value": "TEXT"})
         
-        try:
+        # 重複キーでエラーが発生し、ロールバックされることを確認
+        with pytest.raises(Exception):
             with db.transaction():
                 db.sql_insert("test", {"id": 1, "value": "data1"})
                 db.sql_insert("test", {"id": 2, "value": "data2"})
                 # 重複キーでエラー発生
                 db.sql_insert("test", {"id": 1, "value": "duplicate"})
-        except:
-            pass
         
         # ロールバックされたので何も追加されていない
         assert db.count("test") == 0

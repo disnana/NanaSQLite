@@ -9,7 +9,7 @@ NanaSQLite: APSW SQLite-backed dict wrapper with memory caching.
 
 import json
 import re
-from typing import Any, Iterator, Optional, Union, Type, List, Tuple
+from typing import Any, Iterator, Optional, Type, List
 import apsw
 
 
@@ -94,6 +94,40 @@ class NanaSQLite:
         
         # ページサイズ最適化（新規DBのみ効果あり）
         cursor.execute("PRAGMA page_size = 4096")
+    
+    @staticmethod
+    def _sanitize_identifier(identifier: str) -> str:
+        """
+        SQLiteの識別子（テーブル名、カラム名など）を検証
+        
+        Args:
+            identifier: 検証する識別子
+        
+        Returns:
+            検証済み識別子（ダブルクォートで囲まれる）
+        
+        Raises:
+            ValueError: 識別子が無効な場合
+        
+        Note:
+            SQLiteの識別子は以下をサポート:
+            - 英数字とアンダースコア
+            - 数字で開始しない
+            - SQLキーワードも引用符で囲めば使用可能
+        """
+        if not identifier:
+            raise ValueError("Identifier cannot be empty")
+        
+        # 基本的な検証: 英数字とアンダースコアのみ許可
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', identifier):
+            raise ValueError(
+                f"Invalid identifier '{identifier}': must start with letter or underscore "
+                "and contain only alphanumeric characters and underscores"
+            )
+        
+        # SQLiteではダブルクォートで囲むことで識別子をエスケープ
+        # （内部のダブルクォートは二重化）
+        return f'"{identifier.replace('"', '""')}"'
     
     # ==================== Private Methods ====================
     
@@ -865,7 +899,7 @@ class NanaSQLite:
         if parameters:
             values.extend(parameters)
         
-        cursor = self.execute(sql, tuple(values))
+        self.execute(sql, tuple(values))
         return self._connection.changes()
     
     def sql_delete(self, table_name: str, where: str, parameters: tuple = None) -> int:
@@ -884,7 +918,7 @@ class NanaSQLite:
             >>> count = db.sql_delete("users", "age < ?", (18,))
         """
         sql = f"DELETE FROM {table_name} WHERE {where}"
-        cursor = self.execute(sql, parameters)
+        self.execute(sql, parameters)
         return self._connection.changes()
     
     def upsert(self, table_name: str, data: dict, 
