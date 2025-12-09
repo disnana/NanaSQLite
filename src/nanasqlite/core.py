@@ -127,7 +127,8 @@ class NanaSQLite:
         
         # SQLiteではダブルクォートで囲むことで識別子をエスケープ
         # （内部のダブルクォートは二重化）
-        return f'"{identifier.replace('"', '""')}"'
+        escaped = identifier.replace('"', '""')
+        return f'"{escaped}"'
     
     # ==================== Private Methods ====================
     
