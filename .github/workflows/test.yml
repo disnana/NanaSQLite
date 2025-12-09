@@ -71,9 +71,20 @@ jobs:
         echo "## 📊 Performance Benchmarks" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         if [ -f benchmark.json ]; then
-          echo "Benchmark results saved to artifact." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          cat benchmark.json | head -50 >> $GITHUB_STEP_SUMMARY || true
+          echo "| Test | Mean (ms) | Min (ms) | Max (ms) | Rounds |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-----------|----------|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          python3 -c "
+import json
+with open('benchmark.json') as f:
+    data = json.load(f)
+for b in data.get('benchmarks', []):
+    name = b['name'].split('::')[-1]
+    mean = b['stats']['mean'] * 1000
+    min_t = b['stats']['min'] * 1000
+    max_t = b['stats']['max'] * 1000
+    rounds = b['stats']['rounds']
+    print(f'| {name} | {mean:.3f} | {min_t:.3f} | {max_t:.3f} | {rounds} |')
+" >> $GITHUB_STEP_SUMMARY
         else
           echo "ベンチマーク結果が見つかりません" >> $GITHUB_STEP_SUMMARY
         fi
