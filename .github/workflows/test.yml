@@ -1,0 +1,74 @@
+name: NanaSQLite Tests
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest apsw
+    
+    - name: Run tests
+      run: |
+        pytest tests/ -v --tb=short --junitxml=test-results.xml
+    
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results-${{ matrix.os }}-py${{ matrix.python-version }}
+        path: test-results.xml
+
+  test-summary:
+    needs: test
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+    - name: Download all test results
+      uses: actions/download-artifact@v4
+      with:
+        pattern: test-results-*
+        path: test-results
+    
+    - name: Test Summary
+      run: |
+        echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| OS | Python | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|---|---|---|" >> $GITHUB_STEP_SUMMARY
+        for dir in test-results/*/; do
+          name=$(basename "$dir")
+          os=$(echo "$name" | sed 's/test-results-\(.*\)-py.*/\1/')
+          py=$(echo "$name" | sed 's/.*-py\(.*\)/\1/')
+          if [ -f "$dir/test-results.xml" ]; then
+            errors=$(grep -o 'errors="[0-9]*"' "$dir/test-results.xml" | head -1 | grep -o '[0-9]*')
+            failures=$(grep -o 'failures="[0-9]*"' "$dir/test-results.xml" | head -1 | grep -o '[0-9]*')
+            if [ "$errors" = "0" ] && [ "$failures" = "0" ]; then
+              echo "| $os | $py | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| $os | $py | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "| $os | $py | ⚠️ No results |" >> $GITHUB_STEP_SUMMARY
+          fi
+        done
