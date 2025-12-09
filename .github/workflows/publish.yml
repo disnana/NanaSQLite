@@ -23,26 +23,18 @@ jobs:
     - name: Check version difference
       id: check
       run: |
-        # Get local version from __init__.py
-        LOCAL_VERSION=$(python -c "
-        import re
-        with open('src/nanasqlite/__init__.py') as f:
-            content = f.read()
-        match = re.search(r'__version__\s*=\s*[\"'\'']([^\"'\'']+)[\"'\'']', content)
-        print(match.group(1) if match else '0.0.0')
-        ")
+        # Get local version from __init__.py using grep
+        LOCAL_VERSION=$(grep -oP '__version__\s*=\s*"\K[^"]+' src/nanasqlite/__init__.py || echo "0.0.0")
         echo "local_version=$LOCAL_VERSION" >> $GITHUB_OUTPUT
+        echo "Local version: $LOCAL_VERSION"
         
         # Get PyPI version (returns 0.0.0 if package doesn't exist)
-        PYPI_VERSION=$(curl -s https://pypi.org/pypi/nanasqlite/json 2>/dev/null | python -c "
-        import sys, json
-        try:
-            data = json.load(sys.stdin)
-            print(data['info']['version'])
-        except:
-            print('0.0.0')
-        " || echo "0.0.0")
+        PYPI_VERSION=$(curl -s https://pypi.org/pypi/nanasqlite/json 2>/dev/null | grep -oP '"version"\s*:\s*"\K[^"]+' | head -1 || echo "0.0.0")
+        if [ -z "$PYPI_VERSION" ]; then
+          PYPI_VERSION="0.0.0"
+        fi
         echo "pypi_version=$PYPI_VERSION" >> $GITHUB_OUTPUT
+        echo "PyPI version: $PYPI_VERSION"
         
         # Compare versions
         if [ "$LOCAL_VERSION" != "$PYPI_VERSION" ]; then
