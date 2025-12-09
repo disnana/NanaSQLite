@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Dependabot configuration
 # https://docs.github.com/en/code-security/dependabot
 
@@ -33,3 +34,16 @@ updates:
       - "github-actions"
     commit-message:
       prefix: "ci"
+=======
+# To get started with Dependabot version updates, you'll need to specify which
+# package ecosystems to update and where the package manifests are located.
+# Please see the documentation for all configuration options:
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  - package-ecosystem: "" # See documentation for possible values
+    directory: "/" # Location of package manifests
+    schedule:
+      interval: "weekly"
+>>>>>>> 1b9982edadd0098555a67f6da846ad7790aef036
