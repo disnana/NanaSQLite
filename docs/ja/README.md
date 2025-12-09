@@ -310,6 +310,54 @@ tables = db.list_tables()
 print(f"データベース内のテーブル: {tables}")
 ```
 
+### 追加のSQLiteラッパー関数 (v1.0.3rc4+)
+
+より多くの便利な機能を追加：
+
+```python
+# データ操作
+rowid = db.sql_insert("users", {"name": "Alice", "email": "alice@example.com", "age": 25})
+count = db.sql_update("users", {"age": 26}, "name = ?", ("Alice",))
+count = db.sql_delete("users", "age < ?", (18,))
+
+# UPSERT（存在すれば更新、なければ挿入）
+db.upsert("users", {"id": 1, "name": "Alice", "age": 25})
+
+# レコード数と存在確認
+total = db.count("users")
+adults = db.count("users", "age >= ?", (18,))
+if db.exists("users", "email = ?", ("alice@example.com",)):
+    print("ユーザーが存在します")
+
+# ページネーションとグループ化
+page2 = db.query_with_pagination("users", limit=10, offset=10, order_by="id ASC")
+stats = db.query_with_pagination("orders",
+    columns=["user_id", "COUNT(*) as count"],
+    group_by="user_id"
+)
+
+# スキーマ管理
+db.alter_table_add_column("users", "phone", "TEXT")
+schema = db.get_table_schema("users")
+indexes = db.list_indexes("users")
+db.drop_table("old_table", if_exists=True)
+db.drop_index("old_index", if_exists=True)
+
+# ユーティリティ
+db.vacuum()  # データベース最適化
+size = db.get_db_size()  # DBサイズ（バイト）
+exported = db.export_table_to_dict("users")  # テーブルエクスポート
+db.import_from_dict_list("users", data_list)  # 一括インポート
+rowid = db.get_last_insert_rowid()  # 最後のROWID
+mode = db.pragma("journal_mode")  # PRAGMA取得
+
+# トランザクション制御
+with db.transaction():
+    db.sql_insert("users", {"name": "Alice"})
+    db.sql_insert("users", {"name": "Bob"})
+    # 自動的にコミット、例外時はロールバック
+```
+
 ### パフォーマンスチューニング
 
 ```python
