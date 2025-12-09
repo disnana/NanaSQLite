@@ -1,13 +1,35 @@
-# Changelog
+# 変更履歴 / Changelog
 
-All notable changes to this project will be documented in this file.
+[日本語](#日本語) | [English](#english)
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+---
 
-## [1.0.0] - 2024-12-09
+## 日本語
 
-### Added
+### [1.0.0] - 2025-12-09
+
+#### 追加
+- 初回リリース
+- dict風インターフェース（`db["key"] = value`）
+- APSWによるSQLite即時永続化
+- 遅延ロード（アクセス時にキャッシュ）
+- 一括ロード（`bulk_load=True`）
+- ネスト構造サポート（30階層テスト済み）
+- パフォーマンス最適化（WAL、mmap、cache_size）
+- バッチ操作（`batch_update`、`batch_delete`）
+- コンテキストマネージャ対応
+- 完全なdictメソッド互換性
+- 型ヒント（PEP 561）
+- バイリンガルドキュメント（英語/日本語）
+- GitHub Actions CI（Python 3.9-3.13、Ubuntu/Windows/macOS）
+
+---
+
+## English
+
+### [1.0.0] - 2025-12-09
+
+#### Added
 - Initial release
 - Dict-like interface (`db["key"] = value`)
 - Instant persistence to SQLite via APSW
