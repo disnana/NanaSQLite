@@ -6,6 +6,7 @@ NanaSQLite 新機能テストスイート
 - SQLiteラッパー関数
 """
 
+import json
 import os
 import sys
 import tempfile
@@ -258,7 +259,6 @@ class TestDirectSQLExecution:
         row = cursor.fetchone()
         assert row is not None
         # JSONでシリアライズされているので、デシリアライズして確認
-        import json
         assert json.loads(row[0]) == "updated"
     
     def test_execute_delete(self, db):
