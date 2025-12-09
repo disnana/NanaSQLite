@@ -11,6 +11,7 @@ jobs:
       should_publish: ${{ steps.check.outputs.should_publish }}
       local_version: ${{ steps.check.outputs.local_version }}
       pypi_version: ${{ steps.check.outputs.pypi_version }}
+      is_prerelease: ${{ steps.check.outputs.is_prerelease }}
     
     steps:
     - uses: actions/checkout@v4
@@ -27,6 +28,14 @@ jobs:
         LOCAL_VERSION=$(grep -oP '__version__\s*=\s*"\K[^"]+' src/nanasqlite/__init__.py || echo "0.0.0")
         echo "local_version=$LOCAL_VERSION" >> $GITHUB_OUTPUT
         echo "Local version: $LOCAL_VERSION"
+        
+        # Detect prerelease (alpha/beta/rc)
+        if [[ "$LOCAL_VERSION" =~ (a|alpha|b|beta|rc|dev) ]]; then
+          echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          echo "⚠️ Prerelease version detected"
+        else
+          echo "is_prerelease=false" >> $GITHUB_OUTPUT
+        fi
         
         # Get PyPI version (returns 0.0.0 if package doesn't exist)
         PYPI_VERSION=$(curl -s https://pypi.org/pypi/nanasqlite/json 2>/dev/null | grep -oP '"version"\s*:\s*"\K[^"]+' | head -1 || echo "0.0.0")
@@ -162,7 +171,7 @@ jobs:
           dist/*
           nanasqlite-${{ needs.check-version.outputs.local_version }}-src.zip
         draft: false
-        prerelease: false
+        prerelease: ${{ needs.check-version.outputs.is_prerelease == 'true' }}
     
     - name: Summary
       run: |
