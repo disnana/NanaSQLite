@@ -3,12 +3,59 @@ name: Publish to PyPI
 on:
   push:
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'pyproject.toml'
 
 jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      should_publish: ${{ steps.check.outputs.should_publish }}
+      local_version: ${{ steps.check.outputs.local_version }}
+      pypi_version: ${{ steps.check.outputs.pypi_version }}
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Check version difference
+      id: check
+      run: |
+        # Get local version from __init__.py
+        LOCAL_VERSION=$(python -c "
+        import re
+        with open('src/nanasqlite/__init__.py') as f:
+            content = f.read()
+        match = re.search(r'__version__\s*=\s*[\"'\'']([^\"'\'']+)[\"'\'']', content)
+        print(match.group(1) if match else '0.0.0')
+        ")
+        echo "local_version=$LOCAL_VERSION" >> $GITHUB_OUTPUT
+        
+        # Get PyPI version (returns 0.0.0 if package doesn't exist)
+        PYPI_VERSION=$(curl -s https://pypi.org/pypi/nanasqlite/json 2>/dev/null | python -c "
+        import sys, json
+        try:
+            data = json.load(sys.stdin)
+            print(data['info']['version'])
+        except:
+            print('0.0.0')
+        " || echo "0.0.0")
+        echo "pypi_version=$PYPI_VERSION" >> $GITHUB_OUTPUT
+        
+        # Compare versions
+        if [ "$LOCAL_VERSION" != "$PYPI_VERSION" ]; then
+          echo "should_publish=true" >> $GITHUB_OUTPUT
+          echo "📦 New version detected: $LOCAL_VERSION (PyPI: $PYPI_VERSION)"
+        else
+          echo "should_publish=false" >> $GITHUB_OUTPUT
+          echo "✅ Version $LOCAL_VERSION already on PyPI, skipping publish"
+        fi
+
   test:
+    needs: check-version
+    if: needs.check-version.outputs.should_publish == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: true
@@ -34,7 +81,8 @@ jobs:
       run: pytest tests/ -v --tb=short
 
   build:
-    needs: test
+    needs: [check-version, test]
+    if: needs.check-version.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
     
     steps:
@@ -60,7 +108,8 @@ jobs:
         path: dist/
 
   publish:
-    needs: build
+    needs: [check-version, build]
+    if: needs.check-version.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -77,3 +126,14 @@ jobs:
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         password: ${{ secrets.PYPI_TOKEN }}
+    
+    - name: Summary
+      run: |
+        echo "## 🎉 Published to PyPI" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Version:** ${{ needs.check-version.outputs.local_version }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Previous:** ${{ needs.check-version.outputs.pypi_version }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+        echo "pip install nanasqlite==${{ needs.check-version.outputs.local_version }}" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
