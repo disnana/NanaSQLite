@@ -158,7 +158,7 @@ jobs:
         zip -r nanasqlite-${{ needs.check-version.outputs.local_version }}-src.zip src/ README.md LICENSE pyproject.toml
     
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ needs.check-version.outputs.local_version }}
         name: v${{ needs.check-version.outputs.local_version }}
