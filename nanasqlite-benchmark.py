@@ -4,7 +4,7 @@ import os
 import tempfile
 import shutil
 from pathlib import Path
-from nanasqlite import NanaSQLite
+from src.nanasqlite import NanaSQLite
 
 class Benchmark:
     def __init__(self):
