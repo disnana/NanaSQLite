@@ -689,3 +689,550 @@ class NanaSQLite:
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         )
         return [row[0] for row in cursor]
+    
+    def drop_table(self, table_name: str, if_exists: bool = True) -> None:
+        """
+        テーブルを削除
+        
+        Args:
+            table_name: テーブル名
+            if_exists: Trueの場合、存在する場合のみ削除（エラーを防ぐ）
+        
+        Example:
+            >>> db.drop_table("old_table")
+            >>> db.drop_table("temp", if_exists=True)
+        """
+        if_exists_clause = "IF EXISTS " if if_exists else ""
+        sql = f"DROP TABLE {if_exists_clause}{table_name}"
+        self.execute(sql)
+    
+    def drop_index(self, index_name: str, if_exists: bool = True) -> None:
+        """
+        インデックスを削除
+        
+        Args:
+            index_name: インデックス名
+            if_exists: Trueの場合、存在する場合のみ削除
+        
+        Example:
+            >>> db.drop_index("idx_users_email")
+        """
+        if_exists_clause = "IF EXISTS " if if_exists else ""
+        sql = f"DROP INDEX {if_exists_clause}{index_name}"
+        self.execute(sql)
+    
+    def alter_table_add_column(self, table_name: str, column_name: str, 
+                               column_type: str, default: Any = None) -> None:
+        """
+        既存テーブルにカラムを追加
+        
+        Args:
+            table_name: テーブル名
+            column_name: カラム名
+            column_type: カラムの型（SQL型）
+            default: デフォルト値（Noneの場合は指定なし）
+        
+        Example:
+            >>> db.alter_table_add_column("users", "phone", "TEXT")
+            >>> db.alter_table_add_column("users", "status", "TEXT", default="'active'")
+        """
+        sql = f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
+        if default is not None:
+            sql += f" DEFAULT {default}"
+        self.execute(sql)
+    
+    def get_table_schema(self, table_name: str) -> List[dict]:
+        """
+        テーブル構造を取得
+        
+        Args:
+            table_name: テーブル名
+        
+        Returns:
+            カラム情報のリスト（各カラムはdict）
+        
+        Example:
+            >>> schema = db.get_table_schema("users")
+            >>> for col in schema:
+            ...     print(f"{col['name']}: {col['type']}")
+        """
+        cursor = self.execute(f"PRAGMA table_info({table_name})")
+        columns = []
+        for row in cursor:
+            columns.append({
+                'cid': row[0],
+                'name': row[1],
+                'type': row[2],
+                'notnull': bool(row[3]),
+                'default_value': row[4],
+                'pk': bool(row[5])
+            })
+        return columns
+    
+    def list_indexes(self, table_name: str = None) -> List[dict]:
+        """
+        インデックス一覧を取得
+        
+        Args:
+            table_name: テーブル名（Noneの場合は全インデックス）
+        
+        Returns:
+            インデックス情報のリスト
+        
+        Example:
+            >>> indexes = db.list_indexes("users")
+            >>> for idx in indexes:
+            ...     print(f"{idx['name']}: {idx['columns']}")
+        """
+        if table_name:
+            cursor = self.execute(
+                "SELECT name, tbl_name, sql FROM sqlite_master WHERE type='index' AND tbl_name=? ORDER BY name",
+                (table_name,)
+            )
+        else:
+            cursor = self.execute(
+                "SELECT name, tbl_name, sql FROM sqlite_master WHERE type='index' ORDER BY name"
+            )
+        
+        indexes = []
+        for row in cursor:
+            if row[0] and not row[0].startswith('sqlite_'):  # Skip auto-created indexes
+                indexes.append({
+                    'name': row[0],
+                    'table': row[1],
+                    'sql': row[2]
+                })
+        return indexes
+    
+    # ==================== Data Operation Wrappers ====================
+    
+    def sql_insert(self, table_name: str, data: dict) -> int:
+        """
+        dictから直接INSERT
+        
+        Args:
+            table_name: テーブル名
+            data: カラム名と値のdict
+        
+        Returns:
+            挿入されたROWID
+        
+        Example:
+            >>> rowid = db.sql_insert("users", {
+            ...     "name": "Alice",
+            ...     "email": "alice@example.com",
+            ...     "age": 25
+            ... })
+        """
+        columns = list(data.keys())
+        values = list(data.values())
+        placeholders = ", ".join(["?"] * len(values))
+        columns_sql = ", ".join(columns)
+        
+        sql = f"INSERT INTO {table_name} ({columns_sql}) VALUES ({placeholders})"
+        self.execute(sql, tuple(values))
+        
+        return self.get_last_insert_rowid()
+    
+    def sql_update(self, table_name: str, data: dict, where: str, 
+              parameters: tuple = None) -> int:
+        """
+        dictとwhere条件でUPDATE
+        
+        Args:
+            table_name: テーブル名
+            data: 更新するカラム名と値のdict
+            where: WHERE句の条件
+            parameters: WHERE句のパラメータ
+        
+        Returns:
+            更新された行数
+        
+        Example:
+            >>> count = db.sql_update("users", 
+            ...     {"age": 26, "status": "active"},
+            ...     "name = ?",
+            ...     ("Alice",)
+            ... )
+        """
+        set_items = [f"{col} = ?" for col in data.keys()]
+        set_clause = ", ".join(set_items)
+        values = list(data.values())
+        
+        sql = f"UPDATE {table_name} SET {set_clause} WHERE {where}"
+        
+        if parameters:
+            values.extend(parameters)
+        
+        cursor = self.execute(sql, tuple(values))
+        return cursor.getconnection().changes()
+    
+    def sql_delete(self, table_name: str, where: str, parameters: tuple = None) -> int:
+        """
+        where条件でDELETE
+        
+        Args:
+            table_name: テーブル名
+            where: WHERE句の条件
+            parameters: WHERE句のパラメータ
+        
+        Returns:
+            削除された行数
+        
+        Example:
+            >>> count = db.sql_delete("users", "age < ?", (18,))
+        """
+        sql = f"DELETE FROM {table_name} WHERE {where}"
+        cursor = self.execute(sql, parameters)
+        return cursor.getconnection().changes()
+    
+    def upsert(self, table_name: str, data: dict, 
+              conflict_columns: List[str] = None) -> int:
+        """
+        INSERT OR REPLACE の簡易版（upsert）
+        
+        Args:
+            table_name: テーブル名
+            data: カラム名と値のdict
+            conflict_columns: 競合判定に使用するカラム（Noneの場合はINSERT OR REPLACE）
+        
+        Returns:
+            挿入/更新されたROWID
+        
+        Example:
+            >>> # 単純なINSERT OR REPLACE
+            >>> db.upsert("users", {"id": 1, "name": "Alice", "age": 25})
+            
+            >>> # ON CONFLICT句を使用
+            >>> db.upsert("users", 
+            ...     {"email": "alice@example.com", "name": "Alice", "age": 26},
+            ...     conflict_columns=["email"]
+            ... )
+        """
+        columns = list(data.keys())
+        values = list(data.values())
+        placeholders = ", ".join(["?"] * len(values))
+        columns_sql = ", ".join(columns)
+        
+        if conflict_columns:
+            # ON CONFLICT を使用
+            conflict_cols = ", ".join(conflict_columns)
+            update_items = [f"{col} = excluded.{col}" for col in columns if col not in conflict_columns]
+            update_clause = ", ".join(update_items) if update_items else f"{columns[0]} = excluded.{columns[0]}"
+            
+            sql = f"INSERT INTO {table_name} ({columns_sql}) VALUES ({placeholders}) "
+            sql += f"ON CONFLICT({conflict_cols}) DO UPDATE SET {update_clause}"
+        else:
+            # INSERT OR REPLACE
+            sql = f"INSERT OR REPLACE INTO {table_name} ({columns_sql}) VALUES ({placeholders})"
+        
+        self.execute(sql, tuple(values))
+        return self.get_last_insert_rowid()
+    
+    def count(self, table_name: str = None, where: str = None, 
+             parameters: tuple = None) -> int:
+        """
+        レコード数を取得
+        
+        Args:
+            table_name: テーブル名（Noneの場合はデフォルトテーブル）
+            where: WHERE句の条件（オプション）
+            parameters: WHERE句のパラメータ
+        
+        Returns:
+            レコード数
+        
+        Example:
+            >>> total = db.count("users")
+            >>> adults = db.count("users", "age >= ?", (18,))
+        """
+        if table_name is None:
+            table_name = self._table
+        
+        sql = f"SELECT COUNT(*) FROM {table_name}"
+        if where:
+            sql += f" WHERE {where}"
+        
+        cursor = self.execute(sql, parameters)
+        return cursor.fetchone()[0]
+    
+    def exists(self, table_name: str, where: str, parameters: tuple = None) -> bool:
+        """
+        レコードの存在確認
+        
+        Args:
+            table_name: テーブル名
+            where: WHERE句の条件
+            parameters: WHERE句のパラメータ
+        
+        Returns:
+            存在する場合True
+        
+        Example:
+            >>> if db.exists("users", "email = ?", ("alice@example.com",)):
+            ...     print("User exists")
+        """
+        sql = f"SELECT EXISTS(SELECT 1 FROM {table_name} WHERE {where})"
+        cursor = self.execute(sql, parameters)
+        return bool(cursor.fetchone()[0])
+    
+    # ==================== Query Extensions ====================
+    
+    def query_with_pagination(self, table_name: str = None, columns: List[str] = None,
+                             where: str = None, parameters: tuple = None,
+                             order_by: str = None, limit: int = None, 
+                             offset: int = None, group_by: str = None) -> List[dict]:
+        """
+        拡張されたクエリ（offset、group_by対応）
+        
+        Args:
+            table_name: テーブル名
+            columns: 取得するカラム
+            where: WHERE句
+            parameters: パラメータ
+            order_by: ORDER BY句
+            limit: LIMIT句
+            offset: OFFSET句（ページネーション用）
+            group_by: GROUP BY句
+        
+        Returns:
+            結果のリスト
+        
+        Example:
+            >>> # ページネーション
+            >>> page2 = db.query_with_pagination("users", 
+            ...     limit=10, offset=10, order_by="id ASC")
+            
+            >>> # グループ集計
+            >>> stats = db.query_with_pagination("orders",
+            ...     columns=["user_id", "COUNT(*) as order_count"],
+            ...     group_by="user_id"
+            ... )
+        """
+        if table_name is None:
+            table_name = self._table
+        
+        # カラム指定
+        if columns is None:
+            columns_sql = "*"
+        else:
+            columns_sql = ", ".join(columns)
+        
+        # SQL構築
+        sql = f"SELECT {columns_sql} FROM {table_name}"
+        
+        if where:
+            sql += f" WHERE {where}"
+        
+        if group_by:
+            sql += f" GROUP BY {group_by}"
+        
+        if order_by:
+            sql += f" ORDER BY {order_by}"
+        
+        if limit:
+            sql += f" LIMIT {limit}"
+        
+        if offset:
+            sql += f" OFFSET {offset}"
+        
+        # 実行
+        cursor = self.execute(sql, parameters)
+        
+        # カラム名取得
+        if columns is None:
+            pragma_cursor = self.execute(f"PRAGMA table_info({table_name})")
+            col_names = [row[1] for row in pragma_cursor]
+        else:
+            # カラム名からAS句を考慮
+            col_names = []
+            for col in columns:
+                if " as " in col.lower():
+                    col_names.append(col.split(" as ")[-1].strip())
+                elif " AS " in col:
+                    col_names.append(col.split(" AS ")[-1].strip())
+                else:
+                    col_names.append(col.strip())
+        
+        # 結果をdictのリストに変換
+        results = []
+        for row in cursor:
+            results.append(dict(zip(col_names, row)))
+        
+        return results
+    
+    # ==================== Utility Functions ====================
+    
+    def vacuum(self) -> None:
+        """
+        データベースを最適化（VACUUM実行）
+        
+        削除されたレコードの領域を回収し、データベースファイルを最適化。
+        
+        Example:
+            >>> db.vacuum()
+        """
+        self.execute("VACUUM")
+    
+    def get_db_size(self) -> int:
+        """
+        データベースファイルのサイズを取得（バイト単位）
+        
+        Returns:
+            データベースファイルのサイズ
+        
+        Example:
+            >>> size = db.get_db_size()
+            >>> print(f"DB size: {size / 1024 / 1024:.2f} MB")
+        """
+        import os
+        return os.path.getsize(self._db_path)
+    
+    def export_table_to_dict(self, table_name: str) -> List[dict]:
+        """
+        テーブル全体をdictのリストとして取得
+        
+        Args:
+            table_name: テーブル名
+        
+        Returns:
+            全レコードのリスト
+        
+        Example:
+            >>> all_users = db.export_table_to_dict("users")
+        """
+        return self.query_with_pagination(table_name=table_name)
+    
+    def import_from_dict_list(self, table_name: str, data_list: List[dict]) -> int:
+        """
+        dictのリストからテーブルに一括挿入
+        
+        Args:
+            table_name: テーブル名
+            data_list: 挿入するデータのリスト
+        
+        Returns:
+            挿入された行数
+        
+        Example:
+            >>> users = [
+            ...     {"name": "Alice", "age": 25},
+            ...     {"name": "Bob", "age": 30}
+            ... ]
+            >>> count = db.import_from_dict_list("users", users)
+        """
+        if not data_list:
+            return 0
+        
+        # 最初のdictからカラム名を取得
+        columns = list(data_list[0].keys())
+        placeholders = ", ".join(["?"] * len(columns))
+        columns_sql = ", ".join(columns)
+        sql = f"INSERT INTO {table_name} ({columns_sql}) VALUES ({placeholders})"
+        
+        # 各dictから値を抽出
+        parameters_list = []
+        for data in data_list:
+            values = [data.get(col) for col in columns]
+            parameters_list.append(tuple(values))
+        
+        self.execute_many(sql, parameters_list)
+        return len(data_list)
+    
+    def get_last_insert_rowid(self) -> int:
+        """
+        最後に挿入されたROWIDを取得
+        
+        Returns:
+            最後に挿入されたROWID
+        
+        Example:
+            >>> db.insert("users", {"name": "Alice"})
+            >>> rowid = db.get_last_insert_rowid()
+        """
+        return self._connection.last_insert_rowid()
+    
+    def pragma(self, pragma_name: str, value: Any = None) -> Any:
+        """
+        PRAGMA設定の取得/設定
+        
+        Args:
+            pragma_name: PRAGMA名
+            value: 設定値（Noneの場合は取得のみ）
+        
+        Returns:
+            valueがNoneの場合は現在の値、そうでない場合はNone
+        
+        Example:
+            >>> # 取得
+            >>> mode = db.pragma("journal_mode")
+            
+            >>> # 設定
+            >>> db.pragma("foreign_keys", 1)
+        """
+        if value is None:
+            cursor = self.execute(f"PRAGMA {pragma_name}")
+            result = cursor.fetchone()
+            return result[0] if result else None
+        else:
+            self.execute(f"PRAGMA {pragma_name} = {value}")
+            return None
+    
+    # ==================== Transaction Control ====================
+    
+    def begin_transaction(self) -> None:
+        """
+        トランザクションを開始
+        
+        Example:
+            >>> db.begin_transaction()
+            >>> try:
+            ...     db.insert("users", {"name": "Alice"})
+            ...     db.insert("users", {"name": "Bob"})
+            ...     db.commit()
+            ... except:
+            ...     db.rollback()
+        """
+        self.execute("BEGIN IMMEDIATE")
+    
+    def commit(self) -> None:
+        """
+        トランザクションをコミット
+        """
+        self.execute("COMMIT")
+    
+    def rollback(self) -> None:
+        """
+        トランザクションをロールバック
+        """
+        self.execute("ROLLBACK")
+    
+    def transaction(self):
+        """
+        トランザクションのコンテキストマネージャ
+        
+        Example:
+            >>> with db.transaction():
+            ...     db.insert("users", {"name": "Alice"})
+            ...     db.insert("users", {"name": "Bob"})
+            ...     # 自動的にコミット、例外時はロールバック
+        """
+        return _TransactionContext(self)
+
+
+class _TransactionContext:
+    """トランザクションのコンテキストマネージャ"""
+    
+    def __init__(self, db: NanaSQLite):
+        self.db = db
+    
+    def __enter__(self):
+        self.db.begin_transaction()
+        return self.db
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is None:
+            self.db.commit()
+        else:
+            self.db.rollback()
+        return False
