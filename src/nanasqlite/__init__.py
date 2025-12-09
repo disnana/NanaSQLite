@@ -11,6 +11,6 @@ Example:
 
 from .core import NanaSQLite
 
-__version__ = "1.0.3dev"
+__version__ = "1.0.3rc1"
 __author__ = "Disnana"
 __all__ = ["NanaSQLite"]
