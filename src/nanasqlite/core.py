@@ -8,7 +8,7 @@ NanaSQLite: APSW SQLite-backed dict wrapper with memory caching.
 """
 
 import json
-from typing import Any, Iterator, Optional, Union
+from typing import Any, Iterator, Optional, Union, Type, List, Tuple
 import apsw
 
 
@@ -356,3 +356,336 @@ class NanaSQLite:
         """コンテキストマネージャ対応"""
         self.close()
         return False
+    
+    # ==================== Pydantic Support ====================
+    
+    def set_model(self, key: str, model: Any) -> None:
+        """
+        Pydanticモデルを保存
+        
+        Pydanticモデル（BaseModelを継承したクラス）をシリアライズして保存。
+        model_dump()メソッドを使用してdictに変換し、モデルのクラス情報も保存。
+        
+        Args:
+            key: 保存するキー
+            model: Pydanticモデルのインスタンス
+        
+        Example:
+            >>> from pydantic import BaseModel
+            >>> class User(BaseModel):
+            ...     name: str
+            ...     age: int
+            >>> user = User(name="Nana", age=20)
+            >>> db.set_model("user", user)
+        """
+        try:
+            # Pydanticモデルかチェック (model_dump メソッドの存在で判定)
+            if hasattr(model, 'model_dump'):
+                data = {
+                    '__pydantic_model__': f"{model.__class__.__module__}.{model.__class__.__qualname__}",
+                    '__pydantic_data__': model.model_dump()
+                }
+                self[key] = data
+            else:
+                raise TypeError(f"Object of type {type(model)} is not a Pydantic model")
+        except Exception as e:
+            raise TypeError(f"Failed to serialize Pydantic model: {e}")
+    
+    def get_model(self, key: str, model_class: Type = None) -> Any:
+        """
+        Pydanticモデルを取得
+        
+        保存されたPydanticモデルをデシリアライズして復元。
+        model_classが指定されていない場合は、保存時のクラス情報を使用。
+        
+        Args:
+            key: 取得するキー
+            model_class: Pydanticモデルのクラス（Noneの場合は自動検出を試みる）
+        
+        Returns:
+            Pydanticモデルのインスタンス
+        
+        Example:
+            >>> user = db.get_model("user", User)
+            >>> print(user.name)  # "Nana"
+        """
+        data = self[key]
+        
+        if isinstance(data, dict) and '__pydantic_model__' in data and '__pydantic_data__' in data:
+            if model_class is None:
+                # 自動検出は複雑なため、model_classを推奨
+                raise ValueError("model_class must be provided for get_model()")
+            
+            # Pydanticモデルとして復元
+            try:
+                return model_class(**data['__pydantic_data__'])
+            except Exception as e:
+                raise ValueError(f"Failed to deserialize Pydantic model: {e}")
+        elif model_class is not None:
+            # 通常のdictをPydanticモデルに変換
+            try:
+                return model_class(**data)
+            except Exception as e:
+                raise ValueError(f"Failed to create Pydantic model from data: {e}")
+        else:
+            raise ValueError("Data is not a Pydantic model and no model_class provided")
+    
+    # ==================== Direct SQL Execution ====================
+    
+    def execute(self, sql: str, parameters: tuple = None) -> apsw.Cursor:
+        """
+        SQLを直接実行
+        
+        任意のSQL文を実行できる。SELECT、INSERT、UPDATE、DELETEなど。
+        パラメータバインディングをサポート（SQLインジェクション対策）。
+        
+        Args:
+            sql: 実行するSQL文
+            parameters: SQLのパラメータ（?プレースホルダー用）
+        
+        Returns:
+            APSWのCursorオブジェクト（結果の取得に使用）
+        
+        Example:
+            >>> cursor = db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
+            >>> for row in cursor:
+            ...     print(row)
+        """
+        if parameters is None:
+            return self._connection.execute(sql)
+        else:
+            return self._connection.execute(sql, parameters)
+    
+    def execute_many(self, sql: str, parameters_list: List[tuple]) -> None:
+        """
+        SQLを複数のパラメータで一括実行
+        
+        同じSQL文を複数のパラメータセットで実行（トランザクション使用）。
+        大量のINSERTやUPDATEを高速に実行できる。
+        
+        Args:
+            sql: 実行するSQL文
+            parameters_list: パラメータのリスト
+        
+        Example:
+            >>> db.execute_many(
+            ...     "INSERT OR REPLACE INTO custom (id, name) VALUES (?, ?)",
+            ...     [(1, "Alice"), (2, "Bob"), (3, "Charlie")]
+            ... )
+        """
+        cursor = self._connection.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        try:
+            for parameters in parameters_list:
+                cursor.execute(sql, parameters)
+            cursor.execute("COMMIT")
+        except Exception:
+            cursor.execute("ROLLBACK")
+            raise
+    
+    def fetch_one(self, sql: str, parameters: tuple = None) -> Optional[tuple]:
+        """
+        SQLを実行して1行取得
+        
+        Args:
+            sql: 実行するSQL文
+            parameters: SQLのパラメータ
+        
+        Returns:
+            1行の結果（tuple）、結果がない場合はNone
+        
+        Example:
+            >>> row = db.fetch_one("SELECT value FROM data WHERE key = ?", ("user",))
+            >>> print(row[0])
+        """
+        cursor = self.execute(sql, parameters)
+        return cursor.fetchone()
+    
+    def fetch_all(self, sql: str, parameters: tuple = None) -> List[tuple]:
+        """
+        SQLを実行して全行取得
+        
+        Args:
+            sql: 実行するSQL文
+            parameters: SQLのパラメータ
+        
+        Returns:
+            全行の結果（tupleのリスト）
+        
+        Example:
+            >>> rows = db.fetch_all("SELECT key, value FROM data WHERE key LIKE ?", ("user%",))
+            >>> for key, value in rows:
+            ...     print(key, value)
+        """
+        cursor = self.execute(sql, parameters)
+        return cursor.fetchall()
+    
+    # ==================== SQLite Wrapper Functions ====================
+    
+    def create_table(self, table_name: str, columns: dict, 
+                    if_not_exists: bool = True, primary_key: str = None) -> None:
+        """
+        テーブルを作成
+        
+        Args:
+            table_name: テーブル名
+            columns: カラム定義のdict（カラム名: SQL型）
+            if_not_exists: Trueの場合、存在しない場合のみ作成
+            primary_key: プライマリキーのカラム名（Noneの場合は指定なし）
+        
+        Example:
+            >>> db.create_table("users", {
+            ...     "id": "INTEGER PRIMARY KEY",
+            ...     "name": "TEXT NOT NULL",
+            ...     "email": "TEXT UNIQUE",
+            ...     "age": "INTEGER"
+            ... })
+            >>> db.create_table("posts", {
+            ...     "id": "INTEGER",
+            ...     "title": "TEXT",
+            ...     "content": "TEXT"
+            ... }, primary_key="id")
+        """
+        if_not_exists_clause = "IF NOT EXISTS " if if_not_exists else ""
+        
+        column_defs = []
+        for col_name, col_type in columns.items():
+            column_defs.append(f"{col_name} {col_type}")
+        
+        if primary_key and not any(primary_key.upper() in col.upper() and "PRIMARY KEY" in col.upper() 
+                                   for col in column_defs):
+            column_defs.append(f"PRIMARY KEY ({primary_key})")
+        
+        columns_sql = ", ".join(column_defs)
+        sql = f"CREATE TABLE {if_not_exists_clause}{table_name} ({columns_sql})"
+        
+        self.execute(sql)
+    
+    def create_index(self, index_name: str, table_name: str, columns: List[str],
+                    unique: bool = False, if_not_exists: bool = True) -> None:
+        """
+        インデックスを作成
+        
+        Args:
+            index_name: インデックス名
+            table_name: テーブル名
+            columns: インデックスを作成するカラムのリスト
+            unique: Trueの場合、ユニークインデックスを作成
+            if_not_exists: Trueの場合、存在しない場合のみ作成
+        
+        Example:
+            >>> db.create_index("idx_users_email", "users", ["email"], unique=True)
+            >>> db.create_index("idx_posts_user", "posts", ["user_id", "created_at"])
+        """
+        unique_clause = "UNIQUE " if unique else ""
+        if_not_exists_clause = "IF NOT EXISTS " if if_not_exists else ""
+        columns_sql = ", ".join(columns)
+        
+        sql = f"CREATE {unique_clause}INDEX {if_not_exists_clause}{index_name} ON {table_name} ({columns_sql})"
+        self.execute(sql)
+    
+    def query(self, table_name: str = None, columns: List[str] = None,
+             where: str = None, parameters: tuple = None,
+             order_by: str = None, limit: int = None) -> List[dict]:
+        """
+        シンプルなSELECTクエリを実行
+        
+        Args:
+            table_name: テーブル名（Noneの場合はデフォルトテーブル）
+            columns: 取得するカラムのリスト（Noneの場合は全カラム）
+            where: WHERE句の条件（パラメータバインディング使用推奨）
+            parameters: WHERE句のパラメータ
+            order_by: ORDER BY句
+            limit: LIMIT句
+        
+        Returns:
+            結果のリスト（各行はdict）
+        
+        Example:
+            >>> # デフォルトテーブルから全データ取得
+            >>> results = db.query()
+            
+            >>> # 条件付き検索
+            >>> results = db.query(
+            ...     table_name="users",
+            ...     columns=["id", "name", "email"],
+            ...     where="age > ?",
+            ...     parameters=(20,),
+            ...     order_by="name ASC",
+            ...     limit=10
+            ... )
+        """
+        if table_name is None:
+            table_name = self._table
+        
+        # カラム指定
+        if columns is None:
+            columns_sql = "*"
+        else:
+            columns_sql = ", ".join(columns)
+        
+        # SQL構築
+        sql = f"SELECT {columns_sql} FROM {table_name}"
+        
+        if where:
+            sql += f" WHERE {where}"
+        
+        if order_by:
+            sql += f" ORDER BY {order_by}"
+        
+        if limit:
+            sql += f" LIMIT {limit}"
+        
+        # 実行
+        cursor = self.execute(sql, parameters)
+        
+        # カラム名取得
+        if columns is None:
+            # 全カラムの場合、テーブル情報から取得
+            pragma_cursor = self.execute(f"PRAGMA table_info({table_name})")
+            col_names = [row[1] for row in pragma_cursor]
+        else:
+            col_names = columns
+        
+        # 結果をdictのリストに変換
+        results = []
+        for row in cursor:
+            results.append(dict(zip(col_names, row)))
+        
+        return results
+    
+    def table_exists(self, table_name: str) -> bool:
+        """
+        テーブルの存在確認
+        
+        Args:
+            table_name: テーブル名
+        
+        Returns:
+            存在する場合True、しない場合False
+        
+        Example:
+            >>> if db.table_exists("users"):
+            ...     print("users table exists")
+        """
+        cursor = self.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (table_name,)
+        )
+        return cursor.fetchone() is not None
+    
+    def list_tables(self) -> List[str]:
+        """
+        データベース内の全テーブル一覧を取得
+        
+        Returns:
+            テーブル名のリスト
+        
+        Example:
+            >>> tables = db.list_tables()
+            >>> print(tables)  # ['data', 'users', 'posts']
+        """
+        cursor = self.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        )
+        return [row[0] for row in cursor]
