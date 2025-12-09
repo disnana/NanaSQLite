@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nanasqlite"
+version = "1.0.0"
+description = "A dict-like SQLite wrapper with APSW for instant persistence and memory caching"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "Disnana", email = "support@disnana.com"}
+]
+keywords = [
+    "sqlite",
+    "apsw",
+    "dict",
+    "database",
+    "persistence",
+    "cache",
+    "key-value",
+    "nosql"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed"
+]
+dependencies = [
+    "apsw>=3.40.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0"
+]
+
+[project.urls]
+Homepage = "https://github.com/disnana/nanasqlite"
+Documentation = "https://github.com/disnana/nanasqlite/tree/main/docs"
+Repository = "https://github.com/disnana/nanasqlite"
+Issues = "https://github.com/disnana/nanasqlite/issues"
+
+[tool.setuptools]
+packages = ["nanasqlite"]
+package-dir = {"nanasqlite" = "src/nanasqlite"}
+
+[tool.setuptools.package-data]
+nanasqlite = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
