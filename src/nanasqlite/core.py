@@ -126,9 +126,7 @@ class NanaSQLite:
             )
         
         # SQLiteではダブルクォートで囲むことで識別子をエスケープ
-        # （内部のダブルクォートは二重化）
-        escaped = identifier.replace('"', '""')
-        return f'"{escaped}"'
+        return f'"{identifier}"'
     
     # ==================== Private Methods ====================
     
@@ -671,9 +669,12 @@ class NanaSQLite:
             safe_columns = [self._sanitize_identifier(col) for col in columns]
             columns_sql = ", ".join(safe_columns)
         
-        # Validate limit is an integer if provided
-        if limit is not None and not isinstance(limit, int):
-            raise ValueError(f"limit must be an integer, got {type(limit).__name__}")
+        # Validate limit is an integer and non-negative if provided
+        if limit is not None:
+            if not isinstance(limit, int):
+                raise ValueError(f"limit must be an integer, got {type(limit).__name__}")
+            if limit < 0:
+                raise ValueError("limit must be non-negative")
         
         # SQL構築
         sql = f"SELECT {columns_sql} FROM {safe_table_name}"
@@ -682,6 +683,9 @@ class NanaSQLite:
             sql += f" WHERE {where}"
         
         if order_by:
+            # Validate order_by to prevent SQL injection
+            if not re.match(r'^[\w\s,]+(\s+(ASC|DESC))?(\s*,\s*[\w\s]+(\s+(ASC|DESC))?)*$', order_by, re.IGNORECASE):
+                raise ValueError(f"Invalid order_by clause: {order_by}")
             sql += f" ORDER BY {order_by}"
         
         if limit:
@@ -1096,11 +1100,18 @@ class NanaSQLite:
         
         safe_table_name = self._sanitize_identifier(table_name)
         
-        # Validate limit and offset are integers if provided
-        if limit is not None and not isinstance(limit, int):
-            raise ValueError(f"limit must be an integer, got {type(limit).__name__}")
-        if offset is not None and not isinstance(offset, int):
-            raise ValueError(f"offset must be an integer, got {type(offset).__name__}")
+        # Validate limit and offset are non-negative integers if provided
+        if limit is not None:
+            if not isinstance(limit, int):
+                raise ValueError(f"limit must be an integer, got {type(limit).__name__}")
+            if limit < 0:
+                raise ValueError("limit must be non-negative")
+        
+        if offset is not None:
+            if not isinstance(offset, int):
+                raise ValueError(f"offset must be an integer, got {type(offset).__name__}")
+            if offset < 0:
+                raise ValueError("offset must be non-negative")
         
         # カラム指定
         if columns is None:
@@ -1114,8 +1125,10 @@ class NanaSQLite:
                 if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', col.strip()):
                     safe_column_list.append(self._sanitize_identifier(col.strip()))
                 else:
-                    # Contains functions, AS clauses, or other SQL - use as is
-                    # This is acceptable for columns in SELECT as they don't affect identifiers
+                    # Contains functions, AS clauses, or other SQL
+                    # Validate for dangerous patterns to prevent SQL injection
+                    if any(dangerous in col.upper() for dangerous in [';', '--', '/*', '*/', 'DROP ', 'DELETE ', 'INSERT ', 'UPDATE ', 'ALTER ', 'CREATE ']):
+                        raise ValueError(f"Potentially dangerous SQL pattern in column: {col}")
                     safe_column_list.append(col)
             columns_sql = ", ".join(safe_column_list)
         
@@ -1158,9 +1171,9 @@ class NanaSQLite:
             for col in columns:
                 parts = re.split(r'\s+as\s+', col, flags=re.IGNORECASE)
                 if len(parts) > 1:
-                    col_names.append(parts[-1].strip())
+                    col_names.append(parts[-1].strip().strip('"').strip("'"))
                 else:
-                    col_names.append(col.strip())
+                    col_names.append(col.strip().strip('"').strip("'"))
         
         # 結果をdictのリストに変換
         results = []
