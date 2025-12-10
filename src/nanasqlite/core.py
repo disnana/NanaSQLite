@@ -673,8 +673,8 @@ class NanaSQLite:
                 # Allow: alphanumeric, underscore, *, spaces, parentheses, commas, periods, AS clauses
                 # Disallow dangerous patterns: semicolon, --, /*, */, DROP, DELETE, INSERT, UPDATE, etc.
                 if re.match(r'^[\w\*\s\(\),\.]+(?:\s+as\s+\w+)?$', col, re.IGNORECASE):
-                    # Additional check: block SQL keywords that could be dangerous
-                    if not re.search(r'(;|--|/\*|\*/|DROP|DELETE|INSERT|UPDATE|ALTER|CREATE)\s', col, re.IGNORECASE):
+                    # Additional check: block SQL keywords that could be dangerous (using word boundaries)
+                    if not re.search(r'(;|--|/\*|\*/)|\b(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE)\b', col, re.IGNORECASE):
                         safe_columns.append(col)
                     else:
                         raise ValueError(f"Invalid or dangerous column expression: {col}")

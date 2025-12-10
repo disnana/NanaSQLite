@@ -18,6 +18,7 @@ from nanasqlite import NanaSQLite
 
 # Pydanticが利用可能かチェック
 try:
+    import pydantic  # noqa: F401
     from pydantic import BaseModel, Field
     PYDANTIC_AVAILABLE = True
 except ImportError:
