@@ -513,7 +513,7 @@ class NanaSQLite:
             for parameters in parameters_list:
                 cursor.execute(sql, parameters)
             cursor.execute("COMMIT")
-        except Exception:
+        except apsw.Error:
             cursor.execute("ROLLBACK")
             raise
     
@@ -1162,8 +1162,8 @@ class NanaSQLite:
                     safe_column_list.append(self._sanitize_identifier(col.strip()))
                 else:
                     # Contains functions, AS clauses, or other SQL
-                    # Validate for dangerous patterns to prevent SQL injection
-                    if any(dangerous in col.upper() for dangerous in [';', '--', '/*', '*/', 'DROP ', 'DELETE ', 'INSERT ', 'UPDATE ', 'ALTER ', 'CREATE ']):
+                    # Validate for dangerous patterns to prevent SQL injection (consistent with query())
+                    if re.search(r'(;|--|/\*|\*/)|\b(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE)\b', col, re.IGNORECASE):
                         raise ValueError(f"Potentially dangerous SQL pattern in column: {col}")
                     safe_column_list.append(col)
             columns_sql = ", ".join(safe_column_list)
