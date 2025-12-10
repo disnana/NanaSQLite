@@ -8,13 +8,9 @@ NanaSQLite: APSW SQLite-backed dict wrapper with memory caching.
 """
 
 import json
-<<<<<<< HEAD
-from typing import Any, Iterator, Optional, Union, TYPE_CHECKING
-from collections.abc import MutableMapping
-=======
 import re
 from typing import Any, Iterator, Optional, Type, List
->>>>>>> dc4f143b640145ede894f5452c2628a0bbd6becd
+from collections.abc import MutableMapping
 import apsw
 
 
@@ -706,8 +702,8 @@ class NanaSQLite(MutableMapping):
         
         if order_by:
             # Validate order_by to prevent SQL injection
-            # Use alternation pattern to prevent any backtracking
-            if not re.match(r'^[a-zA-Z0-9_\s,]+(?:\s+ASC|\s+DESC)?(?:\s*,\s*[a-zA-Z0-9_\s]+(?:\s+ASC|\s+DESC)?)*$', order_by, re.IGNORECASE):
+            # Use possessive-style pattern to prevent exponential backtracking
+            if not re.match(r'^[a-zA-Z0-9_]+([ ]+(?:ASC|DESC))?([ ]*,[ ]*[a-zA-Z0-9_]+([ ]+(?:ASC|DESC))?)*$', order_by, re.IGNORECASE):
                 raise ValueError(f"Invalid order_by clause: {order_by}")
             sql += f" ORDER BY {order_by}"
         
@@ -1189,8 +1185,8 @@ class NanaSQLite(MutableMapping):
         
         if order_by:
             # Validate order_by to prevent SQL injection
-            # Use alternation pattern to prevent any backtracking
-            if not re.match(r'^[a-zA-Z0-9_\s,]+(?:\s+ASC|\s+DESC)?(?:\s*,\s*[a-zA-Z0-9_\s]+(?:\s+ASC|\s+DESC)?)*$', order_by, re.IGNORECASE):
+            # Use possessive-style pattern to prevent exponential backtracking
+            if not re.match(r'^[a-zA-Z0-9_]+([ ]+(?:ASC|DESC))?([ ]*,[ ]*[a-zA-Z0-9_]+([ ]+(?:ASC|DESC))?)*$', order_by, re.IGNORECASE):
                 raise ValueError(f"Invalid order_by clause: {order_by}")
             sql += f" ORDER BY {order_by}"
         

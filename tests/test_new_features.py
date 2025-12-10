@@ -18,13 +18,11 @@ from nanasqlite import NanaSQLite
 
 # Pydanticが利用可能かチェック
 try:
-    import pydantic  # noqa: F401
-    from pydantic import BaseModel, Field
+    import pydantic  # noqa: F401 - imported to check availability
     PYDANTIC_AVAILABLE = True
+    del pydantic  # Remove from namespace to avoid unused import warning
 except ImportError:
     PYDANTIC_AVAILABLE = False
-    BaseModel = None  # type: ignore
-    Field = None  # type: ignore
 
 
 # ==================== Fixtures ====================
