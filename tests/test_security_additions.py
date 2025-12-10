@@ -39,7 +39,7 @@ def test_alter_table_default_with_quotes(db):
     # Find the description column
     desc_col = [col for col in schema if col["name"] == "description"][0]
     # The value should be properly escaped: 'it''s okay'
-    assert desc_col["dflt_value"] == "'it''s okay'"
+    assert desc_col["default_value"] == "'it''s okay'"
     
     # Insert a row and verify the default value works
     db.sql_insert("test", {"id": 1, "name": "Test"})
@@ -52,11 +52,11 @@ def test_upsert_do_nothing_rowid(db):
     db.create_table("test", {"id": "INTEGER PRIMARY KEY", "value": "TEXT UNIQUE"})
     
     # First insert
-    rowid1 = db.upsert("test", {"id": 1, "value": "first"}, conflict_columns=["id", "value"])
+    rowid1 = db.upsert("test", {"id": 1, "value": "first"}, conflict_columns=["value"])
     assert rowid1 == 1
     
-    # Attempt to insert with same values (should trigger DO NOTHING)
-    rowid2 = db.upsert("test", {"id": 1, "value": "first"}, conflict_columns=["id", "value"])
+    # Attempt to insert with same value (should trigger DO NOTHING since all columns are conflict columns)
+    rowid2 = db.upsert("test", {"value": "first"}, conflict_columns=["value"])
     assert rowid2 == 0  # Should return 0 when DO NOTHING is triggered
     
     # Verify only one row exists

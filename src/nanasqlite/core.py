@@ -827,8 +827,8 @@ class NanaSQLite:
             # For default values, if it's a string, ensure it's properly quoted and escaped
             if isinstance(default, str):
                 if not default.startswith("'"):
-                    # Escape single quotes for SQL string literal
-                    default = f"'{default.replace(\"'\", \"''\")}'"
+                    # Escape single quotes for SQL string literal (double them: ' becomes '')
+                    default = "'" + default.replace("'", "''") + "'"
             sql += f" DEFAULT {default}"
         self.execute(sql)
     
