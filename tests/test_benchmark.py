@@ -161,6 +161,156 @@ class TestDictOperationsBenchmarks:
         benchmark(db_with_data.to_dict)
 
 
+# ==================== New Wrapper Functions Benchmarks ====================
+
+@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
+class TestWrapperFunctionsBenchmarks:
+    """新しいラッパー関数のベンチマーク"""
+    
+    def test_sql_insert_single(self, benchmark, db_path):
+        """sql_insert()単一挿入"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db.create_table("users", {
+            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+            "name": "TEXT",
+            "age": "INTEGER"
+        })
+        
+        counter = [0]
+        def insert_single():
+            db.sql_insert("users", {"name": f"User{counter[0]}", "age": 25})
+            counter[0] += 1
+        
+        benchmark(insert_single)
+        db.close()
+    
+    def test_sql_update_single(self, benchmark, db_path):
+        """sql_update()単一更新"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db.create_table("users", {"id": "INTEGER", "name": "TEXT", "age": "INTEGER"})
+        
+        # データ準備
+        for i in range(100):
+            db.sql_insert("users", {"id": i, "name": f"User{i}", "age": 25})
+        
+        counter = [0]
+        def update_single():
+            db.sql_update("users", {"age": 26}, "id = ?", (counter[0] % 100,))
+            counter[0] += 1
+        
+        benchmark(update_single)
+        db.close()
+    
+    def test_upsert(self, benchmark, db_path):
+        """upsert()操作"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db.create_table("users", {
+            "id": "INTEGER PRIMARY KEY",
+            "name": "TEXT",
+            "age": "INTEGER"
+        })
+        
+        counter = [0]
+        def upsert_op():
+            db.upsert("users", {"id": counter[0] % 50, "name": f"User{counter[0]}", "age": 25})
+            counter[0] += 1
+        
+        benchmark(upsert_op)
+        db.close()
+    
+    def test_query_with_pagination(self, benchmark, db_path):
+        """query_with_pagination()ページネーション"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db.create_table("items", {"id": "INTEGER", "name": "TEXT"})
+        
+        # データ準備
+        for i in range(1000):
+            db.sql_insert("items", {"id": i, "name": f"Item{i}"})
+        
+        def query_page():
+            return db.query_with_pagination("items", limit=10, offset=0, order_by="id ASC")
+        
+        benchmark(query_page)
+        db.close()
+    
+    def test_count_operation(self, benchmark, db_path):
+        """count()レコード数取得"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db.create_table("items", {"id": "INTEGER", "value": "INTEGER"})
+        
+        # データ準備
+        for i in range(1000):
+            db.sql_insert("items", {"id": i, "value": i})
+        
+        def count_records():
+            return db.count("items", "value > ?", (500,))
+        
+        benchmark(count_records)
+        db.close()
+    
+    def test_exists_check(self, benchmark, db_path):
+        """exists()存在確認"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db.create_table("users", {"id": "INTEGER", "email": "TEXT"})
+        
+        # データ準備
+        for i in range(1000):
+            db.sql_insert("users", {"id": i, "email": f"user{i}@example.com"})
+        
+        def check_exists():
+            return db.exists("users", "email = ?", ("user500@example.com",))
+        
+        benchmark(check_exists)
+        db.close()
+    
+    def test_export_import_roundtrip(self, benchmark, db_path):
+        """export/import往復（エクスポート部分のみ計測）"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db.create_table("export_test", {"id": "INTEGER", "value": "TEXT"})
+        
+        # データ準備
+        data_list = [{"id": i, "value": f"data{i}"} for i in range(100)]
+        db.import_from_dict_list("export_test", data_list)
+        
+        def export_operation():
+            # エクスポート操作のパフォーマンスを計測
+            exported = db.export_table_to_dict("export_test")
+            return exported
+        
+        benchmark(export_operation)
+        db.close()
+    
+    def test_transaction_context(self, benchmark, db_path):
+        """transaction()コンテキストマネージャ"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db.create_table("logs", {"id": "INTEGER", "message": "TEXT"})
+        
+        counter = [0]
+        def transaction_op():
+            with db.transaction():
+                db.sql_insert("logs", {"id": counter[0], "message": f"Log{counter[0]}"})
+                counter[0] += 1
+        
+        benchmark(transaction_op)
+        db.close()
+
+
 # ==================== Summary Test ====================
 
 def test_benchmark_summary(db_path, capsys):

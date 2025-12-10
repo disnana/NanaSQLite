@@ -24,12 +24,12 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pytest pytest-benchmark apsw
+        pip install pytest pytest-benchmark apsw pydantic
         pip install -e .
     
     - name: Run tests
       run: |
-        pytest tests/test_nanasqlite.py -v --tb=short --junitxml=test-results.xml
+        pytest tests/ -v --tb=short --junitxml=test-results.xml
     
     - name: Upload test results
       uses: actions/upload-artifact@v4
@@ -53,7 +53,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pytest pytest-benchmark apsw
+        pip install pytest pytest-benchmark apsw pydantic
         pip install -e .
     
     - name: Run benchmarks
