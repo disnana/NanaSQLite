@@ -6,6 +6,26 @@
 
 ## 日本語
 
+### [1.0.3rc5] - 2025-12-10
+
+#### パフォーマンス改善
+- **`batch_update()`の最適化**: `executemany`使用で大量データ処理が10-30%高速化
+- **`batch_delete()`の最適化**: `executemany`使用で一括削除が高速化
+- **`__contains__()`の最適化**: 軽量なEXISTSクエリ使用で存在確認が高速化（大きなvalueの場合に効果大）
+
+#### IDE/型サポート強化
+- `from __future__ import annotations` 追加
+- `Dict[str, Any]`、`Set[str]`等の具体的な型アノテーション
+- `Optional[Tuple]`等のより明確な引数型
+
+#### ドキュメント
+- `execute()`メソッドにキャッシュ一貫性に関する警告を追加
+- docstringの改善（Returns、警告セクション追加）
+
+#### バグ修正
+- Gitマージコンフリクトの解消（order_by検証の正規表現）
+- ReDoS脆弱性の修正（カンマ分割方式に変更）
+
 ### [1.0.3rc4] - 2025-12-09
 
 #### 追加
@@ -54,6 +74,26 @@
 ---
 
 ## English
+
+### [1.0.3rc5] - 2025-12-10
+
+#### Performance Improvements
+- **`batch_update()` optimization**: 10-30% faster with `executemany`
+- **`batch_delete()` optimization**: Faster bulk deletion with `executemany`
+- **`__contains__()` optimization**: Lightweight EXISTS query (faster for large values)
+
+#### IDE/Type Support Enhancements
+- Added `from __future__ import annotations`
+- Specific type annotations: `Dict[str, Any]`, `Set[str]`
+- Clearer parameter types: `Optional[Tuple]`
+
+#### Documentation
+- Added cache consistency warning to `execute()` method
+- Improved docstrings (Returns, Warning sections)
+
+#### Bug Fixes
+- Resolved Git merge conflicts (order_by regex validation)
+- Fixed ReDoS vulnerability (switched to comma-split approach)
 
 ### [1.0.3rc4] - 2025-12-09
 

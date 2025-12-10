@@ -7,9 +7,12 @@ NanaSQLite: APSW SQLite-backed dict wrapper with memory caching.
 - 一括ロード: bulk_load=Trueで起動時に全データをメモリに展開
 """
 
+from __future__ import annotations
+
 import json
 import re
-from typing import Any, Iterator, Optional, Type, List
+from contextlib import contextmanager
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Type, Union
 from collections.abc import MutableMapping
 import apsw
 
@@ -42,11 +45,11 @@ class NanaSQLite(MutableMapping):
             optimize: Trueの場合、WALモードなど高速化設定を適用
             cache_size_mb: SQLiteキャッシュサイズ（MB）、デフォルト64MB
         """
-        self._db_path = db_path
-        self._table = table
+        self._db_path: str = db_path
+        self._table: str = table
         self._connection: apsw.Connection = apsw.Connection(db_path)
-        self._data: dict = {}  # 内部dict（メモリキャッシュ）
-        self._cached_keys: set = set()  # キャッシュ済みキーの追跡
+        self._data: Dict[str, Any] = {}  # 内部dict（メモリキャッシュ）
+        self._cached_keys: Set[str] = set()  # キャッシュ済みキーの追跡
         self._all_loaded: bool = False  # 全データ読み込み済みフラグ
         
         # 高速化設定
@@ -216,8 +219,29 @@ class NanaSQLite(MutableMapping):
         self._delete_from_db(key)
     
     def __contains__(self, key: str) -> bool:
-        """key in dict"""
-        return self._ensure_cached(key)
+        """
+        key in dict - キーの存在確認
+        
+        キャッシュにある場合はO(1)、ない場合は軽量なEXISTSクエリを使用。
+        存在確認のみの場合、value全体を読み込まないため高速。
+        """
+        if key in self._cached_keys:
+            return key in self._data
+        
+        # 軽量な存在確認クエリ（valueを読み込まない）
+        cursor = self._connection.execute(
+            f"SELECT 1 FROM {self._table} WHERE key = ? LIMIT 1", (key,)
+        )
+        exists = cursor.fetchone() is not None
+        
+        if exists:
+            # 存在する場合のみキャッシュに読み込む（遅延ロード）
+            self._ensure_cached(key)
+        else:
+            # 存在しないこともキャッシュ（次回の高速化のため）
+            self._cached_keys.add(key)
+        
+        return exists
     
     def __len__(self) -> int:
         """len(dict) - DBの実際の件数を返す"""
@@ -324,27 +348,36 @@ class NanaSQLite(MutableMapping):
         """キーがキャッシュ済みかどうか"""
         return key in self._cached_keys
     
-    def batch_update(self, mapping: dict) -> None:
+    def batch_update(self, mapping: Dict[str, Any]) -> None:
         """
-        一括書き込み（トランザクション使用で超高速）
+        一括書き込み（トランザクション + executemany使用で超高速）
         
         大量のデータを一度に書き込む場合、通常のupdateより10-100倍高速。
+        v1.0.3rc5でexecutemanyによる最適化を追加。
         
         Args:
             mapping: 書き込むキーと値のdict
         
+        Returns:
+            None
+        
         Example:
             >>> db.batch_update({"key1": "value1", "key2": "value2", ...})
         """
+        if not mapping:
+            return  # 空の場合は何もしない
+        
         cursor = self._connection.cursor()
         cursor.execute("BEGIN IMMEDIATE")
         try:
+            # 事前にシリアライズしてexecutemany用のタプルリストを作成
+            params = [(key, self._serialize(value)) for key, value in mapping.items()]
+            cursor.executemany(
+                f"INSERT OR REPLACE INTO {self._table} (key, value) VALUES (?, ?)",
+                params
+            )
+            # キャッシュ更新
             for key, value in mapping.items():
-                serialized = self._serialize(value)
-                cursor.execute(
-                    f"INSERT OR REPLACE INTO {self._table} (key, value) VALUES (?, ?)",
-                    (key, serialized)
-                )
                 self._data[key] = value
                 self._cached_keys.add(key)
             cursor.execute("COMMIT")
@@ -352,21 +385,32 @@ class NanaSQLite(MutableMapping):
             cursor.execute("ROLLBACK")
             raise
     
-    def batch_delete(self, keys: list) -> None:
+    def batch_delete(self, keys: List[str]) -> None:
         """
-        一括削除（トランザクション使用で高速）
+        一括削除（トランザクション + executemany使用で高速）
+        
+        v1.0.3rc5でexecutemanyによる最適化を追加。
         
         Args:
             keys: 削除するキーのリスト
+        
+        Returns:
+            None
         """
+        if not keys:
+            return  # 空の場合は何もしない
+        
         cursor = self._connection.cursor()
         cursor.execute("BEGIN IMMEDIATE")
         try:
+            # executemany用のタプルリストを作成
+            params = [(key,) for key in keys]
+            cursor.executemany(
+                f"DELETE FROM {self._table} WHERE key = ?",
+                params
+            )
+            # キャッシュ更新
             for key in keys:
-                cursor.execute(
-                    f"DELETE FROM {self._table} WHERE key = ?",
-                    (key,)
-                )
                 self._data.pop(key, None)
                 self._cached_keys.discard(key)
             cursor.execute("COMMIT")
@@ -471,12 +515,17 @@ class NanaSQLite(MutableMapping):
     
     # ==================== Direct SQL Execution ====================
     
-    def execute(self, sql: str, parameters: tuple = None) -> apsw.Cursor:
+    def execute(self, sql: str, parameters: Optional[Tuple] = None) -> apsw.Cursor:
         """
         SQLを直接実行
         
         任意のSQL文を実行できる。SELECT、INSERT、UPDATE、DELETEなど。
         パラメータバインディングをサポート（SQLインジェクション対策）。
+        
+        .. warning::
+            このメソッドで直接デフォルトテーブル（data）を操作した場合、
+            内部キャッシュ（_data）と不整合が発生する可能性があります。
+            キャッシュを更新するには `refresh()` を呼び出してください。
         
         Args:
             sql: 実行するSQL文
@@ -489,6 +538,10 @@ class NanaSQLite(MutableMapping):
             >>> cursor = db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
             >>> for row in cursor:
             ...     print(row)
+            
+            # キャッシュ更新が必要な場合:
+            >>> db.execute("UPDATE data SET value = ? WHERE key = ?", ('"new"', "key"))
+            >>> db.refresh("key")  # キャッシュを更新
         """
         if parameters is None:
             return self._connection.execute(sql)
