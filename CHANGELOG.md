@@ -6,6 +6,13 @@
 
 ## 日本語
 
+### [1.0.3rc6] - 2025-12-10
+
+#### 追加
+- **`get_fresh(key, default=None)`メソッド**: DBから直接読み込み、キャッシュを更新して値を返す
+  - `execute()`でDBを直接変更した後のキャッシュ同期に便利
+  - `_read_from_db`を直接使用してオーバーヘッドを最小化
+
 ### [1.0.3rc5] - 2025-12-10
 
 #### パフォーマンス改善
@@ -74,6 +81,13 @@
 ---
 
 ## English
+
+### [1.0.3rc6] - 2025-12-10
+
+#### Added
+- **`get_fresh(key, default=None)` method**: Read directly from DB, update cache, and return value
+  - Useful for cache synchronization after direct DB changes via `execute()`
+  - Uses `_read_from_db` directly to minimize overhead
 
 ### [1.0.3rc5] - 2025-12-10
 

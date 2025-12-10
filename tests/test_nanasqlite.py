@@ -408,6 +408,68 @@ class TestCacheBehavior:
         # 再取得可能
         assert db["k"] == "v"
         db.close()
+    
+    def test_get_fresh_after_direct_update(self, db_path):
+        """get_freshでDB直接変更後のキャッシュ同期"""
+        import json
+        
+        db = NanaSQLite(db_path)
+        db["key"] = "original_value"
+        
+        # キャッシュされていることを確認
+        assert db.is_cached("key")
+        cached_value = db["key"]
+        assert cached_value == "original_value"
+        
+        # execute()で直接DBを変更（キャッシュは更新されない）
+        new_value = json.dumps("updated_value")
+        db.execute(f"UPDATE {db._table} SET value = ? WHERE key = ?", (new_value, "key"))
+        
+        # 通常のget()はキャッシュから古い値を返す
+        assert db.get("key") == "original_value"
+        
+        # get_fresh()はDBから最新を取得しキャッシュを更新
+        fresh_value = db.get_fresh("key")
+        assert fresh_value == "updated_value"
+        
+        # 以降のアクセスも更新された値を返す
+        assert db["key"] == "updated_value"
+        
+        db.close()
+    
+    def test_get_fresh_nonexistent_key(self, db_path):
+        """get_freshで存在しないキーにdefaultを返す"""
+        db = NanaSQLite(db_path)
+        
+        # 存在しないキー
+        result = db.get_fresh("nonexistent")
+        assert result is None
+        
+        # デフォルト値
+        result = db.get_fresh("nonexistent", "default_value")
+        assert result == "default_value"
+        
+        db.close()
+    
+    def test_get_fresh_after_delete(self, db_path):
+        """get_freshで削除されたキーを検出"""
+        import json
+        
+        db = NanaSQLite(db_path)
+        db["to_delete"] = "value"
+        assert db.is_cached("to_delete")
+        
+        # execute()で直接削除
+        db.execute(f"DELETE FROM {db._table} WHERE key = ?", ("to_delete",))
+        
+        # 通常のget()はまだキャッシュから返す
+        assert db.get("to_delete") == "value"
+        
+        # get_fresh()はDBから最新を取得（削除されているのでdefault）
+        result = db.get_fresh("to_delete", "deleted")
+        assert result == "deleted"
+        
+        db.close()
 
 
 # ==================== dictメソッドテスト ====================

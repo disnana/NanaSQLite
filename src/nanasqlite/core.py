@@ -279,6 +279,41 @@ class NanaSQLite(MutableMapping):
             return self._data[key]
         return default
     
+    def get_fresh(self, key: str, default: Any = None) -> Any:
+        """
+        DBから直接読み込み、キャッシュを更新して値を返す
+        
+        キャッシュをバイパスしてDBから最新の値を取得する。
+        `execute()`でDBを直接変更した後などに使用。
+        
+        通常の`get()`よりオーバーヘッドがあるため、
+        キャッシュとDBの不整合が想定される場合のみ使用推奨。
+        
+        Args:
+            key: 取得するキー
+            default: キーが存在しない場合のデフォルト値
+        
+        Returns:
+            DBから取得した最新の値（存在しない場合はdefault）
+        
+        Example:
+            >>> db.execute("UPDATE data SET value = ? WHERE key = ?", ('"new"', "key"))
+            >>> value = db.get_fresh("key")  # DBから最新値を取得
+        """
+        # DBから直接読み込み（_read_from_dbを使用してオーバーヘッド最小化）
+        value = self._read_from_db(key)
+        
+        if value is not None:
+            # キャッシュを更新
+            self._data[key] = value
+            self._cached_keys.add(key)
+            return value
+        else:
+            # 存在しない場合はキャッシュからも削除
+            self._data.pop(key, None)
+            self._cached_keys.add(key)  # 「存在しない」ことをキャッシュ
+            return default
+    
     def pop(self, key: str, *args) -> Any:
         """dict.pop(key[, default])"""
         if self._ensure_cached(key):
