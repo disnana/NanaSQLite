@@ -311,6 +311,482 @@ class TestWrapperFunctionsBenchmarks:
         db.close()
 
 
+# ==================== DDL Operations Benchmarks ====================
+
+@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
+class TestDDLOperationsBenchmarks:
+    """DDL操作のベンチマーク"""
+    
+    def test_create_index(self, benchmark, db_path):
+        """create_index()インデックス作成"""
+        from nanasqlite import NanaSQLite
+        
+        counter = [0]
+        def create_idx():
+            db = NanaSQLite(db_path)
+            db.create_table(f"test_{counter[0]}", {"id": "INTEGER", "name": "TEXT"})
+            db.create_index(f"idx_{counter[0]}", f"test_{counter[0]}", ["name"])
+            counter[0] += 1
+            db.close()
+        
+        benchmark(create_idx)
+    
+    def test_drop_table(self, benchmark, db_path):
+        """drop_table()テーブル削除"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        # 事前に100個のテーブルを作成
+        for i in range(100):
+            db.create_table(f"drop_test_{i}", {"id": "INTEGER"})
+        
+        counter = [0]
+        def drop_tbl():
+            if counter[0] < 100:
+                db.drop_table(f"drop_test_{counter[0]}")
+                counter[0] += 1
+        
+        benchmark(drop_tbl)
+        db.close()
+    
+    def test_drop_index(self, benchmark, db_path):
+        """drop_index()インデックス削除"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db.create_table("idx_test", {"id": "INTEGER", "name": "TEXT"})
+        # 事前に100個のインデックスを作成
+        for i in range(100):
+            db.create_index(f"idx_drop_{i}", "idx_test", ["name"], if_not_exists=True)
+        
+        counter = [0]
+        def drop_idx():
+            if counter[0] < 100:
+                db.drop_index(f"idx_drop_{counter[0]}")
+                counter[0] += 1
+        
+        benchmark(drop_idx)
+        db.close()
+    
+    def test_alter_table_add_column(self, benchmark, db_path):
+        """alter_table_add_column()カラム追加"""
+        from nanasqlite import NanaSQLite
+        
+        counter = [0]
+        def add_col():
+            db = NanaSQLite(db_path)
+            table_name = f"alter_test_{counter[0]}"
+            db.create_table(table_name, {"id": "INTEGER"})
+            db.alter_table_add_column(table_name, "new_col", "TEXT")
+            counter[0] += 1
+            db.close()
+        
+        benchmark(add_col)
+    
+    def test_sql_delete(self, benchmark, db_path):
+        """sql_delete()行削除"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db.create_table("delete_test", {"id": "INTEGER", "name": "TEXT"})
+        
+        # データ準備: 各ラウンドで追加
+        counter = [0]
+        def setup_and_delete():
+            db.sql_insert("delete_test", {"id": counter[0], "name": f"User{counter[0]}"})
+            db.sql_delete("delete_test", "id = ?", (counter[0],))
+            counter[0] += 1
+        
+        benchmark(setup_and_delete)
+        db.close()
+
+
+# ==================== Query Operations Benchmarks ====================
+
+@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
+class TestQueryOperationsBenchmarks:
+    """クエリ操作のベンチマーク"""
+    
+    def test_query_simple(self, benchmark, db_path):
+        """query()シンプルクエリ"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db.create_table("query_test", {"id": "INTEGER", "name": "TEXT", "age": "INTEGER"})
+        
+        # データ準備
+        for i in range(1000):
+            db.sql_insert("query_test", {"id": i, "name": f"User{i}", "age": i % 100})
+        
+        def query_op():
+            return db.query("query_test", columns=["id", "name"], where="age > ?", parameters=(50,), limit=10)
+        
+        benchmark(query_op)
+        db.close()
+    
+    def test_fetch_one(self, benchmark, db_path):
+        """fetch_one()1行取得"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db.create_table("fetch_test", {"id": "INTEGER", "value": "TEXT"})
+        
+        for i in range(1000):
+            db.sql_insert("fetch_test", {"id": i, "value": f"data{i}"})
+        
+        def fetch_one_op():
+            return db.fetch_one("SELECT * FROM fetch_test WHERE id = ?", (500,))
+        
+        benchmark(fetch_one_op)
+        db.close()
+    
+    def test_fetch_all_1000(self, benchmark, db_path):
+        """fetch_all()全行取得（1000件）"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db.create_table("fetch_all_test", {"id": "INTEGER", "value": "TEXT"})
+        
+        for i in range(1000):
+            db.sql_insert("fetch_all_test", {"id": i, "value": f"data{i}"})
+        
+        def fetch_all_op():
+            return db.fetch_all("SELECT * FROM fetch_all_test")
+        
+        benchmark(fetch_all_op)
+        db.close()
+
+
+# ==================== Schema Operations Benchmarks ====================
+
+@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
+class TestSchemaOperationsBenchmarks:
+    """スキーマ操作のベンチマーク"""
+    
+    def test_table_exists(self, benchmark, db_path):
+        """table_exists()テーブル存在確認"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db.create_table("exists_test", {"id": "INTEGER"})
+        
+        def table_exists_op():
+            return db.table_exists("exists_test")
+        
+        benchmark(table_exists_op)
+        db.close()
+    
+    def test_list_tables(self, benchmark, db_path):
+        """list_tables()テーブル一覧"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        # 20個のテーブルを作成
+        for i in range(20):
+            db.create_table(f"list_test_{i}", {"id": "INTEGER"})
+        
+        def list_tables_op():
+            return db.list_tables()
+        
+        benchmark(list_tables_op)
+        db.close()
+    
+    def test_get_table_schema(self, benchmark, db_path):
+        """get_table_schema()スキーマ取得"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db.create_table("schema_test", {
+            "id": "INTEGER PRIMARY KEY",
+            "name": "TEXT NOT NULL",
+            "email": "TEXT",
+            "age": "INTEGER",
+            "created_at": "TEXT"
+        })
+        
+        def get_schema_op():
+            return db.get_table_schema("schema_test")
+        
+        benchmark(get_schema_op)
+        db.close()
+    
+    def test_list_indexes(self, benchmark, db_path):
+        """list_indexes()インデックス一覧"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db.create_table("index_list_test", {"id": "INTEGER", "name": "TEXT", "email": "TEXT"})
+        db.create_index("idx_name", "index_list_test", ["name"])
+        db.create_index("idx_email", "index_list_test", ["email"])
+        db.create_index("idx_name_email", "index_list_test", ["name", "email"])
+        
+        def list_indexes_op():
+            return db.list_indexes("index_list_test")
+        
+        benchmark(list_indexes_op)
+        db.close()
+
+
+# ==================== Utility Operations Benchmarks ====================
+
+@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
+class TestUtilityOperationsBenchmarks:
+    """ユーティリティ操作のベンチマーク"""
+    
+    def test_get_fresh(self, benchmark, db_path):
+        """get_fresh()キャッシュバイパス読み込み"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db["target_key"] = {"data": "value", "number": 123}
+        
+        def get_fresh_op():
+            return db.get_fresh("target_key")
+        
+        benchmark(get_fresh_op)
+        db.close()
+    
+    def test_batch_delete(self, benchmark, db_path):
+        """batch_delete()一括削除"""
+        from nanasqlite import NanaSQLite
+        
+        counter = [0]
+        def batch_delete_op():
+            db = NanaSQLite(db_path)
+            # データ作成
+            keys = [f"batch_del_{counter[0]}_{i}" for i in range(100)]
+            db.batch_update({k: {"value": i} for i, k in enumerate(keys)})
+            # 一括削除
+            db.batch_delete(keys)
+            counter[0] += 1
+            db.close()
+        
+        benchmark(batch_delete_op)
+    
+    def test_vacuum(self, benchmark, db_path):
+        """vacuum()最適化"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        # データを追加して削除
+        for i in range(100):
+            db[f"vac_key_{i}"] = {"data": "x" * 100}
+        for i in range(100):
+            del db[f"vac_key_{i}"]
+        
+        def vacuum_op():
+            db.vacuum()
+        
+        benchmark(vacuum_op)
+        db.close()
+    
+    def test_get_db_size(self, benchmark, db_path):
+        """get_db_size()サイズ取得"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        for i in range(100):
+            db[f"size_key_{i}"] = {"data": "x" * 100}
+        
+        def get_db_size_op():
+            return db.get_db_size()
+        
+        benchmark(get_db_size_op)
+        db.close()
+    
+    def test_get_last_insert_rowid(self, benchmark, db_path):
+        """get_last_insert_rowid()ROWID取得"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db.create_table("rowid_test", {"id": "INTEGER PRIMARY KEY AUTOINCREMENT", "name": "TEXT"})
+        
+        counter = [0]
+        def get_rowid_op():
+            db.sql_insert("rowid_test", {"name": f"User{counter[0]}"})
+            rowid = db.get_last_insert_rowid()
+            counter[0] += 1
+            return rowid
+        
+        benchmark(get_rowid_op)
+        db.close()
+    
+    def test_pragma(self, benchmark, db_path):
+        """pragma()設定取得"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        
+        def pragma_op():
+            return db.pragma("journal_mode")
+        
+        benchmark(pragma_op)
+        db.close()
+    
+    def test_execute_raw(self, benchmark, db_path):
+        """execute()直接SQL実行"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db.create_table("exec_test", {"id": "INTEGER", "value": "TEXT"})
+        
+        counter = [0]
+        def execute_op():
+            db.execute("INSERT INTO exec_test (id, value) VALUES (?, ?)", (counter[0], f"val{counter[0]}"))
+            counter[0] += 1
+        
+        benchmark(execute_op)
+        db.close()
+    
+    def test_execute_many(self, benchmark, db_path):
+        """execute_many()一括SQL実行"""
+        from nanasqlite import NanaSQLite
+        
+        counter = [0]
+        def execute_many_op():
+            db = NanaSQLite(db_path)
+            db.create_table(f"exec_many_{counter[0]}", {"id": "INTEGER", "value": "TEXT"})
+            params = [(i, f"val{i}") for i in range(100)]
+            db.execute_many(f"INSERT INTO exec_many_{counter[0]} (id, value) VALUES (?, ?)", params)
+            counter[0] += 1
+            db.close()
+        
+        benchmark(execute_many_op)
+    
+    def test_import_from_dict_list(self, benchmark, db_path):
+        """import_from_dict_list()一括インポート"""
+        from nanasqlite import NanaSQLite
+        
+        counter = [0]
+        def import_op():
+            db = NanaSQLite(db_path)
+            db.create_table(f"import_test_{counter[0]}", {"id": "INTEGER", "name": "TEXT", "age": "INTEGER"})
+            data_list = [{"id": i, "name": f"User{i}", "age": i % 100} for i in range(100)]
+            db.import_from_dict_list(f"import_test_{counter[0]}", data_list)
+            counter[0] += 1
+            db.close()
+        
+        benchmark(import_op)
+
+
+# ==================== Pydantic Operations Benchmarks ====================
+
+@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
+class TestPydanticOperationsBenchmarks:
+    """Pydantic操作のベンチマーク"""
+    
+    def test_set_model(self, benchmark, db_path):
+        """set_model()モデル保存"""
+        try:
+            from pydantic import BaseModel
+        except ImportError:
+            pytest.skip("pydantic not installed")
+        
+        from nanasqlite import NanaSQLite
+        
+        class TestUser(BaseModel):
+            name: str
+            age: int
+            email: str
+        
+        db = NanaSQLite(db_path)
+        counter = [0]
+        
+        def set_model_op():
+            user = TestUser(name=f"User{counter[0]}", age=25, email=f"user{counter[0]}@example.com")
+            db.set_model(f"user_{counter[0]}", user)
+            counter[0] += 1
+        
+        benchmark(set_model_op)
+        db.close()
+    
+    def test_get_model(self, benchmark, db_path):
+        """get_model()モデル取得"""
+        try:
+            from pydantic import BaseModel
+        except ImportError:
+            pytest.skip("pydantic not installed")
+        
+        from nanasqlite import NanaSQLite
+        
+        class TestUser(BaseModel):
+            name: str
+            age: int
+            email: str
+        
+        db = NanaSQLite(db_path)
+        # 事前にモデルを保存
+        for i in range(100):
+            user = TestUser(name=f"User{i}", age=25, email=f"user{i}@example.com")
+            db.set_model(f"model_user_{i}", user)
+        
+        counter = [0]
+        def get_model_op():
+            result = db.get_model(f"model_user_{counter[0] % 100}", TestUser)
+            counter[0] += 1
+            return result
+        
+        benchmark(get_model_op)
+        db.close()
+
+
+# ==================== Transaction Operations Benchmarks ====================
+
+@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
+class TestTransactionOperationsBenchmarks:
+    """トランザクション操作のベンチマーク"""
+    
+    def test_begin_commit(self, benchmark, db_path):
+        """begin_transaction() + commit()"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db.create_table("tx_test", {"id": "INTEGER", "value": "TEXT"})
+        
+        counter = [0]
+        def begin_commit_op():
+            db.begin_transaction()
+            db.sql_insert("tx_test", {"id": counter[0], "value": f"val{counter[0]}"})
+            db.commit()
+            counter[0] += 1
+        
+        benchmark(begin_commit_op)
+        db.close()
+    
+    def test_begin_rollback(self, benchmark, db_path):
+        """begin_transaction() + rollback()"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db.create_table("tx_rollback_test", {"id": "INTEGER", "value": "TEXT"})
+        
+        counter = [0]
+        def begin_rollback_op():
+            db.begin_transaction()
+            db.sql_insert("tx_rollback_test", {"id": counter[0], "value": f"val{counter[0]}"})
+            db.rollback()
+            counter[0] += 1
+        
+        benchmark(begin_rollback_op)
+        db.close()
+    
+    def test_context_manager_transaction(self, benchmark, db_path):
+        """transaction()コンテキストマネージャ（成功時）"""
+        from nanasqlite import NanaSQLite
+        
+        db = NanaSQLite(db_path)
+        db.create_table("tx_ctx_test", {"id": "INTEGER", "value": "TEXT"})
+        
+        counter = [0]
+        def ctx_tx_op():
+            with db.transaction():
+                db.sql_insert("tx_ctx_test", {"id": counter[0], "value": f"val{counter[0]}"})
+            counter[0] += 1
+        
+        benchmark(ctx_tx_op)
+        db.close()
+
+
 # ==================== Summary Test ====================
 
 def test_benchmark_summary(db_path, capsys):

@@ -40,16 +40,21 @@ jobs:
         path: test-results.xml
 
   benchmark:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
     
     steps:
     - uses: actions/checkout@v4
     
-    - name: Set up Python
+    - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v6
       with:
-        python-version: '3.11'
+        python-version: ${{ matrix.python-version }}
     
     - name: Install dependencies
       run: |
@@ -64,21 +69,36 @@ jobs:
     - name: Upload benchmark results
       uses: actions/upload-artifact@v4
       with:
-        name: benchmark-results
+        name: benchmark-results-${{ matrix.os }}-py${{ matrix.python-version }}
         path: benchmark.json
+
+  benchmark-summary:
+    needs: benchmark
+    runs-on: ubuntu-latest
+    if: always()
     
-    - name: Benchmark Summary
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download all benchmark results
+      uses: actions/download-artifact@v6
+      with:
+        pattern: benchmark-results-*
+        path: benchmark-results
+    
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.11'
+    
+    - name: Generate Combined Benchmark Summary
       run: |
-        echo "## 📊 Performance Benchmarks" >> $GITHUB_STEP_SUMMARY
+        echo "## 📊 Performance Benchmarks (All Platforms)" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        if [ -f benchmark.json ]; then
-          python3 scripts/parse_benchmark.py >> $GITHUB_STEP_SUMMARY || echo "Failed to parse benchmark results" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "ベンチマーク結果が見つかりません" >> $GITHUB_STEP_SUMMARY
-        fi
+        python3 scripts/parse_benchmark.py benchmark-results >> $GITHUB_STEP_SUMMARY || echo "Failed to parse benchmark results" >> $GITHUB_STEP_SUMMARY
 
   test-summary:
-    needs: [test, benchmark]
+    needs: [test, benchmark-summary]
     runs-on: ubuntu-latest
     if: always()
     steps:
