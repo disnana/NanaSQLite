@@ -6,6 +6,27 @@
 
 ## 日本語
 
+### [1.0.3rc7] - 2025-12-10
+
+#### 追加
+- **非同期サポート（AsyncNanaSQLite）**: 非同期アプリケーション向けの完全な非同期インターフェース
+  - `AsyncNanaSQLite`クラス: 全操作の非同期版を提供
+  - `asyncio.to_thread()`を使用してブロッキングを防止
+  - FastAPI、aiohttp等の非同期フレームワークで安全に使用可能
+  - 非同期dict風インターフェース: `await db.aget()`, `await db.aset()`, `await db.adelete()`
+  - 非同期バッチ操作: `await db.batch_update()`, `await db.batch_delete()`
+  - 非同期SQL実行: `await db.execute()`, `await db.query()`
+  - 非同期コンテキストマネージャ: `async with AsyncNanaSQLite(...) as db:`
+  - 並行処理サポート: 複数の非同期操作を並行実行可能
+- **包括的なテストスイート**: 100以上の非同期テストケース
+  - 基本操作、並行処理、エラーハンドリング、パフォーマンステスト
+  - 全テストが合格
+- **完全な後方互換性**: 既存の`NanaSQLite`クラスは変更なし
+
+#### パフォーマンス改善
+- 非同期アプリでのブロッキング防止により、イベントループの応答性が向上
+- スレッドプールによる並行処理で、複数の読み書き操作が同時実行可能
+
 ### [1.0.3rc6] - 2025-12-10
 
 #### 追加
@@ -81,6 +102,27 @@
 ---
 
 ## English
+
+### [1.0.3rc7] - 2025-12-10
+
+#### Added
+- **Async Support (AsyncNanaSQLite)**: Complete async interface for async applications
+  - `AsyncNanaSQLite` class: Provides async versions of all operations
+  - Uses `asyncio.to_thread()` to prevent blocking
+  - Safe to use with async frameworks like FastAPI, aiohttp
+  - Async dict-like interface: `await db.aget()`, `await db.aset()`, `await db.adelete()`
+  - Async batch operations: `await db.batch_update()`, `await db.batch_delete()`
+  - Async SQL execution: `await db.execute()`, `await db.query()`
+  - Async context manager: `async with AsyncNanaSQLite(...) as db:`
+  - Concurrent operations support: Multiple async operations can run concurrently
+- **Comprehensive test suite**: 100+ async test cases
+  - Basic operations, concurrency, error handling, performance tests
+  - All tests passing
+- **Full backward compatibility**: Existing `NanaSQLite` class unchanged
+
+#### Performance Improvements
+- Prevents blocking in async apps, improving event loop responsiveness
+- Thread pool enables concurrent execution of multiple read/write operations
 
 ### [1.0.3rc6] - 2025-12-10
 
