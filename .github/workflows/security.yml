@@ -3,6 +3,7 @@ name: Security Scan
 on:
   push:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   schedule:
     # 毎週月曜 9:00 JST (0:00 UTC)
     - cron: '0 0 * * 1'
