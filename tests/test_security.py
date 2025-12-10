@@ -17,7 +17,8 @@ def db():
     database.close()
     try:
         os.unlink(path)
-    except:
+    except OSError:
+        # Ignore errors during cleanup; file may already be deleted or locked.
         pass
 
 

@@ -666,7 +666,20 @@ class NanaSQLite:
             columns_sql = "*"
             # カラム名は後でPRAGMAから取得
         else:
-            safe_columns = [self._sanitize_identifier(col) for col in columns]
+            # Allow complex column expressions (functions, aliases) with validation
+            safe_columns = []
+            for col in columns:
+                # Accept simple identifiers, or expressions like COUNT(*), MAX(age), etc.
+                # Allow: alphanumeric, underscore, *, spaces, parentheses, commas, periods, AS clauses
+                # Disallow dangerous patterns: semicolon, --, /*, */, DROP, DELETE, INSERT, UPDATE, etc.
+                if re.match(r'^[\w\*\s\(\),\.]+(?:\s+as\s+\w+)?$', col, re.IGNORECASE):
+                    # Additional check: block SQL keywords that could be dangerous
+                    if not re.search(r'(;|--|/\*|\*/|DROP|DELETE|INSERT|UPDATE|ALTER|CREATE)\s', col, re.IGNORECASE):
+                        safe_columns.append(col)
+                    else:
+                        raise ValueError(f"Invalid or dangerous column expression: {col}")
+                else:
+                    raise ValueError(f"Invalid column expression: {col}")
             columns_sql = ", ".join(safe_columns)
         
         # Validate limit is an integer and non-negative if provided
@@ -684,7 +697,8 @@ class NanaSQLite:
         
         if order_by:
             # Validate order_by to prevent SQL injection
-            if not re.match(r'^[\w\s,]+(\s+(ASC|DESC))?(\s*,\s*[\w\s]+(\s+(ASC|DESC))?)*$', order_by, re.IGNORECASE):
+            # Use atomic group to prevent backtracking
+            if not re.match(r'^(?:[\w\s]+(?:\s+(?:ASC|DESC))?(?:\s*,\s*)?)+$', order_by, re.IGNORECASE):
                 raise ValueError(f"Invalid order_by clause: {order_by}")
             sql += f" ORDER BY {order_by}"
         
@@ -700,7 +714,16 @@ class NanaSQLite:
             pragma_cursor = self.execute(f"PRAGMA table_info({safe_table_name})")
             col_names = [row[1] for row in pragma_cursor]
         else:
-            col_names = columns
+            # Extract aliases from AS clauses, similar to query_with_pagination
+            col_names = []
+            for col in columns:
+                parts = re.split(r'\s+as\s+', col, flags=re.IGNORECASE)
+                if len(parts) > 1:
+                    # Use the alias (after AS)
+                    col_names.append(parts[-1].strip().strip('"').strip("'"))
+                else:
+                    # Use the column expression as-is
+                    col_names.append(col.strip())
         
         # 結果をdictのリストに変換
         results = []
@@ -801,10 +824,11 @@ class NanaSQLite:
         
         sql = f"ALTER TABLE {safe_table_name} ADD COLUMN {safe_column_name} {column_type}"
         if default is not None:
-            # For default values, if it's a string, ensure it's properly quoted
+            # For default values, if it's a string, ensure it's properly quoted and escaped
             if isinstance(default, str):
                 if not default.startswith("'"):
-                    default = f"'{default}'"
+                    # Escape single quotes for SQL string literal
+                    default = f"'{default.replace(\"'\", \"''\")}'"
             sql += f" DEFAULT {default}"
         self.execute(sql)
     
@@ -1001,6 +1025,9 @@ class NanaSQLite:
                 sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders}) "
                 sql += f"ON CONFLICT({conflict_cols_sql}) DO NOTHING"
                 self.execute(sql, tuple(values))
+                # When DO NOTHING is triggered, no row is inserted, return 0
+                if self._connection.total_changes == 0 or self._connection.changes() == 0:
+                    return 0
                 return self.get_last_insert_rowid()
             
             sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders}) "
@@ -1147,8 +1174,8 @@ class NanaSQLite:
         
         if order_by:
             # Validate order_by to prevent SQL injection
-            # Allow column names, spaces, commas, ASC, DESC only
-            if not re.match(r'^[\w\s,]+(\s+(ASC|DESC))?(\s*,\s*[\w\s]+(\s+(ASC|DESC))?)*$', order_by, re.IGNORECASE):
+            # Use atomic group to prevent backtracking
+            if not re.match(r'^(?:[\w\s]+(?:\s+(?:ASC|DESC))?(?:\s*,\s*)?)+$', order_by, re.IGNORECASE):
                 raise ValueError(f"Invalid order_by clause: {order_by}")
             sql += f" ORDER BY {order_by}"
         
