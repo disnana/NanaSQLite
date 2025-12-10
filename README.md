@@ -71,6 +71,68 @@ with NanaSQLite("mydata.db") as db:
 - [English Documentation](docs/en/README.md)
 - [API Reference](docs/en/reference.md)
 
+### ✨ New Features (v1.0.3rc3+)
+
+**Pydantic Support:**
+```python
+from pydantic import BaseModel
+
+class User(BaseModel):
+    name: str
+    age: int
+
+db.set_model("user", User(name="Nana", age=20))
+user = db.get_model("user", User)
+```
+
+**Direct SQL Execution:**
+```python
+# Execute custom SQL
+cursor = db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
+rows = db.fetch_all("SELECT key, value FROM data")
+```
+
+**SQLite Wrapper Functions:**
+```python
+# Create tables and indexes easily
+db.create_table("users", {
+    "id": "INTEGER PRIMARY KEY",
+    "name": "TEXT NOT NULL",
+    "email": "TEXT UNIQUE"
+})
+db.create_index("idx_users_email", "users", ["email"])
+
+# Simple queries
+results = db.query(table_name="users", where="age > ?", parameters=(20,))
+```
+
+### ✨ Additional Features (v1.0.3rc4+)
+
+**22 new wrapper functions for comprehensive SQLite operations:**
+
+```python
+# Data operations
+rowid = db.sql_insert("users", {"name": "Alice", "age": 25})
+db.sql_update("users", {"age": 26}, "name = ?", ("Alice",))
+db.upsert("users", {"id": 1, "name": "Alice", "age": 25})
+total = db.count("users", "age >= ?", (18,))
+
+# Query extensions (pagination, grouping)
+page2 = db.query_with_pagination("users", limit=10, offset=10)
+stats = db.query_with_pagination("orders", 
+    columns=["user_id", "COUNT(*) as count"], group_by="user_id")
+
+# Schema management
+db.alter_table_add_column("users", "phone", "TEXT")
+schema = db.get_table_schema("users")
+db.drop_table("old_table", if_exists=True)
+
+# Utilities & transactions
+db.vacuum()  # Optimize database
+with db.transaction():
+    db.sql_insert("logs", {"message": "Event"})
+```
+
 ---
 
 ## 日本語
@@ -132,6 +194,41 @@ with NanaSQLite("mydata.db") as db:
 
 - [日本語ドキュメント](docs/ja/README.md)
 - [APIリファレンス](docs/ja/reference.md)
+
+### ✨ 新機能 (v1.0.3rc3+)
+
+**Pydantic互換性:**
+```python
+from pydantic import BaseModel
+
+class User(BaseModel):
+    name: str
+    age: int
+
+db.set_model("user", User(name="Nana", age=20))
+user = db.get_model("user", User)
+```
+
+**直接SQL実行:**
+```python
+# カスタムSQLの実行
+cursor = db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
+rows = db.fetch_all("SELECT key, value FROM data")
+```
+
+**SQLiteラッパー関数:**
+```python
+# テーブルとインデックスを簡単に作成
+db.create_table("users", {
+    "id": "INTEGER PRIMARY KEY",
+    "name": "TEXT NOT NULL",
+    "email": "TEXT UNIQUE"
+})
+db.create_index("idx_users_email", "users", ["email"])
+
+# シンプルなクエリ
+results = db.query(table_name="users", where="age > ?", parameters=(20,))
+```
 
 ---
 
