@@ -583,17 +583,21 @@ class NanaSQLite:
             ... }, primary_key="id")
         """
         if_not_exists_clause = "IF NOT EXISTS " if if_not_exists else ""
+        safe_table_name = self._sanitize_identifier(table_name)
         
         column_defs = []
         for col_name, col_type in columns.items():
-            column_defs.append(f"{col_name} {col_type}")
+            safe_col_name = self._sanitize_identifier(col_name)
+            column_defs.append(f"{safe_col_name} {col_type}")
         
-        if primary_key and not any(primary_key.upper() in col.upper() and "PRIMARY KEY" in col.upper() 
-                                   for col in column_defs):
-            column_defs.append(f"PRIMARY KEY ({primary_key})")
+        if primary_key:
+            safe_pk = self._sanitize_identifier(primary_key)
+            if not any(primary_key.upper() in col.upper() and "PRIMARY KEY" in col.upper() 
+                                       for col in column_defs):
+                column_defs.append(f"PRIMARY KEY ({safe_pk})")
         
         columns_sql = ", ".join(column_defs)
-        sql = f"CREATE TABLE {if_not_exists_clause}{table_name} ({columns_sql})"
+        sql = f"CREATE TABLE {if_not_exists_clause}{safe_table_name} ({columns_sql})"
         
         self.execute(sql)
     
@@ -615,9 +619,12 @@ class NanaSQLite:
         """
         unique_clause = "UNIQUE " if unique else ""
         if_not_exists_clause = "IF NOT EXISTS " if if_not_exists else ""
-        columns_sql = ", ".join(columns)
+        safe_index_name = self._sanitize_identifier(index_name)
+        safe_table_name = self._sanitize_identifier(table_name)
+        safe_columns = [self._sanitize_identifier(col) for col in columns]
+        columns_sql = ", ".join(safe_columns)
         
-        sql = f"CREATE {unique_clause}INDEX {if_not_exists_clause}{index_name} ON {table_name} ({columns_sql})"
+        sql = f"CREATE {unique_clause}INDEX {if_not_exists_clause}{safe_index_name} ON {safe_table_name} ({columns_sql})"
         self.execute(sql)
     
     def query(self, table_name: str = None, columns: List[str] = None,
@@ -654,14 +661,23 @@ class NanaSQLite:
         if table_name is None:
             table_name = self._table
         
+        safe_table_name = self._sanitize_identifier(table_name)
+        
         # カラム指定
         if columns is None:
             columns_sql = "*"
+            # カラム名は後でPRAGMAから取得
+            safe_columns = None
         else:
-            columns_sql = ", ".join(columns)
+            safe_columns = [self._sanitize_identifier(col) for col in columns]
+            columns_sql = ", ".join(safe_columns)
+        
+        # Validate limit is an integer if provided
+        if limit is not None and not isinstance(limit, int):
+            raise ValueError(f"limit must be an integer, got {type(limit).__name__}")
         
         # SQL構築
-        sql = f"SELECT {columns_sql} FROM {table_name}"
+        sql = f"SELECT {columns_sql} FROM {safe_table_name}"
         
         if where:
             sql += f" WHERE {where}"
@@ -678,7 +694,7 @@ class NanaSQLite:
         # カラム名取得
         if columns is None:
             # 全カラムの場合、テーブル情報から取得
-            pragma_cursor = self.execute(f"PRAGMA table_info({table_name})")
+            pragma_cursor = self.execute(f"PRAGMA table_info({safe_table_name})")
             col_names = [row[1] for row in pragma_cursor]
         else:
             col_names = columns
@@ -739,7 +755,8 @@ class NanaSQLite:
             >>> db.drop_table("temp", if_exists=True)
         """
         if_exists_clause = "IF EXISTS " if if_exists else ""
-        sql = f"DROP TABLE {if_exists_clause}{table_name}"
+        safe_table_name = self._sanitize_identifier(table_name)
+        sql = f"DROP TABLE {if_exists_clause}{safe_table_name}"
         self.execute(sql)
     
     def drop_index(self, index_name: str, if_exists: bool = True) -> None:
@@ -754,7 +771,8 @@ class NanaSQLite:
             >>> db.drop_index("idx_users_email")
         """
         if_exists_clause = "IF EXISTS " if if_exists else ""
-        sql = f"DROP INDEX {if_exists_clause}{index_name}"
+        safe_index_name = self._sanitize_identifier(index_name)
+        sql = f"DROP INDEX {if_exists_clause}{safe_index_name}"
         self.execute(sql)
     
     def alter_table_add_column(self, table_name: str, column_name: str, 
@@ -772,8 +790,18 @@ class NanaSQLite:
             >>> db.alter_table_add_column("users", "phone", "TEXT")
             >>> db.alter_table_add_column("users", "status", "TEXT", default="'active'")
         """
-        sql = f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
+        safe_table_name = self._sanitize_identifier(table_name)
+        safe_column_name = self._sanitize_identifier(column_name)
+        # column_type is a SQL type string, not an identifier, so we validate it differently
+        if not re.match(r'^[A-Z]+(\s+(NOT\s+NULL|UNIQUE|PRIMARY\s+KEY))*$', column_type.upper()):
+            raise ValueError(f"Invalid column type: {column_type}")
+        
+        sql = f"ALTER TABLE {safe_table_name} ADD COLUMN {safe_column_name} {column_type}"
         if default is not None:
+            # For default values, if it's a string, ensure it's properly quoted
+            if isinstance(default, str):
+                if not default.startswith("'"):
+                    default = f"'{default}'"
             sql += f" DEFAULT {default}"
         self.execute(sql)
     
@@ -792,7 +820,8 @@ class NanaSQLite:
             >>> for col in schema:
             ...     print(f"{col['name']}: {col['type']}")
         """
-        cursor = self.execute(f"PRAGMA table_info({table_name})")
+        safe_table_name = self._sanitize_identifier(table_name)
+        cursor = self.execute(f"PRAGMA table_info({safe_table_name})")
         columns = []
         for row in cursor:
             columns.append({
@@ -860,12 +889,13 @@ class NanaSQLite:
             ...     "age": 25
             ... })
         """
-        columns = list(data.keys())
+        safe_table_name = self._sanitize_identifier(table_name)
+        safe_columns = [self._sanitize_identifier(col) for col in data.keys()]
         values = list(data.values())
         placeholders = ", ".join(["?"] * len(values))
-        columns_sql = ", ".join(columns)
+        columns_sql = ", ".join(safe_columns)
         
-        sql = f"INSERT INTO {table_name} ({columns_sql}) VALUES ({placeholders})"
+        sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders})"
         self.execute(sql, tuple(values))
         
         return self.get_last_insert_rowid()
@@ -891,11 +921,12 @@ class NanaSQLite:
             ...     ("Alice",)
             ... )
         """
-        set_items = [f"{col} = ?" for col in data.keys()]
-        set_clause = ", ".join(set_items)
+        safe_table_name = self._sanitize_identifier(table_name)
+        safe_set_items = [f"{self._sanitize_identifier(col)} = ?" for col in data.keys()]
+        set_clause = ", ".join(safe_set_items)
         values = list(data.values())
         
-        sql = f"UPDATE {table_name} SET {set_clause} WHERE {where}"
+        sql = f"UPDATE {safe_table_name} SET {set_clause} WHERE {where}"
         
         if parameters:
             values.extend(parameters)
@@ -918,7 +949,8 @@ class NanaSQLite:
         Example:
             >>> count = db.sql_delete("users", "age < ?", (18,))
         """
-        sql = f"DELETE FROM {table_name} WHERE {where}"
+        safe_table_name = self._sanitize_identifier(table_name)
+        sql = f"DELETE FROM {safe_table_name} WHERE {where}"
         self.execute(sql, parameters)
         return self._connection.changes()
     
@@ -945,30 +977,34 @@ class NanaSQLite:
             ...     conflict_columns=["email"]
             ... )
         """
-        columns = list(data.keys())
+        safe_table_name = self._sanitize_identifier(table_name)
+        safe_columns = [self._sanitize_identifier(col) for col in data.keys()]
         values = list(data.values())
         placeholders = ", ".join(["?"] * len(values))
-        columns_sql = ", ".join(columns)
+        columns_sql = ", ".join(safe_columns)
         
         if conflict_columns:
             # ON CONFLICT を使用
-            conflict_cols = ", ".join(conflict_columns)
-            update_items = [f"{col} = excluded.{col}" for col in columns if col not in conflict_columns]
+            safe_conflict_cols = [self._sanitize_identifier(col) for col in conflict_columns]
+            conflict_cols_sql = ", ".join(safe_conflict_cols)
+            
+            update_items = [f"{self._sanitize_identifier(col)} = excluded.{self._sanitize_identifier(col)}" 
+                           for col in data.keys() if col not in conflict_columns]
             
             if update_items:
                 update_clause = ", ".join(update_items)
             else:
                 # 全カラムが競合カラムの場合は、何もしない（既存データを保持）
-                sql = f"INSERT INTO {table_name} ({columns_sql}) VALUES ({placeholders}) "
-                sql += f"ON CONFLICT({conflict_cols}) DO NOTHING"
+                sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders}) "
+                sql += f"ON CONFLICT({conflict_cols_sql}) DO NOTHING"
                 self.execute(sql, tuple(values))
                 return self.get_last_insert_rowid()
             
-            sql = f"INSERT INTO {table_name} ({columns_sql}) VALUES ({placeholders}) "
-            sql += f"ON CONFLICT({conflict_cols}) DO UPDATE SET {update_clause}"
+            sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders}) "
+            sql += f"ON CONFLICT({conflict_cols_sql}) DO UPDATE SET {update_clause}"
         else:
             # INSERT OR REPLACE
-            sql = f"INSERT OR REPLACE INTO {table_name} ({columns_sql}) VALUES ({placeholders})"
+            sql = f"INSERT OR REPLACE INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders})"
         
         self.execute(sql, tuple(values))
         return self.get_last_insert_rowid()
@@ -993,7 +1029,9 @@ class NanaSQLite:
         if table_name is None:
             table_name = self._table
         
-        sql = f"SELECT COUNT(*) FROM {table_name}"
+        safe_table_name = self._sanitize_identifier(table_name)
+        
+        sql = f"SELECT COUNT(*) FROM {safe_table_name}"
         if where:
             sql += f" WHERE {where}"
         
@@ -1016,7 +1054,8 @@ class NanaSQLite:
             >>> if db.exists("users", "email = ?", ("alice@example.com",)):
             ...     print("User exists")
         """
-        sql = f"SELECT EXISTS(SELECT 1 FROM {table_name} WHERE {where})"
+        safe_table_name = self._sanitize_identifier(table_name)
+        sql = f"SELECT EXISTS(SELECT 1 FROM {safe_table_name} WHERE {where})"
         cursor = self.execute(sql, parameters)
         return bool(cursor.fetchone()[0])
     
@@ -1056,14 +1095,34 @@ class NanaSQLite:
         if table_name is None:
             table_name = self._table
         
+        safe_table_name = self._sanitize_identifier(table_name)
+        
+        # Validate limit and offset are integers if provided
+        if limit is not None and not isinstance(limit, int):
+            raise ValueError(f"limit must be an integer, got {type(limit).__name__}")
+        if offset is not None and not isinstance(offset, int):
+            raise ValueError(f"offset must be an integer, got {type(offset).__name__}")
+        
         # カラム指定
         if columns is None:
             columns_sql = "*"
+            safe_columns = None
         else:
-            columns_sql = ", ".join(columns)
+            # For columns with aggregation functions or AS clauses, we keep the original
+            # but sanitize the column names that are simple identifiers
+            safe_column_list = []
+            for col in columns:
+                # Check if it's a simple identifier
+                if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', col.strip()):
+                    safe_column_list.append(self._sanitize_identifier(col.strip()))
+                else:
+                    # Contains functions, AS clauses, or other SQL - use as is
+                    # This is acceptable for columns in SELECT as they don't affect identifiers
+                    safe_column_list.append(col)
+            columns_sql = ", ".join(safe_column_list)
         
         # SQL構築
-        sql = f"SELECT {columns_sql} FROM {table_name}"
+        sql = f"SELECT {columns_sql} FROM {safe_table_name}"
         
         if where:
             sql += f" WHERE {where}"
@@ -1085,7 +1144,7 @@ class NanaSQLite:
         
         # カラム名取得
         if columns is None:
-            pragma_cursor = self.execute(f"PRAGMA table_info({table_name})")
+            pragma_cursor = self.execute(f"PRAGMA table_info({safe_table_name})")
             col_names = [row[1] for row in pragma_cursor]
         else:
             # カラム名からAS句を考慮（case-insensitive）
@@ -1167,11 +1226,14 @@ class NanaSQLite:
         if not data_list:
             return 0
         
+        safe_table_name = self._sanitize_identifier(table_name)
+        
         # 最初のdictからカラム名を取得
         columns = list(data_list[0].keys())
+        safe_columns = [self._sanitize_identifier(col) for col in columns]
         placeholders = ", ".join(["?"] * len(columns))
-        columns_sql = ", ".join(columns)
-        sql = f"INSERT INTO {table_name} ({columns_sql}) VALUES ({placeholders})"
+        columns_sql = ", ".join(safe_columns)
+        sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders})"
         
         # 各dictから値を抽出
         parameters_list = []
@@ -1213,11 +1275,26 @@ class NanaSQLite:
             >>> # 設定
             >>> db.pragma("foreign_keys", 1)
         """
+        # Whitelist of allowed PRAGMA commands for security
+        ALLOWED_PRAGMAS = {
+            'foreign_keys', 'journal_mode', 'synchronous', 'cache_size',
+            'temp_store', 'locking_mode', 'auto_vacuum', 'page_size',
+            'encoding', 'user_version', 'schema_version', 'wal_autocheckpoint',
+            'busy_timeout', 'query_only', 'recursive_triggers', 'secure_delete',
+            'table_info', 'index_list', 'index_info', 'database_list'
+        }
+        
+        if pragma_name not in ALLOWED_PRAGMAS:
+            raise ValueError(f"PRAGMA '{pragma_name}' is not allowed. Allowed: {', '.join(sorted(ALLOWED_PRAGMAS))}")
+        
         if value is None:
             cursor = self.execute(f"PRAGMA {pragma_name}")
             result = cursor.fetchone()
             return result[0] if result else None
         else:
+            # Validate value is safe (int, float, or simple string)
+            if not isinstance(value, (int, float, str)):
+                raise ValueError(f"PRAGMA value must be int, float, or str, got {type(value).__name__}")
             self.execute(f"PRAGMA {pragma_name} = {value}")
             return None
     

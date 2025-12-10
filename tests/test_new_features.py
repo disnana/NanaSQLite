@@ -18,14 +18,10 @@ from nanasqlite import NanaSQLite
 
 # Pydanticが利用可能かチェック
 try:
-    import pydantic
     from pydantic import BaseModel, Field
     PYDANTIC_AVAILABLE = True
 except ImportError:
     PYDANTIC_AVAILABLE = False
-    pydantic = None  # type: ignore
-    BaseModel = None  # type: ignore
-    Field = None  # type: ignore
 
 
 # ==================== Fixtures ====================
