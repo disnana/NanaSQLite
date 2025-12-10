@@ -1,0 +1,270 @@
+# 非同期サポート クイックガイド
+
+## なぜ非同期が必要なのか？
+
+従来の同期版`NanaSQLite`は、データベース操作が完了するまで処理をブロックします。これは通常のPythonアプリケーションでは問題ありませんが、以下のような非同期アプリケーションでは問題になります：
+
+- **FastAPI, Quart, Sanic**: 非同期Webフレームワーク
+- **aiohttp**: 非同期HTTPクライアント/サーバー
+- **Discord.py, Telegram Bot API**: 非同期ボット
+- **その他asyncioベースのアプリケーション**
+
+これらのアプリケーションでは、ブロッキング操作がイベントループを停止させ、全体のパフォーマンスを低下させます。
+
+## AsyncNanaSQLiteの解決策
+
+`AsyncNanaSQLite`は、すべてのデータベース操作をスレッドプールで実行することで、イベントループをブロックしません。
+
+```python
+# ❌ 同期版（非同期アプリでブロッキング発生）
+from nanasqlite import NanaSQLite
+db = NanaSQLite("app.db")
+user = db["user"]  # イベントループをブロック！
+
+# ✅ 非同期版（ブロッキングなし）
+from nanasqlite import AsyncNanaSQLite
+async with AsyncNanaSQLite("app.db") as db:
+    user = await db.aget("user")  # イベントループをブロックしない
+```
+
+## 基本的な使い方
+
+### 1. インポートと初期化
+
+```python
+import asyncio
+from nanasqlite import AsyncNanaSQLite
+
+async def main():
+    # コンテキストマネージャを使用（推奨）
+    async with AsyncNanaSQLite("mydata.db") as db:
+        # データベース操作
+        await db.aset("key", "value")
+        value = await db.aget("key")
+        print(value)
+
+asyncio.run(main())
+```
+
+### 2. CRUD操作
+
+```python
+async with AsyncNanaSQLite("mydata.db") as db:
+    # Create
+    await db.aset("user_1", {"name": "Alice", "age": 25})
+    
+    # Read
+    user = await db.aget("user_1")
+    
+    # Update
+    user["age"] = 26
+    await db.aset("user_1", user)
+    
+    # Delete
+    await db.adelete("user_1")
+```
+
+### 3. バッチ操作
+
+大量のデータを扱う場合は、バッチ操作が高速です：
+
+```python
+async with AsyncNanaSQLite("mydata.db") as db:
+    # バッチ書き込み
+    data = {f"user_{i}": {"name": f"User{i}"} for i in range(1000)}
+    await db.batch_update(data)
+    
+    # バッチ削除
+    keys = [f"user_{i}" for i in range(500)]
+    await db.batch_delete(keys)
+```
+
+### 4. 並行操作
+
+複数の操作を同時に実行：
+
+```python
+import asyncio
+
+async with AsyncNanaSQLite("mydata.db") as db:
+    # 並行読み込み
+    users = await asyncio.gather(
+        db.aget("user_1"),
+        db.aget("user_2"),
+        db.aget("user_3")
+    )
+```
+
+## Webフレームワークでの使用
+
+### FastAPIの例
+
+```python
+from fastapi import FastAPI
+from nanasqlite import AsyncNanaSQLite
+
+app = FastAPI()
+
+# アプリケーション起動時にデータベース初期化
+@app.on_event("startup")
+async def startup():
+    app.state.db = AsyncNanaSQLite("app.db")
+
+@app.on_event("shutdown")
+async def shutdown():
+    await app.state.db.close()
+
+# エンドポイント
+@app.get("/users/{user_id}")
+async def get_user(user_id: str):
+    user = await app.state.db.aget(f"user_{user_id}")
+    if user is None:
+        return {"error": "User not found"}
+    return user
+
+@app.post("/users")
+async def create_user(user: dict):
+    await app.state.db.aset(f"user_{user['id']}", user)
+    return {"status": "created", "id": user['id']}
+```
+
+### Quartsの例
+
+```python
+from quart import Quart, request, jsonify
+from nanasqlite import AsyncNanaSQLite
+
+app = Quart(__name__)
+db = None
+
+@app.before_serving
+async def startup():
+    global db
+    db = AsyncNanaSQLite("app.db")
+
+@app.after_serving
+async def shutdown():
+    await db.close()
+
+@app.route("/users/<user_id>")
+async def get_user(user_id):
+    user = await db.aget(f"user_{user_id}")
+    return jsonify(user)
+```
+
+## SQL操作
+
+非同期でSQLも実行可能：
+
+```python
+async with AsyncNanaSQLite("mydata.db") as db:
+    # テーブル作成
+    await db.create_table("users", {
+        "id": "INTEGER PRIMARY KEY",
+        "name": "TEXT",
+        "email": "TEXT UNIQUE"
+    })
+    
+    # データ挿入
+    await db.sql_insert("users", {
+        "name": "Alice",
+        "email": "alice@example.com"
+    })
+    
+    # クエリ実行
+    users = await db.query(
+        table_name="users",
+        where="name LIKE ?",
+        parameters=("A%",)
+    )
+```
+
+## パフォーマンスのヒント
+
+### 1. バッチ操作を使用
+
+```python
+# ❌ 遅い（1000回のDB操作）
+for i in range(1000):
+    await db.aset(f"key_{i}", f"value_{i}")
+
+# ✅ 速い（1回のトランザクション）
+data = {f"key_{i}": f"value_{i}" for i in range(1000)}
+await db.batch_update(data)
+```
+
+### 2. 並行操作を活用
+
+```python
+# ❌ 順次実行（遅い）
+user1 = await db.aget("user_1")
+user2 = await db.aget("user_2")
+user3 = await db.aget("user_3")
+
+# ✅ 並行実行（速い）
+users = await asyncio.gather(
+    db.aget("user_1"),
+    db.aget("user_2"),
+    db.aget("user_3")
+)
+```
+
+### 3. bulk_loadを適切に使用
+
+頻繁にアクセスするデータがある場合：
+
+```python
+# 起動時に全データをロード
+db = AsyncNanaSQLite("mydata.db", bulk_load=True)
+```
+
+## 同期版との使い分け
+
+| 使用ケース | 推奨クラス |
+|----------|----------|
+| FastAPI, aiohttp等の非同期フレームワーク | `AsyncNanaSQLite` |
+| Discord.py, Telegram Bot等の非同期ボット | `AsyncNanaSQLite` |
+| 通常のPythonスクリプト | `NanaSQLite` |
+| Django（同期フレームワーク） | `NanaSQLite` |
+| コマンドラインツール | `NanaSQLite` |
+
+## トラブルシューティング
+
+### RuntimeError: Event loop is closed
+
+コンテキストマネージャを使用してください：
+
+```python
+# ❌ 手動クローズ（エラーになる可能性）
+db = AsyncNanaSQLite("app.db")
+await db.aset("key", "value")
+await db.close()
+
+# ✅ コンテキストマネージャ（推奨）
+async with AsyncNanaSQLite("app.db") as db:
+    await db.aset("key", "value")
+```
+
+### 既存の同期コードを非同期に移行
+
+メソッド名の対応表：
+
+| 同期版 | 非同期版 |
+|-------|---------|
+| `db[key]` または `db.get(key)` | `await db.aget(key)` |
+| `db[key] = value` | `await db.aset(key, value)` |
+| `del db[key]` | `await db.adelete(key)` |
+| `key in db` | `await db.acontains(key)` |
+| `len(db)` | `await db.alen()` |
+| `db.keys()` | `await db.akeys()` |
+| `db.batch_update(data)` | `await db.batch_update(data)` |
+
+## まとめ
+
+- `AsyncNanaSQLite`は非同期アプリケーションでのブロッキングを防ぐ
+- すべての操作は`await`が必要
+- 並行操作で高速化が可能
+- FastAPI等の非同期フレームワークに最適
+- 同期版との互換性を保ちながら使用可能
+
+詳細な使用例は[async_demo.py](../../examples/async_demo.py)を参照してください。
