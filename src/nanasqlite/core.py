@@ -697,8 +697,8 @@ class NanaSQLite:
         
         if order_by:
             # Validate order_by to prevent SQL injection
-            # Use simple pattern without nested quantifiers to prevent backtracking
-            if not re.match(r'^[a-zA-Z0-9_\s,]+(?:\s+(?:ASC|DESC))?(?:\s*,\s*[a-zA-Z0-9_\s]+(?:\s+(?:ASC|DESC))?)*$', order_by, re.IGNORECASE):
+            # Use alternation pattern to prevent any backtracking
+            if not re.match(r'^[a-zA-Z0-9_\s,]+(?:\s+ASC|\s+DESC)?(?:\s*,\s*[a-zA-Z0-9_\s]+(?:\s+ASC|\s+DESC)?)*$', order_by, re.IGNORECASE):
                 raise ValueError(f"Invalid order_by clause: {order_by}")
             sql += f" ORDER BY {order_by}"
         
@@ -827,10 +827,13 @@ class NanaSQLite:
         if default is not None:
             # For default values, if it's a string, ensure it's properly quoted and escaped
             if isinstance(default, str):
-                if not default.startswith("'"):
-                    # Escape single quotes for SQL string literal (double them: ' becomes '')
-                    escaped_default = default.replace("'", "''")
-                    default = f"'{escaped_default}'"
+                # Strip leading/trailing single quotes if present, then escape and re-quote
+                stripped = default
+                if stripped.startswith("'") and stripped.endswith("'") and len(stripped) >= 2:
+                    stripped = stripped[1:-1]
+                # Escape single quotes for SQL string literal (double them: ' becomes '')
+                escaped_default = stripped.replace("'", "''")
+                default = f"'{escaped_default}'"
             sql += f" DEFAULT {default}"
         self.execute(sql)
     
@@ -1028,7 +1031,8 @@ class NanaSQLite:
                 sql += f"ON CONFLICT({conflict_cols_sql}) DO NOTHING"
                 self.execute(sql, tuple(values))
                 # When DO NOTHING is triggered, no row is inserted, return 0
-                if self._connection.total_changes == 0 or self._connection.changes() == 0:
+                # Check only the most recent operation's change count
+                if self._connection.changes() == 0:
                     return 0
                 return self.get_last_insert_rowid()
             
@@ -1176,8 +1180,8 @@ class NanaSQLite:
         
         if order_by:
             # Validate order_by to prevent SQL injection
-            # Use simple pattern without nested quantifiers to prevent backtracking
-            if not re.match(r'^[a-zA-Z0-9_\s,]+(?:\s+(?:ASC|DESC))?(?:\s*,\s*[a-zA-Z0-9_\s]+(?:\s+(?:ASC|DESC))?)*$', order_by, re.IGNORECASE):
+            # Use alternation pattern to prevent any backtracking
+            if not re.match(r'^[a-zA-Z0-9_\s,]+(?:\s+ASC|\s+DESC)?(?:\s*,\s*[a-zA-Z0-9_\s]+(?:\s+ASC|\s+DESC)?)*$', order_by, re.IGNORECASE):
                 raise ValueError(f"Invalid order_by clause: {order_by}")
             sql += f" ORDER BY {order_by}"
         
