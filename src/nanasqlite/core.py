@@ -697,8 +697,8 @@ class NanaSQLite:
         
         if order_by:
             # Validate order_by to prevent SQL injection
-            # Use atomic group to prevent backtracking
-            if not re.match(r'^(?:[\w\s]+(?:\s+(?:ASC|DESC))?(?:\s*,\s*)?)+$', order_by, re.IGNORECASE):
+            # Use simple pattern without nested quantifiers to prevent backtracking
+            if not re.match(r'^[a-zA-Z0-9_\s,]+(?:\s+(?:ASC|DESC))?(?:\s*,\s*[a-zA-Z0-9_\s]+(?:\s+(?:ASC|DESC))?)*$', order_by, re.IGNORECASE):
                 raise ValueError(f"Invalid order_by clause: {order_by}")
             sql += f" ORDER BY {order_by}"
         
@@ -819,7 +819,8 @@ class NanaSQLite:
         safe_table_name = self._sanitize_identifier(table_name)
         safe_column_name = self._sanitize_identifier(column_name)
         # column_type is a SQL type string - validate it doesn't contain dangerous characters
-        if any(c in column_type for c in [";", "'"]) or "--" in column_type or "/*" in column_type:
+        # Also check for closing parenthesis which could break out of ALTER TABLE structure
+        if any(c in column_type for c in [";", "'", ")"]) or "--" in column_type or "/*" in column_type:
             raise ValueError(f"Invalid or dangerous column type: {column_type}")
         
         sql = f"ALTER TABLE {safe_table_name} ADD COLUMN {safe_column_name} {column_type}"
@@ -828,7 +829,8 @@ class NanaSQLite:
             if isinstance(default, str):
                 if not default.startswith("'"):
                     # Escape single quotes for SQL string literal (double them: ' becomes '')
-                    default = "'" + default.replace("'", "''") + "'"
+                    escaped_default = default.replace("'", "''")
+                    default = f"'{escaped_default}'"
             sql += f" DEFAULT {default}"
         self.execute(sql)
     
@@ -1174,8 +1176,8 @@ class NanaSQLite:
         
         if order_by:
             # Validate order_by to prevent SQL injection
-            # Use atomic group to prevent backtracking
-            if not re.match(r'^(?:[\w\s]+(?:\s+(?:ASC|DESC))?(?:\s*,\s*)?)+$', order_by, re.IGNORECASE):
+            # Use simple pattern without nested quantifiers to prevent backtracking
+            if not re.match(r'^[a-zA-Z0-9_\s,]+(?:\s+(?:ASC|DESC))?(?:\s*,\s*[a-zA-Z0-9_\s]+(?:\s+(?:ASC|DESC))?)*$', order_by, re.IGNORECASE):
                 raise ValueError(f"Invalid order_by clause: {order_by}")
             sql += f" ORDER BY {order_by}"
         
