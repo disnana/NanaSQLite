@@ -696,10 +696,13 @@ class NanaSQLite:
             sql += f" WHERE {where}"
         
         if order_by:
-            # Validate order_by to prevent SQL injection
-            # Use alternation pattern to prevent any backtracking
-            if not re.match(r'^[a-zA-Z0-9_\s,]+(?:\s+ASC|\s+DESC)?(?:\s*,\s*[a-zA-Z0-9_\s]+(?:\s+ASC|\s+DESC)?)*$', order_by, re.IGNORECASE):
-                raise ValueError(f"Invalid order_by clause: {order_by}")
+            # Validate order_by to prevent SQL injection and ReDoS
+            # Split by comma and validate each part separately (O(n) complexity, no backtracking)
+            order_parts = [part.strip() for part in order_by.split(',')]
+            for part in order_parts:
+                # Each part should be: column_name [ASC|DESC]
+                if not re.match(r'^[a-zA-Z0-9_]+(?:\s+(?:ASC|DESC))?$', part, re.IGNORECASE):
+                    raise ValueError(f"Invalid order_by clause: {order_by}")
             sql += f" ORDER BY {order_by}"
         
         if limit:
@@ -1179,10 +1182,13 @@ class NanaSQLite:
             sql += f" GROUP BY {group_by}"
         
         if order_by:
-            # Validate order_by to prevent SQL injection
-            # Use alternation pattern to prevent any backtracking
-            if not re.match(r'^[a-zA-Z0-9_\s,]+(?:\s+ASC|\s+DESC)?(?:\s*,\s*[a-zA-Z0-9_\s]+(?:\s+ASC|\s+DESC)?)*$', order_by, re.IGNORECASE):
-                raise ValueError(f"Invalid order_by clause: {order_by}")
+            # Validate order_by to prevent SQL injection and ReDoS
+            # Split by comma and validate each part separately (O(n) complexity, no backtracking)
+            order_parts = [part.strip() for part in order_by.split(',')]
+            for part in order_parts:
+                # Each part should be: column_name [ASC|DESC]
+                if not re.match(r'^[a-zA-Z0-9_]+(?:\s+(?:ASC|DESC))?$', part, re.IGNORECASE):
+                    raise ValueError(f"Invalid order_by clause: {order_by}")
             sql += f" ORDER BY {order_by}"
         
         if limit:
