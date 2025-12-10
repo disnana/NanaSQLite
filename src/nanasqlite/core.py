@@ -518,7 +518,7 @@ class NanaSQLite(MutableMapping):
             for parameters in parameters_list:
                 cursor.execute(sql, parameters)
             cursor.execute("COMMIT")
-        except Exception:
+        except apsw.Error:
             cursor.execute("ROLLBACK")
             raise
     
@@ -701,10 +701,20 @@ class NanaSQLite(MutableMapping):
             sql += f" WHERE {where}"
         
         if order_by:
+<<<<<<< HEAD
             # Validate order_by to prevent SQL injection
             # Use possessive-style pattern to prevent exponential backtracking
             if not re.match(r'^[a-zA-Z0-9_]+([ ]+(?:ASC|DESC))?([ ]*,[ ]*[a-zA-Z0-9_]+([ ]+(?:ASC|DESC))?)*$', order_by, re.IGNORECASE):
                 raise ValueError(f"Invalid order_by clause: {order_by}")
+=======
+            # Validate order_by to prevent SQL injection and ReDoS
+            # Split by comma and validate each part separately (O(n) complexity, no backtracking)
+            order_parts = [part.strip() for part in order_by.split(',')]
+            for part in order_parts:
+                # Each part should be: column_name [ASC|DESC]
+                if not re.match(r'^[a-zA-Z0-9_]+(?:\s+(?:ASC|DESC))?$', part, re.IGNORECASE):
+                    raise ValueError(f"Invalid order_by clause: {order_by}")
+>>>>>>> main
             sql += f" ORDER BY {order_by}"
         
         if limit:
@@ -1164,8 +1174,8 @@ class NanaSQLite(MutableMapping):
                     safe_column_list.append(self._sanitize_identifier(col.strip()))
                 else:
                     # Contains functions, AS clauses, or other SQL
-                    # Validate for dangerous patterns to prevent SQL injection
-                    if any(dangerous in col.upper() for dangerous in [';', '--', '/*', '*/', 'DROP ', 'DELETE ', 'INSERT ', 'UPDATE ', 'ALTER ', 'CREATE ']):
+                    # Validate for dangerous patterns to prevent SQL injection (consistent with query())
+                    if re.search(r'(;|--|/\*|\*/)|\b(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE)\b', col, re.IGNORECASE):
                         raise ValueError(f"Potentially dangerous SQL pattern in column: {col}")
                     safe_column_list.append(col)
             columns_sql = ", ".join(safe_column_list)
@@ -1184,10 +1194,20 @@ class NanaSQLite(MutableMapping):
             sql += f" GROUP BY {group_by}"
         
         if order_by:
+<<<<<<< HEAD
             # Validate order_by to prevent SQL injection
             # Use possessive-style pattern to prevent exponential backtracking
             if not re.match(r'^[a-zA-Z0-9_]+([ ]+(?:ASC|DESC))?([ ]*,[ ]*[a-zA-Z0-9_]+([ ]+(?:ASC|DESC))?)*$', order_by, re.IGNORECASE):
                 raise ValueError(f"Invalid order_by clause: {order_by}")
+=======
+            # Validate order_by to prevent SQL injection and ReDoS
+            # Split by comma and validate each part separately (O(n) complexity, no backtracking)
+            order_parts = [part.strip() for part in order_by.split(',')]
+            for part in order_parts:
+                # Each part should be: column_name [ASC|DESC]
+                if not re.match(r'^[a-zA-Z0-9_]+(?:\s+(?:ASC|DESC))?$', part, re.IGNORECASE):
+                    raise ValueError(f"Invalid order_by clause: {order_by}")
+>>>>>>> main
             sql += f" ORDER BY {order_by}"
         
         if limit:
