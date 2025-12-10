@@ -667,7 +667,6 @@ class NanaSQLite:
         if columns is None:
             columns_sql = "*"
             # カラム名は後でPRAGMAから取得
-            safe_columns = None
         else:
             safe_columns = [self._sanitize_identifier(col) for col in columns]
             columns_sql = ", ".join(safe_columns)
@@ -792,9 +791,9 @@ class NanaSQLite:
         """
         safe_table_name = self._sanitize_identifier(table_name)
         safe_column_name = self._sanitize_identifier(column_name)
-        # column_type is a SQL type string, not an identifier, so we validate it differently
-        if not re.match(r'^[A-Z]+(\s+(NOT\s+NULL|UNIQUE|PRIMARY\s+KEY))*$', column_type.upper()):
-            raise ValueError(f"Invalid column type: {column_type}")
+        # column_type is a SQL type string - validate it doesn't contain dangerous characters
+        if any(c in column_type for c in [";", "'"]) or "--" in column_type or "/*" in column_type:
+            raise ValueError(f"Invalid or dangerous column type: {column_type}")
         
         sql = f"ALTER TABLE {safe_table_name} ADD COLUMN {safe_column_name} {column_type}"
         if default is not None:
@@ -1106,7 +1105,6 @@ class NanaSQLite:
         # カラム指定
         if columns is None:
             columns_sql = "*"
-            safe_columns = None
         else:
             # For columns with aggregation functions or AS clauses, we keep the original
             # but sanitize the column names that are simple identifiers
@@ -1128,9 +1126,17 @@ class NanaSQLite:
             sql += f" WHERE {where}"
         
         if group_by:
+            # Validate group_by to prevent SQL injection
+            # Allow column names, spaces, commas only
+            if not re.match(r'^[\w\s,]+$', group_by):
+                raise ValueError(f"Invalid group_by clause: {group_by}")
             sql += f" GROUP BY {group_by}"
         
         if order_by:
+            # Validate order_by to prevent SQL injection
+            # Allow column names, spaces, commas, ASC, DESC only
+            if not re.match(r'^[\w\s,]+(\s+(ASC|DESC))?(\s*,\s*[\w\s]+(\s+(ASC|DESC))?)*$', order_by, re.IGNORECASE):
+                raise ValueError(f"Invalid order_by clause: {order_by}")
             sql += f" ORDER BY {order_by}"
         
         if limit:
@@ -1252,7 +1258,7 @@ class NanaSQLite:
             最後に挿入されたROWID
         
         Example:
-            >>> db.insert("users", {"name": "Alice"})
+            >>> db.sql_insert("users", {"name": "Alice"})
             >>> rowid = db.get_last_insert_rowid()
         """
         return self._connection.last_insert_rowid()
@@ -1295,7 +1301,17 @@ class NanaSQLite:
             # Validate value is safe (int, float, or simple string)
             if not isinstance(value, (int, float, str)):
                 raise ValueError(f"PRAGMA value must be int, float, or str, got {type(value).__name__}")
-            self.execute(f"PRAGMA {pragma_name} = {value}")
+            
+            # For string values, validate to prevent SQL injection
+            if isinstance(value, str):
+                # Only allow alphanumeric, underscore, dash, and dots for string values
+                if not re.match(r'^[\w\-\.]+$', value):
+                    raise ValueError("PRAGMA string value must contain only alphanumeric, underscore, dash, or dot characters")
+                value_str = f"'{value}'"
+            else:
+                value_str = str(value)
+            
+            self.execute(f"PRAGMA {pragma_name} = {value_str}")
             return None
     
     # ==================== Transaction Control ====================
@@ -1307,8 +1323,8 @@ class NanaSQLite:
         Example:
             >>> db.begin_transaction()
             >>> try:
-            ...     db.insert("users", {"name": "Alice"})
-            ...     db.insert("users", {"name": "Bob"})
+            ...     db.sql_insert("users", {"name": "Alice"})
+            ...     db.sql_insert("users", {"name": "Bob"})
             ...     db.commit()
             ... except:
             ...     db.rollback()
@@ -1333,8 +1349,8 @@ class NanaSQLite:
         
         Example:
             >>> with db.transaction():
-            ...     db.insert("users", {"name": "Alice"})
-            ...     db.insert("users", {"name": "Bob"})
+            ...     db.sql_insert("users", {"name": "Alice"})
+            ...     db.sql_insert("users", {"name": "Bob"})
             ...     # 自動的にコミット、例外時はロールバック
         """
         return _TransactionContext(self)
