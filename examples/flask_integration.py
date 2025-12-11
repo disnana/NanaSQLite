@@ -8,7 +8,7 @@ for a simple blog API.
 
 from flask import Flask, request, jsonify, abort
 from nanasqlite import NanaSQLite
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 
@@ -80,8 +80,8 @@ def create_post():
         "content": data['content'],
         "author": data.get('author', 'Anonymous'),
         "tags": data.get('tags', []),
-        "created_at": datetime.utcnow().isoformat(),
-        "updated_at": datetime.utcnow().isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
     }
     
     db[f"post_{post_id}"] = post_data
@@ -115,7 +115,7 @@ def update_post(post_id):
     if 'tags' in data:
         post['tags'] = data['tags']
     
-    post['updated_at'] = datetime.utcnow().isoformat()
+    post['updated_at'] = datetime.now(timezone.utc).isoformat()
     
     db = get_db()
     db[f"post_{post_id}"] = post
