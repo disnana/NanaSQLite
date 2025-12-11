@@ -11,13 +11,15 @@
 #### 追加
 - **非同期サポート（AsyncNanaSQLite）**: 非同期アプリケーション向けの完全な非同期インターフェース
   - `AsyncNanaSQLite`クラス: 全操作の非同期版を提供
-  - `asyncio.to_thread()`を使用してブロッキングを防止
+  - **専用スレッドプールエグゼキューター**: 設定可能なmax_workers（デフォルト5）で最適化
+  - `ThreadPoolExecutor`による高性能な並行処理
   - FastAPI、aiohttp等の非同期フレームワークで安全に使用可能
   - 非同期dict風インターフェース: `await db.aget()`, `await db.aset()`, `await db.adelete()`
   - 非同期バッチ操作: `await db.batch_update()`, `await db.batch_delete()`
   - 非同期SQL実行: `await db.execute()`, `await db.query()`
   - 非同期コンテキストマネージャ: `async with AsyncNanaSQLite(...) as db:`
   - 並行処理サポート: 複数の非同期操作を並行実行可能
+  - 自動リソース管理: スレッドプールの自動クリーンアップ
 - **包括的なテストスイート**: 100以上の非同期テストケース
   - 基本操作、並行処理、エラーハンドリング、パフォーマンステスト
   - 全テストが合格
@@ -25,7 +27,9 @@
 
 #### パフォーマンス改善
 - 非同期アプリでのブロッキング防止により、イベントループの応答性が向上
-- スレッドプールによる並行処理で、複数の読み書き操作が同時実行可能
+- 専用スレッドプールによる高効率な並行処理（設定可能なワーカー数）
+- APSW + スレッドプールの組み合わせで最適なパフォーマンス
+- 高負荷環境向けにmax_workersを調整可能（5～50）
 
 ### [1.0.3rc6] - 2025-12-10
 
@@ -108,13 +112,15 @@
 #### Added
 - **Async Support (AsyncNanaSQLite)**: Complete async interface for async applications
   - `AsyncNanaSQLite` class: Provides async versions of all operations
-  - Uses `asyncio.to_thread()` to prevent blocking
+  - **Dedicated ThreadPoolExecutor**: Configurable max_workers (default 5) for optimization
+  - High-performance concurrent processing with `ThreadPoolExecutor`
   - Safe to use with async frameworks like FastAPI, aiohttp
   - Async dict-like interface: `await db.aget()`, `await db.aset()`, `await db.adelete()`
   - Async batch operations: `await db.batch_update()`, `await db.batch_delete()`
   - Async SQL execution: `await db.execute()`, `await db.query()`
   - Async context manager: `async with AsyncNanaSQLite(...) as db:`
   - Concurrent operations support: Multiple async operations can run concurrently
+  - Automatic resource management: Thread pool auto-cleanup
 - **Comprehensive test suite**: 100+ async test cases
   - Basic operations, concurrency, error handling, performance tests
   - All tests passing
@@ -122,7 +128,9 @@
 
 #### Performance Improvements
 - Prevents blocking in async apps, improving event loop responsiveness
-- Thread pool enables concurrent execution of multiple read/write operations
+- Dedicated thread pool enables highly efficient concurrent processing (configurable workers)
+- Optimal performance with APSW + thread pool combination
+- Tunable max_workers for high-load environments (5-50)
 
 ### [1.0.3rc6] - 2025-12-10
 

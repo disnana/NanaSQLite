@@ -20,6 +20,7 @@ Example:
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Type, Union
 from collections.abc import MutableMapping
 
@@ -28,11 +29,14 @@ from .core import NanaSQLite
 
 class AsyncNanaSQLite:
     """
-    Async wrapper for NanaSQLite.
+    Async wrapper for NanaSQLite with optimized thread pool executor.
     
-    All database operations are executed in a thread pool executor to prevent
+    All database operations are executed in a dedicated thread pool executor to prevent
     blocking the async event loop. This allows NanaSQLite to be used safely
     in async applications like FastAPI, aiohttp, etc.
+    
+    The implementation uses a configurable thread pool for optimal concurrency
+    and performance in high-load scenarios.
     
     Args:
         db_path: SQLiteデータベースファイルのパス
@@ -40,13 +44,19 @@ class AsyncNanaSQLite:
         bulk_load: Trueの場合、初期化時に全データをメモリに読み込む
         optimize: Trueの場合、WALモードなど高速化設定を適用
         cache_size_mb: SQLiteキャッシュサイズ（MB）、デフォルト64MB
-        executor: カスタムExecutor（Noneの場合はデフォルトのスレッドプール使用）
+        max_workers: スレッドプール内の最大ワーカー数（デフォルト: 5）
+        thread_name_prefix: スレッド名のプレフィックス（デフォルト: "AsyncNanaSQLite"）
     
     Example:
         >>> async with AsyncNanaSQLite("mydata.db") as db:
         ...     await db.aset("config", {"theme": "dark"})
         ...     config = await db.aget("config")
         ...     print(config)
+        
+        >>> # 高負荷環境向けの設定
+        >>> async with AsyncNanaSQLite("mydata.db", max_workers=10) as db:
+        ...     # 並行処理が多い場合に最適化
+        ...     results = await asyncio.gather(*[db.aget(f"key_{i}") for i in range(100)])
     """
     
     def __init__(
@@ -56,7 +66,8 @@ class AsyncNanaSQLite:
         bulk_load: bool = False,
         optimize: bool = True,
         cache_size_mb: int = 64,
-        executor: Optional[Any] = None
+        max_workers: int = 5,
+        thread_name_prefix: str = "AsyncNanaSQLite"
     ):
         """
         Args:
@@ -65,16 +76,25 @@ class AsyncNanaSQLite:
             bulk_load: Trueの場合、初期化時に全データをメモリに読み込む
             optimize: Trueの場合、WALモードなど高速化設定を適用
             cache_size_mb: SQLiteキャッシュサイズ（MB）、デフォルト64MB
-            executor: カスタムExecutor（Noneの場合はデフォルトのスレッドプール使用）
+            max_workers: スレッドプール内の最大ワーカー数（デフォルト: 5）
+            thread_name_prefix: スレッド名のプレフィックス（デフォルト: "AsyncNanaSQLite"）
         """
         self._db_path = db_path
         self._table = table
         self._bulk_load = bulk_load
         self._optimize = optimize
         self._cache_size_mb = cache_size_mb
-        self._executor = executor
+        self._max_workers = max_workers
+        self._thread_name_prefix = thread_name_prefix
+        
+        # 専用スレッドプールエグゼキューターを作成
+        self._executor = ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix=thread_name_prefix
+        )
         self._db: Optional[NanaSQLite] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._owns_executor = True  # このインスタンスがエグゼキューターを所有
     
     async def _ensure_initialized(self) -> None:
         """Ensure the underlying sync database is initialized"""
@@ -950,6 +970,8 @@ class AsyncNanaSQLite:
         """
         非同期でデータベース接続を閉じる
         
+        スレッドプールエグゼキューターもシャットダウンします。
+        
         Example:
             >>> await db.close()
         """
@@ -960,11 +982,16 @@ class AsyncNanaSQLite:
                 self._db.close
             )
             self._db = None
+        
+        # 所有しているエグゼキューターをシャットダウン
+        if self._owns_executor and self._executor is not None:
+            self._executor.shutdown(wait=True)
+            self._executor = None
     
     def __repr__(self) -> str:
         if self._db is not None:
-            return f"AsyncNanaSQLite({self._db_path!r}, table={self._table!r}, initialized=True)"
-        return f"AsyncNanaSQLite({self._db_path!r}, table={self._table!r}, initialized=False)"
+            return f"AsyncNanaSQLite({self._db_path!r}, table={self._table!r}, max_workers={self._max_workers}, initialized=True)"
+        return f"AsyncNanaSQLite({self._db_path!r}, table={self._table!r}, max_workers={self._max_workers}, initialized=False)"
     
     # ==================== Sync DB Access (for advanced use) ====================
     

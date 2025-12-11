@@ -13,7 +13,14 @@
 
 ## AsyncNanaSQLiteの解決策
 
-`AsyncNanaSQLite`は、すべてのデータベース操作をスレッドプールで実行することで、イベントループをブロックしません。
+`AsyncNanaSQLite`は、専用の**スレッドプールエグゼキューター**を使用してすべてのデータベース操作を実行することで、イベントループをブロックしません。
+
+### 主な特徴
+
+- **専用スレッドプール**: 設定可能なワーカー数（デフォルト5）
+- **高性能**: APSWベースで最適化
+- **並行処理**: 複数の操作を同時に実行可能
+- **リソース管理**: 自動的にスレッドプールをクリーンアップ
 
 ```python
 # ❌ 同期版（非同期アプリでブロッキング発生）
@@ -21,9 +28,9 @@ from nanasqlite import NanaSQLite
 db = NanaSQLite("app.db")
 user = db["user"]  # イベントループをブロック！
 
-# ✅ 非同期版（ブロッキングなし）
+# ✅ 非同期版（ブロッキングなし、スレッドプール使用）
 from nanasqlite import AsyncNanaSQLite
-async with AsyncNanaSQLite("app.db") as db:
+async with AsyncNanaSQLite("app.db", max_workers=10) as db:
     user = await db.aget("user")  # イベントループをブロックしない
 ```
 
@@ -37,7 +44,8 @@ from nanasqlite import AsyncNanaSQLite
 
 async def main():
     # コンテキストマネージャを使用（推奨）
-    async with AsyncNanaSQLite("mydata.db") as db:
+    # max_workers: 並行処理数に応じて調整
+    async with AsyncNanaSQLite("mydata.db", max_workers=5) as db:
         # データベース操作
         await db.aset("key", "value")
         value = await db.aget("key")
@@ -45,6 +53,15 @@ async def main():
 
 asyncio.run(main())
 ```
+
+### スレッドプール設定のガイドライン
+
+| シナリオ | 推奨max_workers | 理由 |
+|---------|----------------|------|
+| 低負荷（数個の同時接続） | 3-5 | リソース節約 |
+| 中負荷（数十の同時接続） | 5-10 | バランス型 |
+| 高負荷（100+の同時接続） | 10-20 | 高並行性 |
+| 超高負荷（1000+の同時接続） | 20-50 | 最大パフォーマンス |
 
 ### 2. CRUD操作
 
@@ -181,7 +198,27 @@ async with AsyncNanaSQLite("mydata.db") as db:
 
 ## パフォーマンスのヒント
 
-### 1. バッチ操作を使用
+### 1. スレッドプールの最適化
+
+負荷に応じてmax_workersを調整：
+
+```python
+# 低負荷アプリケーション（デフォルト）
+async with AsyncNanaSQLite("mydata.db") as db:
+    pass
+
+# 高負荷アプリケーション（並行接続が多い）
+async with AsyncNanaSQLite("mydata.db", max_workers=20) as db:
+    # 100個の並行操作を効率的に処理
+    results = await asyncio.gather(*[db.aget(f"key_{i}") for i in range(100)])
+```
+
+**推奨設定:**
+- **開発環境**: max_workers=5（デフォルト）
+- **本番環境（中規模）**: max_workers=10-15
+- **本番環境（大規模）**: max_workers=20-50
+
+### 2. バッチ操作を使用
 
 ```python
 # ❌ 遅い（1000回のDB操作）
@@ -193,7 +230,7 @@ data = {f"key_{i}": f"value_{i}" for i in range(1000)}
 await db.batch_update(data)
 ```
 
-### 2. 並行操作を活用
+### 3. 並行操作を活用
 
 ```python
 # ❌ 順次実行（遅い）
@@ -201,7 +238,7 @@ user1 = await db.aget("user_1")
 user2 = await db.aget("user_2")
 user3 = await db.aget("user_3")
 
-# ✅ 並行実行（速い）
+# ✅ 並行実行（速い、スレッドプールで処理）
 users = await asyncio.gather(
     db.aget("user_1"),
     db.aget("user_2"),
@@ -209,13 +246,35 @@ users = await asyncio.gather(
 )
 ```
 
-### 3. bulk_loadを適切に使用
+### 4. bulk_loadを適切に使用
 
 頻繁にアクセスするデータがある場合：
 
 ```python
-# 起動時に全データをロード
-db = AsyncNanaSQLite("mydata.db", bulk_load=True)
+# 起動時に全データをロード（読み込み重視）
+db = AsyncNanaSQLite("mydata.db", bulk_load=True, max_workers=10)
+```
+
+### 5. 接続とスレッドプールの再利用
+
+```python
+# ❌ 毎回新しいインスタンスを作成（遅い）
+async def handler():
+    async with AsyncNanaSQLite("app.db") as db:
+        return await db.aget("data")
+
+# ✅ インスタンスを再利用（速い）
+db = None
+
+async def startup():
+    global db
+    db = AsyncNanaSQLite("app.db", max_workers=15)
+
+async def handler():
+    return await db.aget("data")
+
+async def shutdown():
+    await db.close()  # スレッドプールも自動クリーンアップ
 ```
 
 ## 同期版との使い分け

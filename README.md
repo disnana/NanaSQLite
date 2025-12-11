@@ -135,15 +135,15 @@ with db.transaction():
 
 ### ✨ Async Support (v1.0.3rc7+)
 
-**Full async/await support for non-blocking operations in async applications:**
+**Full async/await support with optimized thread pool for high-performance non-blocking operations:**
 
 ```python
 import asyncio
 from nanasqlite import AsyncNanaSQLite
 
 async def main():
-    # Use async context manager
-    async with AsyncNanaSQLite("mydata.db") as db:
+    # Use async context manager with optimized thread pool
+    async with AsyncNanaSQLite("mydata.db", max_workers=10) as db:
         # Async dict-like operations
         await db.aset("user", {"name": "Nana", "age": 20})
         user = await db.aget("user")
@@ -156,7 +156,7 @@ async def main():
             "key3": {"nested": "data"}
         })
         
-        # Concurrent operations
+        # Concurrent operations (high-performance with thread pool)
         results = await asyncio.gather(
             db.aget("key1"),
             db.aget("key2"),
@@ -174,6 +174,12 @@ async def main():
 
 asyncio.run(main())
 ```
+
+**Performance optimizations:**
+- Dedicated thread pool executor (configurable with `max_workers`)
+- APSW-based for maximum SQLite performance
+- WAL mode and connection optimizations
+- Ideal for high-concurrency scenarios
 
 **Perfect for async frameworks:**
 - FastAPI, Quart, Sanic (async web frameworks)
@@ -280,15 +286,15 @@ results = db.query(table_name="users", where="age > ?", parameters=(20,))
 
 ### ✨ 非同期サポート (v1.0.3rc7+)
 
-**非同期アプリケーションでのブロッキングなし操作のための完全な async/await サポート:**
+**高速化されたスレッドプールによる完全な async/await サポート:**
 
 ```python
 import asyncio
 from nanasqlite import AsyncNanaSQLite
 
 async def main():
-    # 非同期コンテキストマネージャを使用
-    async with AsyncNanaSQLite("mydata.db") as db:
+    # 最適化されたスレッドプールで非同期コンテキストマネージャを使用
+    async with AsyncNanaSQLite("mydata.db", max_workers=10) as db:
         # 非同期dict風操作
         await db.aset("user", {"name": "Nana", "age": 20})
         user = await db.aget("user")
@@ -301,7 +307,7 @@ async def main():
             "key3": {"nested": "data"}
         })
         
-        # 並行操作
+        # 並行操作（スレッドプールにより高性能）
         results = await asyncio.gather(
             db.aget("key1"),
             db.aget("key2"),
@@ -319,6 +325,12 @@ async def main():
 
 asyncio.run(main())
 ```
+
+**パフォーマンス最適化:**
+- 専用スレッドプールエグゼキューター（`max_workers`で設定可能）
+- 高性能なAPSWベース
+- WALモードと接続最適化
+- 高並行性シナリオに最適
 
 **非同期フレームワークに最適:**
 - FastAPI, Quart, Sanic（非同期Webフレームワーク）
