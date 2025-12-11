@@ -26,9 +26,8 @@ def get_db():
 # Cleanup on app shutdown
 @app.teardown_appcontext
 def close_db(error):
-    """Close database on app context teardown"""
-    if hasattr(app, 'database'):
-        app.database.close()
+    """Cleanup on app context teardown (no database close)"""
+    pass
 
 
 # Helper functions
