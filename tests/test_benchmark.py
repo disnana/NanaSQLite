@@ -77,13 +77,16 @@ class TestWriteBenchmarks:
         """バッチ書き込み（100件）"""
         from nanasqlite import NanaSQLite
         
+        db = NanaSQLite(db_path)
+        counter = [0]
+        
         def batch_write():
-            database = NanaSQLite(db_path)
-            data = {f"batch_{i}": {"index": i} for i in range(100)}
-            database.batch_update(data)
-            database.close()
+            data = {f"batch_{counter[0]}_{i}": {"index": i} for i in range(100)}
+            db.batch_update(data)
+            counter[0] += 1
         
         benchmark(batch_write)
+        db.close()
 
 
 # ==================== Read Benchmarks ====================
@@ -321,15 +324,18 @@ class TestDDLOperationsBenchmarks:
         """create_index()インデックス作成"""
         from nanasqlite import NanaSQLite
         
+        db = NanaSQLite(db_path)
+        db.create_table("idx_create_test", {"id": "INTEGER", "name": "TEXT"})
         counter = [0]
+        
         def create_idx():
-            db = NanaSQLite(db_path)
-            db.create_table(f"test_{counter[0]}", {"id": "INTEGER", "name": "TEXT"})
-            db.create_index(f"idx_{counter[0]}", f"test_{counter[0]}", ["name"])
+            idx_name = f"idx_{counter[0]}"
+            db.create_index(idx_name, "idx_create_test", ["name"], if_not_exists=True)
+            db.drop_index(idx_name)  # 次のラウンドのために削除
             counter[0] += 1
-            db.close()
         
         benchmark(create_idx)
+        db.close()
     
     def test_drop_table(self, benchmark, db_path):
         """drop_table()テーブル削除"""
@@ -368,16 +374,17 @@ class TestDDLOperationsBenchmarks:
         """alter_table_add_column()カラム追加"""
         from nanasqlite import NanaSQLite
         
+        db = NanaSQLite(db_path)
         counter = [0]
+        
         def add_col():
-            db = NanaSQLite(db_path)
             table_name = f"alter_test_{counter[0]}"
             db.create_table(table_name, {"id": "INTEGER"})
             db.alter_table_add_column(table_name, "new_col", "TEXT")
             counter[0] += 1
-            db.close()
         
         benchmark(add_col)
+        db.close()
     
     def test_sql_delete(self, benchmark, db_path):
         """sql_delete()行削除"""
@@ -386,14 +393,18 @@ class TestDDLOperationsBenchmarks:
         db = NanaSQLite(db_path)
         db.create_table("delete_test", {"id": "INTEGER", "name": "TEXT"})
         
-        # データ準備: 各ラウンドで追加
+        # 事前にデータを準備
+        for i in range(10000):
+            db.sql_insert("delete_test", {"id": i, "name": f"User{i}"})
+        
         counter = [0]
-        def setup_and_delete():
-            db.sql_insert("delete_test", {"id": counter[0], "name": f"User{counter[0]}"})
-            db.sql_delete("delete_test", "id = ?", (counter[0],))
+        def delete_op():
+            db.sql_delete("delete_test", "id = ?", (counter[0] % 10000,))
+            # 削除したデータを再挿入して次のラウンドに備える
+            db.sql_insert("delete_test", {"id": counter[0] % 10000, "name": f"User{counter[0]}"})
             counter[0] += 1
         
-        benchmark(setup_and_delete)
+        benchmark(delete_op)
         db.close()
 
 
@@ -546,32 +557,39 @@ class TestUtilityOperationsBenchmarks:
         """batch_delete()一括削除"""
         from nanasqlite import NanaSQLite
         
+        db = NanaSQLite(db_path)
         counter = [0]
+        
         def batch_delete_op():
-            db = NanaSQLite(db_path)
             # データ作成
             keys = [f"batch_del_{counter[0]}_{i}" for i in range(100)]
             db.batch_update({k: {"value": i} for i, k in enumerate(keys)})
             # 一括削除
             db.batch_delete(keys)
             counter[0] += 1
-            db.close()
         
         benchmark(batch_delete_op)
+        db.close()
     
     def test_vacuum(self, benchmark, db_path):
         """vacuum()最適化"""
         from nanasqlite import NanaSQLite
         
         db = NanaSQLite(db_path)
-        # データを追加して削除
+        # データを追加して削除（断片化を発生させる）
         for i in range(100):
             db[f"vac_key_{i}"] = {"data": "x" * 100}
-        for i in range(100):
+        for i in range(50):  # 半分だけ削除して断片化を維持
             del db[f"vac_key_{i}"]
         
+        counter = [0]
         def vacuum_op():
+            # 各ラウンドでデータを追加・削除して断片化を維持
+            db[f"vac_extra_{counter[0]}"] = {"data": "y" * 100}
+            if counter[0] > 0:
+                del db[f"vac_extra_{counter[0] - 1}"]
             db.vacuum()
+            counter[0] += 1
         
         benchmark(vacuum_op)
         db.close()
@@ -638,31 +656,35 @@ class TestUtilityOperationsBenchmarks:
         """execute_many()一括SQL実行"""
         from nanasqlite import NanaSQLite
         
+        db = NanaSQLite(db_path)
+        db.create_table("exec_many_test", {"id": "INTEGER", "value": "TEXT"})
         counter = [0]
+        
         def execute_many_op():
-            db = NanaSQLite(db_path)
-            db.create_table(f"exec_many_{counter[0]}", {"id": "INTEGER", "value": "TEXT"})
-            params = [(i, f"val{i}") for i in range(100)]
-            db.execute_many(f"INSERT INTO exec_many_{counter[0]} (id, value) VALUES (?, ?)", params)
+            base = counter[0] * 100
+            params = [(base + i, f"val{i}") for i in range(100)]
+            db.execute_many("INSERT INTO exec_many_test (id, value) VALUES (?, ?)", params)
             counter[0] += 1
-            db.close()
         
         benchmark(execute_many_op)
+        db.close()
     
     def test_import_from_dict_list(self, benchmark, db_path):
         """import_from_dict_list()一括インポート"""
         from nanasqlite import NanaSQLite
         
+        db = NanaSQLite(db_path)
+        db.create_table("import_test", {"id": "INTEGER", "name": "TEXT", "age": "INTEGER"})
         counter = [0]
+        
         def import_op():
-            db = NanaSQLite(db_path)
-            db.create_table(f"import_test_{counter[0]}", {"id": "INTEGER", "name": "TEXT", "age": "INTEGER"})
-            data_list = [{"id": i, "name": f"User{i}", "age": i % 100} for i in range(100)]
-            db.import_from_dict_list(f"import_test_{counter[0]}", data_list)
+            base = counter[0] * 100
+            data_list = [{"id": base + i, "name": f"User{i}", "age": i % 100} for i in range(100)]
+            db.import_from_dict_list("import_test", data_list)
             counter[0] += 1
-            db.close()
         
         benchmark(import_op)
+        db.close()
 
 
 # ==================== Pydantic Operations Benchmarks ====================
