@@ -50,11 +50,12 @@ def list_posts():
     for key in db.keys():
         if key.startswith("post_"):
             post_id = key[5:]
-            post_data = db[key]
-            posts.append({
-                "id": post_id,
-                **post_data
-            })
+            post_data = db.get(key)
+            if post_data:
+                posts.append({
+                    "id": post_id,
+                    **post_data
+                })
     
     # Sort by created_at (newest first)
     posts.sort(key=lambda x: x.get("created_at", ""), reverse=True)
@@ -103,7 +104,9 @@ def search_posts():
     for key in db.keys():
         if key.startswith("post_"):
             post_id = key[5:]
-            post = db[key]
+            post = db.get(key)
+            if not post:
+                continue
             
             # Search by tag
             if tag and tag in [t.lower() for t in post.get('tags', [])]:
@@ -176,8 +179,9 @@ def get_stats():
     all_tags = set()
     for key in db.keys():
         if key.startswith("post_"):
-            post = db[key]
-            all_tags.update(post.get('tags', []))
+            post = db.get(key)
+            if post:
+                all_tags.update(post.get('tags', []))
     
     return jsonify({
         "total_posts": post_count,

@@ -156,8 +156,9 @@ def get_db():
 
 @app.teardown_appcontext
 def close_db(error):
-    if hasattr(app, 'database'):
-        app.database.close()
+    # Note: NanaSQLite doesn't require explicit closing in sync contexts
+    # The database connection is automatically managed
+    pass
 ```
 
 ## Best Practices

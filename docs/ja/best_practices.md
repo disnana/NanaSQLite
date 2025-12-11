@@ -167,7 +167,8 @@ cipher = Fernet(key)
 encrypted_api_key = cipher.encrypt(b"sk-1234567890abcdef")
 db["config"] = {
     "api_key": encrypted_api_key.decode(),
-    "password_hash": hash_password("mypassword123")
+    # セキュアなパスワードハッシュ化ライブラリを使用（例: bcrypt, passlib）
+    "password_hash": hash_password("mypassword123")  # 実際のハッシュ化関数に置き換えてください
 }
 ```
 
@@ -203,7 +204,8 @@ try:
     value = db["required_key"]
 except KeyError:
     logger.error("必須設定が欠落しています")
-    raise ConfigurationError("required_keyが欠落しています")
+    # ValueErrorを使用するか、独自のConfigurationError例外クラスを定義してください
+    raise ValueError("required_keyが欠落しています")
 ```
 
 ### データベースエラーの処理

@@ -167,7 +167,8 @@ cipher = Fernet(key)
 encrypted_api_key = cipher.encrypt(b"sk-1234567890abcdef")
 db["config"] = {
     "api_key": encrypted_api_key.decode(),
-    "password_hash": hash_password("mypassword123")
+    # Use a secure password hashing library (e.g., bcrypt, passlib)
+    "password_hash": hash_password("mypassword123")  # Replace with actual hashing function
 }
 ```
 
@@ -203,7 +204,8 @@ try:
     value = db["required_key"]
 except KeyError:
     logger.error("Required configuration missing")
-    raise ConfigurationError("Missing required_key")
+    # Use ValueError or define your own ConfigurationError exception class
+    raise ValueError("Missing required_key")
 ```
 
 ### Handle Database Errors

@@ -384,8 +384,8 @@ with NanaSQLite("cache.db") as db:
         # Cache is fresh (less than 1 hour old)
         data = cached["data"]
     else:
-        # Fetch fresh data
-        data = fetch_from_api()
+        # Fetch fresh data from your API
+        data = fetch_from_api()  # Replace with your actual API call
         db["api_response"] = {"data": data, "cached_at": time.time()}
 ```
 
