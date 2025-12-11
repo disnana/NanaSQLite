@@ -77,6 +77,9 @@ async def create_user(
     user_id = str(uuid.uuid4())
     
     # Check if email already exists
+    # Note: This is O(n) and inefficient for large datasets.
+    # For production, consider using an email index like:
+    # db["email_index_{email}"] = user_id
     all_users = await db.akeys()
     for key in all_users:
         if key.startswith("user_"):
@@ -144,6 +147,18 @@ async def update_user(
     user_data = await db.aget(f"user_{user_id}")
     if not user_data:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # Check email uniqueness if email is being updated
+    if user_update.email is not None and user_update.email != user_data.get("email"):
+        all_users = await db.akeys()
+        for key in all_users:
+            if key.startswith("user_") and key != f"user_{user_id}":
+                existing_user = await db.aget(key)
+                if existing_user and existing_user.get("email") == user_update.email:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Email already registered"
+                    )
     
     # Update fields
     if user_update.name is not None:

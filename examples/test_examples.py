@@ -163,8 +163,8 @@ async def test_fastapi_patterns():
             for key in all_users:
                 if key.startswith("user_"):
                     user = await db.aget(key)
-                    if user:
-                        emails.add(user.get("email"))
+                    assert user is not None, f"Data integrity error: key '{key}' exists but has no value"
+                    emails.add(user.get("email"))
             assert "alice@example.com" in emails
             print("  ✓ Duplicate email check")
             

@@ -88,6 +88,38 @@ def create_post():
     return jsonify({"id": post_id, **post_data}), 201
 
 
+@app.route('/posts/search', methods=['GET'])
+def search_posts():
+    """Search posts by tag or keyword"""
+    query = request.args.get('q', '').lower()
+    tag = request.args.get('tag', '').lower()
+    
+    if not query and not tag:
+        abort(400, description="Query parameter 'q' or 'tag' required")
+    
+    db = get_db()
+    results = []
+    
+    for key in db.keys():
+        if key.startswith("post_"):
+            post_id = key[5:]
+            post = db[key]
+            
+            # Search by tag
+            if tag and tag in [t.lower() for t in post.get('tags', [])]:
+                results.append({"id": post_id, **post})
+                continue
+            
+            # Search by keyword in title or content
+            if query:
+                title = post.get('title', '').lower()
+                content = post.get('content', '').lower()
+                if query in title or query in content:
+                    results.append({"id": post_id, **post})
+    
+    return jsonify(results)
+
+
 @app.route('/posts/<post_id>', methods=['GET'])
 def get_post_route(post_id):
     """Get a specific post"""
@@ -131,38 +163,6 @@ def delete_post(post_id):
     del db[f"post_{post_id}"]
     
     return '', 204
-
-
-@app.route('/posts/search', methods=['GET'])
-def search_posts():
-    """Search posts by tag or keyword"""
-    query = request.args.get('q', '').lower()
-    tag = request.args.get('tag', '').lower()
-    
-    if not query and not tag:
-        abort(400, description="Query parameter 'q' or 'tag' required")
-    
-    db = get_db()
-    results = []
-    
-    for key in db.keys():
-        if key.startswith("post_"):
-            post_id = key[5:]
-            post = db[key]
-            
-            # Search by tag
-            if tag and tag in [t.lower() for t in post.get('tags', [])]:
-                results.append({"id": post_id, **post})
-                continue
-            
-            # Search by keyword in title or content
-            if query:
-                title = post.get('title', '').lower()
-                content = post.get('content', '').lower()
-                if query in title or query in content:
-                    results.append({"id": post_id, **post})
-    
-    return jsonify(results)
 
 
 @app.route('/stats', methods=['GET'])

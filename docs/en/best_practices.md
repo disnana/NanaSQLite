@@ -67,23 +67,27 @@ db.batch_update(users)
 | 1000 writes | ~2000ms | ~15ms | 133x |
 | 10000 writes | ~20000ms | ~150ms | 133x |
 
-### Optimize Cache Size
+### Optimize SQLite Cache Size
+
+The `cache_size_mb` parameter controls SQLite's internal page cache (PRAGMA cache_size), not NanaSQLite's dictionary cache. This affects how many database pages SQLite keeps in memory for faster disk I/O.
 
 ```python
-# Default: 64MB cache (good for most cases)
+# Default: 64MB SQLite page cache (good for most cases)
 db = NanaSQLite("data.db")
 
-# Large datasets: increase cache
+# Large datasets: increase SQLite page cache
 db = NanaSQLite("large.db", cache_size_mb=256)
 
-# Memory-constrained: reduce cache
+# Memory-constrained: reduce SQLite page cache
 db = NanaSQLite("data.db", cache_size_mb=32)
 ```
 
 **Guidelines:**
-- **Small DB (<100MB)**: 32-64MB cache
-- **Medium DB (100MB-1GB)**: 128-256MB cache
-- **Large DB (>1GB)**: 256-512MB cache
+- **Small DB (<100MB)**: 32-64MB SQLite cache
+- **Medium DB (100MB-1GB)**: 128-256MB SQLite cache
+- **Large DB (>1GB)**: 256-512MB SQLite cache
+
+**Note:** This parameter does NOT affect the memory used by NanaSQLite's internal dictionary cache (`_data`), which stores loaded values in Python memory. To control that, use `bulk_load=False` (default) for lazy loading.
 
 ### Context Manager for Auto-Cleanup
 
