@@ -172,7 +172,7 @@ async def delete_user(
     
     # Delete user
     await db.adelete(f"user_{user_id}")
-    return None
+    return
 
 
 @app.get("/stats")
