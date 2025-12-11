@@ -119,18 +119,15 @@ async with AsyncNanaSQLite("mydata.db") as db:
 ```python
 from fastapi import FastAPI
 from nanasqlite import AsyncNanaSQLite
+from contextlib import asynccontextmanager
 
-app = FastAPI()
-
-# Initialize database on application startup
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app):
     app.state.db = AsyncNanaSQLite("app.db")
-
-@app.on_event("shutdown")
-async def shutdown():
+    yield
     await app.state.db.close()
 
+app = FastAPI(lifespan=lifespan)
 # Endpoints
 @app.get("/users/{user_id}")
 async def get_user(user_id: str):
