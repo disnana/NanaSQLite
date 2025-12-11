@@ -336,15 +336,13 @@ class TestDDLOperationsBenchmarks:
         from nanasqlite import NanaSQLite
         
         db = NanaSQLite(db_path)
-        # 事前に100個のテーブルを作成
-        for i in range(100):
-            db.create_table(f"drop_test_{i}", {"id": "INTEGER"})
-        
         counter = [0]
+        
         def drop_tbl():
-            if counter[0] < 100:
-                db.drop_table(f"drop_test_{counter[0]}")
-                counter[0] += 1
+            table_name = f"drop_test_{counter[0]}"
+            db.create_table(table_name, {"id": "INTEGER"})
+            db.drop_table(table_name)
+            counter[0] += 1
         
         benchmark(drop_tbl)
         db.close()
@@ -355,15 +353,13 @@ class TestDDLOperationsBenchmarks:
         
         db = NanaSQLite(db_path)
         db.create_table("idx_test", {"id": "INTEGER", "name": "TEXT"})
-        # 事前に100個のインデックスを作成
-        for i in range(100):
-            db.create_index(f"idx_drop_{i}", "idx_test", ["name"], if_not_exists=True)
-        
         counter = [0]
+        
         def drop_idx():
-            if counter[0] < 100:
-                db.drop_index(f"idx_drop_{counter[0]}")
-                counter[0] += 1
+            idx_name = f"idx_drop_{counter[0]}"
+            db.create_index(idx_name, "idx_test", ["name"], if_not_exists=True)
+            db.drop_index(idx_name)
+            counter[0] += 1
         
         benchmark(drop_idx)
         db.close()

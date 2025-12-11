@@ -675,21 +675,15 @@ class TestAsyncSchemaOperationsBenchmarks:
         """非同期テーブル削除"""
         from nanasqlite import AsyncNanaSQLite
         
-        # 事前にテーブル作成
-        async def setup():
-            async with AsyncNanaSQLite(db_path) as db:
-                for i in range(100):
-                    await db.create_table(f"drop_test_{i}", {"id": "INTEGER"})
-        run_async(setup())
-        
         counter = [0]
         
         def drop_table():
             async def _drop():
                 async with AsyncNanaSQLite(db_path) as db:
-                    if counter[0] < 100:
-                        await db.drop_table(f"drop_test_{counter[0]}")
-                        counter[0] += 1
+                    table_name = f"drop_test_{counter[0]}"
+                    await db.create_table(table_name, {"id": "INTEGER"})
+                    await db.drop_table(table_name)
+                    counter[0] += 1
             run_async(_drop())
         
         benchmark(drop_table)
