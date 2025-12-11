@@ -133,6 +133,60 @@ with db.transaction():
     db.sql_insert("logs", {"message": "Event"})
 ```
 
+### ✨ Async Support (v1.0.3rc7+)
+
+**Full async/await support with optimized thread pool for high-performance non-blocking operations:**
+
+```python
+import asyncio
+from nanasqlite import AsyncNanaSQLite
+
+async def main():
+    # Use async context manager with optimized thread pool
+    async with AsyncNanaSQLite("mydata.db", max_workers=10) as db:
+        # Async dict-like operations
+        await db.aset("user", {"name": "Nana", "age": 20})
+        user = await db.aget("user")
+        print(user)  # {'name': 'Nana', 'age': 20}
+        
+        # Async batch operations
+        await db.batch_update({
+            "key1": "value1",
+            "key2": "value2",
+            "key3": {"nested": "data"}
+        })
+        
+        # Concurrent operations (high-performance with thread pool)
+        results = await asyncio.gather(
+            db.aget("key1"),
+            db.aget("key2"),
+            db.aget("key3")
+        )
+        
+        # Async SQL execution
+        await db.create_table("users", {
+            "id": "INTEGER PRIMARY KEY",
+            "name": "TEXT",
+            "age": "INTEGER"
+        })
+        await db.sql_insert("users", {"name": "Alice", "age": 25})
+        users = await db.query("users", where="age > ?", parameters=(20,))
+
+asyncio.run(main())
+```
+
+**Performance optimizations:**
+- Dedicated thread pool executor (configurable with `max_workers`)
+- APSW-based for maximum SQLite performance
+- WAL mode and connection optimizations
+- Ideal for high-concurrency scenarios
+
+**Perfect for async frameworks:**
+- FastAPI, Quart, Sanic (async web frameworks)
+- aiohttp (async HTTP client/server)
+- Discord.py, Telegram bots (async bots)
+- Any asyncio-based application
+
 ---
 
 ## 日本語
@@ -229,6 +283,60 @@ db.create_index("idx_users_email", "users", ["email"])
 # シンプルなクエリ
 results = db.query(table_name="users", where="age > ?", parameters=(20,))
 ```
+
+### ✨ 非同期サポート (v1.0.3rc7+)
+
+**高速化されたスレッドプールによる完全な async/await サポート:**
+
+```python
+import asyncio
+from nanasqlite import AsyncNanaSQLite
+
+async def main():
+    # 最適化されたスレッドプールで非同期コンテキストマネージャを使用
+    async with AsyncNanaSQLite("mydata.db", max_workers=10) as db:
+        # 非同期dict風操作
+        await db.aset("user", {"name": "Nana", "age": 20})
+        user = await db.aget("user")
+        print(user)  # {'name': 'Nana', 'age': 20}
+        
+        # 非同期バッチ操作
+        await db.batch_update({
+            "key1": "value1",
+            "key2": "value2",
+            "key3": {"nested": "data"}
+        })
+        
+        # 並行操作（スレッドプールにより高性能）
+        results = await asyncio.gather(
+            db.aget("key1"),
+            db.aget("key2"),
+            db.aget("key3")
+        )
+        
+        # 非同期SQL実行
+        await db.create_table("users", {
+            "id": "INTEGER PRIMARY KEY",
+            "name": "TEXT",
+            "age": "INTEGER"
+        })
+        await db.sql_insert("users", {"name": "Alice", "age": 25})
+        users = await db.query("users", where="age > ?", parameters=(20,))
+
+asyncio.run(main())
+```
+
+**パフォーマンス最適化:**
+- 専用スレッドプールエグゼキューター（`max_workers`で設定可能）
+- 高性能なAPSWベース
+- WALモードと接続最適化
+- 高並行性シナリオに最適
+
+**非同期フレームワークに最適:**
+- FastAPI, Quart, Sanic（非同期Webフレームワーク）
+- aiohttp（非同期HTTP クライアント/サーバー）
+- Discord.py, Telegramボット（非同期ボット）
+- あらゆるasyncioベースのアプリケーション
 
 ---
 
