@@ -62,29 +62,68 @@ jobs:
         pip install pytest pytest-benchmark pytest-asyncio apsw pydantic
         pip install -e .
     
-    - name: Run benchmarks
+    - name: Run sync benchmarks
       run: |
         pytest tests/test_benchmark.py -v --benchmark-only --benchmark-json=benchmark.json || true
     
-    - name: Upload benchmark results
+    - name: Upload sync benchmark results
       uses: actions/upload-artifact@v4
       with:
         name: benchmark-results-${{ matrix.os }}-py${{ matrix.python-version }}
         path: benchmark.json
 
+  async-benchmark:
+    runs-on: ${{ matrix.os }}
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-benchmark pytest-asyncio apsw pydantic
+        pip install -e .
+    
+    - name: Run async benchmarks
+      run: |
+        pytest tests/test_async_benchmark.py -v --benchmark-only --benchmark-json=async-benchmark.json || true
+    
+    - name: Upload async benchmark results
+      uses: actions/upload-artifact@v4
+      with:
+        name: async-benchmark-results-${{ matrix.os }}-py${{ matrix.python-version }}
+        path: async-benchmark.json
+
   benchmark-summary:
-    needs: benchmark
+    needs: [benchmark, async-benchmark]
     runs-on: ubuntu-latest
     if: always()
     
     steps:
     - uses: actions/checkout@v4
     
-    - name: Download all benchmark results
+    - name: Download sync benchmark results
       uses: actions/download-artifact@v6
       with:
         pattern: benchmark-results-*
         path: benchmark-results
+    
+    - name: Download async benchmark results
+      uses: actions/download-artifact@v6
+      with:
+        pattern: async-benchmark-results-*
+        path: async-benchmark-results
     
     - name: Set up Python
       uses: actions/setup-python@v6
@@ -93,9 +132,15 @@ jobs:
     
     - name: Generate Combined Benchmark Summary
       run: |
-        echo "## 📊 Performance Benchmarks (All Platforms)" >> $GITHUB_STEP_SUMMARY
+        echo "## 📊 Performance Benchmarks" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        python3 scripts/parse_benchmark.py benchmark-results >> $GITHUB_STEP_SUMMARY || echo "Failed to parse benchmark results" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔄 Sync Benchmarks (NanaSQLite)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        python3 scripts/parse_benchmark.py benchmark-results sync >> $GITHUB_STEP_SUMMARY || echo "Failed to parse sync benchmark results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### ⚡ Async Benchmarks (AsyncNanaSQLite)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        python3 scripts/parse_benchmark.py async-benchmark-results async >> $GITHUB_STEP_SUMMARY || echo "Failed to parse async benchmark results" >> $GITHUB_STEP_SUMMARY
 
   test-summary:
     needs: [test, benchmark-summary]
