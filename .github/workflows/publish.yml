@@ -88,7 +88,7 @@ jobs:
     
     - name: Install dependencies
       run: |
-        uv pip install --system pytest pytest-xdist apsw
+        uv pip install --system pytest pytest-xdist pytest-asyncio apsw pydantic
         uv pip install --system -e .
     
     - name: Run tests
