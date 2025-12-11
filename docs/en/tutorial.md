@@ -393,6 +393,7 @@ with NanaSQLite("cache.db") as db:
 
 ```python
 import uuid
+import time
 
 with NanaSQLite("sessions.db") as db:
     # Create session
