@@ -5,24 +5,22 @@ Tests for edge cases and security issues identified in code review
 
 import pytest
 import os
+import tempfile
 from nanasqlite import NanaSQLite
 
 
 @pytest.fixture
 def db():
-    """テスト用データベースフィクスチャ"""
-    db_path = "test_security_additions.db"
-    try:
-        os.remove(db_path)
-    except OSError:
-        # Ignore errors during cleanup; file may already be deleted or locked.
-        pass
+    """テスト用データベースフィクスチャ（pytest-xdist対応）"""
+    fd, db_path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
     
     db = NanaSQLite(db_path)
     yield db
     
+    db.close()
     try:
-        os.remove(db_path)
+        os.unlink(db_path)
     except OSError:
         # Ignore errors during cleanup; file may already be deleted or locked.
         pass
