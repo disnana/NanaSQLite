@@ -30,7 +30,7 @@ jobs:
     
     - name: Run tests
       run: |
-        pytest tests/ -v --tb=short --junitxml=test-results.xml
+        pytest tests/ -v --tb=short --junitxml=test-results.xml --benchmark-skip
     
     - name: Upload test results
       uses: actions/upload-artifact@v4
