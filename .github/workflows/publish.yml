@@ -88,11 +88,11 @@ jobs:
     
     - name: Install dependencies
       run: |
-        uv pip install --system pytest apsw
+        uv pip install --system pytest pytest-xdist apsw
         uv pip install --system -e .
     
     - name: Run tests
-      run: pytest tests/ -v --tb=short
+      run: pytest tests/ -v --tb=short -n auto --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py
 
   build:
     needs: [check-version, test]

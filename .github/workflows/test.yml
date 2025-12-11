@@ -29,12 +29,12 @@ jobs:
     
     - name: Install dependencies
       run: |
-        uv pip install --system pytest pytest-benchmark pytest-asyncio apsw pydantic
+        uv pip install --system pytest pytest-benchmark pytest-asyncio pytest-xdist apsw pydantic
         uv pip install --system -e .
     
     - name: Run tests
       run: |
-        pytest tests/ -v --tb=short --junitxml=test-results.xml --benchmark-skip
+        pytest tests/ -v --tb=short --junitxml=test-results.xml -n auto --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py
     
     - name: Upload test results
       uses: actions/upload-artifact@v4
