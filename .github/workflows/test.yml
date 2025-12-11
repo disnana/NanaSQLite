@@ -25,7 +25,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pytest pytest-benchmark apsw pydantic
+        pip install pytest pytest-benchmark pytest-asyncio apsw pydantic
         pip install -e .
     
     - name: Run tests
@@ -59,7 +59,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pytest pytest-benchmark apsw pydantic
+        pip install pytest pytest-benchmark pytest-asyncio apsw pydantic
         pip install -e .
     
     - name: Run benchmarks
