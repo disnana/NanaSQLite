@@ -167,8 +167,8 @@ cipher = Fernet(key)
 encrypted_api_key = cipher.encrypt(b"sk-1234567890abcdef")
 db["config"] = {
     "api_key": encrypted_api_key.decode(),
-    # Use a secure password hashing library (e.g., bcrypt, passlib)
-    "password_hash": hash_password("mypassword123")  # Replace with actual hashing function
+    # Use bcrypt: import bcrypt; bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+    "password_hash": hash_password("mypassword123")  # Replace with actual hashing
 }
 ```
 

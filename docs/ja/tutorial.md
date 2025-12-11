@@ -385,6 +385,7 @@ with NanaSQLite("cache.db") as db:
         data = cached["data"]
     else:
         # APIから新しいデータを取得
+        # 例: data = requests.get("https://api.example.com/data").json()
         data = fetch_from_api()  # 実際のAPIコール関数に置き換えてください
         db["api_response"] = {"data": data, "cached_at": time.time()}
 ```
