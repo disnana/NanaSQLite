@@ -6,7 +6,6 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![PyPI version](https://img.shields.io/pypi/v/dictsqlite.svg)](https://pypi.org/project/dictsqlite/)
 [![Python versions](https://img.shields.io/pypi/pyversions/dictsqlite.svg)](https://pypi.org/project/dictsqlite/)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/disnana/DictSQLite/blob/main/LICENSE)
 [![Downloads](https://static.pepy.tech/badge/dictsqlite)](https://pepy.tech/project/dictsqlite)
 
 **A dict-like SQLite wrapper with instant persistence and intelligent caching.**
