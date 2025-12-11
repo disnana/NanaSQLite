@@ -21,8 +21,7 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Type, Union
-from collections.abc import MutableMapping
+from typing import Any, Dict, List, Optional, Tuple, Type
 
 from .core import NanaSQLite
 
@@ -100,7 +99,7 @@ class AsyncNanaSQLite:
         """Ensure the underlying sync database is initialized"""
         if self._db is None:
             # Initialize in thread pool to avoid blocking
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             self._loop = loop
             self._db = await loop.run_in_executor(
                 self._executor,
@@ -116,7 +115,7 @@ class AsyncNanaSQLite:
     async def _run_in_executor(self, func, *args):
         """Run a synchronous function in the executor"""
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, func, *args)
     
     # ==================== Async Dict-like Interface ====================
@@ -137,7 +136,7 @@ class AsyncNanaSQLite:
             >>> config = await db.aget("config", {})
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.get,
@@ -157,7 +156,7 @@ class AsyncNanaSQLite:
             >>> await db.aset("user", {"name": "Nana", "age": 20})
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             self._executor,
             self._db.__setitem__,
@@ -179,7 +178,7 @@ class AsyncNanaSQLite:
             >>> await db.adelete("old_data")
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             self._executor,
             self._db.__delitem__,
@@ -201,7 +200,7 @@ class AsyncNanaSQLite:
             ...     print("User exists")
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.__contains__,
@@ -219,7 +218,7 @@ class AsyncNanaSQLite:
             >>> count = await db.alen()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.__len__
@@ -236,7 +235,7 @@ class AsyncNanaSQLite:
             >>> keys = await db.akeys()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.keys
@@ -253,7 +252,7 @@ class AsyncNanaSQLite:
             >>> values = await db.avalues()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.values
@@ -270,7 +269,7 @@ class AsyncNanaSQLite:
             >>> items = await db.aitems()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.items
@@ -292,7 +291,7 @@ class AsyncNanaSQLite:
             >>> value = await db.apop("maybe_missing", "default")
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.pop,
@@ -313,7 +312,7 @@ class AsyncNanaSQLite:
             >>> await db.aupdate(key3="value3", key4="value4")
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         
         # Create a wrapper function that captures kwargs
         def update_wrapper():
@@ -332,7 +331,7 @@ class AsyncNanaSQLite:
             >>> await db.aclear()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             self._executor,
             self._db.clear
@@ -353,7 +352,7 @@ class AsyncNanaSQLite:
             >>> value = await db.asetdefault("config", {})
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.setdefault,
@@ -371,7 +370,7 @@ class AsyncNanaSQLite:
             >>> await db.load_all()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             self._executor,
             self._db.load_all
@@ -389,7 +388,7 @@ class AsyncNanaSQLite:
             >>> await db.refresh()  # 全キャッシュ更新
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             self._executor,
             self._db.refresh,
@@ -410,7 +409,7 @@ class AsyncNanaSQLite:
             >>> cached = await db.is_cached("user")
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.is_cached,
@@ -432,7 +431,7 @@ class AsyncNanaSQLite:
             ... })
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             self._executor,
             self._db.batch_update,
@@ -450,7 +449,7 @@ class AsyncNanaSQLite:
             >>> await db.batch_delete(["key1", "key2", "key3"])
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             self._executor,
             self._db.batch_delete,
@@ -468,7 +467,7 @@ class AsyncNanaSQLite:
             >>> data = await db.to_dict()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.to_dict
@@ -485,7 +484,7 @@ class AsyncNanaSQLite:
             >>> data_copy = await db.copy()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.copy
@@ -506,7 +505,7 @@ class AsyncNanaSQLite:
             >>> value = await db.get_fresh("key")
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.get_fresh,
@@ -533,7 +532,7 @@ class AsyncNanaSQLite:
             >>> await db.set_model("user", user)
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             self._executor,
             self._db.set_model,
@@ -556,7 +555,7 @@ class AsyncNanaSQLite:
             >>> user = await db.get_model("user", User)
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.get_model,
@@ -581,7 +580,7 @@ class AsyncNanaSQLite:
             >>> cursor = await db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.execute,
@@ -604,7 +603,7 @@ class AsyncNanaSQLite:
             ... )
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             self._executor,
             self._db.execute_many,
@@ -627,7 +626,7 @@ class AsyncNanaSQLite:
             >>> row = await db.fetch_one("SELECT value FROM data WHERE key = ?", ("user",))
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.fetch_one,
@@ -650,7 +649,7 @@ class AsyncNanaSQLite:
             >>> rows = await db.fetch_all("SELECT key, value FROM data WHERE key LIKE ?", ("user%",))
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.fetch_all,
@@ -684,7 +683,7 @@ class AsyncNanaSQLite:
             ... })
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             self._executor,
             self._db.create_table,
@@ -716,7 +715,7 @@ class AsyncNanaSQLite:
             >>> await db.create_index("idx_users_email", "users", ["email"], unique=True)
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             self._executor,
             self._db.create_index,
@@ -761,7 +760,7 @@ class AsyncNanaSQLite:
             ... )
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.query,
@@ -787,7 +786,7 @@ class AsyncNanaSQLite:
             >>> exists = await db.table_exists("users")
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.table_exists,
@@ -805,7 +804,7 @@ class AsyncNanaSQLite:
             >>> tables = await db.list_tables()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.list_tables
@@ -823,7 +822,7 @@ class AsyncNanaSQLite:
             >>> await db.drop_table("old_table")
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             self._executor,
             self._db.drop_table,
@@ -843,7 +842,7 @@ class AsyncNanaSQLite:
             >>> await db.drop_index("idx_users_email")
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             self._executor,
             self._db.drop_index,
@@ -870,7 +869,7 @@ class AsyncNanaSQLite:
             ... })
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.sql_insert,
@@ -905,7 +904,7 @@ class AsyncNanaSQLite:
             ... )
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.sql_update,
@@ -931,7 +930,7 @@ class AsyncNanaSQLite:
             >>> count = await db.sql_delete("users", "age < ?", (18,))
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             self._db.sql_delete,
@@ -948,7 +947,7 @@ class AsyncNanaSQLite:
             >>> await db.vacuum()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             self._executor,
             self._db.vacuum
@@ -976,16 +975,17 @@ class AsyncNanaSQLite:
             >>> await db.close()
         """
         if self._db is not None:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 self._executor,
                 self._db.close
             )
             self._db = None
         
-        # 所有しているエグゼキューターをシャットダウン
+        # 所有しているエグゼキューターをシャットダウン（ノンブロッキング）
         if self._owns_executor and self._executor is not None:
-            self._executor.shutdown(wait=True)
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._executor.shutdown, True)
             self._executor = None
     
     def __repr__(self) -> str:

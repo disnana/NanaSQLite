@@ -17,7 +17,8 @@ async with AsyncNanaSQLite(
     bulk_load=False,
     optimize=True,
     cache_size_mb=64,
-    executor=None
+    max_workers=5,
+    thread_name_prefix="AsyncNanaSQLite"
 ) as db:
     await db.aset("key", "value")
 ```
@@ -28,7 +29,8 @@ async with AsyncNanaSQLite(
 - `bulk_load` (bool): Load all data on initialization (default: False)
 - `optimize` (bool): Apply performance optimizations like WAL mode (default: True)
 - `cache_size_mb` (int): SQLite cache size in MB (default: 64)
-- `executor` (Optional): Custom Executor (default: None)
+- `max_workers` (int): Maximum number of workers in thread pool (default: 5)
+- `thread_name_prefix` (str): Prefix for thread names (default: "AsyncNanaSQLite")
 
 ## Async Dict-like Interface
 

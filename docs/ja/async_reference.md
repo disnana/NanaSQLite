@@ -17,7 +17,8 @@ async with AsyncNanaSQLite(
     bulk_load=False,
     optimize=True,
     cache_size_mb=64,
-    executor=None
+    max_workers=5,
+    thread_name_prefix="AsyncNanaSQLite"
 ) as db:
     await db.aset("key", "value")
 ```
@@ -28,7 +29,8 @@ async with AsyncNanaSQLite(
 - `bulk_load` (bool): 初期化時に全データをロード（デフォルト: False）
 - `optimize` (bool): WALモードなど高速化設定を適用（デフォルト: True）
 - `cache_size_mb` (int): SQLiteキャッシュサイズ（MB、デフォルト: 64）
-- `executor` (Optional): カスタムExecutor（デフォルト: None）
+- `max_workers` (int): スレッドプール内の最大ワーカー数（デフォルト: 5）
+- `thread_name_prefix` (str): スレッド名のプレフィックス（デフォルト: "AsyncNanaSQLite"）
 
 ## 非同期dict風インターフェース
 

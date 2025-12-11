@@ -529,7 +529,7 @@ class TestAsyncConcurrency:
             await db.aset("initial", "data")
             
             # 読み書き混合の並行操作
-            results = await asyncio.gather(
+            _ = await asyncio.gather(
                 db.aset("key1", "value1"),
                 db.aget("initial"),
                 db.aset("key2", "value2"),
