@@ -20,6 +20,13 @@ except ImportError:
     print("Error: NanaSQLite is not installed. Run: pip install nanasqlite")
     sys.exit(1)
 
+# Import Pydantic (optional, for Pydantic test)
+try:
+    from pydantic import BaseModel, ValidationError, field_validator
+    PYDANTIC_AVAILABLE = True
+except ImportError:
+    PYDANTIC_AVAILABLE = False
+
 
 def test_flask_patterns():
     """Test patterns used in Flask integration example"""
@@ -193,6 +200,105 @@ async def test_fastapi_patterns():
     print("✅ FastAPI example patterns validated successfully!\n")
 
 
+def test_pydantic_patterns():
+    """Test patterns used in Pydantic demo example"""
+    if not PYDANTIC_AVAILABLE:
+        print("Skipping Pydantic example patterns (Pydantic not installed)...")
+        return
+
+    print("Testing Pydantic example patterns...")
+
+    # Define test models
+    class User(BaseModel):
+        id: str
+        name: str
+        email: str
+        age: int
+        active: bool = True
+
+        @field_validator('age')
+        @classmethod
+        def age_must_be_positive(cls, v):
+            if v < 0:
+                raise ValueError('Age must be positive')
+            return v
+
+        @field_validator('email')
+        @classmethod
+        def email_must_contain_at(cls, v):
+            if '@' not in v:
+                raise ValueError('Email must contain @')
+            return v
+
+    class UserCreate(BaseModel):
+        name: str
+        email: str
+        age: int
+        active: bool = True
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = os.path.join(tmpdir, "test_pydantic.db")
+        db = NanaSQLite(db_path, bulk_load=False)
+
+        try:
+            # Test 1: Create users with validation
+            users_data = [
+                {"name": "Alice", "email": "alice@example.com", "age": 25},
+                {"name": "Bob", "email": "bob@example.com", "age": 30},
+            ]
+
+            created_users = []
+            for user_data in users_data:
+                user_create = UserCreate(**user_data)
+                user = User(id=str(uuid.uuid4()), **user_create.model_dump())
+                db[user.id] = user.model_dump()
+                created_users.append(user)
+                print(f"  ✓ Created user: {user.name}")
+
+            # Test 2: Validation error handling
+            try:
+                invalid_user = UserCreate(name="Invalid", email="invalid-email", age=-5)
+                # UserCreate doesn't have validators, so create User to trigger validation
+                invalid_full_user = User(id=str(uuid.uuid4()), **invalid_user.model_dump())
+                assert False, "Should have raised ValidationError"
+            except ValidationError:
+                print("  ✓ Validation error caught for invalid data")
+
+            # Test 3: Retrieve and validate users
+            for user in created_users:
+                user_data = db[user.id]
+                retrieved_user = User(**user_data)
+                assert retrieved_user.name == user.name
+                assert retrieved_user.email == user.email
+                assert retrieved_user.age == user.age
+                print(f"  ✓ Retrieved and validated user: {retrieved_user.name}")
+
+            # Test 4: Update user
+            user_to_update = created_users[0]
+            user_data = db[user_to_update.id]
+            user = User(**user_data)
+            user.age += 1
+            db[user.id] = user.model_dump()
+            updated_data = db[user.id]
+            updated_user = User(**updated_data)
+            assert updated_user.age == user.age
+            print(f"  ✓ Updated user age to {updated_user.age}")
+
+            # Test 5: Model serialization
+            user_dict = user.model_dump()
+            assert isinstance(user_dict, dict)
+            assert 'name' in user_dict
+
+            user_json = user.model_dump_json()
+            assert isinstance(user_json, str)
+            print("  ✓ Model serialization works")
+
+        finally:
+            db.close()
+
+    print("✅ Pydantic example patterns validated successfully!\n")
+
+
 def main():
     """Run all tests"""
     print("=" * 60)
@@ -217,7 +323,16 @@ def main():
         import traceback
         traceback.print_exc()
         return False
-    
+
+    # Test Pydantic patterns (optional)
+    try:
+        test_pydantic_patterns()
+    except Exception as e:
+        print(f"❌ Pydantic example validation failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
     print("=" * 60)
     print("✅ All example patterns validated successfully!")
     print("=" * 60)
@@ -226,7 +341,8 @@ def main():
     print("the examples. To run the actual examples, install:")
     print("  - FastAPI example: pip install fastapi uvicorn")
     print("  - Flask example: pip install flask")
-    
+    print("  - Pydantic example: pip install pydantic")
+
     return True
 
 

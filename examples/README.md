@@ -118,6 +118,29 @@ python async_demo.py
 
 ---
 
+### 4. Pydantic Demo (`pydantic_demo.py`)
+
+Demonstrates data validation and type safety using Pydantic models with NanaSQLite.
+
+**Features:**
+- Pydantic model validation
+- Custom field validators
+- Model serialization/deserialization
+- Error handling for invalid data
+- Type-safe data operations
+
+**Requirements:**
+```bash
+pip install pydantic
+```
+
+**Running:**
+```bash
+python pydantic_demo.py
+```
+
+---
+
 ## Testing the Examples
 
 To validate that the example patterns work correctly without installing the frameworks:
