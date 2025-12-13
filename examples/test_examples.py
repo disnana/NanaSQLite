@@ -27,6 +27,13 @@ try:
 except ImportError:
     PYDANTIC_AVAILABLE = False
 
+# Import Quart (optional, for Quart test)
+try:
+    from quart import Quart
+    QUART_AVAILABLE = True
+except ImportError:
+    QUART_AVAILABLE = False
+
 
 def test_flask_patterns():
     """Test patterns used in Flask integration example"""
@@ -299,6 +306,75 @@ def test_pydantic_patterns():
     print("✅ Pydantic example patterns validated successfully!\n")
 
 
+def test_quart_patterns():
+    """Test patterns used in Quart demo example"""
+    if not QUART_AVAILABLE:
+        print("Skipping Quart example patterns (Quart not installed)...")
+        return
+
+    print("Testing Quart example patterns...")
+
+    # Create a minimal Quart app for testing
+    app = Quart(__name__)
+
+    @app.route('/test')
+    async def test_route():
+        return {"message": "test"}
+
+    # Test that Quart app can be created
+    assert app is not None
+    print("  ✓ Quart app creation")
+
+    # Test async context manager pattern (similar to the demo)
+    async def test_async_db():
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test_quart.db")
+
+            async with AsyncNanaSQLite(db_path, max_workers=5, bulk_load=False) as db:
+                # Test basic async operations
+                task_id = f"task_{uuid.uuid4()}"
+                task_data = {
+                    "title": "Test Task",
+                    "completed": False,
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                }
+
+                await db.aset(task_id, task_data)
+                retrieved = await db.aget(task_id)
+                assert retrieved["title"] == "Test Task"
+                assert retrieved["completed"] is False
+                print("  ✓ Async database operations")
+
+                # Test task listing
+                tasks = []
+                keys = await db.akeys()
+                for key in keys:
+                    if key.startswith("task_"):
+                        task = await db.aget(key)
+                        task['id'] = key
+                        tasks.append(task)
+                assert len(tasks) == 1
+                print("  ✓ Task listing")
+
+                # Test task toggle
+                task_data["completed"] = True
+                await db.aset(task_id, task_data)
+                updated = await db.aget(task_id)
+                assert updated["completed"] is True
+                print("  ✓ Task completion toggle")
+
+                # Test task deletion
+                await db.adelete(task_id)
+                deleted = await db.aget(task_id)
+                assert deleted is None
+                print("  ✓ Task deletion")
+
+    # Run async test
+    asyncio.run(test_async_db())
+
+    print("✅ Quart example patterns validated successfully!\n")
+
+
 def main():
     """Run all tests"""
     print("=" * 60)
@@ -333,6 +409,15 @@ def main():
         traceback.print_exc()
         return False
 
+    # Test Quart patterns (optional)
+    try:
+        test_quart_patterns()
+    except Exception as e:
+        print(f"❌ Quart example validation failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
     print("=" * 60)
     print("✅ All example patterns validated successfully!")
     print("=" * 60)
@@ -342,6 +427,7 @@ def main():
     print("  - FastAPI example: pip install fastapi uvicorn")
     print("  - Flask example: pip install flask")
     print("  - Pydantic example: pip install pydantic")
+    print("  - Quart example: pip install quart hypercorn")
 
     return True
 
