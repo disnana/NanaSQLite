@@ -1,4 +1,5 @@
 # NanaSQLite Examples
+[日本語版（使い方とサンプル一覧）はこちら → examples/README.ja.md](README.ja.md)
 
 This directory contains practical examples demonstrating how to use NanaSQLite with popular Python frameworks.
 
@@ -200,3 +201,5 @@ def close_db(error):
 - [Best Practices](../docs/en/best_practices.md) - Production tips
 - [Async Guide](../docs/en/async_guide.md) - Async/await documentation
 - [API Reference](../docs/en/reference.md) - Complete API documentation
+
+---
