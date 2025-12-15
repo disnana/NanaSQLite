@@ -37,7 +37,7 @@ jobs:
         pytest tests/ -v --tb=short --junitxml=test-results.xml -n auto --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py
     
     - name: Upload test results
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       if: always()
       with:
         name: test-results-${{ matrix.os }}-py${{ matrix.python-version }}
@@ -75,7 +75,7 @@ jobs:
         pytest tests/test_benchmark.py -v --benchmark-only --benchmark-json=benchmark.json || true
     
     - name: Upload sync benchmark results
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: benchmark-results-${{ matrix.os }}-py${{ matrix.python-version }}
         path: benchmark.json
@@ -112,7 +112,7 @@ jobs:
         pytest tests/test_async_benchmark.py -v --benchmark-only --benchmark-json=async-benchmark.json || true
     
     - name: Upload async benchmark results
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: async-benchmark-results-${{ matrix.os }}-py${{ matrix.python-version }}
         path: async-benchmark.json
