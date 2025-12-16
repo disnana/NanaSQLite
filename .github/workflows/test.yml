@@ -12,7 +12,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
+        python-version: ${{ (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'pull_request') && fromJson('["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]') || fromJson('["3.11", "3.12", "3.13", "3.14"]') }}
 
     steps:
     - uses: actions/checkout@v4
@@ -50,7 +50,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
+        python-version: ${{ (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'pull_request') && fromJson('["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]') || fromJson('["3.11", "3.12", "3.13", "3.14"]') }}
 
     steps:
     - uses: actions/checkout@v4
@@ -87,7 +87,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
+        python-version: ${{ (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'pull_request') && fromJson('["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]') || fromJson('["3.11", "3.12", "3.13", "3.14"]') }}
 
     steps:
     - uses: actions/checkout@v4
