@@ -217,16 +217,36 @@ db.refresh()       # 全キー
 db.load_all()
 ```
 
-### 複数テーブル
+### 複数テーブル (v1.1.0dev1+)
+
+同じデータベース内で複数のテーブルを安全に操作できます：
 
 ```python
-# 同じデータベースで異なるテーブルを使用
+# 方法1: 直接テーブルを指定してインスタンスを作成
 users_db = NanaSQLite("app.db", table="users")
 config_db = NanaSQLite("app.db", table="config")
 
 users_db["alice"] = {"name": "Alice", "age": 30}
 config_db["theme"] = "dark"
+
+# 方法2: table()メソッドで接続を共有（推奨）
+db = NanaSQLite("app.db", table="main")
+users_db = db.table("users")
+config_db = db.table("config")
+
+# 接続とロックを共有するため、スレッドセーフかつメモリ効率的
+users_db["alice"] = {"name": "Alice", "age": 30}
+config_db["theme"] = "dark"
+
+# 各テーブルは独立したキャッシュを持つ
+print(users_db["alice"])  # {"name": "Alice", "age": 30}
+print(config_db["theme"])  # "dark"
 ```
+
+**table()メソッドの利点:**
+- **スレッドセーフ**: 複数スレッドからの同時書き込みが安全
+- **メモリ効率**: SQLite接続を再利用してリソースを節約
+- **キャッシュ分離**: 各テーブルは独立したメモリキャッシュを保持
 
 ### Pydantic互換性 (v1.0.3rc3+)
 
