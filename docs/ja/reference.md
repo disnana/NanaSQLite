@@ -259,6 +259,38 @@ data = db.to_dict()
 db.close()
 ```
 
+**注意:** `table()`メソッドで作成されたサブテーブルインスタンスは接続を共有しているため、最初に作成されたインスタンス（接続の所有者）のみが接続を閉じます。
+
+---
+
+### `table(table_name: str) -> NanaSQLite` *(v1.1.0dev1+)*
+
+サブテーブル用のNanaSQLiteインスタンスを取得。接続とロックを共有します。
+
+```python
+# メインインスタンスを作成
+db = NanaSQLite("app.db", table="main")
+
+# サブテーブルのインスタンスを取得（接続を共有）
+users_db = db.table("users")
+config_db = db.table("config")
+
+# 各テーブルに独立してデータを保存
+users_db["alice"] = {"name": "Alice", "age": 30}
+config_db["theme"] = "dark"
+```
+
+**パラメータ:**
+- `table_name` (str): 取得するテーブル名
+
+**戻り値:**
+- `NanaSQLite`: 指定したテーブルを操作する新しいインスタンス
+
+**利点:**
+- **スレッドセーフ**: 複数スレッドからの同時書き込みが安全
+- **メモリ効率**: SQLite接続を再利用
+- **キャッシュ分離**: 各テーブルは独立したメモリキャッシュ
+
 ---
 
 ## バッチ操作
