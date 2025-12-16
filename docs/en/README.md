@@ -217,16 +217,36 @@ db.refresh()       # All keys
 db.load_all()
 ```
 
-### Multiple Tables
+### Multiple Tables (v1.1.0dev1+)
+
+Work with multiple tables within the same database safely:
 
 ```python
-# Use different tables in the same database
+# Method 1: Direct table specification
 users_db = NanaSQLite("app.db", table="users")
 config_db = NanaSQLite("app.db", table="config")
 
 users_db["alice"] = {"name": "Alice", "age": 30}
 config_db["theme"] = "dark"
+
+# Method 2: Use table() method to share connection (recommended)
+db = NanaSQLite("app.db", table="main")
+users_db = db.table("users")
+config_db = db.table("config")
+
+# Thread-safe and memory efficient by sharing connection and lock
+users_db["alice"] = {"name": "Alice", "age": 30}
+config_db["theme"] = "dark"
+
+# Each table has independent cache
+print(users_db["alice"])  # {"name": "Alice", "age": 30}
+print(config_db["theme"])  # "dark"
 ```
+
+**Benefits of table() method:**
+- **Thread-safe**: Concurrent writes from multiple threads are safe
+- **Memory efficient**: Reuses SQLite connection to save resources
+- **Cache isolation**: Each table maintains independent in-memory cache
 
 ### Performance Tuning
 
