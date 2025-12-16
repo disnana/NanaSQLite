@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Type, Union
 from collections.abc import MutableMapping
 import apsw
+import threading
 
 
 class NanaSQLite(MutableMapping):
@@ -36,7 +37,9 @@ class NanaSQLite(MutableMapping):
     """
     
     def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
-                 optimize: bool = True, cache_size_mb: int = 64):
+                 optimize: bool = True, cache_size_mb: int = 64,
+                 _shared_connection: Optional[apsw.Connection] = None,
+                 _shared_lock: Optional[threading.RLock] = None):
         """
         Args:
             db_path: SQLiteデータベースファイルのパス
@@ -44,26 +47,40 @@ class NanaSQLite(MutableMapping):
             bulk_load: Trueの場合、初期化時に全データをメモリに読み込む
             optimize: Trueの場合、WALモードなど高速化設定を適用
             cache_size_mb: SQLiteキャッシュサイズ（MB）、デフォルト64MB
+            _shared_connection: 内部用：共有する接続（table()メソッドで使用）
+            _shared_lock: 内部用：共有するロック（table()メソッドで使用）
         """
         self._db_path: str = db_path
         self._table: str = table
-        self._connection: apsw.Connection = apsw.Connection(db_path)
         self._data: Dict[str, Any] = {}  # 内部dict（メモリキャッシュ）
         self._cached_keys: Set[str] = set()  # キャッシュ済みキーの追跡
         self._all_loaded: bool = False  # 全データ読み込み済みフラグ
-        
-        # 高速化設定
-        if optimize:
-            self._apply_optimizations(cache_size_mb)
-        
+
+        # 接続とロックの共有または新規作成
+        if _shared_connection is not None:
+            # 接続を共有（table()メソッドから呼ばれた場合）
+            self._connection: apsw.Connection = _shared_connection
+            self._lock = _shared_lock if _shared_lock is not None else threading.RLock()
+            self._is_connection_owner = False  # 接続の所有者ではない
+        else:
+            # 新規接続を作成（通常の初期化）
+            self._connection: apsw.Connection = apsw.Connection(db_path)
+            self._lock = threading.RLock()
+            self._is_connection_owner = True  # 接続の所有者
+
+            # 高速化設定（接続の所有者のみ）
+            if optimize:
+                self._apply_optimizations(cache_size_mb)
+
         # テーブル作成
-        self._connection.execute(f"""
-            CREATE TABLE IF NOT EXISTS {self._table} (
-                key TEXT PRIMARY KEY,
-                value TEXT
-            )
-        """)
-        
+        with self._lock:
+            self._connection.execute(f"""
+                CREATE TABLE IF NOT EXISTS {self._table} (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )
+            """)
+
         # 一括ロード
         if bulk_load:
             self.load_all()
@@ -145,36 +162,40 @@ class NanaSQLite(MutableMapping):
     def _write_to_db(self, key: str, value: Any) -> None:
         """即時書き込み: SQLiteに値を保存"""
         serialized = self._serialize(value)
-        self._connection.execute(
-            f"INSERT OR REPLACE INTO {self._table} (key, value) VALUES (?, ?)",
-            (key, serialized)
-        )
-    
+        with self._lock:
+            self._connection.execute(
+                f"INSERT OR REPLACE INTO {self._table} (key, value) VALUES (?, ?)",
+                (key, serialized)
+            )
+
     def _read_from_db(self, key: str) -> Optional[Any]:
         """SQLiteから値を読み込み"""
-        cursor = self._connection.execute(
-            f"SELECT value FROM {self._table} WHERE key = ?",
-            (key,)
-        )
-        row = cursor.fetchone()
-        if row is None:
-            return None
-        return self._deserialize(row[0])
-    
+        with self._lock:
+            cursor = self._connection.execute(
+                f"SELECT value FROM {self._table} WHERE key = ?",
+                (key,)
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return self._deserialize(row[0])
+
     def _delete_from_db(self, key: str) -> None:
         """SQLiteから値を削除"""
-        self._connection.execute(
-            f"DELETE FROM {self._table} WHERE key = ?",
-            (key,)
-        )
-    
+        with self._lock:
+            self._connection.execute(
+                f"DELETE FROM {self._table} WHERE key = ?",
+                (key,)
+            )
+
     def _get_all_keys_from_db(self) -> list:
         """SQLiteから全キーを取得"""
-        cursor = self._connection.execute(
-            f"SELECT key FROM {self._table}"
-        )
-        return [row[0] for row in cursor]
-    
+        with self._lock:
+            cursor = self._connection.execute(
+                f"SELECT key FROM {self._table}"
+            )
+            return [row[0] for row in cursor]
+
     def _ensure_cached(self, key: str) -> bool:
         """
         キーがキャッシュにない場合、DBから読み込む（遅延ロード）
@@ -229,11 +250,12 @@ class NanaSQLite(MutableMapping):
             return key in self._data
         
         # 軽量な存在確認クエリ（valueを読み込まない）
-        cursor = self._connection.execute(
-            f"SELECT 1 FROM {self._table} WHERE key = ? LIMIT 1", (key,)
-        )
-        exists = cursor.fetchone() is not None
-        
+        with self._lock:
+            cursor = self._connection.execute(
+                f"SELECT 1 FROM {self._table} WHERE key = ? LIMIT 1", (key,)
+            )
+            exists = cursor.fetchone() is not None
+
         if exists:
             # 存在する場合のみキャッシュに読み込む（遅延ロード）
             self._ensure_cached(key)
@@ -245,11 +267,12 @@ class NanaSQLite(MutableMapping):
     
     def __len__(self) -> int:
         """len(dict) - DBの実際の件数を返す"""
-        cursor = self._connection.execute(
-            f"SELECT COUNT(*) FROM {self._table}"
-        )
-        return cursor.fetchone()[0]
-    
+        with self._lock:
+            cursor = self._connection.execute(
+                f"SELECT COUNT(*) FROM {self._table}"
+            )
+            return cursor.fetchone()[0]
+
     def __iter__(self) -> Iterator[str]:
         """for key in dict"""
         return iter(self.keys())
@@ -337,8 +360,9 @@ class NanaSQLite(MutableMapping):
         self._data.clear()
         self._cached_keys.clear()
         self._all_loaded = False
-        self._connection.execute(f"DELETE FROM {self._table}")
-    
+        with self._lock:
+            self._connection.execute(f"DELETE FROM {self._table}")
+
     def setdefault(self, key: str, default: Any = None) -> Any:
         """dict.setdefault(key, default)"""
         if self._ensure_cached(key):
@@ -352,11 +376,14 @@ class NanaSQLite(MutableMapping):
         """一括読み込み: 全データをメモリに展開"""
         if self._all_loaded:
             return
-        
-        cursor = self._connection.execute(
-            f"SELECT key, value FROM {self._table}"
-        )
-        for key, value in cursor:
+
+        with self._lock:
+            cursor = self._connection.execute(
+                f"SELECT key, value FROM {self._table}"
+            )
+            rows = list(cursor)  # ロック内でフェッチ
+
+        for key, value in rows:
             self._data[key] = self._deserialize(value)
             self._cached_keys.add(key)
         
@@ -463,9 +490,15 @@ class NanaSQLite(MutableMapping):
         return self.to_dict()
     
     def close(self) -> None:
-        """データベース接続を閉じる"""
-        self._connection.close()
-    
+        """
+        データベース接続を閉じる
+
+        注意: table()メソッドで作成されたインスタンスは接続を共有しているため、
+        接続の所有者（最初に作成されたインスタンス）のみが接続を閉じます。
+        """
+        if self._is_connection_owner:
+            self._connection.close()
+
     def __enter__(self):
         """コンテキストマネージャ対応"""
         return self
@@ -578,11 +611,12 @@ class NanaSQLite(MutableMapping):
             >>> db.execute("UPDATE data SET value = ? WHERE key = ?", ('"new"', "key"))
             >>> db.refresh("key")  # キャッシュを更新
         """
-        if parameters is None:
-            return self._connection.execute(sql)
-        else:
-            return self._connection.execute(sql, parameters)
-    
+        with self._lock:
+            if parameters is None:
+                return self._connection.execute(sql)
+            else:
+                return self._connection.execute(sql, parameters)
+
     def execute_many(self, sql: str, parameters_list: List[tuple]) -> None:
         """
         SQLを複数のパラメータで一括実行
@@ -600,16 +634,17 @@ class NanaSQLite(MutableMapping):
             ...     [(1, "Alice"), (2, "Bob"), (3, "Charlie")]
             ... )
         """
-        cursor = self._connection.cursor()
-        cursor.execute("BEGIN IMMEDIATE")
-        try:
-            for parameters in parameters_list:
-                cursor.execute(sql, parameters)
-            cursor.execute("COMMIT")
-        except apsw.Error:
-            cursor.execute("ROLLBACK")
-            raise
-    
+        with self._lock:
+            cursor = self._connection.cursor()
+            cursor.execute("BEGIN IMMEDIATE")
+            try:
+                for parameters in parameters_list:
+                    cursor.execute(sql, parameters)
+                cursor.execute("COMMIT")
+            except apsw.Error:
+                cursor.execute("ROLLBACK")
+                raise
+
     def fetch_one(self, sql: str, parameters: tuple = None) -> Optional[tuple]:
         """
         SQLを実行して1行取得
@@ -1499,6 +1534,24 @@ class NanaSQLite(MutableMapping):
             ...     # 自動的にコミット、例外時はロールバック
         """
         return _TransactionContext(self)
+
+    def table(self, table_name: str):
+        """
+        サブテーブル用のNanaSQLiteインスタンスを取得
+
+        新しいインスタンスを作成しますが、SQLite接続とロックは共有します。
+        これにより、複数のテーブルインスタンスが同じ接続を使用して
+        スレッドセーフに動作します。
+
+        :param table_name: テーブル名
+        :return NanaSQLite: 新しいテーブルインスタンス
+        """
+        return NanaSQLite(
+            self._db_path,
+            table=table_name,
+            _shared_connection=self._connection,
+            _shared_lock=self._lock
+        )
 
 
 class _TransactionContext:
