@@ -20,6 +20,8 @@ on:
   push:
 
 permissions:
+  # Required for calling reusable workflows
+  actions: read
   # Require writing security events to upload SARIF file to security tab
   security-events: write
   # Read commit contents
