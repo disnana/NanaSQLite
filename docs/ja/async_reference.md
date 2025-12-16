@@ -385,6 +385,46 @@ if __name__ == '__main__':
     web.run_app(init_app())
 ```
 
+## マルチテーブルサポート (v1.1.0dev1+)
+
+### table()
+
+```python
+sub_db = await db.table(table_name)
+```
+
+非同期でサブテーブルのAsyncNanaSQLiteインスタンスを取得。接続とスレッドプールエグゼキューターを共有します。
+
+**パラメータ:**
+- `table_name` (str): 取得するテーブル名
+
+**戻り値:**
+- `AsyncNanaSQLite`: 指定したテーブルを操作する新しいインスタンス
+
+**使用例:**
+
+```python
+async with AsyncNanaSQLite("app.db", table="main") as db:
+    # サブテーブルのインスタンスを取得
+    users_db = await db.table("users")
+    config_db = await db.table("config")
+    
+    # 各テーブルに独立してデータを保存
+    await users_db.aset("alice", {"name": "Alice", "age": 30})
+    await config_db.aset("theme", "dark")
+    
+    # 各テーブルから取得
+    user = await users_db.aget("alice")
+    theme = await config_db.aget("theme")
+```
+
+**利点:**
+- **スレッドセーフ**: 複数の非同期タスクからの同時書き込みが安全
+- **リソース効率**: SQLite接続とスレッドプールを再利用
+- **キャッシュ分離**: 各テーブルは独立したメモリキャッシュ
+
+---
+
 ## 注意事項
 
 1. **スレッドセーフティ**: `AsyncNanaSQLite`は内部でスレッドプールを使用するため、スレッドセーフです。
