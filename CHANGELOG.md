@@ -6,6 +6,48 @@
 
 ## 日本語
 
+### [1.1.0dev2] - 2025-12-16
+
+#### 現在の開発状況
+- 開発中のバージョン
+- テスト実施中（`test_concurrent_table_writes.py`で15個のテスト全てパス）
+
+### [1.1.0dev1] - 2025-12-15
+
+#### 追加
+- **マルチテーブルサポート（`table()`メソッド）**: 同一データベース内の複数テーブルを安全に操作
+  - `db.table(table_name)`で別テーブル用のインスタンスを取得
+  - **接続とロックの共有**: 複数のテーブルインスタンスが同じSQLite接続とスレッドロックを共有
+  - スレッドセーフ: 複数スレッドから異なるテーブルへの同時書き込みが安全に動作
+  - メモリ効率: 接続を再利用することでリソースを節約
+  - **同期版**: `NanaSQLite.table(table_name)` → `NanaSQLite`インスタンス
+  - **非同期版**: `await AsyncNanaSQLite.table(table_name)` → `AsyncNanaSQLite`インスタンス
+  - キャッシュ分離: 各テーブルインスタンスは独立したメモリキャッシュを保持
+
+#### 内部実装の改善
+- **スレッドセーフティの強化**: 全データベース操作に`threading.RLock`を追加
+  - 読み込み（`_read_from_db`）、書き込み（`_write_to_db`）、削除（`_delete_from_db`）
+  - クエリ実行（`execute`, `execute_many`）
+  - トランザクション操作
+- **接続管理の改善**:
+  - `_shared_connection`パラメータで接続の共有をサポート
+  - `_shared_lock`パラメータでロックの共有をサポート
+  - `_is_connection_owner`フラグで接続の所有権を管理
+  - `close()`メソッドは接続の所有者のみが実行
+
+#### テスト
+- **15の包括的なテストケース**（全てパス）:
+  - 同期版マルチテーブル並行書き込みテスト（2テーブル、複数テーブル）
+  - 非同期版マルチテーブル並行書き込みテスト（2テーブル、複数テーブル）
+  - ストレステスト（1000件の並行書き込み）
+  - キャッシュ分離テスト
+  - テーブル切り替えテスト
+  - エッジケーステスト
+
+#### 互換性
+- **完全な後方互換性**: 既存のコードに影響なし
+- 新しいパラメータはすべてオプショナル（内部使用）
+
 ### [1.0.3rc7] - 2025-12-10
 
 #### 追加
@@ -106,6 +148,48 @@
 ---
 
 ## English
+
+### [1.1.0dev2] - 2025-12-16
+
+#### Current Development Status
+- Development version in progress
+- Testing in progress (all 15 tests in `test_concurrent_table_writes.py` passing)
+
+### [1.1.0dev1] - 2025-12-15
+
+#### Added
+- **Multi-table Support (`table()` method)**: Safely operate on multiple tables within the same database
+  - Get an instance for another table with `db.table(table_name)`
+  - **Shared connection and lock**: Multiple table instances share the same SQLite connection and thread lock
+  - Thread-safe: Concurrent writes to different tables from multiple threads work safely
+  - Memory efficient: Reuses connections to save resources
+  - **Sync version**: `NanaSQLite.table(table_name)` → `NanaSQLite` instance
+  - **Async version**: `await AsyncNanaSQLite.table(table_name)` → `AsyncNanaSQLite` instance
+  - Cache isolation: Each table instance maintains independent in-memory cache
+
+#### Internal Implementation Improvements
+- **Enhanced thread safety**: Added `threading.RLock` to all database operations
+  - Read (`_read_from_db`), write (`_write_to_db`), delete (`_delete_from_db`)
+  - Query execution (`execute`, `execute_many`)
+  - Transaction operations
+- **Improved connection management**:
+  - `_shared_connection` parameter for connection sharing
+  - `_shared_lock` parameter for lock sharing
+  - `_is_connection_owner` flag for connection ownership management
+  - `close()` method only executed by connection owner
+
+#### Tests
+- **15 comprehensive test cases** (all passing):
+  - Sync multi-table concurrent write tests (2 tables, multiple tables)
+  - Async multi-table concurrent write tests (2 tables, multiple tables)
+  - Stress test (1000 concurrent writes)
+  - Cache isolation tests
+  - Table switching tests
+  - Edge case tests
+
+#### Compatibility
+- **Full backward compatibility**: No impact on existing code
+- All new parameters are optional (internal use)
 
 ### [1.0.3rc7] - 2025-12-10
 
