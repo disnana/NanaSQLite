@@ -385,6 +385,46 @@ if __name__ == '__main__':
     web.run_app(init_app())
 ```
 
+## Multi-table Support (v1.1.0dev1+)
+
+### table()
+
+```python
+sub_db = await db.table(table_name)
+```
+
+Asynchronously get an AsyncNanaSQLite instance for a sub-table. Shares connection and thread pool executor.
+
+**Parameters:**
+- `table_name` (str): Name of the table to access
+
+**Returns:**
+- `AsyncNanaSQLite`: A new instance operating on the specified table
+
+**Example:**
+
+```python
+async with AsyncNanaSQLite("app.db", table="main") as db:
+    # Get sub-table instances
+    users_db = await db.table("users")
+    config_db = await db.table("config")
+    
+    # Store data independently in each table
+    await users_db.aset("alice", {"name": "Alice", "age": 30})
+    await config_db.aset("theme", "dark")
+    
+    # Retrieve from each table
+    user = await users_db.aget("alice")
+    theme = await config_db.aget("theme")
+```
+
+**Benefits:**
+- **Thread-safe**: Concurrent writes from multiple async tasks are safe
+- **Resource efficient**: Reuses SQLite connection and thread pool
+- **Cache isolation**: Each table maintains independent in-memory cache
+
+---
+
 ## Important Notes
 
 1. **Thread Safety**: `AsyncNanaSQLite` is thread-safe as it uses a thread pool internally.
