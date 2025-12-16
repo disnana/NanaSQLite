@@ -1014,6 +1014,9 @@ class AsyncNanaSQLite:
         """
         非同期でサブテーブルのAsyncNanaSQLiteインスタンスを取得
 
+        既に初期化済みの親インスタンスから呼ばれることを想定しています。
+        接続とエグゼキューターは親インスタンスと共有されます。
+
         Args:
             table_name: 取得するサブテーブル名
 
@@ -1021,10 +1024,15 @@ class AsyncNanaSQLite:
             指定したテーブルを操作するAsyncNanaSQLiteインスタンス
 
         Example:
-            >>> sub_db = await db.table("subtable")
-            >>> await sub_db.aset("key", "value")
+            >>> async with AsyncNanaSQLite("mydata.db", table="main") as db:
+            ...     sub_db = await db.table("subtable")
+            ...     await sub_db.aset("key", "value")
+            ...     value = await sub_db.aget("key")
         """
-        await self._ensure_initialized()
+        # 親インスタンスが初期化済みであることを確認
+        if self._db is None:
+            await self._ensure_initialized()
+
         loop = asyncio.get_running_loop()
         sub_db = await loop.run_in_executor(
             self._executor,
