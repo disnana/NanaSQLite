@@ -259,6 +259,38 @@ Close the database connection.
 db.close()
 ```
 
+**Note:** Sub-table instances created with `table()` method share the connection, so only the connection owner (the first instance created) will close the connection.
+
+---
+
+### `table(table_name: str) -> NanaSQLite` *(v1.1.0dev1+)*
+
+Get a NanaSQLite instance for a sub-table. Shares the connection and lock.
+
+```python
+# Create main instance
+db = NanaSQLite("app.db", table="main")
+
+# Get sub-table instances (share connection)
+users_db = db.table("users")
+config_db = db.table("config")
+
+# Store data independently in each table
+users_db["alice"] = {"name": "Alice", "age": 30}
+config_db["theme"] = "dark"
+```
+
+**Parameters:**
+- `table_name` (str): Name of the table to access
+
+**Returns:**
+- `NanaSQLite`: A new instance operating on the specified table
+
+**Benefits:**
+- **Thread-safe**: Concurrent writes from multiple threads are safe
+- **Memory efficient**: Reuses SQLite connection
+- **Cache isolation**: Each table maintains independent in-memory cache
+
 ---
 
 ## Batch Operations
