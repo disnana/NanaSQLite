@@ -554,6 +554,9 @@ class TestEdgeCases:
             assert sub_db["key1"]["value"] == 2
             assert main_db2["key1"]["value"] == 1
 
+            # 接続を閉じる
+            db.close()
+
         finally:
             os.unlink(db_path)
 
@@ -589,8 +592,9 @@ class TestEdgeCases:
             db_path = tmp.name
 
         try:
+            # 接続を共有
             main_db = NanaSQLite(db_path, table="main")
-            sub_db = NanaSQLite(db_path, table="sub")
+            sub_db = main_db.table("sub")
 
             # 空の状態で読み取り試行
             assert "nonexistent" not in main_db
@@ -601,6 +605,9 @@ class TestEdgeCases:
 
             with pytest.raises(KeyError):
                 _ = sub_db["nonexistent"]
+
+            # 接続を閉じる
+            main_db.close()
 
         finally:
             os.unlink(db_path)
@@ -618,11 +625,13 @@ class TestEdgeCases:
                     assert not await main_db.acontains("nonexistent")
                     assert not await sub_db.acontains("nonexistent")
 
-                    with pytest.raises(KeyError):
-                        await main_db.aget("nonexistent")
+                    # aget()はdefault=Noneを返す（KeyErrorは発生しない）
+                    assert await main_db.aget("nonexistent") is None
+                    assert await sub_db.aget("nonexistent") is None
 
-                    with pytest.raises(KeyError):
-                        await sub_db.aget("nonexistent")
+                    # カスタムdefault値も機能する
+                    assert await main_db.aget("nonexistent", "default") == "default"
+                    assert await sub_db.aget("nonexistent", {}) == {}
 
         finally:
             os.unlink(db_path)

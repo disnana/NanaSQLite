@@ -103,3 +103,4 @@ venv.bak/
 # OS
 .DS_Store
 Thumbs.db
+開発用.py
