@@ -1009,3 +1009,40 @@ class AsyncNanaSQLite:
             内部のNanaSQLiteインスタンス
         """
         return self._db
+
+    async def table(self, table_name: str) -> AsyncNanaSQLite:
+        """
+        非同期でサブテーブルのAsyncNanaSQLiteインスタンスを取得
+
+        Args:
+            table_name: 取得するサブテーブル名
+
+        Returns:
+            指定したテーブルを操作するAsyncNanaSQLiteインスタンス
+
+        Example:
+            >>> sub_db = await db.table("subtable")
+            >>> await sub_db.aset("key", "value")
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        sub_db = await loop.run_in_executor(
+            self._executor,
+            self._db.table,
+            table_name
+        )
+
+        # 新しいAsyncNanaSQLiteラッパーを作成（__init__をバイパス）
+        async_sub_db = object.__new__(AsyncNanaSQLite)
+        async_sub_db._db_path = self._db_path
+        async_sub_db._table = table_name
+        async_sub_db._bulk_load = self._bulk_load
+        async_sub_db._optimize = self._optimize
+        async_sub_db._cache_size_mb = self._cache_size_mb
+        async_sub_db._max_workers = self._max_workers
+        async_sub_db._thread_name_prefix = self._thread_name_prefix + f"_{table_name}"
+        async_sub_db._db = sub_db  # 接続を共有した同期版DBを設定
+        async_sub_db._loop = loop  # イベントループを共有
+        async_sub_db._executor = self._executor  # 同じエグゼキューターを共有
+        async_sub_db._owns_executor = False  # エグゼキューターは所有しない
+        return async_sub_db

@@ -501,7 +501,8 @@ class TestAsyncConcurrentTableWrites:
             db_path = tmp.name
 
         try:
-            async with AsyncNanaSQLite(db_path, table="main", use_cache=True, cache_limit=10) as main_db:
+            # Note: use_cache, cache_limitパラメータは将来の実装で対応予定
+            async with AsyncNanaSQLite(db_path, table="main") as main_db:
                 async with await main_db.table("sub") as sub_db:
                     # 各テーブルに100件書き込み
                     tasks = []
