@@ -23,16 +23,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Ubuntu: Fixed versions (3.11, 3.13)
-          - os: ubuntu-latest
-            python-version: ["3.11", "3.13"]
-          # Windows: Limited versions only (3.11, 3.13)
-          - os: windows-latest
-            python-version: ["3.11", "3.13"]
-          # macOS: Limited versions only (3.11, 3.13)
-          - os: macos-latest
-            python-version: ["3.11", "3.13"]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.11", "3.13"]
 
     steps:
     - uses: actions/checkout@v4
@@ -69,16 +61,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Ubuntu: Fixed versions (3.11, 3.13)
-          - os: ubuntu-latest
-            python-version: ["3.11", "3.13"]
-          # Windows: Limited versions only (3.11, 3.13)
-          - os: windows-latest
-            python-version: ["3.11", "3.13"]
-          # macOS: Limited versions only (3.11, 3.13)
-          - os: macos-latest
-            python-version: ["3.11", "3.13"]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.11", "3.13"]
 
     steps:
     - uses: actions/checkout@v4
@@ -114,16 +98,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Ubuntu: Fixed versions (3.11, 3.13)
-          - os: ubuntu-latest
-            python-version: ["3.11", "3.13"]
-          # Windows: Limited versions only (3.11, 3.13)
-          - os: windows-latest
-            python-version: ["3.11", "3.13"]
-          # macOS: Limited versions only (3.11, 3.13)
-          - os: macos-latest
-            python-version: ["3.11", "3.13"]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.11", "3.13"]
 
     steps:
     - uses: actions/checkout@v4
