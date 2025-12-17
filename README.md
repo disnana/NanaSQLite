@@ -134,6 +134,49 @@ with db.transaction():
     db.sql_insert("logs", {"message": "Event"})
 ```
 
+### ✨ Multi-Table Support (v1.1.0dev1+)
+
+**Safely operate multiple tables in the same database with shared connections:**
+
+```python
+from nanasqlite import NanaSQLite
+
+# Create main table instance
+main_db = NanaSQLite("mydata.db", table="users")
+
+# Get another table instance sharing the same connection
+products_db = main_db.table("products")
+orders_db = main_db.table("orders")
+
+# Each table has isolated cache and operations
+main_db["user1"] = {"name": "Alice", "email": "alice@example.com"}
+products_db["prod1"] = {"name": "Laptop", "price": 999}
+orders_db["order1"] = {"user": "user1", "product": "prod1"}
+
+# Thread-safe concurrent writes to different tables
+from concurrent.futures import ThreadPoolExecutor
+
+def write_users(i):
+    main_db[f"user{i}"] = {"name": f"User{i}"}
+
+def write_products(i):
+    products_db[f"prod{i}"] = {"name": f"Product{i}"}
+
+with ThreadPoolExecutor(max_workers=10) as executor:
+    executor.map(write_users, range(100))
+    executor.map(write_products, range(100))
+
+# Close only the main instance (closes shared connection)
+main_db.close()
+```
+
+**Key features:**
+- **Shared connection & lock**: All table instances share the same SQLite connection and thread lock
+- **Thread-safe**: Concurrent writes to different tables are safely synchronized
+- **Memory efficient**: Reuses connections instead of creating new ones
+- **Isolated cache**: Each table maintains its own memory cache
+- **Works with async**: `await db.table("table_name")` for AsyncNanaSQLite
+
 ### ✨ Async Support (v1.0.3rc7+)
 
 **Full async/await support with optimized thread pool for high-performance non-blocking operations:**
@@ -172,6 +215,10 @@ async def main():
         })
         await db.sql_insert("users", {"name": "Alice", "age": 25})
         users = await db.query("users", where="age > ?", parameters=(20,))
+        
+        # Multi-table support in async
+        products_db = await db.table("products")
+        await products_db.aset("prod1", {"name": "Laptop", "price": 999})
 
 asyncio.run(main())
 ```
@@ -285,6 +332,49 @@ db.create_index("idx_users_email", "users", ["email"])
 results = db.query(table_name="users", where="age > ?", parameters=(20,))
 ```
 
+### ✨ マルチテーブルサポート (v1.1.0dev1+)
+
+**同一データベース内の複数テーブルを接続共有で安全に操作:**
+
+```python
+from nanasqlite import NanaSQLite
+
+# メインテーブルインスタンスを作成
+main_db = NanaSQLite("mydata.db", table="users")
+
+# 同じ接続を共有する別のテーブルインスタンスを取得
+products_db = main_db.table("products")
+orders_db = main_db.table("orders")
+
+# 各テーブルは独立したキャッシュと操作を持つ
+main_db["user1"] = {"name": "Alice", "email": "alice@example.com"}
+products_db["prod1"] = {"name": "Laptop", "price": 999}
+orders_db["order1"] = {"user": "user1", "product": "prod1"}
+
+# 異なるテーブルへのスレッドセーフな並行書き込み
+from concurrent.futures import ThreadPoolExecutor
+
+def write_users(i):
+    main_db[f"user{i}"] = {"name": f"User{i}"}
+
+def write_products(i):
+    products_db[f"prod{i}"] = {"name": f"Product{i}"}
+
+with ThreadPoolExecutor(max_workers=10) as executor:
+    executor.map(write_users, range(100))
+    executor.map(write_products, range(100))
+
+# メインインスタンスのみをクローズ（共有接続を閉じる）
+main_db.close()
+```
+
+**主な特徴:**
+- **接続とロックの共有**: 全てのテーブルインスタンスが同じSQLite接続とスレッドロックを共有
+- **スレッドセーフ**: 異なるテーブルへの並行書き込みが安全に同期される
+- **メモリ効率**: 新しい接続を作成せず、既存の接続を再利用
+- **キャッシュ分離**: 各テーブルは独自のメモリキャッシュを保持
+- **非同期対応**: AsyncNanaSQLiteでは `await db.table("table_name")` で使用可能
+
 ### ✨ 非同期サポート (v1.0.3rc7+)
 
 **高速化されたスレッドプールによる完全な async/await サポート:**
@@ -323,6 +413,10 @@ async def main():
         })
         await db.sql_insert("users", {"name": "Alice", "age": 25})
         users = await db.query("users", where="age > ?", parameters=(20,))
+        
+        # 非同期でのマルチテーブルサポート
+        products_db = await db.table("products")
+        await products_db.aset("prod1", {"name": "Laptop", "price": 999})
 
 asyncio.run(main())
 ```
