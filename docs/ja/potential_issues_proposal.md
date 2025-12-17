@@ -567,13 +567,126 @@ pip install sphinx sphinx-rtd-theme sphinx-autodoc-typehints
 ## よくある問題
 
 ### Q: "database is locked" エラーが発生する
-A: WALモードを確認、タイムアウトを増やす
+
+**原因**: 複数のプロセスまたはスレッドが同時にデータベースにアクセスしようとしている
+
+**解決方法**:
+1. WALモードが有効か確認:
+   ```python
+   db = NanaSQLite("mydata.db", optimize=True)  # WALモードが自動で有効
+   # または手動で確認
+   mode = db.pragma("journal_mode")
+   print(f"Journal mode: {mode}")  # "wal" が表示されるべき
+   ```
+
+2. busy_timeoutを増やす:
+   ```python
+   db.pragma("busy_timeout", 5000)  # 5秒待機
+   ```
+
+3. コンテキストマネージャを使用して適切にクローズ:
+   ```python
+   with NanaSQLite("mydata.db") as db:
+       db["key"] = "value"
+   # 自動的にクローズされる
+   ```
 
 ### Q: メモリ使用量が増え続ける
-A: bulk_load=False を検討、定期的にrefresh()を呼ぶ
+
+**原因**: bulk_load=Trueまたは大量のキーをキャッシュしている
+
+**解決方法**:
+1. 遅延ロードを使用:
+   ```python
+   # ❌ 避けるべき
+   db = NanaSQLite("mydata.db", bulk_load=True)
+   
+   # ✅ 推奨
+   db = NanaSQLite("mydata.db", bulk_load=False)  # デフォルト
+   ```
+
+2. 定期的にキャッシュをクリア:
+   ```python
+   # 特定のキーのキャッシュをクリア
+   db.refresh("key1")
+   
+   # 全キャッシュをクリア
+   db.refresh()
+   
+   # または定期的に実行
+   import time
+   while True:
+       # アプリケーションのロジック
+       time.sleep(3600)  # 1時間ごと
+       db.refresh()  # キャッシュをクリア
+   ```
+
+3. LRUキャッシュ戦略を実装（将来の改善として提案中）
 
 ### Q: パフォーマンスが遅い
-A: インデックスを追加、batch操作を使用
+
+**原因**: インデックス不足、バッチ処理を使用していない
+
+**解決方法**:
+1. 頻繁にクエリするカラムにインデックスを追加:
+   ```python
+   db.create_table("users", {
+       "id": "INTEGER PRIMARY KEY",
+       "email": "TEXT",
+       "age": "INTEGER"
+   })
+   
+   # よく検索するカラムにインデックス
+   db.create_index("idx_users_email", "users", ["email"])
+   db.create_index("idx_users_age", "users", ["age"])
+   ```
+
+2. バッチ操作を使用:
+   ```python
+   # ❌ 遅い: 個別の書き込み
+   for i in range(1000):
+       db[f"key{i}"] = f"value{i}"
+   
+   # ✅ 速い: バッチ書き込み（10-100倍高速）
+   data = {f"key{i}": f"value{i}" for i in range(1000)}
+   db.batch_update(data)
+   ```
+
+3. トランザクションを使用:
+   ```python
+   with db.transaction():
+       for i in range(1000):
+           db.sql_insert("users", {"name": f"User{i}", "age": i})
+   # 一括コミットで高速化
+   ```
+
+4. VACUUM実行でデータベースを最適化:
+   ```python
+   db.vacuum()  # 削除された領域を回収
+   ```
+
+### Q: 子インスタンス作成後、親を閉じたらエラーが出る
+
+**原因**: table()メソッドで作成した子インスタンスが接続を共有している
+
+**解決方法**:
+1. コンテキストマネージャを使用（推奨）:
+   ```python
+   with NanaSQLite("app.db", table="main") as main_db:
+       sub_db = main_db.table("sub")
+       sub_db["key"] = "value"
+   # 自動的にクローズされ、問題なし
+   ```
+
+2. 親インスタンスのみをクローズ:
+   ```python
+   main_db = NanaSQLite("app.db")
+   sub_db = main_db.table("sub")
+   
+   # 作業完了後
+   main_db.close()  # これだけでOK（子は自動的に無効化）
+   # sub_db.close() は不要
+   ```
 ```
 
 **優先度**: 中
