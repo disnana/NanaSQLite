@@ -39,7 +39,53 @@ def _validate_column_expression(self, expression: str, allow_functions: bool = F
     - 関数付き: 許可された関数のホワイトリスト
     - AS句: aliasの適切な検証
     """
-    pass
+    import re
+
+    # 許可される関数名のホワイトリスト（必要に応じて拡張）
+    allowed_functions = {"LOWER", "UPPER", "COUNT", "MAX", "MIN", "AVG"}
+
+    identifier_re = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+    func_call_re = re.compile(
+        r"^(?P<func>[A-Za-z_][A-Za-z0-9_]*)\((?P<arg>[A-Za-z_][A-Za-z0-9_]*)\)$"
+    )
+
+    expr = expression.strip()
+    if not expr:
+        return False
+
+    # AS 句の分離（エイリアスの検証を含む）
+    parts = re.split(r"\s+AS\s+", expr, flags=re.IGNORECASE)
+    if len(parts) > 2:
+        return False
+
+    main_expr = parts[0].strip()
+    alias = parts[1].strip() if len(parts) == 2 else None
+
+    # エイリアスも識別子として検証
+    if alias is not None and not identifier_re.match(alias):
+        return False
+
+    # 関数を許可しない場合は単純な識別子のみ
+    if not allow_functions:
+        return bool(identifier_re.match(main_expr))
+
+    # 関数を許可する場合:
+    # 1) 単純な識別子
+    if identifier_re.match(main_expr):
+        return True
+
+    # 2) 単一の関数呼び出し (FUNC(column))
+    m = func_call_re.match(main_expr)
+    if not m:
+        return False
+
+    func_name = m.group("func").upper()
+    arg_name = m.group("arg")
+
+    if func_name not in allowed_functions:
+        return False
+
+    return bool(identifier_re.match(arg_name))
 ```
 
 **優先度**: 高
@@ -334,18 +380,88 @@ def batch_get(self, keys: List[str]) -> Dict[str, Any]:
 
 **推奨対応**:
 ```python
+from typing import Any, Dict, List
+import re
+
+
 class QueryAnalyzer:
     """クエリパフォーマンスを分析し、インデックスを推奨"""
-    
+
+    def __init__(self) -> None:
+        # 非常に単純な実装例として、メモリ上にクエリ履歴を保持する
+        self._history: List[str] = []
+
+    def record_query(self, sql: str) -> None:
+        """実行されたクエリを履歴に追加する簡易メソッド"""
+        self._history.append(sql)
+
+    def _analyze_single_query(self, sql: str) -> List[str]:
+        """
+        単一クエリを分析して推奨インデックスを返す簡易実装。
+
+        制約:
+        - SELECT ... FROM ... WHERE ... 形式のみを対象とする
+        - WHERE 句に含まれる「column = ? / column = value」形式の列に対して
+          単純な複合インデックスを推奨する
+        """
+        # テーブル名を抽出
+        table_match = re.search(r"FROM\s+([A-Za-z_][A-Za-z0-9_]*)", sql, re.IGNORECASE)
+        if not table_match:
+            return []
+        table_name = table_match.group(1)
+
+        # WHERE 句の条件部を抽出
+        where_match = re.search(r"WHERE\s+(.+)", sql, re.IGNORECASE)
+        if not where_match:
+            return []
+        where_clause = where_match.group(1)
+
+        # 「column = ...」形式の列名をすべて抽出
+        columns = re.findall(r"([A-Za-z_][A-Za-z0-9_]*)\s*=", where_clause)
+        if not columns:
+            return []
+
+        # 重複を排除し、安定した順序にソート
+        unique_columns = sorted(set(columns))
+        column_list = ", ".join(unique_columns)
+        index_name = f"idx_{table_name}_" + "_".join(unique_columns)
+
+        suggestion = f"CREATE INDEX {index_name} ON {table_name} ({column_list});"
+        return [suggestion]
+
     def analyze_query(self, sql: str) -> List[str]:
         """クエリを分析し、推奨インデックスを返す"""
-        pass
-    
+        # 実際の実装では EXPLAIN QUERY PLAN などを用いて詳細分析を行うことを想定
+        # ここでは上記の簡易ロジックを呼び出す。
+        return self._analyze_single_query(sql)
+
     def suggest_indexes(self) -> List[Dict[str, Any]]:
         """
         実行されたクエリ履歴から推奨インデックスを生成
+
+        戻り値の例:
+        [
+            {
+                "query": "SELECT ...",
+                "suggested_indexes": ["CREATE INDEX ...", ...],
+            },
+            ...
+        ]
         """
-        pass
+        results: List[Dict[str, Any]] = []
+
+        for sql in self._history:
+            suggestions = self._analyze_single_query(sql)
+            if not suggestions:
+                continue
+            results.append(
+                {
+                    "query": sql,
+                    "suggested_indexes": suggestions,
+                }
+            )
+
+        return results
 ```
 
 **優先度**: 低（機能拡張）
@@ -465,11 +581,11 @@ jobs:
   benchmark:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
       - name: Run benchmarks
         run: pytest tests/test_benchmark.py --benchmark-only
       - name: Store results
-        uses: benchmark-action/github-action-benchmark@v1
+        uses: benchmark-action/github-action-benchmark@v1.9.1
         with:
           tool: 'pytest'
           output-file-path: benchmark-results.json
@@ -492,7 +608,7 @@ jobs:
     name: Dynamic Security Testing
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
       - name: Run OWASP ZAP
         run: |
           # APIエンドポイントがある場合
@@ -731,7 +847,7 @@ strategy:
     python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
 ```
 
-**優先度**: 低（Python 3.14はまだベータ版）
+**優先度**: 低（Python 3.14のリリース状況を確認する必要がある）
 
 ---
 
