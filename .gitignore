@@ -104,3 +104,4 @@ venv.bak/
 .DS_Store
 Thumbs.db
 開発用.py
+stress_test_table.py
