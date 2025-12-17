@@ -1017,6 +1017,19 @@ class AsyncNanaSQLite:
         既に初期化済みの親インスタンスから呼ばれることを想定しています。
         接続とエグゼキューターは親インスタンスと共有されます。
 
+        ⚠️ 重要な注意事項:
+        - 同じテーブルに対して複数のインスタンスを作成しないでください
+          各インスタンスは独立したキャッシュを持つため、キャッシュ不整合が発生します
+        - 推奨: テーブルインスタンスを変数に保存して再利用してください
+
+        非推奨:
+            sub1 = await db.table("users")
+            sub2 = await db.table("users")  # キャッシュ不整合の原因
+
+        推奨:
+            users_db = await db.table("users")
+            # users_dbを使い回す
+
         Args:
             table_name: 取得するサブテーブル名
 
@@ -1025,9 +1038,10 @@ class AsyncNanaSQLite:
 
         Example:
             >>> async with AsyncNanaSQLite("mydata.db", table="main") as db:
-            ...     sub_db = await db.table("subtable")
-            ...     await sub_db.aset("key", "value")
-            ...     value = await sub_db.aget("key")
+            ...     users_db = await db.table("users")
+            ...     products_db = await db.table("products")
+            ...     await users_db.aset("user1", {"name": "Alice"})
+            ...     await products_db.aset("prod1", {"name": "Laptop"})
         """
         # 親インスタンスが初期化済みであることを確認
         if self._db is None:
