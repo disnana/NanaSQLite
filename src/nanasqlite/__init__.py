@@ -24,6 +24,6 @@ Async Example:
 from .core import NanaSQLite
 from .async_core import AsyncNanaSQLite
 
-__version__ = "1.1.0a2"
+__version__ = "1.1.0a3"
 __author__ = "Disnana"
 __all__ = ["NanaSQLite", "AsyncNanaSQLite"]
