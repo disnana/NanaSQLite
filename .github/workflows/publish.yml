@@ -105,12 +105,29 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
+    # Windows最適化: TEMPをD:ドライブに
+    - name: Setup Windows temp directory
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: New-Item -ItemType Directory -Force -Path D:\temp
+
     - name: Install dependencies
       run: |
         uv pip install --system pytest pytest-benchmark pytest-asyncio pytest-xdist apsw pydantic
         uv pip install --system -e .
 
-    - name: Run tests
+    # Windows: TEMP最適化 + 並列数固定
+    - name: Run tests (Windows)
+      if: runner.os == 'Windows'
+      env:
+        TEMP: 'D:\temp'
+        TMP: 'D:\temp'
+      run: |
+        pytest tests/ -v --tb=short --junitxml=test-results.xml -n 4 --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py
+
+    # Linux/macOS: 変更なし
+    - name: Run tests (Linux/macOS)
+      if: runner.os != 'Windows'
       run: |
         pytest tests/ -v --tb=short --junitxml=test-results.xml -n auto --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py
 
