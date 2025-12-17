@@ -581,7 +581,7 @@ jobs:
   benchmark:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v4
       - name: Run benchmarks
         run: pytest tests/test_benchmark.py --benchmark-only
       - name: Store results
@@ -608,7 +608,7 @@ jobs:
     name: Dynamic Security Testing
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v4
       - name: Run OWASP ZAP
         run: |
           # APIエンドポイントがある場合
