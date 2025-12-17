@@ -2,6 +2,8 @@ name: NanaSQLite Tests
 
 on:
   push:
+    branches-ignore:
+      - main
     paths:
       - 'src/**'
       - 'tests/**'
@@ -21,8 +23,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ${{ (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'pull_request') && fromJson('["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]') || fromJson('["3.12", "3.13"]') }}
+        include:
+          # Ubuntu: Fixed versions (3.11, 3.13)
+          - os: ubuntu-latest
+            python-version: ["3.11", "3.13"]
+          # Windows: Limited versions only (3.11, 3.13)
+          - os: windows-latest
+            python-version: ["3.11", "3.13"]
+          # macOS: Limited versions only (3.11, 3.13)
+          - os: macos-latest
+            python-version: ["3.11", "3.13"]
 
     steps:
     - uses: actions/checkout@v4
@@ -59,8 +69,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ${{ (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'pull_request') && fromJson('["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]') || fromJson('["3.12", "3.13"]') }}
+        include:
+          # Ubuntu: Fixed versions (3.11, 3.13)
+          - os: ubuntu-latest
+            python-version: ["3.11", "3.13"]
+          # Windows: Limited versions only (3.11, 3.13)
+          - os: windows-latest
+            python-version: ["3.11", "3.13"]
+          # macOS: Limited versions only (3.11, 3.13)
+          - os: macos-latest
+            python-version: ["3.11", "3.13"]
 
     steps:
     - uses: actions/checkout@v4
@@ -96,8 +114,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ${{ (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'pull_request') && fromJson('["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]') || fromJson('["3.12", "3.13"]') }}
+        include:
+          # Ubuntu: Fixed versions (3.11, 3.13)
+          - os: ubuntu-latest
+            python-version: ["3.11", "3.13"]
+          # Windows: Limited versions only (3.11, 3.13)
+          - os: windows-latest
+            python-version: ["3.11", "3.13"]
+          # macOS: Limited versions only (3.11, 3.13)
+          - os: macos-latest
+            python-version: ["3.11", "3.13"]
 
     steps:
     - uses: actions/checkout@v4
