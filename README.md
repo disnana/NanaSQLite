@@ -177,6 +177,40 @@ main_db.close()
 - **Isolated cache**: Each table maintains its own memory cache
 - **Works with async**: `await db.table("table_name")` for AsyncNanaSQLite
 
+**⚠️ Important Usage Notes:**
+
+1. **Do not create multiple instances for the same table:**
+   ```python
+   # ❌ BAD: Creates cache inconsistency
+   users1 = db.table("users")
+   users2 = db.table("users")  # Different cache, same DB table!
+   
+   # ✅ GOOD: Reuse the same instance
+   users_db = db.table("users")
+   # Use users_db throughout your code
+   ```
+   
+   Each instance has its own independent cache. Multiple instances of the same table can lead to cache inconsistency at the memory level (though database writes remain correct).
+
+2. **Use context managers to avoid issues after close:**
+   ```python
+   # ✅ RECOMMENDED: Context manager ensures proper cleanup
+   with NanaSQLite("app.db", table="main") as main_db:
+       sub_db = main_db.table("sub")
+       sub_db["key"] = "value"
+   # Automatically closed, no orphaned instances
+   
+   # ❌ AVOID: Manual close can leave orphaned sub-instances
+   main_db = NanaSQLite("app.db")
+   sub_db = main_db.table("sub")
+   main_db.close()  # sub_db may still access cached data
+   ```
+
+**Best practices:**
+- Store table instances in variables and reuse them
+- Prefer context managers (`with` statement) for automatic resource management
+- Close the parent instance when done; child instances share the same connection
+
 ### ✨ Async Support (v1.0.3rc7+)
 
 **Full async/await support with optimized thread pool for high-performance non-blocking operations:**
@@ -374,6 +408,40 @@ main_db.close()
 - **メモリ効率**: 新しい接続を作成せず、既存の接続を再利用
 - **キャッシュ分離**: 各テーブルは独自のメモリキャッシュを保持
 - **非同期対応**: AsyncNanaSQLiteでは `await db.table("table_name")` で使用可能
+
+**⚠️ 重要な使用上の注意:**
+
+1. **同じテーブルに対して複数のインスタンスを作成しないでください:**
+   ```python
+   # ❌ 非推奨: キャッシュ不整合を引き起こす
+   users1 = db.table("users")
+   users2 = db.table("users")  # 異なるキャッシュ、同じDBテーブル！
+   
+   # ✅ 推奨: 同じインスタンスを再利用
+   users_db = db.table("users")
+   # コード全体でusers_dbを使用する
+   ```
+   
+   各インスタンスは独立したキャッシュを持ちます。同じテーブルに対して複数のインスタンスを作成すると、メモリレベルでのキャッシュ不整合が発生する可能性があります（ただし、データベースへの書き込みは正しく行われます）。
+
+2. **close後の問題を避けるため、コンテキストマネージャを使用してください:**
+   ```python
+   # ✅ 推奨: コンテキストマネージャで適切にクリーンアップ
+   with NanaSQLite("app.db", table="main") as main_db:
+       sub_db = main_db.table("sub")
+       sub_db["key"] = "value"
+   # 自動的にクローズされ、孤立したインスタンスなし
+   
+   # ❌ 非推奨: 手動closeは孤立したサブインスタンスを残す可能性
+   main_db = NanaSQLite("app.db")
+   sub_db = main_db.table("sub")
+   main_db.close()  # sub_dbはまだキャッシュデータにアクセスできる
+   ```
+
+**ベストプラクティス:**
+- テーブルインスタンスを変数に保存して再利用する
+- 自動リソース管理のためコンテキストマネージャ（`with`文）を優先する
+- 完了時は親インスタンスをクローズする（子インスタンスは同じ接続を共有）
 
 ### ✨ 非同期サポート (v1.0.3rc7+)
 

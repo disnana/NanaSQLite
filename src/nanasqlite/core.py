@@ -1543,8 +1543,28 @@ class NanaSQLite(MutableMapping):
         これにより、複数のテーブルインスタンスが同じ接続を使用して
         スレッドセーフに動作します。
 
+        ⚠️ 重要な注意事項:
+        - 同じテーブルに対して複数のインスタンスを作成しないでください
+          各インスタンスは独立したキャッシュを持つため、キャッシュ不整合が発生します
+        - 推奨: テーブルインスタンスを変数に保存して再利用してください
+
+        非推奨:
+            sub1 = db.table("users")
+            sub2 = db.table("users")  # キャッシュ不整合の原因
+
+        推奨:
+            users_db = db.table("users")
+            # users_dbを使い回す
+
         :param table_name: テーブル名
         :return NanaSQLite: 新しいテーブルインスタンス
+
+        Example:
+            >>> with NanaSQLite("app.db", table="main") as main_db:
+            ...     users_db = main_db.table("users")
+            ...     products_db = main_db.table("products")
+            ...     users_db["user1"] = {"name": "Alice"}
+            ...     products_db["prod1"] = {"name": "Laptop"}
         """
         return NanaSQLite(
             self._db_path,
