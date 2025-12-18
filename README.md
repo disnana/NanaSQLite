@@ -177,6 +177,55 @@ main_db.close()
 - **Isolated cache**: Each table maintains its own memory cache
 - **Works with async**: `await db.table("table_name")` for AsyncNanaSQLite
 
+### ✨ Transaction Support & Error Handling (v1.1.0+)
+
+**Enhanced transaction management with proper error handling:**
+
+```python
+from nanasqlite import NanaSQLite, NanaSQLiteTransactionError
+
+db = NanaSQLite("mydata.db")
+
+# Context manager (recommended - auto commit/rollback)
+with db.transaction():
+    db["key1"] = "value1"
+    db["key2"] = "value2"
+    # Automatically commits on success, rolls back on exception
+
+# Manual transaction control
+db.begin_transaction()
+try:
+    db.sql_insert("users", {"name": "Alice"})
+    db.sql_insert("users", {"name": "Bob"})
+    db.commit()
+except Exception:
+    db.rollback()
+
+# Check transaction state
+if not db.in_transaction():
+    db.begin_transaction()
+```
+
+**Custom exceptions for better error handling:**
+
+```python
+from nanasqlite import (
+    NanaSQLiteError,           # Base exception
+    NanaSQLiteValidationError, # Invalid input/parameters
+    NanaSQLiteDatabaseError,   # Database operation errors
+    NanaSQLiteTransactionError,# Transaction-related errors
+    NanaSQLiteConnectionError, # Connection errors
+)
+
+try:
+    db = NanaSQLite("mydata.db")
+    db.begin_transaction()
+    # Nested transactions are not supported
+    db.begin_transaction()  # Raises NanaSQLiteTransactionError
+except NanaSQLiteTransactionError as e:
+    print(f"Transaction error: {e}")
+```
+
 **⚠️ Important Usage Notes:**
 
 1. **Do not create multiple instances for the same table:**
@@ -253,6 +302,12 @@ async def main():
         # Multi-table support in async
         products_db = await db.table("products")
         await products_db.aset("prod1", {"name": "Laptop", "price": 999})
+        
+        # Async transaction support (v1.1.0+)
+        async with db.transaction():
+            await db.sql_insert("users", {"name": "Bob", "age": 30})
+            await db.sql_insert("users", {"name": "Charlie", "age": 35})
+            # Auto commit on success, rollback on exception
 
 asyncio.run(main())
 ```
@@ -443,6 +498,55 @@ main_db.close()
 - 自動リソース管理のためコンテキストマネージャ（`with`文）を優先する
 - 完了時は親インスタンスをクローズする（子インスタンスは同じ接続を共有）
 
+### ✨ トランザクションサポートとエラーハンドリング (v1.1.0+)
+
+**適切なエラーハンドリング機能を備えた強化されたトランザクション管理:**
+
+```python
+from nanasqlite import NanaSQLite, NanaSQLiteTransactionError
+
+db = NanaSQLite("mydata.db")
+
+# コンテキストマネージャ（推奨 - 自動コミット/ロールバック）
+with db.transaction():
+    db["key1"] = "value1"
+    db["key2"] = "value2"
+    # 成功時は自動コミット、例外発生時は自動ロールバック
+
+# 手動トランザクション制御
+db.begin_transaction()
+try:
+    db.sql_insert("users", {"name": "Alice"})
+    db.sql_insert("users", {"name": "Bob"})
+    db.commit()
+except Exception:
+    db.rollback()
+
+# トランザクション状態の確認
+if not db.in_transaction():
+    db.begin_transaction()
+```
+
+**より良いエラーハンドリングのためのカスタム例外:**
+
+```python
+from nanasqlite import (
+    NanaSQLiteError,           # 基底例外
+    NanaSQLiteValidationError, # 不正な入力/パラメータ
+    NanaSQLiteDatabaseError,   # データベース操作エラー
+    NanaSQLiteTransactionError,# トランザクション関連エラー
+    NanaSQLiteConnectionError, # 接続エラー
+)
+
+try:
+    db = NanaSQLite("mydata.db")
+    db.begin_transaction()
+    # ネストしたトランザクションはサポートされていません
+    db.begin_transaction()  # NanaSQLiteTransactionErrorを発生
+except NanaSQLiteTransactionError as e:
+    print(f"トランザクションエラー: {e}")
+```
+
 ### ✨ 非同期サポート (v1.0.3rc7+)
 
 **高速化されたスレッドプールによる完全な async/await サポート:**
@@ -485,6 +589,12 @@ async def main():
         # 非同期でのマルチテーブルサポート
         products_db = await db.table("products")
         await products_db.aset("prod1", {"name": "Laptop", "price": 999})
+        
+        # 非同期トランザクションサポート (v1.1.0+)
+        async with db.transaction():
+            await db.sql_insert("users", {"name": "Bob", "age": 30})
+            await db.sql_insert("users", {"name": "Charlie", "age": 35})
+            # 成功時は自動コミット、例外発生時は自動ロールバック
 
 asyncio.run(main())
 ```
