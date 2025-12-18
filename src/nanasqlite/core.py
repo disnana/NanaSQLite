@@ -332,6 +332,7 @@ class NanaSQLite(MutableMapping):
     
     def values(self) -> list:
         """全値を取得（一括ロードしてからメモリから）"""
+        self._check_connection()
         self.load_all()
         return list(self._data.values())
     
@@ -383,6 +384,7 @@ class NanaSQLite(MutableMapping):
     
     def pop(self, key: str, *args) -> Any:
         """dict.pop(key[, default])"""
+        self._check_connection()
         if self._ensure_cached(key):
             value = self._data.pop(key)
             self._delete_from_db(key)
@@ -503,6 +505,7 @@ class NanaSQLite(MutableMapping):
         Returns:
             None
         """
+        self._check_connection()
         if not keys:
             return  # 空の場合は何もしない
         
@@ -526,6 +529,7 @@ class NanaSQLite(MutableMapping):
     
     def to_dict(self) -> dict:
         """全データをPython dictとして取得"""
+        self._check_connection()
         self.load_all()
         return dict(self._data)
     
