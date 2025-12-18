@@ -16,6 +16,16 @@ from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Type, Union
 from collections.abc import MutableMapping
 import apsw
 import threading
+import weakref
+
+from .exceptions import (
+    NanaSQLiteError,
+    NanaSQLiteValidationError,
+    NanaSQLiteDatabaseError,
+    NanaSQLiteTransactionError,
+    NanaSQLiteConnectionError,
+    NanaSQLiteLockError,
+)
 
 
 class NanaSQLite(MutableMapping):
@@ -56,6 +66,15 @@ class NanaSQLite(MutableMapping):
         self._cached_keys: Set[str] = set()  # キャッシュ済みキーの追跡
         self._all_loaded: bool = False  # 全データ読み込み済みフラグ
 
+        # トランザクション状態管理
+        self._in_transaction: bool = False  # トランザクション中かどうか
+        self._transaction_depth: int = 0  # ネストレベル（警告用）
+
+        # 子インスタンスの追跡（リソース管理用）
+        self._child_instances: List[weakref.ref] = []  # 弱参照で追跡
+        self._is_closed: bool = False  # 接続が閉じられたか
+        self._parent_closed: bool = False  # 親接続が閉じられたか
+
         # 接続とロックの共有または新規作成
         if _shared_connection is not None:
             # 接続を共有（table()メソッドから呼ばれた場合）
@@ -64,7 +83,10 @@ class NanaSQLite(MutableMapping):
             self._is_connection_owner = False  # 接続の所有者ではない
         else:
             # 新規接続を作成（通常の初期化）
-            self._connection: apsw.Connection = apsw.Connection(db_path)
+            try:
+                self._connection: apsw.Connection = apsw.Connection(db_path)
+            except apsw.Error as e:
+                raise NanaSQLiteConnectionError(f"Failed to connect to database: {e}") from e
             self._lock = threading.RLock()
             self._is_connection_owner = True  # 接続の所有者
 
@@ -128,8 +150,8 @@ class NanaSQLite(MutableMapping):
             検証済み識別子（ダブルクォートで囲まれる）
         
         Raises:
-            ValueError: 識別子が無効な場合
-        
+            NanaSQLiteValidationError: 識別子が無効な場合
+
         Note:
             SQLiteの識別子は以下をサポート:
             - 英数字とアンダースコア
@@ -137,11 +159,11 @@ class NanaSQLite(MutableMapping):
             - SQLキーワードも引用符で囲めば使用可能
         """
         if not identifier:
-            raise ValueError("Identifier cannot be empty")
-        
+            raise NanaSQLiteValidationError("Identifier cannot be empty")
+
         # 基本的な検証: 英数字とアンダースコアのみ許可
         if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', identifier):
-            raise ValueError(
+            raise NanaSQLiteValidationError(
                 f"Invalid identifier '{identifier}': must start with letter or underscore "
                 "and contain only alphanumeric characters and underscores"
             )
@@ -151,6 +173,27 @@ class NanaSQLite(MutableMapping):
     
     # ==================== Private Methods ====================
     
+    def _check_connection(self) -> None:
+        """
+        接続が有効かチェック
+
+        Raises:
+            NanaSQLiteConnectionError: 接続が閉じられている、または親が閉じられている場合
+        """
+        if self._is_closed:
+            raise NanaSQLiteConnectionError("Database connection is closed")
+        if self._parent_closed:
+            raise NanaSQLiteConnectionError(
+                "Parent database connection is closed. "
+                "This table instance cannot be used anymore."
+            )
+
+    def _mark_parent_closed(self) -> None:
+        """
+        親インスタンスから呼ばれ、親が閉じられたことをマークする
+        """
+        self._parent_closed = True
+
     def _serialize(self, value: Any) -> str:
         """値をJSON文字列にシリアライズ"""
         return json.dumps(value, ensure_ascii=False)
@@ -223,6 +266,7 @@ class NanaSQLite(MutableMapping):
     
     def __setitem__(self, key: str, value: Any) -> None:
         """dict[key] = value - 即時書き込み + メモリ更新"""
+        self._check_connection()
         # メモリ更新
         self._data[key] = value
         self._cached_keys.add(key)
@@ -495,9 +539,34 @@ class NanaSQLite(MutableMapping):
 
         注意: table()メソッドで作成されたインスタンスは接続を共有しているため、
         接続の所有者（最初に作成されたインスタンス）のみが接続を閉じます。
+
+        Raises:
+            NanaSQLiteTransactionError: トランザクション中にクローズを試みた場合
         """
+        if self._is_closed:
+            return  # 既に閉じられている場合は何もしない
+
+        if self._in_transaction:
+            raise NanaSQLiteTransactionError(
+                "Cannot close connection while transaction is in progress. "
+                "Please commit or rollback first."
+            )
+
+        # 子インスタンスに通知
+        for child_ref in self._child_instances:
+            child = child_ref()
+            if child is not None:
+                child._mark_parent_closed()
+
+        self._is_closed = True
+
         if self._is_connection_owner:
-            self._connection.close()
+            try:
+                self._connection.close()
+            except apsw.Error as e:
+                # 接続クローズの失敗は警告に留める
+                import warnings
+                warnings.warn(f"Failed to close database connection: {e}")
 
     def __enter__(self):
         """コンテキストマネージャ対応"""
@@ -602,6 +671,10 @@ class NanaSQLite(MutableMapping):
         Returns:
             APSWのCursorオブジェクト（結果の取得に使用）
         
+        Raises:
+            NanaSQLiteConnectionError: 接続が閉じられている場合
+            NanaSQLiteDatabaseError: SQL実行エラー
+
         Example:
             >>> cursor = db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
             >>> for row in cursor:
@@ -611,11 +684,16 @@ class NanaSQLite(MutableMapping):
             >>> db.execute("UPDATE data SET value = ? WHERE key = ?", ('"new"', "key"))
             >>> db.refresh("key")  # キャッシュを更新
         """
-        with self._lock:
-            if parameters is None:
-                return self._connection.execute(sql)
-            else:
-                return self._connection.execute(sql, parameters)
+        self._check_connection()
+
+        try:
+            with self._lock:
+                if parameters is None:
+                    return self._connection.execute(sql)
+                else:
+                    return self._connection.execute(sql, parameters)
+        except apsw.Error as e:
+            raise NanaSQLiteDatabaseError(f"Failed to execute SQL: {e}", original_error=e) from e
 
     def execute_many(self, sql: str, parameters_list: List[tuple]) -> None:
         """
@@ -1500,6 +1578,15 @@ class NanaSQLite(MutableMapping):
         """
         トランザクションを開始
         
+        Note:
+            SQLiteはネストされたトランザクションをサポートしていません。
+            既にトランザクション中の場合、NanaSQLiteTransactionErrorが発生します。
+
+        Raises:
+            NanaSQLiteTransactionError: 既にトランザクション中の場合
+            NanaSQLiteConnectionError: 接続が閉じられている場合
+            NanaSQLiteDatabaseError: トランザクション開始に失敗した場合
+
         Example:
             >>> db.begin_transaction()
             >>> try:
@@ -1509,24 +1596,108 @@ class NanaSQLite(MutableMapping):
             ... except:
             ...     db.rollback()
         """
-        self.execute("BEGIN IMMEDIATE")
-    
+        self._check_connection()
+
+        if self._in_transaction:
+            raise NanaSQLiteTransactionError(
+                "Transaction already in progress. "
+                "SQLite does not support nested transactions. "
+                "Please commit or rollback the current transaction first."
+            )
+
+        try:
+            self.execute("BEGIN IMMEDIATE")
+            self._in_transaction = True
+            self._transaction_depth = 1
+        except Exception as e:
+            raise NanaSQLiteDatabaseError(
+                f"Failed to begin transaction: {e}",
+                original_error=e if isinstance(e, apsw.Error) else None
+            ) from e
+
     def commit(self) -> None:
         """
         トランザクションをコミット
+
+        Raises:
+            NanaSQLiteTransactionError: トランザクション外でコミットを試みた場合
+            NanaSQLiteConnectionError: 接続が閉じられている場合
+            NanaSQLiteDatabaseError: コミットに失敗した場合
         """
-        self.execute("COMMIT")
-    
+        self._check_connection()
+
+        if not self._in_transaction:
+            raise NanaSQLiteTransactionError(
+                "No transaction in progress. "
+                "Call begin_transaction() first or use the transaction() context manager."
+            )
+
+        try:
+            self.execute("COMMIT")
+            self._in_transaction = False
+            self._transaction_depth = 0
+        except Exception as e:
+            # コミット失敗時は状態を維持（ロールバックが必要）
+            raise NanaSQLiteDatabaseError(
+                f"Failed to commit transaction: {e}",
+                original_error=e if isinstance(e, apsw.Error) else None
+            ) from e
+
     def rollback(self) -> None:
         """
         トランザクションをロールバック
+
+        Raises:
+            NanaSQLiteTransactionError: トランザクション外でロールバックを試みた場合
+            NanaSQLiteConnectionError: 接続が閉じられている場合
+            NanaSQLiteDatabaseError: ロールバックに失敗した場合
         """
-        self.execute("ROLLBACK")
-    
+        self._check_connection()
+
+        if not self._in_transaction:
+            raise NanaSQLiteTransactionError(
+                "No transaction in progress. "
+                "Call begin_transaction() first or use the transaction() context manager."
+            )
+
+        try:
+            self.execute("ROLLBACK")
+            self._in_transaction = False
+            self._transaction_depth = 0
+        except Exception as e:
+            # ロールバック失敗は深刻なので状態をリセット
+            self._in_transaction = False
+            self._transaction_depth = 0
+            raise NanaSQLiteDatabaseError(
+                f"Failed to rollback transaction: {e}",
+                original_error=e if isinstance(e, apsw.Error) else None
+            ) from e
+
+    def in_transaction(self) -> bool:
+        """
+        現在トランザクション中かどうかを返す
+
+        Returns:
+            bool: トランザクション中の場合True
+
+        Example:
+            >>> db.begin_transaction()
+            >>> print(db.in_transaction())  # True
+            >>> db.commit()
+            >>> print(db.in_transaction())  # False
+        """
+        return self._in_transaction
+
     def transaction(self):
         """
         トランザクションのコンテキストマネージャ
         
+        コンテキストマネージャ内で例外が発生しない場合は自動的にコミット、
+        例外が発生した場合は自動的にロールバックします。
+
+        Raises:
+            NanaSQLiteTransactionError: 既にトランザクション中の場合
+
         Example:
             >>> with db.transaction():
             ...     db.sql_insert("users", {"name": "Alice"})
@@ -1559,6 +1730,9 @@ class NanaSQLite(MutableMapping):
         :param table_name: テーブル名
         :return NanaSQLite: 新しいテーブルインスタンス
 
+        Raises:
+            NanaSQLiteConnectionError: 接続が閉じられている場合
+
         Example:
             >>> with NanaSQLite("app.db", table="main") as main_db:
             ...     users_db = main_db.table("users")
@@ -1566,12 +1740,19 @@ class NanaSQLite(MutableMapping):
             ...     users_db["user1"] = {"name": "Alice"}
             ...     products_db["prod1"] = {"name": "Laptop"}
         """
-        return NanaSQLite(
+        self._check_connection()
+
+        child = NanaSQLite(
             self._db_path,
             table=table_name,
             _shared_connection=self._connection,
             _shared_lock=self._lock
         )
+
+        # 弱参照で子インスタンスを追跡
+        self._child_instances.append(weakref.ref(child))
+
+        return child
 
 
 class _TransactionContext:
