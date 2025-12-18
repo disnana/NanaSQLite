@@ -177,6 +177,44 @@ main_db.close()
 - **Isolated cache**: Each table maintains its own memory cache
 - **Works with async**: `await db.table("table_name")` for AsyncNanaSQLite
 
+**⚠️ Important Usage Notes:**
+
+1. **Do not create multiple instances for the same table:**
+   ```python
+   # ❌ Not recommended: Causes cache inconsistency
+   users1 = db.table("users")
+   users2 = db.table("users")  # Different cache, same DB table!
+   
+   # ✅ Recommended: Reuse the same instance
+   users_db = db.table("users")
+   # Use users_db throughout your code
+   ```
+
+2. **Use context managers to avoid issues after close:**
+   ```python
+   # ✅ Recommended: Proper cleanup with context manager
+   with NanaSQLite("app.db", table="main") as main_db:
+       sub_db = main_db.table("sub")
+       sub_db["key"] = "value"
+   # Automatically closed, no orphaned instances
+   ```
+
+3. **About chained table() calls:**
+   ```python
+   # ✅ Works: sub2 is created as a child of sub
+   sub = db.table("sub")
+   sub2 = sub.table("sub2")  # Creates sub2 table
+   
+   # ✅ More recommended: Get directly from parent
+   sub = db.table("sub")
+   sub2 = db.table("sub2")  # Clearer parent-child relationship
+   ```
+
+**Best Practices:**
+- Store table instances in variables and reuse them
+- Prefer context managers (`with` statement) for automatic resource management
+- Close the parent instance when done (child instances share the same connection)
+
 ### ✨ Transaction Support & Error Handling (v1.1.0+)
 
 **Enhanced transaction management with proper error handling:**
@@ -492,6 +530,22 @@ main_db.close()
    sub_db = main_db.table("sub")
    main_db.close()  # sub_dbはまだキャッシュデータにアクセスできる
    ```
+
+3. **table()のチェーン呼び出しについて:**
+   ```python
+   # ✅ 動作します: sub2はsubの子として作成される
+   sub = db.table("sub")
+   sub2 = sub.table("sub2")  # sub2テーブルが作成される
+   
+   # ✅ より推奨: 親から直接取得
+   sub = db.table("sub")
+   sub2 = db.table("sub2")  # より明確な親子関係
+   ```
+   
+   `table().table()`のチェーンは技術的には動作しますが、以下の点に注意：
+   - すべてのインスタンスは同じ接続を共有するため安全です
+   - `sub2`は`sub`の子として追跡されますが、実際には別のテーブルです
+   - より明確なコードのため、ルートDBから直接テーブルを取得することを推奨
 
 **ベストプラクティス:**
 - テーブルインスタンスを変数に保存して再利用する

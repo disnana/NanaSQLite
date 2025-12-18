@@ -248,6 +248,56 @@ print(config_db["theme"])  # "dark"
 - **Memory efficient**: Reuses SQLite connection to save resources
 - **Cache isolation**: Each table maintains independent in-memory cache
 
+**⚠️ Important Usage Notes:**
+
+1. **Do not create multiple instances for the same table:**
+   ```python
+   # ❌ Not recommended: Causes cache inconsistency
+   users1 = db.table("users")
+   users2 = db.table("users")  # Different cache, same DB table!
+   
+   # ✅ Recommended: Reuse the same instance
+   users_db = db.table("users")
+   # Use users_db throughout your code
+   ```
+   
+   Each instance has independent cache. Creating multiple instances for the same table can cause memory-level cache inconsistency (though database writes are correctly handled).
+
+2. **Use context managers to avoid issues after close:**
+   ```python
+   # ✅ Recommended: Proper cleanup with context manager
+   with NanaSQLite("app.db", table="main") as main_db:
+       sub_db = main_db.table("sub")
+       sub_db["key"] = "value"
+   # Automatically closed, no orphaned instances
+   
+   # ❌ Not recommended: Manual close may leave orphaned sub-instances
+   main_db = NanaSQLite("app.db")
+   sub_db = main_db.table("sub")
+   main_db.close()  # sub_db may still access cached data
+   ```
+
+3. **About chained table() calls:**
+   ```python
+   # ✅ Works: sub2 is created as a child of sub
+   sub = db.table("sub")
+   sub2 = sub.table("sub2")  # Creates sub2 table
+   
+   # ✅ More recommended: Get directly from parent
+   sub = db.table("sub")
+   sub2 = db.table("sub2")  # Clearer parent-child relationship
+   ```
+   
+   Chaining `table().table()` technically works, but note:
+   - All instances share the same connection, so it's safe
+   - `sub2` is tracked as a child of `sub`, but it's actually a different table
+   - For clearer code, getting tables directly from the root DB is recommended
+
+**Best Practices:**
+- Store table instances in variables and reuse them
+- Prefer context managers (`with` statement) for automatic resource management
+- Close the parent instance when done (child instances share the same connection)
+
 ### Performance Tuning
 
 ```python
