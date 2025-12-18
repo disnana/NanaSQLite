@@ -181,6 +181,93 @@ main_db.close()
 
 1. **Do not create multiple instances for the same table:**
    ```python
+   # ❌ Not recommended: Causes cache inconsistency
+   users1 = db.table("users")
+   users2 = db.table("users")  # Different cache, same DB table!
+   
+   # ✅ Recommended: Reuse the same instance
+   users_db = db.table("users")
+   # Use users_db throughout your code
+   ```
+
+2. **Use context managers to avoid issues after close:**
+   ```python
+   # ✅ Recommended: Proper cleanup with context manager
+   with NanaSQLite("app.db", table="main") as main_db:
+       sub_db = main_db.table("sub")
+       sub_db["key"] = "value"
+   # Automatically closed, no orphaned instances
+   ```
+
+3. **About chained table() calls:**
+   ```python
+   # ✅ Works: sub2 is created as a child of sub
+   sub = db.table("sub")
+   sub2 = sub.table("sub2")  # Creates sub2 table
+   
+   # ✅ More recommended: Get directly from parent
+   sub = db.table("sub")
+   sub2 = db.table("sub2")  # Clearer parent-child relationship
+   ```
+
+**Best Practices:**
+- Store table instances in variables and reuse them
+- Prefer context managers (`with` statement) for automatic resource management
+- Close the parent instance when done (child instances share the same connection)
+
+### ✨ Transaction Support & Error Handling (v1.1.0+)
+
+**Enhanced transaction management with proper error handling:**
+
+```python
+from nanasqlite import NanaSQLite, NanaSQLiteTransactionError
+
+db = NanaSQLite("mydata.db")
+
+# Context manager (recommended - auto commit/rollback)
+with db.transaction():
+    db["key1"] = "value1"
+    db["key2"] = "value2"
+    # Automatically commits on success, rolls back on exception
+
+# Manual transaction control
+db.begin_transaction()
+try:
+    db.sql_insert("users", {"name": "Alice"})
+    db.sql_insert("users", {"name": "Bob"})
+    db.commit()
+except Exception:
+    db.rollback()
+
+# Check transaction state
+if not db.in_transaction():
+    db.begin_transaction()
+```
+
+**Custom exceptions for better error handling:**
+
+```python
+from nanasqlite import (
+    NanaSQLiteError,           # Base exception
+    NanaSQLiteValidationError, # Invalid input/parameters
+    NanaSQLiteDatabaseError,   # Database operation errors
+    NanaSQLiteTransactionError,# Transaction-related errors
+    NanaSQLiteConnectionError, # Connection errors
+)
+
+try:
+    db = NanaSQLite("mydata.db")
+    db.begin_transaction()
+    # Nested transactions are not supported
+    db.begin_transaction()  # Raises NanaSQLiteTransactionError
+except NanaSQLiteTransactionError as e:
+    print(f"Transaction error: {e}")
+```
+
+**⚠️ Important Usage Notes:**
+
+1. **Do not create multiple instances for the same table:**
+   ```python
    # ❌ BAD: Creates cache inconsistency
    users1 = db.table("users")
    users2 = db.table("users")  # Different cache, same DB table!
@@ -253,6 +340,12 @@ async def main():
         # Multi-table support in async
         products_db = await db.table("products")
         await products_db.aset("prod1", {"name": "Laptop", "price": 999})
+        
+        # Async transaction support (v1.1.0+)
+        async with db.transaction():
+            await db.sql_insert("users", {"name": "Bob", "age": 30})
+            await db.sql_insert("users", {"name": "Charlie", "age": 35})
+            # Auto commit on success, rollback on exception
 
 asyncio.run(main())
 ```
@@ -438,10 +531,75 @@ main_db.close()
    main_db.close()  # sub_dbはまだキャッシュデータにアクセスできる
    ```
 
+3. **table()のチェーン呼び出しについて:**
+   ```python
+   # ✅ 動作します: sub2はsubの子として作成される
+   sub = db.table("sub")
+   sub2 = sub.table("sub2")  # sub2テーブルが作成される
+   
+   # ✅ より推奨: 親から直接取得
+   sub = db.table("sub")
+   sub2 = db.table("sub2")  # より明確な親子関係
+   ```
+   
+   `table().table()`のチェーンは技術的には動作しますが、以下の点に注意：
+   - すべてのインスタンスは同じ接続を共有するため安全です
+   - `sub2`は`sub`の子として追跡されますが、実際には別のテーブルです
+   - より明確なコードのため、ルートDBから直接テーブルを取得することを推奨
+
 **ベストプラクティス:**
 - テーブルインスタンスを変数に保存して再利用する
 - 自動リソース管理のためコンテキストマネージャ（`with`文）を優先する
 - 完了時は親インスタンスをクローズする（子インスタンスは同じ接続を共有）
+
+### ✨ トランザクションサポートとエラーハンドリング (v1.1.0+)
+
+**適切なエラーハンドリング機能を備えた強化されたトランザクション管理:**
+
+```python
+from nanasqlite import NanaSQLite, NanaSQLiteTransactionError
+
+db = NanaSQLite("mydata.db")
+
+# コンテキストマネージャ（推奨 - 自動コミット/ロールバック）
+with db.transaction():
+    db["key1"] = "value1"
+    db["key2"] = "value2"
+    # 成功時は自動コミット、例外発生時は自動ロールバック
+
+# 手動トランザクション制御
+db.begin_transaction()
+try:
+    db.sql_insert("users", {"name": "Alice"})
+    db.sql_insert("users", {"name": "Bob"})
+    db.commit()
+except Exception:
+    db.rollback()
+
+# トランザクション状態の確認
+if not db.in_transaction():
+    db.begin_transaction()
+```
+
+**より良いエラーハンドリングのためのカスタム例外:**
+
+```python
+from nanasqlite import (
+    NanaSQLiteError,           # 基底例外
+    NanaSQLiteValidationError, # 不正な入力/パラメータ
+    NanaSQLiteDatabaseError,   # データベース操作エラー
+    NanaSQLiteTransactionError,# トランザクション関連エラー
+    NanaSQLiteConnectionError, # 接続エラー
+)
+
+try:
+    db = NanaSQLite("mydata.db")
+    db.begin_transaction()
+    # ネストしたトランザクションはサポートされていません
+    db.begin_transaction()  # NanaSQLiteTransactionErrorを発生
+except NanaSQLiteTransactionError as e:
+    print(f"トランザクションエラー: {e}")
+```
 
 ### ✨ 非同期サポート (v1.0.3rc7+)
 
@@ -485,6 +643,12 @@ async def main():
         # 非同期でのマルチテーブルサポート
         products_db = await db.table("products")
         await products_db.aset("prod1", {"name": "Laptop", "price": 999})
+        
+        # 非同期トランザクションサポート (v1.1.0+)
+        async with db.transaction():
+            await db.sql_insert("users", {"name": "Bob", "age": 30})
+            await db.sql_insert("users", {"name": "Charlie", "age": 35})
+            # 成功時は自動コミット、例外発生時は自動ロールバック
 
 asyncio.run(main())
 ```

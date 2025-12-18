@@ -83,22 +83,25 @@ class TestSQLInjectionProtection:
     
     def test_invalid_table_name(self, db):
         """Test that invalid table names are rejected."""
+        from nanasqlite import NanaSQLiteValidationError
         # Attempt to use SQL injection in table name
-        with pytest.raises(ValueError, match="Invalid identifier"):
+        with pytest.raises(NanaSQLiteValidationError, match="Invalid identifier"):
             db.create_table("test; DROP TABLE users--", {"id": "INTEGER"})
     
     def test_invalid_column_name(self, db):
         """Test that invalid column names are rejected."""
+        from nanasqlite import NanaSQLiteValidationError
         # Attempt to use SQL injection in column name
-        with pytest.raises(ValueError, match="Invalid identifier"):
+        with pytest.raises(NanaSQLiteValidationError, match="Invalid identifier"):
             db.create_table("test", {"id; DROP TABLE": "INTEGER"})
     
     def test_invalid_index_name(self, db):
         """Test that invalid index names are rejected."""
+        from nanasqlite import NanaSQLiteValidationError
         db.create_table("test", {"id": "INTEGER"})
         
         # Attempt to use SQL injection in index name
-        with pytest.raises(ValueError, match="Invalid identifier"):
+        with pytest.raises(NanaSQLiteValidationError, match="Invalid identifier"):
             db.create_index("idx; DROP TABLE test--", "test", ["id"])
     
     def test_negative_limit(self, db):

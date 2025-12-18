@@ -6,6 +6,76 @@
 
 ## 日本語
 
+### [1.1.0] - 2025-12-18
+
+#### 追加
+- **カスタム例外クラスの導入**:
+  - `NanaSQLiteError` (基底クラス)
+  - `NanaSQLiteValidationError` (バリデーションエラー)
+  - `NanaSQLiteDatabaseError` (データベース操作エラー)
+  - `NanaSQLiteTransactionError` (トランザクション関連エラー)
+  - `NanaSQLiteConnectionError` (接続エラー)
+  - `NanaSQLiteLockError` (ロックエラー、将来用)
+  - `NanaSQLiteCacheError` (キャッシュエラー、将来用)
+
+- **トランザクション管理の強化**:
+  - トランザクション状態の追跡（`_in_transaction`, `_transaction_depth`）
+  - ネストしたトランザクションの検出とエラー発生
+  - `in_transaction()` メソッドの追加
+  - トランザクション中の接続クローズを防止
+  - トランザクション外でのcommit/rollbackを検出
+
+- **非同期版トランザクション対応**:
+  - `AsyncNanaSQLite.begin_transaction()`
+  - `AsyncNanaSQLite.commit()`
+  - `AsyncNanaSQLite.rollback()`
+  - `AsyncNanaSQLite.in_transaction()`
+  - `AsyncNanaSQLite.transaction()` (コンテキストマネージャ)
+  - `_AsyncTransactionContext` クラスの実装
+
+- **リソースリーク対策**:
+  - 親インスタンスが子インスタンスを弱参照で追跡
+  - 親が閉じられた際、子インスタンスに通知
+  - 孤立した子インスタンスの使用を防止
+  - `_check_connection()` メソッドの追加
+  - `_mark_parent_closed()` メソッドの追加
+
+#### 改善
+- **エラーハンドリングの強化**:
+  - `execute()` メソッドにエラーハンドリングを追加
+  - APSWの例外を `NanaSQLiteDatabaseError` でラップ
+  - 元のエラー情報を保持（`original_error` 属性）
+  - 接続状態のチェックを各メソッドに追加
+  - `_sanitize_identifier()` で `NanaSQLiteValidationError` を使用
+
+- **`__setitem__` メソッドに接続チェックを追加**
+
+#### ドキュメント
+- **新規ドキュメント**:
+  - `docs/ja/error_handling.md` - エラーハンドリングガイド
+  - `docs/ja/transaction_guide.md` - トランザクションガイド
+  - `docs/ja/implementation_status.md` - 実装状況と今後の計画
+  - `tests/test_enhancements.py` - 強化機能のテスト（21件）
+
+- **README更新**:
+  - トランザクションサポートのセクションを追加
+  - カスタム例外のサンプルコードを追加
+  - 非同期版のトランザクションサンプルを追加
+
+#### テスト
+- **新規テスト**（21件）:
+  - カスタム例外クラスのテスト（5件）
+  - トランザクション機能の強化テスト（6件）
+  - リソース管理のテスト（3件）
+  - エラーハンドリングのテスト（2件）
+  - トランザクションと例外の組み合わせテスト（2件）
+  - 非同期版トランザクションのテスト（3件）
+
+#### 修正
+- セキュリティテストで `NanaSQLiteValidationError` を期待するように修正
+
+---
+
 ### [1.1.0a3] - 2025-12-17
 
 #### ドキュメント改善
@@ -176,6 +246,105 @@
 ---
 
 ## English
+
+### [1.1.0] - 2025-12-18
+
+#### Added
+- **Custom Exception Classes**:
+  - `NanaSQLiteError` (base class)
+  - `NanaSQLiteValidationError` (validation errors)
+  - `NanaSQLiteDatabaseError` (database operation errors)
+  - `NanaSQLiteTransactionError` (transaction-related errors)
+  - `NanaSQLiteConnectionError` (connection errors)
+  - `NanaSQLiteLockError` (lock errors, for future use)
+  - `NanaSQLiteCacheError` (cache errors, for future use)
+
+- **Enhanced Transaction Management**:
+  - Transaction state tracking (`_in_transaction`, `_transaction_depth`)
+  - Detection and error reporting for nested transactions
+  - Added `in_transaction()` method
+  - Prevention of connection closure during transactions
+  - Detection of commit/rollback outside transactions
+
+- **Async Transaction Support**:
+  - `AsyncNanaSQLite.begin_transaction()`
+  - `AsyncNanaSQLite.commit()`
+  - `AsyncNanaSQLite.rollback()`
+  - `AsyncNanaSQLite.in_transaction()`
+  - `AsyncNanaSQLite.transaction()` (context manager)
+  - `_AsyncTransactionContext` class implementation
+
+- **Resource Leak Prevention**:
+  - Parent instance tracks child instances with weak references
+  - Notification to child instances when parent is closed
+  - Prevention of orphaned child instance usage
+  - Added `_check_connection()` method
+  - Added `_mark_parent_closed()` method
+
+#### Improvements
+- **Enhanced Error Handling**:
+  - Added error handling to `execute()` method
+  - Wraps APSW exceptions with `NanaSQLiteDatabaseError`
+  - Preserves original error information (`original_error` attribute)
+  - Added connection state checks to each method
+  - Uses `NanaSQLiteValidationError` in `_sanitize_identifier()`
+
+- **Added connection check to `__setitem__` method**
+
+#### Documentation
+- **New Documentation**:
+  - `docs/en/error_handling.md` - Error handling guide
+  - `docs/en/transaction_guide.md` - Transaction guide
+  - `tests/test_enhancements.py` - Tests for enhanced features (21 tests)
+
+- **README Updates**:
+  - Added transaction support section
+  - Added custom exception sample code
+  - Added async transaction samples
+
+#### Tests
+- **New Tests** (21 tests):
+  - Custom exception class tests (5 tests)
+  - Transaction feature enhancement tests (6 tests)
+  - Resource management tests (3 tests)
+  - Error handling tests (2 tests)
+  - Transaction and exception combination tests (2 tests)
+  - Async transaction tests (3 tests)
+
+#### Fixes
+- Fixed security tests to expect `NanaSQLiteValidationError`
+
+---
+
+### [1.1.0a3] - 2025-12-17
+
+#### Documentation Improvements
+- **Added usage notes for `table()` method**:
+  - Added important usage notes section to README.md (English & Japanese)
+  - Warning about creating multiple instances for the same table
+  - Recommendation to use context managers
+  - Best practices clarification
+- **Improved docstrings**:
+  - Added detailed notes to `NanaSQLite.table()` docstring
+  - Added detailed notes to `AsyncNanaSQLite.table()` docstring
+  - Added specific examples of deprecated and recommended patterns
+- **Future improvement plans**:
+  - Documented improvement proposals in `etc/future_plans/` directory
+  - Duplicate instance detection warning feature (Proposal B)
+  - Connection state check feature (Proposal B)
+  - Shared cache mechanism (Proposal C - on hold)
+
+#### Analysis & Investigation
+- **Comprehensive investigation of table() functionality**:
+  - Stress tests: All 7 tests passed
+  - Edge case tests: 10 tests conducted
+  - Concurrency tests: All 5 tests passed
+  - **Issues found**: 2 (minor design limitations)
+    1. Cache inconsistency with multiple instances for same table (addressed with documentation)
+    2. Sub-instance access after close (addressed with documentation)
+  - **Conclusion**: Ready for production use, no performance issues
+
+---
 
 ### [1.1.0dev2] - 2025-12-16
 

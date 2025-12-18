@@ -953,6 +953,86 @@ class AsyncNanaSQLite:
             self._db.vacuum
         )
     
+    # ==================== Transaction Control ====================
+
+    async def begin_transaction(self) -> None:
+        """
+        非同期でトランザクションを開始
+
+        Example:
+            >>> await db.begin_transaction()
+            >>> try:
+            ...     await db.sql_insert("users", {"name": "Alice"})
+            ...     await db.sql_insert("users", {"name": "Bob"})
+            ...     await db.commit()
+            ... except:
+            ...     await db.rollback()
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            self._executor,
+            self._db.begin_transaction
+        )
+
+    async def commit(self) -> None:
+        """
+        非同期でトランザクションをコミット
+
+        Example:
+            >>> await db.commit()
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            self._executor,
+            self._db.commit
+        )
+
+    async def rollback(self) -> None:
+        """
+        非同期でトランザクションをロールバック
+
+        Example:
+            >>> await db.rollback()
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            self._executor,
+            self._db.rollback
+        )
+
+    async def in_transaction(self) -> bool:
+        """
+        非同期でトランザクション状態を確認
+
+        Returns:
+            bool: トランザクション中の場合True
+
+        Example:
+            >>> status = await db.in_transaction()
+            >>> print(f"In transaction: {status}")
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            self._db.in_transaction
+        )
+
+    def transaction(self):
+        """
+        非同期トランザクションのコンテキストマネージャ
+
+        Example:
+            >>> async with db.transaction():
+            ...     await db.sql_insert("users", {"name": "Alice"})
+            ...     await db.sql_insert("users", {"name": "Bob"})
+            ...     # 自動的にコミット、例外時はロールバック
+        """
+        return _AsyncTransactionContext(self)
+
     # ==================== Context Manager Support ====================
     
     async def __aenter__(self):
@@ -1068,3 +1148,22 @@ class AsyncNanaSQLite:
         async_sub_db._executor = self._executor  # 同じエグゼキューターを共有
         async_sub_db._owns_executor = False  # エグゼキューターは所有しない
         return async_sub_db
+
+
+class _AsyncTransactionContext:
+    """非同期トランザクションのコンテキストマネージャ"""
+
+    def __init__(self, db: AsyncNanaSQLite):
+        self.db = db
+
+    async def __aenter__(self):
+        await self.db.begin_transaction()
+        return self.db
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is None:
+            await self.db.commit()
+        else:
+            await self.db.rollback()
+        return False
+
