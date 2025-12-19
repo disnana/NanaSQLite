@@ -6,7 +6,7 @@
 
 ## 日本語
 
-### [1.1.0] - 2025-12-18
+### [1.1.0] - 2025-12-19
 
 #### 追加
 - **カスタム例外クラスの導入**:
@@ -18,6 +18,10 @@
   - `NanaSQLiteLockError` (ロックエラー、将来用)
   - `NanaSQLiteCacheError` (キャッシュエラー、将来用)
 
+- **バッチ取得機能 (`batch_get`)**:
+  - `batch_get(keys: List[str])` による効率的な複数キーの一括ロード
+  - `AsyncNanaSQLite.abatch_get(keys)` による非同期サポート
+  - 1回のクエリで複数データを取得しキャッシュを最適化
 - **トランザクション管理の強化**:
   - トランザクション状態の追跡（`_in_transaction`, `_transaction_depth`）
   - ネストしたトランザクションの検出とエラー発生
@@ -247,7 +251,7 @@
 
 ## English
 
-### [1.1.0] - 2025-12-18
+### [1.1.0] - 2025-12-19
 
 #### Added
 - **Custom Exception Classes**:
@@ -259,6 +263,10 @@
   - `NanaSQLiteLockError` (lock errors, for future use)
   - `NanaSQLiteCacheError` (cache errors, for future use)
 
+- **Batch Retrieval (`batch_get`)**:
+  - Efficiently load multiple keys with `batch_get(keys: List[str])`
+  - Async support via `AsyncNanaSQLite.abatch_get(keys)`
+  - Optimizes cache by fetching multiple items in a single query
 - **Enhanced Transaction Management**:
   - Transaction state tracking (`_in_transaction`, `_transaction_depth`)
   - Detection and error reporting for nested transactions
