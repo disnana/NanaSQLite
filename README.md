@@ -55,12 +55,9 @@ print(db["user"]["name"])  # 'Nana'
 # Bulk load for faster repeated access
 db = NanaSQLite("mydata.db", bulk_load=True)
 
-# Batch operations for high-speed writes
-db.batch_update({
-    "key1": "value1",
-    "key2": "value2",
-    "key3": {"nested": "data"}
-})
+# Batch operations for high-speed reads/writes
+db.batch_update({"k1": "v1", "k2": "v2"})
+results = db.batch_get(["k1", "k2"])
 
 # Context manager support
 with NanaSQLite("mydata.db") as db:
@@ -134,7 +131,7 @@ with db.transaction():
     db.sql_insert("logs", {"message": "Event"})
 ```
 
-### ✨ Multi-Table Support (v1.1.0dev1+)
+### ✨ v1.1.0 New Features
 
 **Safely operate multiple tables in the same database with shared connections:**
 
@@ -347,6 +344,9 @@ async def main():
             await db.sql_insert("users", {"name": "Charlie", "age": 35})
             # Auto commit on success, rollback on exception
 
+        # Batch retrieval (v1.1.0+)
+        results = await db.abatch_get(["key1", "key2"])
+        
 asyncio.run(main())
 ```
 
@@ -407,12 +407,9 @@ print(db["user"]["name"])  # 'Nana'
 # 一括ロードで繰り返しアクセスを高速化
 db = NanaSQLite("mydata.db", bulk_load=True)
 
-# バッチ操作で高速書き込み
-db.batch_update({
-    "key1": "value1",
-    "key2": "value2",
-    "key3": {"nested": "data"}
-})
+# バッチ操作で高速な読み書き
+db.batch_update({"k1": "v1", "k2": "v2"})
+results = db.batch_get(["k1", "k2"])
 
 # コンテキストマネージャ対応
 with NanaSQLite("mydata.db") as db:
@@ -459,7 +456,7 @@ db.create_index("idx_users_email", "users", ["email"])
 results = db.query(table_name="users", where="age > ?", parameters=(20,))
 ```
 
-### ✨ マルチテーブルサポート (v1.1.0dev1+)
+### ✨ v1.1.0 新機能
 
 **同一データベース内の複数テーブルを接続共有で安全に操作:**
 
