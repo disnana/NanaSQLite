@@ -24,15 +24,25 @@ def db_path():
 
 
 @pytest.fixture
-def async_db(db_path):
-    """AsyncNanaSQLiteインスタンスを提供"""
+def async_db_instance(db_path):
+    """AsyncNanaSQLiteインスタンスをベンチマーク全体で共有（接続オーバーヘッドを排除）"""
     from nanasqlite import AsyncNanaSQLite
-    return AsyncNanaSQLite(db_path)
-
+    db = AsyncNanaSQLite(db_path)
+    yield db
+    # 完全にクリーンアップ
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # 実行中のループがある場合はタスクとして追加
+            loop.create_task(db.close())
+        else:
+            loop.run_until_complete(db.close())
+    except Exception:
+        pass
 
 @pytest.fixture
-def async_db_with_data(db_path):
-    """1000件のデータが入ったAsync DB"""
+def async_db_with_data_instance(db_path):
+    """1000件のデータが入ったAsync DBインスタンス"""
     from nanasqlite import AsyncNanaSQLite
     
     async def setup():
@@ -41,16 +51,21 @@ def async_db_with_data(db_path):
         await db.batch_update(data)
         return db
     
-    return asyncio.get_event_loop().run_until_complete(setup())
+    loop = asyncio.get_event_loop()
+    db = loop.run_until_complete(setup())
+    yield db
+    try:
+        loop.run_until_complete(db.close())
+    except Exception:
+        pass
 
+
+# ベンチマーク用の永続的イベントループ
+_benchmark_loop = asyncio.new_event_loop()
 
 def run_async(coro):
-    """非同期関数を同期的に実行するヘルパー"""
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+    """非同期関数を同期的に実行するヘルパー（ループを再利用）"""
+    return _benchmark_loop.run_until_complete(coro)
 
 
 # ==================== Async Write Benchmarks ====================
@@ -59,25 +74,20 @@ def run_async(coro):
 class TestAsyncWriteBenchmarks:
     """非同期書き込みパフォーマンスのベンチマーク"""
     
-    def test_async_single_write(self, benchmark, db_path):
+    def test_async_single_write(self, benchmark, async_db_instance):
         """非同期単一書き込み"""
-        from nanasqlite import AsyncNanaSQLite
-        
         counter = [0]
         
         def write_single():
             async def _write():
-                async with AsyncNanaSQLite(db_path) as db:
-                    await db.aset(f"key_{counter[0]}", {"data": "value", "number": counter[0]})
-                    counter[0] += 1
+                await async_db_instance.aset(f"key_{counter[0]}", {"data": "value", "number": counter[0]})
+                counter[0] += 1
             run_async(_write())
         
         benchmark(write_single)
     
-    def test_async_nested_write(self, benchmark, db_path):
+    def test_async_nested_write(self, benchmark, async_db_instance):
         """ネストしたデータの非同期書き込み"""
-        from nanasqlite import AsyncNanaSQLite
-        
         counter = [0]
         nested_data = {
             "level1": {
@@ -91,41 +101,34 @@ class TestAsyncWriteBenchmarks:
         
         def write_nested():
             async def _write():
-                async with AsyncNanaSQLite(db_path) as db:
-                    await db.aset(f"nested_{counter[0]}", nested_data)
-                    counter[0] += 1
+                await async_db_instance.aset(f"nested_{counter[0]}", nested_data)
+                counter[0] += 1
             run_async(_write())
         
         benchmark(write_nested)
     
-    def test_async_batch_write_100(self, benchmark, db_path):
+    def test_async_batch_write_100(self, benchmark, async_db_instance):
         """非同期バッチ書き込み（100件）"""
-        from nanasqlite import AsyncNanaSQLite
-        
         counter = [0]
         
         def batch_write():
             async def _batch():
-                async with AsyncNanaSQLite(db_path) as db:
-                    data = {f"batch_{counter[0]}_{i}": {"index": i} for i in range(100)}
-                    await db.batch_update(data)
-                    counter[0] += 1
+                data = {f"batch_{counter[0]}_{i}": {"index": i} for i in range(100)}
+                await async_db_instance.abatch_update(data)
+                counter[0] += 1
             run_async(_batch())
         
         benchmark(batch_write)
     
-    def test_async_batch_write_1000(self, benchmark, db_path):
+    def test_async_batch_write_1000(self, benchmark, async_db_instance):
         """非同期バッチ書き込み（1000件）"""
-        from nanasqlite import AsyncNanaSQLite
-        
         counter = [0]
         
         def batch_write():
             async def _batch():
-                async with AsyncNanaSQLite(db_path) as db:
-                    data = {f"batch_{counter[0]}_{i}": {"index": i} for i in range(1000)}
-                    await db.batch_update(data)
-                    counter[0] += 1
+                data = {f"batch_{counter[0]}_{i}": {"index": i} for i in range(1000)}
+                await async_db_instance.abatch_update(data)
+                counter[0] += 1
             run_async(_batch())
         
         benchmark(batch_write)
@@ -137,29 +140,30 @@ class TestAsyncWriteBenchmarks:
 class TestAsyncReadBenchmarks:
     """非同期読み込みパフォーマンスのベンチマーク"""
     
-    def test_async_single_read(self, benchmark, db_path):
+    def test_async_single_read(self, benchmark, async_db_with_data_instance):
         """非同期単一読み込み"""
-        from nanasqlite import AsyncNanaSQLite
-        
-        # データ準備
-        async def setup():
-            async with AsyncNanaSQLite(db_path) as db:
-                await db.aset("target", {"data": "value"})
-        run_async(setup())
-        
         def read_single():
             async def _read():
-                async with AsyncNanaSQLite(db_path) as db:
-                    return await db.aget("target")
+                return await async_db_with_data_instance.aget("key_500")
             return run_async(_read())
         
         benchmark(read_single)
+
+    def test_async_batch_get(self, benchmark, async_db_with_data_instance):
+        """非同期バッチ取得（100件）"""
+        keys = [f"key_{i}" for i in range(100)]
+        def batch_get():
+            async def _get():
+                return await async_db_with_data_instance.abatch_get(keys)
+            return run_async(_get())
+        
+        benchmark(batch_get)
     
     def test_async_bulk_load_1000(self, benchmark, db_path):
         """非同期一括ロード（1000件）"""
         from nanasqlite import AsyncNanaSQLite
         
-        # データ準備
+        # データ準備（ここだけは新規接続でロード性能を測る必要があるため async with を使用）
         async def setup():
             async with AsyncNanaSQLite(db_path) as db:
                 await db.batch_update({f"key_{i}": {"index": i} for i in range(1000)})
@@ -173,20 +177,11 @@ class TestAsyncReadBenchmarks:
         
         benchmark(bulk_load)
     
-    def test_async_get_fresh(self, benchmark, db_path):
+    def test_async_get_fresh(self, benchmark, async_db_with_data_instance):
         """非同期get_fresh（キャッシュバイパス）"""
-        from nanasqlite import AsyncNanaSQLite
-        
-        # データ準備
-        async def setup():
-            async with AsyncNanaSQLite(db_path) as db:
-                await db.aset("target", {"data": "value"})
-        run_async(setup())
-        
         def get_fresh():
             async def _get():
-                async with AsyncNanaSQLite(db_path) as db:
-                    return await db.get_fresh("target")
+                return await async_db_with_data_instance.get_fresh("key_500")
             return run_async(_get())
         
         benchmark(get_fresh)
@@ -198,146 +193,95 @@ class TestAsyncReadBenchmarks:
 class TestAsyncDictOperationsBenchmarks:
     """非同期dict操作のベンチマーク"""
     
-    def test_async_keys_1000(self, benchmark, db_path):
+    def test_async_keys_1000(self, benchmark, async_db_with_data_instance):
         """非同期keys()取得（1000件）"""
-        from nanasqlite import AsyncNanaSQLite
-        
-        # データ準備
-        async def setup():
-            async with AsyncNanaSQLite(db_path) as db:
-                await db.batch_update({f"key_{i}": {"index": i} for i in range(1000)})
-        run_async(setup())
-        
         def get_keys():
             async def _keys():
-                async with AsyncNanaSQLite(db_path) as db:
-                    return await db.akeys()
+                return await async_db_with_data_instance.akeys()
             return run_async(_keys())
         
         benchmark(get_keys)
     
-    def test_async_values_1000(self, benchmark, db_path):
+    def test_async_values_1000(self, benchmark, async_db_with_data_instance):
         """非同期values()取得（1000件）"""
-        from nanasqlite import AsyncNanaSQLite
-        
-        # データ準備
-        async def setup():
-            async with AsyncNanaSQLite(db_path) as db:
-                await db.batch_update({f"key_{i}": {"index": i} for i in range(1000)})
-        run_async(setup())
-        
         def get_values():
             async def _values():
-                async with AsyncNanaSQLite(db_path) as db:
-                    return await db.avalues()
+                return await async_db_with_data_instance.avalues()
             return run_async(_values())
         
         benchmark(get_values)
     
-    def test_async_items_1000(self, benchmark, db_path):
-        """非同期items()取得（1000件）"""
-        from nanasqlite import AsyncNanaSQLite
-        
-        # データ準備
-        async def setup():
-            async with AsyncNanaSQLite(db_path) as db:
-                await db.batch_update({f"key_{i}": {"index": i} for i in range(1000)})
-        run_async(setup())
-        
-        def get_items():
-            async def _items():
-                async with AsyncNanaSQLite(db_path) as db:
-                    return await db.aitems()
-            return run_async(_items())
-        
-        benchmark(get_items)
-    
-    def test_async_contains_check(self, benchmark, db_path):
+    def test_async_contains_check(self, benchmark, async_db_with_data_instance):
         """非同期存在確認"""
-        from nanasqlite import AsyncNanaSQLite
-        
-        # データ準備
-        async def setup():
-            async with AsyncNanaSQLite(db_path) as db:
-                await db.batch_update({f"key_{i}": {"index": i} for i in range(1000)})
-        run_async(setup())
-        
-        def contains_check():
-            async def _contains():
-                async with AsyncNanaSQLite(db_path) as db:
-                    return await db.acontains("key_500")
-            return run_async(_contains())
-        
-        benchmark(contains_check)
-    
-    def test_async_len(self, benchmark, db_path):
+        def check_contains():
+            async def _check():
+                return await async_db_with_data_instance.acontains("key_500")
+            return run_async(_check())
+        benchmark(check_contains)
+
+    def test_async_len(self, benchmark, async_db_with_data_instance):
         """非同期len()取得"""
-        from nanasqlite import AsyncNanaSQLite
-        
-        # データ準備
-        async def setup():
-            async with AsyncNanaSQLite(db_path) as db:
-                await db.batch_update({f"key_{i}": {"index": i} for i in range(1000)})
-        run_async(setup())
-        
         def get_len():
             async def _len():
-                async with AsyncNanaSQLite(db_path) as db:
-                    return await db.alen()
+                return await async_db_with_data_instance.alen()
             return run_async(_len())
-        
         benchmark(get_len)
-    
-    def test_async_to_dict_1000(self, benchmark, db_path):
+
+    def test_async_to_dict_1000(self, benchmark, async_db_with_data_instance):
         """非同期to_dict()変換（1000件）"""
-        from nanasqlite import AsyncNanaSQLite
-        
-        # データ準備
-        async def setup():
-            async with AsyncNanaSQLite(db_path) as db:
-                await db.batch_update({f"key_{i}": {"index": i} for i in range(1000)})
-        run_async(setup())
-        
-        def to_dict():
+        def get_to_dict():
             async def _to_dict():
-                async with AsyncNanaSQLite(db_path) as db:
-                    return await db.to_dict()
+                return await async_db_with_data_instance.ato_dict()
             return run_async(_to_dict())
-        
-        benchmark(to_dict)
+        benchmark(get_to_dict)
     
-    def test_async_pop(self, benchmark, db_path):
+    def test_async_pop(self, benchmark, async_db_instance):
         """非同期pop()操作"""
-        from nanasqlite import AsyncNanaSQLite
-        
         counter = [0]
         
         def pop_op():
             async def _pop():
-                async with AsyncNanaSQLite(db_path) as db:
-                    await db.aset(f"pop_key_{counter[0]}", {"value": counter[0]})
-                    result = await db.apop(f"pop_key_{counter[0]}")
-                    counter[0] += 1
-                    return result
+                await async_db_instance.aset(f"pop_key_{counter[0]}", {"value": counter[0]})
+                result = await async_db_instance.apop(f"pop_key_{counter[0]}")
+                counter[0] += 1
+                return result
             return run_async(_pop())
         
         benchmark(pop_op)
     
-    def test_async_setdefault(self, benchmark, db_path):
+    def test_async_setdefault(self, benchmark, async_db_instance):
         """非同期setdefault()操作"""
-        from nanasqlite import AsyncNanaSQLite
-        
         counter = [0]
         
         def setdefault_op():
             async def _setdefault():
-                async with AsyncNanaSQLite(db_path) as db:
-                    result = await db.asetdefault(f"default_key_{counter[0]}", {"default": True})
-                    counter[0] += 1
-                    return result
+                result = await async_db_instance.asetdefault(f"default_key_{counter[0]}", {"default": True})
+                counter[0] += 1
+                return result
             return run_async(_setdefault())
         
         benchmark(setdefault_op)
+
+    def test_async_batch_get_100(self, benchmark, async_db_with_data_instance):
+        """非同期バッチ取得（100件）"""
+        keys = [f"key_{i}" for i in range(100)]
+        def batch_get_op():
+            async def _get():
+                return await async_db_with_data_instance.abatch_get(keys)
+            return run_async(_get())
+        benchmark(batch_get_op)
+
+    def test_async_batch_delete_100(self, benchmark, async_db_instance):
+        """非同期バッチ削除（100件）"""
+        counter = [0]
+        def batch_del_op():
+            async def _del_prepare():
+                keys = [f"delbatch_{counter[0]}_{i}" for i in range(100)]
+                await async_db_instance.abatch_update({k: {"v": 1} for k in keys})
+                await async_db_instance.abatch_delete(keys)
+                counter[0] += 1
+            run_async(_del_prepare())
+        benchmark(batch_del_op)
 
 
 # ==================== Async Concurrency Benchmarks ====================
@@ -493,62 +437,58 @@ class TestAsyncSQLOperationsBenchmarks:
         
         benchmark(insert_single)
     
-    def test_async_sql_update(self, benchmark, db_path):
+    def test_async_sql_update(self, benchmark, async_db_instance):
         """非同期SQL UPDATE"""
-        from nanasqlite import AsyncNanaSQLite
-        
         # データ準備
         async def setup():
-            async with AsyncNanaSQLite(db_path) as db:
-                await db.create_table("users", {"id": "INTEGER", "name": "TEXT", "age": "INTEGER"})
-                for i in range(100):
-                    await db.sql_insert("users", {"id": i, "name": f"User{i}", "age": 25})
+            await async_db_instance.create_table("users_upd", {"id": "INTEGER", "name": "TEXT", "age": "INTEGER"})
+            for i in range(100):
+                await async_db_instance.sql_insert("users_upd", {"id": i, "name": f"User{i}", "age": 25})
         run_async(setup())
         
         counter = [0]
         
         def update_single():
             async def _update():
-                async with AsyncNanaSQLite(db_path) as db:
-                    await db.sql_update("users", {"age": 26}, "id = ?", (counter[0] % 100,))
-                    counter[0] += 1
+                await async_db_instance.sql_update("users_upd", {"age": 26}, "id = ?", (counter[0] % 100,))
+                counter[0] += 1
             run_async(_update())
         
         benchmark(update_single)
     
-    def test_async_sql_delete(self, benchmark, db_path):
+    def test_async_sql_delete(self, benchmark, async_db_instance):
         """非同期SQL DELETE"""
-        from nanasqlite import AsyncNanaSQLite
-        
         counter = [0]
         
         def delete_op():
             async def _delete():
-                async with AsyncNanaSQLite(db_path) as db:
-                    await db.create_table(f"del_test_{counter[0]}", {"id": "INTEGER", "name": "TEXT"})
-                    await db.sql_insert(f"del_test_{counter[0]}", {"id": 1, "name": "Test"})
-                    await db.sql_delete(f"del_test_{counter[0]}", "id = ?", (1,))
-                    counter[0] += 1
+                # テーブル作成はこの操作に含まれても良いとするが、
+                # 削除そのものを測るならテーブル作成は外出しした方が良い。
+                # しかし動的にテーブル名を変えないと前回の残りがある。
+                table = f"del_test_{counter[0]}"
+                await async_db_instance.create_table(table, {"id": "INTEGER", "name": "TEXT"})
+                await async_db_instance.sql_insert(table, {"id": 1, "name": "Test"})
+                await async_db_instance.sql_delete(table, "id = ?", (1,))
+                counter[0] += 1
             run_async(_delete())
         
         benchmark(delete_op)
     
-    def test_async_query_simple(self, benchmark, db_path):
+    def test_async_query_simple(self, benchmark, async_db_instance):
         """非同期シンプルクエリ"""
-        from nanasqlite import AsyncNanaSQLite
-        
         # データ準備
         async def setup():
-            async with AsyncNanaSQLite(db_path) as db:
-                await db.create_table("items", {"id": "INTEGER", "name": "TEXT", "value": "INTEGER"})
-                for i in range(1000):
-                    await db.sql_insert("items", {"id": i, "name": f"Item{i}", "value": i % 100})
+            await async_db_instance.create_table("items_q", {"id": "INTEGER", "name": "TEXT", "value": "INTEGER"})
+            data = [{"id": i, "name": f"Item{i}", "value": i % 100} for i in range(1000)]
+            # batch_updateはdict用なのでSQLテーブルには直接使えないかもしれないが、
+            # queryのテストなので準備は一括で行いたい。
+            for i in range(1000):
+                await async_db_instance.sql_insert("items_q", data[i])
         run_async(setup())
         
         def query_simple():
             async def _query():
-                async with AsyncNanaSQLite(db_path) as db:
-                    return await db.query("items", columns=["id", "name"], where="value > ?", parameters=(50,), limit=10)
+                return await async_db_instance.query("items_q", columns=["id", "name"], where="value > ?", parameters=(50,), limit=10)
             return run_async(_query())
         
         benchmark(query_simple)
@@ -817,76 +757,64 @@ class TestAsyncPydanticOperationsBenchmarks:
 class TestAsyncUtilityOperationsBenchmarks:
     """非同期ユーティリティ操作のベンチマーク"""
     
-    def test_async_vacuum(self, benchmark, db_path):
+    def test_async_vacuum(self, benchmark, async_db_instance):
         """非同期vacuum()最適化"""
-        from nanasqlite import AsyncNanaSQLite
-        
         async def setup():
-            async with AsyncNanaSQLite(db_path) as db:
-                for i in range(100):
-                    await db.aset(f"vac_key_{i}", {"data": "x" * 100})
-                for i in range(100):
-                    await db.adelete(f"vac_key_{i}")
+            for i in range(100):
+                await async_db_instance.aset(f"vac_key_{i}", {"data": "x" * 100})
+            for i in range(100):
+                await async_db_instance.adelete(f"vac_key_{i}")
         run_async(setup())
         
         def vacuum_op():
             async def _vacuum():
-                async with AsyncNanaSQLite(db_path) as db:
-                    await db.vacuum()
+                await async_db_instance.vacuum()
             run_async(_vacuum())
         
         benchmark(vacuum_op)
     
-    def test_async_refresh(self, benchmark, db_path):
-        """非同期refresh()キャッシュ更新"""
-        from nanasqlite import AsyncNanaSQLite
-        
-        async def setup():
-            async with AsyncNanaSQLite(db_path) as db:
-                await db.aset("refresh_target", {"data": "value"})
-        run_async(setup())
-        
+    def test_async_refresh_all(self, benchmark, async_db_with_data_instance):
+        """非同期refresh()全件"""
         def refresh_op():
             async def _refresh():
-                async with AsyncNanaSQLite(db_path) as db:
-                    await db.refresh("refresh_target")
+                await async_db_with_data_instance.arefresh()
             run_async(_refresh())
         
         benchmark(refresh_op)
     
-    def test_async_load_all(self, benchmark, db_path):
+    def test_async_load_all(self, benchmark, async_db_instance):
         """非同期load_all()一括ロード"""
-        from nanasqlite import AsyncNanaSQLite
-        
         async def setup():
-            async with AsyncNanaSQLite(db_path) as db:
-                await db.batch_update({f"load_key_{i}": {"index": i} for i in range(1000)})
+            await async_db_instance.abatch_update({f"load_key_{i}": {"index": i} for i in range(1000)})
         run_async(setup())
         
         def load_all():
             async def _load():
-                async with AsyncNanaSQLite(db_path) as db:
-                    await db.load_all()
+                await async_db_instance.aload_all()
             run_async(_load())
         
         benchmark(load_all)
     
-    def test_async_copy(self, benchmark, db_path):
+    def test_async_copy(self, benchmark, async_db_with_data_instance):
         """非同期copy()浅いコピー"""
-        from nanasqlite import AsyncNanaSQLite
-        
-        async def setup():
-            async with AsyncNanaSQLite(db_path) as db:
-                await db.batch_update({f"copy_key_{i}": {"index": i} for i in range(100)})
-        run_async(setup())
-        
         def copy_op():
             async def _copy():
-                async with AsyncNanaSQLite(db_path) as db:
-                    return await db.copy()
+                return await async_db_with_data_instance.copy()
             return run_async(_copy())
         
         benchmark(copy_op)
+
+    def test_async_is_cached(self, benchmark, async_db_with_data_instance):
+        """非同期is_cached()"""
+        # 初回アクセスしてキャッシュさせる
+        run_async(async_db_with_data_instance.aget("key_0"))
+        
+        def is_cached_op():
+            async def _check():
+                return await async_db_with_data_instance.is_cached("key_0")
+            return run_async(_check())
+        
+        benchmark(is_cached_op)
 
 
 if __name__ == "__main__":

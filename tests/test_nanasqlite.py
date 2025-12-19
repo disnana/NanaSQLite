@@ -676,6 +676,20 @@ class TestBatchOperations:
         for i in range(25, 50):
             assert f"key_{i}" in db
 
+    def test_batch_get(self, db):
+        """batch_getの検証"""
+        data = {f"k{i}": i for i in range(10)}
+        db.batch_update(data)
+        
+        keys = ["k0", "k2", "k5", "nonexistent"]
+        result = db.batch_get(keys)
+        
+        assert result["k0"] == 0
+        assert result["k2"] == 2
+        assert result["k5"] == 5
+        assert "nonexistent" not in result
+        assert len(result) == 3
+
 
 # ==================== パフォーマンステスト ====================
 

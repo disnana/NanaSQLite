@@ -284,6 +284,22 @@ class TestAsyncSpecialMethods:
             assert not await db.acontains("key1")
             assert not await db.acontains("key2")
             assert await db.acontains("key3")
+
+    @pytest.mark.asyncio
+    async def test_async_batch_get(self, db_path):
+        """非同期バッチ取得"""
+        async with AsyncNanaSQLite(db_path) as db:
+            data = {f"k{i}": i for i in range(10)}
+            await db.batch_update(data)
+            
+            keys = ["k0", "k2", "k5", "nonexistent"]
+            result = await db.abatch_get(keys)
+            
+            assert result["k0"] == 0
+            assert result["k2"] == 2
+            assert result["k5"] == 5
+            assert "nonexistent" not in result
+            assert len(result) == 3
     
     @pytest.mark.asyncio
     async def test_async_to_dict(self, db_path):

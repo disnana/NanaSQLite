@@ -109,18 +109,25 @@ class TestReadBenchmarks:
         """単一読み込み（未キャッシュ）"""
         from nanasqlite import NanaSQLite
         
-        # データ準備
+        # 大量のデータを準備して、キャッシュをバイパスするようにする
         db = NanaSQLite(db_path)
-        db["target"] = {"data": "value"}
-        db.close()
-        
-        def read_uncached():
-            database = NanaSQLite(db_path, bulk_load=False)
-            result = database["target"]
-            database.close()
-            return result
-        
-        benchmark(read_uncached)
+        try:
+            keys = [f"uncached_{i}" for i in range(1000)]
+            db.batch_update({k: {"data": "value"} for k in keys})
+            
+            counter = [0]
+            def read_uncached():
+                # キャッシュにないキーを順番に取得していく
+                key = keys[counter[0] % 1000]
+                result = db[key]
+                # キャッシュをクリアして次のラウンドに備える（refresh()を使用）
+                db.refresh()
+                counter[0] += 1
+                return result
+            
+            benchmark(read_uncached)
+        finally:
+            db.close()
     
     def test_bulk_load_1000(self, benchmark, db_path):
         """一括ロード（1000件）"""
@@ -162,6 +169,52 @@ class TestDictOperationsBenchmarks:
     def test_to_dict_1000(self, benchmark, db_with_data):
         """to_dict()変換（1000件）"""
         benchmark(db_with_data.to_dict)
+
+    def test_batch_get(self, benchmark, db_with_data):
+        """batch_get()取得（100件）"""
+        keys = [f"key_{i}" for i in range(100)]
+        benchmark(db_with_data.batch_get, keys)
+
+    def test_is_cached(self, benchmark, db_with_data):
+        """is_cached()チェック"""
+        _ = db_with_data["key_0"]
+        benchmark(db_with_data.is_cached, "key_0")
+
+    def test_refresh(self, benchmark, db_with_data):
+        """refresh()全件再読み込み"""
+        benchmark(db_with_data.refresh)
+
+    def test_copy(self, benchmark, db_with_data):
+        """copy()浅いコピー"""
+        benchmark(db_with_data.copy)
+
+    def test_nested_read_deep(self, benchmark, db):
+        """ネストしたデータの読み込み（30層）"""
+        data = "value"
+        for _ in range(30):
+            data = {"nested": data}
+        db["deep"] = data
+        db.refresh() # キャッシュクリアしてDBから読ませる
+
+        def read_deep():
+            res = db["deep"]
+            db.refresh()
+            return res
+        
+        benchmark(read_deep)
+
+    def test_nested_write_deep(self, benchmark, db):
+        """ネストしたデータの書き込み（30層）"""
+        data = "value"
+        for _ in range(30):
+            data = {"nested": data}
+        
+        counter = [0]
+        def write_deep():
+            db[f"deep_{counter[0]}"] = data
+            counter[0] += 1
+        
+        benchmark(write_deep)
 
 
 # ==================== New Wrapper Functions Benchmarks ====================
