@@ -381,7 +381,62 @@ class NanaSQLite(MutableMapping):
             self._data.pop(key, None)
             self._cached_keys.add(key)  # 「存在しない」ことをキャッシュ
             return default
-    
+
+    def batch_get(self, keys: List[str]) -> Dict[str, Any]:
+        """
+        複数のキーを一度に取得（効率的な一括ロード）
+        
+        1回の `SELECT IN (...)` クエリで複数のキーをDBから取得する。
+        取得した値は自動的にキャッシュに保存される。
+        
+        Args:
+            keys: 取得するキーのリスト
+            
+        Returns:
+            取得に成功したキーと値の dict
+            
+        Example:
+            >>> results = db.batch_get(["user1", "user2", "user3"])
+            >>> print(results)  # {"user1": {...}, "user2": {...}}
+        """
+        if not keys:
+            return {}
+            
+        results = {}
+        missing_keys = []
+        
+        # 1. キャッシュから取得可能なものをチェック
+        for key in keys:
+            if key in self._cached_keys:
+                if key in self._data:
+                    results[key] = self._data[key]
+            else:
+                missing_keys.append(key)
+        
+        if not missing_keys:
+            return results
+            
+        # 2. DBから足りない分を一括取得
+        placeholders = ",".join(["?"] * len(missing_keys))
+        sql = f"SELECT key, value FROM {self._table} WHERE key IN ({placeholders})"
+        
+        with self._lock:
+            cursor = self._connection.execute(sql, tuple(missing_keys))
+            for key, val_str in cursor:
+                value = self._deserialize(val_str)
+                self._data[key] = value
+                self._cached_keys.add(key)
+                results[key] = value
+                
+        # 3. DBにも存在しなかったキーを「存在しない」としてキャッシュ
+        # keys に含まれるが results に含まれない missing_keys が対象
+        found_keys = set(results.keys())
+        for key in missing_keys:
+            if key not in found_keys:
+                self._cached_keys.add(key)
+                
+        return results
+
     def pop(self, key: str, *args) -> Any:
         """dict.pop(key[, default])"""
         self._check_connection()
