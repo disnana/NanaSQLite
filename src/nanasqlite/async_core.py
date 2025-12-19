@@ -512,7 +512,28 @@ class AsyncNanaSQLite:
             key,
             default
         )
-    
+
+    async def abatch_get(self, keys: List[str]) -> Dict[str, Any]:
+        """
+        非同期で複数のキーを一度に取得
+        
+        Args:
+            keys: 取得するキーのリスト
+            
+        Returns:
+            取得に成功したキーと値の dict
+            
+        Example:
+            >>> results = await db.abatch_get(["key1", "key2"])
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            self._db.batch_get,
+            keys
+        )
+
     # ==================== Async Pydantic Support ====================
     
     async def set_model(self, key: str, model: Any) -> None:
