@@ -31,6 +31,19 @@ def format_time(ms):
         return f"{ms / 1000:.2f}s"
 
 
+def format_ops(ms):
+    """1秒あたりの操作回数(Ops/sec)をフォーマット"""
+    if ms <= 0:
+        return "0"
+    ops = 1000.0 / ms
+    if ops >= 1000000:
+        return f"{ops / 1000000:.2f}M"
+    elif ops >= 1000:
+        return f"{ops / 1000:.1f}k"
+    else:
+        return f"{ops:.1f}"
+
+
 def categorize_test(test_name):
     """テスト名からカテゴリを判定"""
     name_lower = test_name.lower()
@@ -155,23 +168,23 @@ def main():
     # Top 10 Fastest
     sorted_by_speed = sorted(test_averages, key=lambda x: x['avg'])
     print("#### 🏆 Top 10 Fastest Operations\n")
-    print("| Rank | Test | Avg Time | Fastest Platform |")
-    print("|------|------|----------|------------------|")
+    print("| Rank | Test | Avg Time | Ops/sec | Fastest Platform |")
+    print("|------|------|----------|---------|------------------|")
     for i, item in enumerate(sorted_by_speed[:10], 1):
         fastest_str = f"{item['fastest']['os']} py{item['fastest']['py']}" if item['fastest'] else "-"
-        print(f"| {i} | {item['name']} | {format_time(item['avg'])} | {fastest_str} |")
+        print(f"| {i} | {item['name']} | {format_time(item['avg'])} | {format_ops(item['avg'])} | {fastest_str} |")
     
     print()
     
     # Top 10 Slowest
     sorted_by_slow = sorted(test_averages, key=lambda x: x['avg'], reverse=True)
     print("#### 🐢 Top 10 Slowest Operations\n")
-    print("| Rank | Test | Avg Time | Slowest Platform |")
-    print("|------|------|----------|------------------|")
+    print("| Rank | Test | Avg Time | Ops/sec | Slowest Platform |")
+    print("|------|------|----------|---------|------------------|")
     for i, item in enumerate(sorted_by_slow[:10], 1):
         slowest = max(test_data[item['name']]['all_means'], key=lambda x: x['mean']) if test_data[item['name']]['all_means'] else None
         slowest_str = f"{slowest['os']} py{slowest['py']}" if slowest else "-"
-        print(f"| {i} | {item['name']} | {format_time(item['avg'])} | {slowest_str} |")
+        print(f"| {i} | {item['name']} | {format_time(item['avg'])} | {format_ops(item['avg'])} | {slowest_str} |")
     
     print()
     
@@ -205,17 +218,20 @@ def main():
         os_headers = " | ".join([f"{get_os_emoji(os)} {os.replace('-latest', '')}" for os in sorted_os])
         
         print(f"<details><summary>{category} ({len(tests)} tests)</summary>\n")
-        print(f"| Test | Avg | {os_headers} |")
-        print(f"|------|-----|" + "|".join(["-----"] * len(sorted_os)) + "|")
+        print(f"| Test | Avg | Ops/sec | {os_headers} |")
+        print(f"|------|-----|---------|" + "|".join(["-----"] * len(sorted_os)) + "|")
         
         for test in tests_sorted:
             os_values = []
             for os_name in sorted_os:
                 val = test['os_avgs'].get(os_name)
-                os_values.append(format_time(val) if val else "-")
+                if val:
+                    os_values.append(f"{format_time(val)}<br>({format_ops(val)})")
+                else:
+                    os_values.append("-")
             
             os_cells = " | ".join(os_values)
-            print(f"| {test['name']} | {format_time(test['avg'])} | {os_cells} |")
+            print(f"| {test['name']} | {format_time(test['avg'])} | {format_ops(test['avg'])} | {os_cells} |")
         
         print("\n</details>\n")
 
