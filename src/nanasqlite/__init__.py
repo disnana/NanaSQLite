@@ -33,7 +33,7 @@ from .exceptions import (
     NanaSQLiteCacheError,
 )
 
-__version__ = "1.1.0a1"
+__version__ = "1.1.0rc1"
 __author__ = "Disnana"
 __all__ = [
     "NanaSQLite",
