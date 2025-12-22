@@ -1,7 +1,7 @@
 # NanaSQLite
 
 [![PyPI version](https://img.shields.io/pypi/v/nanasqlite.svg)](https://pypi.org/project/nanasqlite/)
-[![Python versions](https://img.shields.io/pypi/pyversions/dictsqlite.svg)](https://pypi.org/project/nanasqlite/)
+[![Python versions](https://img.shields.io/pypi/pyversions/nanasqlite.svg)](https://pypi.org/project/nanasqlite/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Downloads](https://static.pepy.tech/badge/nanasqlite)](https://pepy.tech/project/nanasqlite)
 [![Tests](https://github.com/disnana/nanasqlite/actions/workflows/test.yml/badge.svg)](https://github.com/disnana/nanasqlite/actions/workflows/test.yml)
