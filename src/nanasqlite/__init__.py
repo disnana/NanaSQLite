@@ -31,9 +31,10 @@ from .exceptions import (
     NanaSQLiteConnectionError,
     NanaSQLiteLockError,
     NanaSQLiteCacheError,
+    NanaSQLiteClosedError,
 )
 
-__version__ = "1.1.0"
+__version__ = "1.2.0dev0"
 __author__ = "Disnana"
 __all__ = [
     "NanaSQLite",
@@ -45,4 +46,5 @@ __all__ = [
     "NanaSQLiteConnectionError",
     "NanaSQLiteLockError",
     "NanaSQLiteCacheError",
+    "NanaSQLiteClosedError",
 ]

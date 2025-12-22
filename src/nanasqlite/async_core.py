@@ -66,7 +66,11 @@ class AsyncNanaSQLite:
         optimize: bool = True,
         cache_size_mb: int = 64,
         max_workers: int = 5,
-        thread_name_prefix: str = "AsyncNanaSQLite"
+        thread_name_prefix: str = "AsyncNanaSQLite",
+        strict_sql_validation: bool = False,
+        allowed_sql_functions: Optional[List[str]] = None,
+        forbidden_sql_functions: Optional[List[str]] = None,
+        max_clause_length: Optional[int] = 1000,
     ):
         """
         Args:
@@ -85,6 +89,12 @@ class AsyncNanaSQLite:
         self._cache_size_mb = cache_size_mb
         self._max_workers = max_workers
         self._thread_name_prefix = thread_name_prefix
+        
+        # セキュリティ設定
+        self._strict_sql_validation = strict_sql_validation
+        self._allowed_sql_functions = allowed_sql_functions
+        self._forbidden_sql_functions = forbidden_sql_functions
+        self._max_clause_length = max_clause_length
         
         # 専用スレッドプールエグゼキューターを作成
         self._executor = ThreadPoolExecutor(
@@ -108,7 +118,11 @@ class AsyncNanaSQLite:
                     table=self._table,
                     bulk_load=self._bulk_load,
                     optimize=self._optimize,
-                    cache_size_mb=self._cache_size_mb
+                    cache_size_mb=self._cache_size_mb,
+                    strict_sql_validation=self._strict_sql_validation,
+                    allowed_sql_functions=self._allowed_sql_functions,
+                    forbidden_sql_functions=self._forbidden_sql_functions,
+                    max_clause_length=self._max_clause_length
                 )
             )
     
@@ -754,7 +768,11 @@ class AsyncNanaSQLite:
         where: str = None,
         parameters: tuple = None,
         order_by: str = None,
-        limit: int = None
+        limit: int = None,
+        strict_sql_validation: bool = None,
+        allowed_sql_functions: List[str] = None,
+        forbidden_sql_functions: List[str] = None,
+        override_allowed: bool = False
     ) -> List[dict]:
         """
         非同期でSELECTクエリを実行
@@ -766,6 +784,10 @@ class AsyncNanaSQLite:
             parameters: WHERE句のパラメータ
             order_by: ORDER BY句
             limit: LIMIT句
+            strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否
+            allowed_sql_functions: このクエリで一時的に許可するSQL関数のリスト
+            forbidden_sql_functions: このクエリで一時的に禁止するSQL関数のリスト
+            override_allowed: Trueの場合、インスタンス許可設定を無視
         
         Returns:
             結果のリスト（各行はdict）
@@ -790,7 +812,69 @@ class AsyncNanaSQLite:
             where,
             parameters,
             order_by,
-            limit
+            limit,
+            strict_sql_validation,
+            allowed_sql_functions,
+            forbidden_sql_functions,
+            override_allowed
+        )
+
+    async def query_with_pagination(self, table_name: str = None, columns: List[str] = None,
+                                   where: str = None, parameters: tuple = None,
+                                   order_by: str = None, limit: int = None, 
+                                   offset: int = None, group_by: str = None,
+                                   strict_sql_validation: bool = None,
+                                   allowed_sql_functions: List[str] = None,
+                                   forbidden_sql_functions: List[str] = None,
+                                   override_allowed: bool = False) -> List[dict]:
+        """
+        非同期で拡張されたクエリを実行
+        
+        Args:
+            table_name: テーブル名
+            columns: 取得するカラム
+            where: WHERE句
+            parameters: パラメータ
+            order_by: ORDER BY句
+            limit: LIMIT句
+            offset: OFFSET句
+            group_by: GROUP BY句
+            strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否
+            allowed_sql_functions: このクエリで一時的に許可するSQL関数のリスト
+            forbidden_sql_functions: このクエリで一時的に禁止するSQL関数のリスト
+            override_allowed: Trueの場合、インスタンス許可設定を無視
+        
+        Returns:
+            結果のリスト（各行はdict）
+        
+        Example:
+            >>> results = await db.query_with_pagination(
+            ...     table_name="users",
+            ...     columns=["id", "name", "email"],
+            ...     where="age > ?",
+            ...     parameters=(20,),
+            ...     order_by="name ASC",
+            ...     limit=10,
+            ...     offset=0
+            ... )
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            self._db.query_with_pagination,
+            table_name,
+            columns,
+            where,
+            parameters,
+            order_by,
+            limit,
+            offset,
+            group_by,
+            strict_sql_validation,
+            allowed_sql_functions,
+            forbidden_sql_functions,
+            override_allowed
         )
     
     async def table_exists(self, table_name: str) -> bool:
@@ -958,6 +1042,44 @@ class AsyncNanaSQLite:
             table_name,
             where,
             parameters
+        )
+    
+    async def count(self, table_name: str = None, where: str = None, 
+                   parameters: tuple = None,
+                   strict_sql_validation: bool = None,
+                   allowed_sql_functions: List[str] = None,
+                   forbidden_sql_functions: List[str] = None,
+                   override_allowed: bool = False) -> int:
+        """
+        非同期でレコード数を取得
+        
+        Args:
+            table_name: テーブル名
+            where: WHERE句の条件
+            parameters: WHERE句のパラメータ
+            strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否
+            allowed_sql_functions: このクエリで一時的に許可するSQL関数のリスト
+            forbidden_sql_functions: このクエリで一時的に禁止するSQL関数のリスト
+            override_allowed: Trueの場合、インスタンス許可設定を無視
+        
+        Returns:
+            レコード数
+        
+        Example:
+            >>> count = await db.count("users", "age < ?", (18,))
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            self._db.count,
+            table_name,
+            where,
+            parameters,
+            strict_sql_validation,
+            allowed_sql_functions,
+            forbidden_sql_functions,
+            override_allowed
         )
     
     async def vacuum(self) -> None:
