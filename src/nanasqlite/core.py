@@ -91,7 +91,7 @@ class NanaSQLite(MutableMapping):
         self._transaction_depth: int = 0  # ネストレベル（警告用）
 
         # 子インスタンスの追跡（リソース管理用）
-        self._child_instances = weakref.WeakSet()  # WeakSetで追跡
+        self._child_instances = weakref.WeakSet()  # WeakSetによる弱参照追跡（死んだ参照は自動的にクリーンアップ）
         self._is_closed: bool = False  # 接続が閉じられたか
         self._parent_closed: bool = False  # 親接続が閉じられたか
 

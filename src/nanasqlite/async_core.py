@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 import asyncio
 import queue
+import weakref
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Tuple, Type
@@ -110,7 +111,7 @@ class AsyncNanaSQLite:
         self._forbidden_sql_functions = forbidden_sql_functions
         self._max_clause_length = max_clause_length
         self._closed = False
-        self._child_instances: List[AsyncNanaSQLite] = []
+        self._child_instances = weakref.WeakSet()  # WeakSetによる弱参照追跡（死んだ参照は自動的にクリーンアップ）
         self._is_connection_owner = True
         
         # 専用スレッドプールエグゼキューターを作成
@@ -1516,8 +1517,8 @@ class AsyncNanaSQLite:
         async_sub_db._forbidden_sql_functions = self._forbidden_sql_functions
         async_sub_db._max_clause_length = self._max_clause_length
         # 子インスタンス管理
-        async_sub_db._child_instances = []
-        self._child_instances.append(async_sub_db)
+        async_sub_db._child_instances = weakref.WeakSet()
+        self._child_instances.add(async_sub_db)
 
         # Read-Only Pool は sub-instance では使用しない (シンプルさと後方互換性のため)
         async_sub_db._read_pool_size = 0
