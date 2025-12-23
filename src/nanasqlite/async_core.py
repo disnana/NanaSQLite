@@ -1321,6 +1321,7 @@ class AsyncNanaSQLite:
     aset_model = set_model
     aget_model = get_model
     aexecute = execute
+    aexecute_many = execute_many
     afetch_one = fetch_one
     afetch_all = fetch_all
     acreate_table = create_table
