@@ -1,5 +1,4 @@
 import pytest
-import asyncio
 from nanasqlite import NanaSQLite, AsyncNanaSQLite
 
 # ==================== Synchronous Edge Cases ====================
