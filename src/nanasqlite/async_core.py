@@ -900,10 +900,25 @@ class AsyncNanaSQLite:
                 cursor = conn.cursor()
                 cursor.execute(sql, parameters)
                 
-                if cursor.description:
-                    cols = [d[0] for d in cursor.description]
-                    return [dict(zip(cols, row)) for row in cursor]
-                return []
+                # Column name extraction
+                if columns is None:
+                    # For * query, get columns from table info
+                    # We use the same connection to verify table schema
+                    pragma_cursor = conn.execute(f"PRAGMA table_info({target_table})")
+                    col_names = [row[1] for row in pragma_cursor]
+                else:
+                    # Extract aliases from AS clauses (case-insensitive)
+                    col_names = []
+                    for col in columns:
+                        parts = re.split(r'\s+as\s+', col, flags=re.IGNORECASE)
+                        if len(parts) > 1:
+                            col_names.append(parts[-1].strip().strip('"').strip("'"))
+                        else:
+                            # If no alias, use the column expression itself (cleaned if necessary, 
+                            # but sync impl just takes the string or simple strip)
+                            col_names.append(col.strip().strip('"').strip("'"))
+
+                return [dict(zip(col_names, row)) for row in cursor]
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
@@ -1002,19 +1017,18 @@ class AsyncNanaSQLite:
                 
                 # Column name extraction
                 if columns is None:
-                    # For * query, get columns from description
-                    if cursor.description:
-                        col_names = [d[0] for d in cursor.description]
-                    else:
-                        return []
+                    # For * query, get columns from table info
+                    pragma_cursor = conn.execute(f"PRAGMA table_info({target_table})")
+                    col_names = [row[1] for row in pragma_cursor]
                 else:
                     # Extract aliases or use description
                     col_names = []
-                    if cursor.description:
-                         col_names = [d[0] for d in cursor.description]
-                    else:
-                         # Fallback (rarely reached if data returned)
-                         return []
+                    for col in columns:
+                        parts = re.split(r'\s+as\s+', col, flags=re.IGNORECASE)
+                        if len(parts) > 1:
+                            col_names.append(parts[-1].strip().strip('"').strip("'"))
+                        else:
+                            col_names.append(col.strip().strip('"').strip("'"))
 
                 # Convert to dict list
                 return [dict(zip(col_names, row)) for row in cursor]
