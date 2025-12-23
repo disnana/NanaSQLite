@@ -200,7 +200,26 @@ class NanaSQLite(MutableMapping):
         return id(self)
 
     def __eq__(self, other):
-        # Restore dict-like equality for comparison with other mappings.
+        """
+        辞書のような等価性比較を実装
+        
+        他のマッピング（dictやMutableMapping）との比較では内容ベースの比較を行い、
+        それ以外では同一性（is）での比較を行う。
+        
+        Args:
+            other: 比較対象のオブジェクト
+        
+        Returns:
+            bool: 等価な場合True、そうでない場合False
+        
+        Raises:
+            NanaSQLiteClosedError: 接続が閉じられている状態で他のマッピングとの比較を試みた場合
+        
+        Note:
+            接続が閉じられた状態でdictやMutableMappingとの比較を行うと、
+            内部でself.items()が呼ばれ、NanaSQLiteClosedErrorが発生します。
+            このエラーは意図的なもので、閉じられた接続での操作を防ぐためです。
+        """
         if isinstance(other, (dict, MutableMapping)):
             return dict(self.items()) == dict(other.items())
         return self is other
