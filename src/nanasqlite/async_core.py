@@ -25,6 +25,7 @@ import queue
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Tuple, Type
+import logging
 
 import apsw
 from .core import NanaSQLite
@@ -906,8 +907,11 @@ class AsyncNanaSQLite:
             
             if order_by:
                 sql += f" ORDER BY {order_by}"
-                
+
+            # Validate limit as in sync implementation: must be a non-negative integer
             if limit is not None:
+                if not isinstance(limit, int) or limit < 0:
+                    raise ValueError("limit must be a non-negative integer")
                 sql += f" LIMIT {limit}"
                 
             # Execute on pool
@@ -1399,8 +1403,15 @@ class AsyncNanaSQLite:
                 try:
                     conn = self._read_pool.get_nowait()
                     conn.close()
-                except (queue.Empty, apsw.Error):
-                    pass
+                except queue.Empty:
+                    # Queue is already empty; safe to stop draining
+                    break
+                except apsw.Error as e:
+                    # Ignore close errors during best-effort cleanup but log for debugging
+                    logging.getLogger(__name__).debug(
+                        "Error while closing read-only NanaSQLite connection: %s",
+                        e,
+                    )
             self._read_pool = None
         
         # 所有しているエグゼキューターをシャットダウン（ノンブロッキング）
