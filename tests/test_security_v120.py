@@ -1,6 +1,6 @@
 import pytest
 import apsw
-from nanasqlite import NanaSQLite, NanaSQLiteValidationError, NanaSQLiteClosedError, NanaSQLiteError
+from nanasqlite import NanaSQLite, NanaSQLiteValidationError, NanaSQLiteClosedError, NanaSQLiteError, NanaSQLiteDatabaseError
 
 @pytest.fixture
 def db_path(tmp_path):
@@ -43,62 +43,80 @@ def test_sql_validation_warning_mode(db_path):
     db.close()
 
 def test_allowed_sql_functions_init(db_path):
+    """
+    インスタンス初期化時にallowed_sql_functionsで許可した関数が
+    バリデーションを通過することを検証。
+    
+    実行時にSQLiteで関数が未定義の場合、NanaSQLiteDatabaseErrorが
+    発生することを確認（バリデーション成功の証明）。
+    """
     db = NanaSQLite(db_path, strict_sql_validation=True, allowed_sql_functions=["MY_CUSTOM_FUNC"])
     
-    # Should pass validation, but might fail execution if function not actually defined in SQLite
-    try:
+    # バリデーションは成功するはずだが、実行時にSQLiteで関数が未定義のため失敗
+    # NanaSQLiteValidationErrorが発生しないことでバリデーション成功を確認
+    with pytest.raises(NanaSQLiteDatabaseError) as excinfo:
         db.query(columns=["MY_CUSTOM_FUNC(*)"])
-    except Exception as e:
-        # If it's a database error about the function missing, validation passed!
-        assert "no such function" in str(e).lower()
+    
+    # データベースエラーであり、"no such function"が含まれることを確認
+    assert "no such function" in str(excinfo.value).lower()
+    
     db.close()
 
 def test_allowed_sql_functions_query(db_path):
+    """
+    クエリレベルでallowed_sql_functionsを指定した場合の動作を検証。
+    """
     db = NanaSQLite(db_path, strict_sql_validation=True)
     
     # Should fail by default
     with pytest.raises(NanaSQLiteValidationError):
         db.query(columns=["LOCAL_FUNC(*)"])
         
-    # Should work with query-level permission (validation side)
-    try:
+    # クエリレベルの許可でバリデーション成功、実行時にデータベースエラー
+    with pytest.raises(NanaSQLiteDatabaseError) as excinfo:
         db.query(columns=["LOCAL_FUNC(*)"], allowed_sql_functions=["LOCAL_FUNC"])
-    except Exception as e:
-        assert "no such function" in str(e).lower()
+    
+    assert "no such function" in str(excinfo.value).lower()
     db.close()
 
 def test_forbidden_sql_functions(db_path):
+    """
+    forbidden_sql_functionsパラメータの動作を検証。
+    """
     db = NanaSQLite(db_path, strict_sql_validation=True, allowed_sql_functions=["SOME_FUNC"])
     
-    # Validation passes
-    try:
+    # SOME_FUNCは許可されているため、バリデーション成功、実行時エラー
+    with pytest.raises(NanaSQLiteDatabaseError) as excinfo:
         db.query(columns=["SOME_FUNC(*)"])
-    except Exception as e:
-        assert "no such function" in str(e).lower()
     
-    # Specific forbidden
+    assert "no such function" in str(excinfo.value).lower()
+    
+    # クエリレベルでの明示的な禁止
     with pytest.raises(NanaSQLiteValidationError):
         db.query(columns=["SOME_FUNC(*)"], forbidden_sql_functions=["SOME_FUNC"])
     db.close()
 
 def test_override_allowed(db_path):
+    """
+    override_allowedパラメータの動作を検証。
+    """
     db = NanaSQLite(db_path, strict_sql_validation=True, allowed_sql_functions=["FUNC_A"])
     
-    # FUNC_A is allowed globally (validation side)
-    try:
+    # FUNC_Aはグローバルに許可されている（バリデーション成功、実行時エラー）
+    with pytest.raises(NanaSQLiteDatabaseError) as excinfo:
         db.query(columns=["FUNC_A(*)"])
-    except Exception as e:
-        assert "no such function" in str(e).lower()
     
-    # With override_allowed=True, FUNC_A is no longer allowed unless included in method call
+    assert "no such function" in str(excinfo.value).lower()
+    
+    # override_allowed=Trueの場合、FUNC_Aはメソッド呼び出しで指定しない限り不許可
     with pytest.raises(NanaSQLiteValidationError):
         db.query(columns=["FUNC_A(*)"], allowed_sql_functions=["FUNC_B"], override_allowed=True)
         
-    # Only FUNC_B works (validation side)
-    try:
+    # FUNC_Bのみが許可される（バリデーション成功、実行時エラー）
+    with pytest.raises(NanaSQLiteDatabaseError) as excinfo:
         db.query(columns=["FUNC_B(*)"], allowed_sql_functions=["FUNC_B"], override_allowed=True)
-    except Exception as e:
-        assert "no such function" in str(e).lower()
+    
+    assert "no such function" in str(excinfo.value).lower()
     db.close()
 
 def test_redos_protection(db_path):
