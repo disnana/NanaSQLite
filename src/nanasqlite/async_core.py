@@ -1008,6 +1008,7 @@ class AsyncNanaSQLite:
             # table_name is already validated via _sanitize_identifier above
             self._db._validate_expression(where, **v_args, context="where")
             self._db._validate_expression(order_by, **v_args, context="order_by")
+            self._db._validate_expression(group_by, **v_args, context="group_by")
             if columns:
                 for col in columns:
                     self._db._validate_expression(col, **v_args, context="column")
