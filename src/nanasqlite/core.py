@@ -13,7 +13,7 @@ import json
 import re
 import warnings
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, List, Literal, Optional, Set, Tuple, Type, Union
+from typing import Any, Dict, Iterator, List, Literal, Optional, Set, Tuple, Type
 from collections.abc import MutableMapping
 import apsw
 import threading
