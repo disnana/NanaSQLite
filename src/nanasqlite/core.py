@@ -13,7 +13,7 @@ import json
 import re
 import warnings
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Type, Union
+from typing import Any, Dict, Iterator, List, Literal, Optional, Set, Tuple, Type, Union
 from collections.abc import MutableMapping
 import apsw
 import threading
@@ -259,7 +259,7 @@ class NanaSQLite(MutableMapping):
         allowed: Optional[List[str]] = None,
         forbidden: Optional[List[str]] = None,
         override_allowed: bool = False,
-        context: Optional[str] = None
+        context: Optional[Literal["order_by", "group_by", "where", "column"]] = None
     ) -> None:
         """
         SQL表現（ORDER BY, GROUP BY, 列名等）を検証。
@@ -270,6 +270,7 @@ class NanaSQLite(MutableMapping):
             allowed: 今回のクエリで追加/置換して許可する関数。
             forbidden: 今回のクエリで明示的に禁止する関数。
             override_allowed: Trueの場合、インスタンス許可設定を無視して今回のallowedのみ参照。
+            context: エラーメッセージのコンテキスト ("order_by", "group_by", "where", "column")
             
         Raises:
             NanaSQLiteValidationError: strict=True かつ不適切な表現の場合
