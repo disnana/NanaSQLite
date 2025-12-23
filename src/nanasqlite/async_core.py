@@ -900,7 +900,13 @@ class AsyncNanaSQLite:
 
             cols_clause = "*"
             if columns:
-                cols_clause = ", ".join(columns)
+                safe_cols = []
+                for col in columns:
+                    if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', col):
+                        safe_cols.append(self._db._sanitize_identifier(col))
+                    else:
+                        safe_cols.append(col)
+                cols_clause = ", ".join(safe_cols)
                 
             sql = f"SELECT {cols_clause} FROM {target_table}"
             
