@@ -17,6 +17,26 @@ Child instances might remain functional or exhibit unstable behavior after the p
 Operations on invalidated child instances will raise a `NanaSQLiteClosedError`.
 無効化された子インスタンスに対する操作は `NanaSQLiteClosedError` を送出します。
 
+### `query`/`query_with_pagination` limit=0 Behavior / ページネーションのlimit=0の挙動
+
+**Previous Behavior / 以前の挙動:**
+Passing `limit=0` was equivalent to not passing a limit, returning all rows.
+`limit=0` を渡すと、制限なしと同等に全件が返されていました。
+
+**New Behavior / 新しい挙動:**
+`limit=0` now correctly returns 0 rows. If you need "no limit", use `limit=None` instead.
+`limit=0` は正しく0件を返すようになりました。「制限なし」が必要な場合は `limit=None` を使用してください。
+
+```python
+# Before (buggy behavior) / 以前（バグ挙動）
+db.query_with_pagination(limit=0)  # returned all rows / 全件返却
+
+# After (correct behavior) / 修正後（正しい挙動）
+db.query_with_pagination(limit=0)   # returns 0 rows / 0件返却
+db.query_with_pagination()          # returns all rows / 全件返却
+db.query_with_pagination(limit=None) # returns all rows / 全件返却
+```
+
 ---
 
 ## 🔒 Security Enhancements / セキュリティ強化
