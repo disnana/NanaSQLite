@@ -1431,11 +1431,19 @@ class AsyncNanaSQLite:
                 try:
                     conn = self._read_pool.get_nowait()
                     conn.close()
-                except (queue.Empty, AttributeError):
-                    # Queue is empty or pool already gone; safe to stop draining
+                except queue.Empty:
+                    # Queue is empty; safe to stop draining
+                    break
+                except AttributeError as e:
+                    # Programming error: conn is not an apsw.Connection
+                    logging.getLogger(__name__).error(
+                        "AttributeError during pool cleanup - possible programming error: %s (conn=%r)",
+                        e,
+                        conn,
+                    )
                     break
                 except apsw.Error as e:
-                    # Ignore close errors during best-effort cleanup but log at warning level with context
+                    # Ignore close errors during best-effort cleanup but log at warning level
                     logging.getLogger(__name__).warning(
                         "Error while closing read-only NanaSQLite connection %r: %s",
                         conn,
