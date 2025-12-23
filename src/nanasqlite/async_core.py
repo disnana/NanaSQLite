@@ -604,9 +604,7 @@ class AsyncNanaSQLite:
             model_class
         )
     
-    # Special cases
-    async def aexecute_many(self, sql: str, parameters_list: List[tuple]) -> None:
-        return await self.execute_many(sql, parameters_list)
+
     
     # ==================== Async SQL Execution ====================
     
@@ -655,6 +653,9 @@ class AsyncNanaSQLite:
             sql,
             parameters_list
         )
+
+    # Alias for execute_many
+    aexecute_many = execute_many
     
     async def fetch_one(self, sql: str, parameters: tuple = None) -> Optional[tuple]:
         """
