@@ -8,12 +8,13 @@
 
 ### [1.2.0a1] - 2025-12-23
 
-#### 追加
 - **非同期読み取り専用接続プール**:
-  - `AsyncNanaSQLite` に `read_pool_size` 引数を追加。
   - `AsyncNanaSQLite` に `read_pool_size` 引数を追加。
   - `query`, `query_with_pagination`, `fetch_all`, `fetch_one` メソッドで読み取り専用プールを使用可能に。
   - 安全性のため、プール接続は常に `read-only` モードで動作。
+- **バグ修正**:
+  - `query` および `query_with_pagination` で結果が0件の場合に発生していた `apsw.ExecutionCompleteError` を修正。
+  - カラム名の取得方法を `cursor.description` 依存から同期版と同様の `PRAGMA table_info` および手動パース方式に変更。
 
 ### [1.2.0dev1] - 2025-12-23
 
@@ -293,12 +294,13 @@
 
 ### [1.2.0a1] - 2025-12-23
 
-#### Added
 - **Async Read-Only Connection Pool**:
-  - Added `read_pool_size` logic to `AsyncNanaSQLite`.
   - Added `read_pool_size` logic to `AsyncNanaSQLite`.
   - Enables parallel execution for `query`, `query_with_pagination`, `fetch_all`, `fetch_one`.
   - Enforces `read-only` mode for pool connections for safety.
+- **Bug Fixes**:
+  - Fixed `apsw.ExecutionCompleteError` occurring in `query` and `query_with_pagination` when results are empty (0 rows).
+  - Aligned column metadata extraction with sync implementation using `PRAGMA table_info` and manual parsing instead of relying on `cursor.description`.
 
 ### [1.2.0dev1] - 2025-12-23
 
