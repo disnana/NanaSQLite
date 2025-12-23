@@ -153,7 +153,7 @@ class AsyncNanaSQLite:
             if self._read_pool_size > 0:
                 self._read_pool = queue.Queue(maxsize=self._read_pool_size)
                 
-                def _init_pool_Connection():
+                def _init_pool_connection():
                     # mode=ro (Read-Only) is mandatory for safety
                     flags = apsw.SQLITE_OPEN_READONLY | apsw.SQLITE_OPEN_URI
                     uri_path = f"file:{self._db_path}?mode=ro"
@@ -171,7 +171,7 @@ class AsyncNanaSQLite:
                         c.execute("PRAGMA temp_store = MEMORY")
                         self._read_pool.put(conn)
 
-                await loop.run_in_executor(self._executor, _init_pool_Connection)
+                await loop.run_in_executor(self._executor, _init_pool_connection)
 
     @contextmanager
     def _read_connection(self):
