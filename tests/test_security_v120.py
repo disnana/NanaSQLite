@@ -1,6 +1,6 @@
 import pytest
 import apsw
-from nanasqlite import NanaSQLite, NanaSQLiteValidationError, NanaSQLiteClosedError
+from nanasqlite import NanaSQLite, NanaSQLiteValidationError, NanaSQLiteClosedError, NanaSQLiteError
 
 @pytest.fixture
 def db_path(tmp_path):
