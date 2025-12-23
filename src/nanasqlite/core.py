@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+import warnings
 from contextlib import contextmanager
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Type, Union
 from collections.abc import MutableMapping
@@ -272,7 +273,6 @@ class NanaSQLite(MutableMapping):
             if strict or (strict is None and self.strict_sql_validation):
                 raise NanaSQLiteValidationError(msg)
             else:
-                import warnings
                 warnings.warn(msg, UserWarning)
 
         # 2. 禁止リストの整理 (メソッド指定を優先、なければインスタンス設定)
@@ -282,7 +282,6 @@ class NanaSQLite(MutableMapping):
             if strict or (strict is None and self.strict_sql_validation):
                 raise NanaSQLiteValidationError(msg)
             else:
-                import warnings
                 warnings.warn(msg, UserWarning)
                 return
 
@@ -311,7 +310,6 @@ class NanaSQLite(MutableMapping):
                 if strict or (strict is None and self.strict_sql_validation):
                     raise NanaSQLiteValidationError(msg)
                 else:
-                    import warnings
                     warnings.warn(msg, UserWarning)
             
             # 許可リストにない場合
@@ -323,7 +321,6 @@ class NanaSQLite(MutableMapping):
                 if strict or (strict is None and self.strict_sql_validation):
                     raise NanaSQLiteValidationError(msg)
                 else:
-                    import warnings
                     warnings.warn(msg, UserWarning)
 
     def _mark_parent_closed(self) -> None:
