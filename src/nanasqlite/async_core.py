@@ -892,8 +892,11 @@ class AsyncNanaSQLite:
             
             if order_by:
                 sql += f" ORDER BY {order_by}"
-                
+
+            # Validate limit as in sync implementation: must be a non-negative integer
             if limit is not None:
+                if not isinstance(limit, int) or limit < 0:
+                    raise ValueError("limit must be a non-negative integer")
                 sql += f" LIMIT {limit}"
                 
             # Execute on pool
