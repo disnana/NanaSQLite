@@ -27,6 +27,8 @@ def test_sql_validation_warning_mode(db_path):
         try:
             db.query(columns=["DANGEROUS_FUNC(*)"])
         except Exception:
+            # SQLite may fail because DANGEROUS_FUNC is not defined;
+            # this test only asserts that a warning was emitted.
             pass
             
     # Test WHERE clause warning in non-strict mode (#3)
