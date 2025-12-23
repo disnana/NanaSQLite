@@ -883,20 +883,19 @@ class AsyncNanaSQLite:
             
             # Validation (Delegated to Main Instance logic)
             # We must access _validate_expression on self._db
-            self._db._validate_expression(table_name, strict=strict_sql_validation, 
-                                        allowed=allowed_sql_functions, forbidden=forbidden_sql_functions, 
-                                        override_allowed=override_allowed, context="table")
+            v_args = {
+                "strict": strict_sql_validation,
+                "allowed": allowed_sql_functions,
+                "forbidden": forbidden_sql_functions,
+                "override_allowed": override_allowed
+            }
+            
+            self._db._validate_expression(table_name, **v_args, context="table")
             if columns:
                 for col in columns:
-                    self._db._validate_expression(col, strict=strict_sql_validation, 
-                                                allowed=allowed_sql_functions, forbidden=forbidden_sql_functions, 
-                                                override_allowed=override_allowed, context="column")
-            self._db._validate_expression(where, strict=strict_sql_validation, 
-                                        allowed=allowed_sql_functions, forbidden=forbidden_sql_functions, 
-                                        override_allowed=override_allowed, context="where")
-            self._db._validate_expression(order_by, strict=strict_sql_validation, 
-                                        allowed=allowed_sql_functions, forbidden=forbidden_sql_functions, 
-                                        override_allowed=override_allowed, context="order_by")
+                    self._db._validate_expression(col, **v_args, context="column")
+            self._db._validate_expression(where, **v_args, context="where")
+            self._db._validate_expression(order_by, **v_args, context="order_by")
 
             cols_clause = "*"
             if columns:
