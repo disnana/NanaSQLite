@@ -26,7 +26,7 @@ def test_sql_validation_warning_mode(db_path):
     with pytest.warns(UserWarning, match="DANGEROUS_FUNC"):
         try:
             db.query(columns=["DANGEROUS_FUNC(*)"])
-        except Exception:
+        except (apsw.Error, ValueError, NanaSQLiteError):
             # SQLite may fail because DANGEROUS_FUNC is not defined;
             # this test only asserts that a warning was emitted.
             pass
@@ -35,7 +35,7 @@ def test_sql_validation_warning_mode(db_path):
     with pytest.warns(UserWarning, match="Potentially dangerous SQL pattern"):
         try:
             db.query(where="1=1; DROP TABLE data")
-        except Exception:
+        except (apsw.Error, ValueError, NanaSQLiteError):
             # SQLite might fail due to multiple statements or syntax, 
             # but we check if NanaSQLite emitted a warning first.
             pass
