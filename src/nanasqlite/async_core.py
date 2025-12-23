@@ -919,8 +919,10 @@ class AsyncNanaSQLite:
 
             # Validate limit as in sync implementation: must be a non-negative integer
             if limit is not None:
-                if not isinstance(limit, int) or limit < 0:
-                    raise ValueError("limit must be a non-negative integer")
+                if not isinstance(limit, int):
+                    raise ValueError("limit must be an integer")
+                if limit < 0:
+                    raise ValueError("limit must be non-negative")
                 sql += f" LIMIT {limit}"
                 
             # Execute on pool

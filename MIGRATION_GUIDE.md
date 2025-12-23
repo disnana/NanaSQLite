@@ -45,8 +45,8 @@ db.query_with_pagination(limit=None) # returns all rows / 全件返却
 The new `strict_sql_validation` parameter controls how the library handles potentially unauthorized SQL functions in clauses like `order_by`, `group_by`, and `columns`.
 新しい `strict_sql_validation` パラメータは、`order_by`、`group_by`、`columns` などの句に含まれる未許可のSQL関数の扱いを制御します。
 
-- **`strict=False` (Default)**: Emits a `UserWarning`. / `UserWarning` を発行します。
-- **`strict=True`**: Raises a `NanaSQLiteValidationError`. / `NanaSQLiteValidationError` を送出します。
+- **`strict=True` (Default)**: Raises a `NanaSQLiteValidationError`. / `NanaSQLiteValidationError` を送出します。
+- **`strict=False`**: Emits a `UserWarning`. / `UserWarning` を発行します。
 
 ### ReDoS Protection / ReDoS対策
 A new `max_clause_length` (default: 1000) limits the length of dynamic SQL clauses to prevent Regular Expression Denial of Service attacks.
