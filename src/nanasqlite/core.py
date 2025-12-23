@@ -279,11 +279,29 @@ class NanaSQLite(MutableMapping):
         # We use a combined message to satisfy both test_security.py ("Potentially dangerous...")
         # and test_security_additions.py ("Invalid...")
         msg_val = "Invalid: Potentially dangerous SQL pattern"
+        
+        # Define context labels for more helpful error messages
+        context_labels = {
+            "order_by": "order_by clause",
+            "group_by": "group_by clause",
+            "where": "where clause",
+            "column": "column name",
+        }
+        label = context_labels.get(context)
+        
+        # Semicolon message needs special care for backward compatibility with tests
+        if context in ("order_by", "group_by"):
+            semicolon_msg = f"Invalid {label}"
+        elif label:
+            semicolon_msg = f"Invalid {label}: {msg_val}"
+        else:
+            semicolon_msg = msg_val
+
         dangerous_patterns = [
-            (r';', f"Invalid {context} clause" if context in ("order_by", "group_by") else msg_val),
-            (r'--', msg_val),
-            (r'/\*', msg_val),
-            (r'\b(DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER)\b', msg_val),
+            (r';', semicolon_msg),
+            (r'--', f"{label}: {msg_val}" if label else msg_val),
+            (r'/\*', f"{label}: {msg_val}" if label else msg_val),
+            (r'\b(DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER)\b', f"{label}: {msg_val}" if label else msg_val),
         ]
         
         for pattern, msg in dangerous_patterns:
