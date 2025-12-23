@@ -598,6 +598,10 @@ class AsyncNanaSQLite:
             model_class
         )
     
+    # Special cases
+    async def aexecute_many(self, sql: str, parameters_list: List[tuple]) -> None:
+        return await self.execute_many(sql, parameters_list)
+    
     # ==================== Async SQL Execution ====================
     
     async def execute(self, sql: str, parameters: Optional[Tuple] = None) -> Any:
@@ -1291,6 +1295,33 @@ class AsyncNanaSQLite:
         async_sub_db._executor = self._executor  # 同じエグゼキューターを共有
         async_sub_db._owns_executor = False  # エグゼキューターは所有しない
         return async_sub_db
+
+    # ==================== Async Method Aliases (Consistency & Stability) ====================
+    # For a fully 'a'-prefixed API and compatibility with all tests/benchmarks
+    
+    aload_all = load_all
+    arefresh = refresh
+    ais_cached = is_cached
+    abatch_update = batch_update
+    abatch_delete = batch_delete
+    ato_dict = to_dict
+    acopy = copy
+    aget_fresh = get_fresh
+    aset_model = set_model
+    aget_model = get_model
+    aexecute = execute
+    afetch_one = fetch_one
+    afetch_all = fetch_all
+    acreate_table = create_table
+    acreate_index = create_index
+    aquery = query
+    atable_exists = table_exists
+    alist_tables = list_tables
+    adrop_table = drop_table
+    asql_insert = sql_insert
+    asql_update = sql_update
+    asql_delete = sql_delete
+    avacuum = vacuum
 
 
 class _AsyncTransactionContext:

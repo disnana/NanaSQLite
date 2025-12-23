@@ -1,21 +1,14 @@
-
 import pytest
 import warnings
 from nanasqlite import NanaSQLite, NanaSQLiteValidationError, NanaSQLiteClosedError
 import os
 
-DB_PATH = "test_security.db"
+@pytest.fixture
+def db_path(tmp_path):
+    return str(tmp_path / "test_security.db")
 
-def setup_module():
-    if os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
-
-def teardown_module():
-    if os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
-
-def test_sql_validation_strict_mode():
-    db = NanaSQLite(DB_PATH, strict_sql_validation=True)
+def test_sql_validation_strict_mode(db_path):
+    db = NanaSQLite(db_path, strict_sql_validation=True)
     
     # Normal execution (COUNT is default allowed)
     db.query(columns=["COUNT(*)"])
@@ -26,8 +19,8 @@ def test_sql_validation_strict_mode():
     assert "DANGEROUS_FUNC" in str(excinfo.value)
     db.close()
 
-def test_sql_validation_warning_mode():
-    db = NanaSQLite(DB_PATH, strict_sql_validation=False)
+def test_sql_validation_warning_mode(db_path):
+    db = NanaSQLite(db_path, strict_sql_validation=False)
     
     # Python sends warning first, then continues to execute.
     # Execution will fail in SQLite because the function doesn't exist,
@@ -39,8 +32,8 @@ def test_sql_validation_warning_mode():
             pass
     db.close()
 
-def test_allowed_sql_functions_init():
-    db = NanaSQLite(DB_PATH, strict_sql_validation=True, allowed_sql_functions=["MY_CUSTOM_FUNC"])
+def test_allowed_sql_functions_init(db_path):
+    db = NanaSQLite(db_path, strict_sql_validation=True, allowed_sql_functions=["MY_CUSTOM_FUNC"])
     
     # Should pass validation, but might fail execution if function not actually defined in SQLite
     try:
@@ -50,8 +43,8 @@ def test_allowed_sql_functions_init():
         assert "no such function" in str(e).lower()
     db.close()
 
-def test_allowed_sql_functions_query():
-    db = NanaSQLite(DB_PATH, strict_sql_validation=True)
+def test_allowed_sql_functions_query(db_path):
+    db = NanaSQLite(db_path, strict_sql_validation=True)
     
     # Should fail by default
     with pytest.raises(NanaSQLiteValidationError):
@@ -64,8 +57,8 @@ def test_allowed_sql_functions_query():
         assert "no such function" in str(e).lower()
     db.close()
 
-def test_forbidden_sql_functions():
-    db = NanaSQLite(DB_PATH, strict_sql_validation=True, allowed_sql_functions=["SOME_FUNC"])
+def test_forbidden_sql_functions(db_path):
+    db = NanaSQLite(db_path, strict_sql_validation=True, allowed_sql_functions=["SOME_FUNC"])
     
     # Validation passes
     try:
@@ -78,8 +71,8 @@ def test_forbidden_sql_functions():
         db.query(columns=["SOME_FUNC(*)"], forbidden_sql_functions=["SOME_FUNC"])
     db.close()
 
-def test_override_allowed():
-    db = NanaSQLite(DB_PATH, strict_sql_validation=True, allowed_sql_functions=["FUNC_A"])
+def test_override_allowed(db_path):
+    db = NanaSQLite(db_path, strict_sql_validation=True, allowed_sql_functions=["FUNC_A"])
     
     # FUNC_A is allowed globally (validation side)
     try:
@@ -98,8 +91,8 @@ def test_override_allowed():
         assert "no such function" in str(e).lower()
     db.close()
 
-def test_redos_protection():
-    db = NanaSQLite(DB_PATH, max_clause_length=10, strict_sql_validation=True)
+def test_redos_protection(db_path):
+    db = NanaSQLite(db_path, max_clause_length=10, strict_sql_validation=True)
     
     # Ensure table and schema exists for execution test
     db["test"] = "data" 
@@ -113,15 +106,19 @@ def test_redos_protection():
     assert "exceeds maximum length" in str(excinfo.value)
     db.close()
 
-def test_connection_closed_error():
-    db = NanaSQLite(DB_PATH, table="master")
+def test_connection_closed_error(db_path):
+    db = NanaSQLite(db_path)
     child = db.table("slave")
     
     db.close()
     
-    # Parent closed
+    # Operations on closed connection
+    with pytest.raises(NanaSQLiteClosedError):
+        db["key"] = "value"
+        
+    # Operations on child of closed connection
     with pytest.raises(NanaSQLiteClosedError) as excinfo:
-        child["key"] = "val"
+        child["key"] = "value"
     assert "Parent database connection is closed" in str(excinfo.value)
     assert "table: 'slave'" in str(excinfo.value)
     

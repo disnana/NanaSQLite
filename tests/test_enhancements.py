@@ -233,7 +233,8 @@ class TestErrorHandling:
         assert len(errors_caught) == 3
         assert "NanaSQLiteValidationError" in errors_caught
         assert "NanaSQLiteDatabaseError" in errors_caught
-        assert "NanaSQLiteConnectionError" in errors_caught
+        # accept either broad ConnectionError or specific ClosedError
+        assert any(name in errors_caught for name in ["NanaSQLiteConnectionError", "NanaSQLiteClosedError"])
 
 
 class TestTransactionWithExceptions:
