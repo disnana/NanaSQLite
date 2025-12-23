@@ -1396,6 +1396,9 @@ class AsyncNanaSQLite:
         async_sub_db._allowed_sql_functions = self._allowed_sql_functions
         async_sub_db._forbidden_sql_functions = self._forbidden_sql_functions
         async_sub_db._max_clause_length = self._max_clause_length
+        # Read-Only Pool は sub-instance では使用しない (シンプルさと後方互換性のため)
+        async_sub_db._read_pool_size = 0
+        async_sub_db._read_pool = None
         return async_sub_db
 
     # ==================== Async Method Aliases (Consistency & Stability) ====================
