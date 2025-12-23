@@ -349,6 +349,25 @@ class TestAsyncSQLExecution:
             assert len(rows) == 2
     
     @pytest.mark.asyncio
+    async def test_async_aexecute_many(self, db_path):
+        """非同期aexecute_manyテスト"""
+        async with AsyncNanaSQLite(db_path) as db:
+            await db.create_table("users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT"})
+            
+            users = [
+                (1, "Alice"),
+                (2, "Bob"),
+                (3, "Charlie")
+            ]
+            
+            await db.aexecute_many("INSERT INTO users (id, name) VALUES (?, ?)", users)
+            
+            results = await db.query("users", order_by="id")
+            assert len(results) == 3
+            assert results[0]["name"] == "Alice"
+            assert results[2]["name"] == "Charlie"
+    
+    @pytest.mark.asyncio
     async def test_async_fetch_one(self, db_path):
         """非同期fetch_one"""
         async with AsyncNanaSQLite(db_path) as db:

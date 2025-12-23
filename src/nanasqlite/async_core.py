@@ -1324,6 +1324,7 @@ class AsyncNanaSQLite:
     acreate_index = create_index
     aquery = query
     aquery_with_pagination = query_with_pagination
+    atable = table
     atable_exists = table_exists
     alist_tables = list_tables
     adrop_table = drop_table
