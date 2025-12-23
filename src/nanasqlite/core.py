@@ -1232,7 +1232,7 @@ class NanaSQLite(MutableMapping):
         
         sql = f"ALTER TABLE {safe_table_name} ADD COLUMN {safe_column_name} {column_type}"
         if default is not None:
-            # For string values, if it's a string, ensure it's properly quoted and escaped
+            # For default values: if it's a string, ensure it's properly quoted and escaped
             if isinstance(default, str):
                 # Strip leading/trailing single quotes if present, then escape and re-quote
                 stripped = default
