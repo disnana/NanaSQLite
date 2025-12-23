@@ -22,7 +22,7 @@ async def test_async_sql_validation_strict_mode(db_path):
 async def test_async_sql_validation_warning_mode(db_path):
     db = AsyncNanaSQLite(db_path, strict_sql_validation=False)
     
-    # Python sends warning first, then continues to execute.
+    # NanaSQLite emits a warning first, then continues to execute.
     # Execution will fail in SQLite because the function doesn't exist,
     # but we only care about the warning here.
     with pytest.warns(UserWarning, match="DANGEROUS_FUNC"):
