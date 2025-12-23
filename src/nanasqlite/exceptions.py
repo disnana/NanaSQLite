@@ -74,6 +74,15 @@ class NanaSQLiteConnectionError(NanaSQLiteError):
     pass
 
 
+class NanaSQLiteClosedError(NanaSQLiteConnectionError):
+    """
+    クローズ済みエラー
+
+    閉じられたインスタンスや、親が閉じられた子インスタンスを操作しようとした時に発生。
+    """
+    pass
+
+
 class NanaSQLiteLockError(NanaSQLiteError):
     """
     ロック取得エラー
