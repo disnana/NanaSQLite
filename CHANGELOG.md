@@ -6,6 +6,16 @@
 
 ## 日本語
 
+### [1.2.0a2] - 2025-12-23
+
+- **非同期セキュリティ機能の強化**:
+  - `AsyncNanaSQLite.query` および `query_with_pagination` において、`allowed_sql_functions`, `forbidden_sql_functions`, `override_allowed` が正しく `_validate_expression` に渡されるように修正。
+  - `AsyncNanaSQLite` の非同期セキュリティテスト (`tests/test_security_async_v120.py`) を追加。
+- **非同期接続管理の改善**:
+  - `AsyncNanaSQLite` にクローズ状態を追跡する `_closed` フラグを追加。
+  - 親インスタンスがクローズされた際に、`table()` で作成された子インスタンスも即座にクローズ状態となるように改善。
+  - 未初期化のインスタンスをクローズした場合でも、その後の操作で正しく `NanaSQLiteClosedError` が発生するように修正。
+
 ### [1.2.0a1] - 2025-12-23
 
 - **非同期読み取り専用接続プール**:
@@ -291,6 +301,16 @@
 ---
 
 ## English
+
+### [1.2.0a2] - 2025-12-23
+
+- **Enhanced Async Security Features**:
+  - Fixed `AsyncNanaSQLite.query` and `query_with_pagination` to correctly pass `allowed_sql_functions`, `forbidden_sql_functions`, and `override_allowed` to `_validate_expression`.
+  - Added comprehensive asynchronous security tests in `tests/test_security_async_v120.py`.
+- **Improved Async Connection Management**:
+  - Added `_closed` flag to `AsyncNanaSQLite` to track the connection state.
+  - Improved child instance invalidation: sub-instances created via `table()` are now immediately marked as closed when the parent is closed.
+  - Fixed `close()` behavior to ensure that even uninitialized instances correctly transition to a closed state, raising `NanaSQLiteClosedError` on subsequent operations.
 
 ### [1.2.0a1] - 2025-12-23
 
