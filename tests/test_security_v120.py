@@ -1,6 +1,5 @@
 import pytest
 from nanasqlite import NanaSQLite, NanaSQLiteValidationError, NanaSQLiteClosedError
-import os
 
 @pytest.fixture
 def db_path(tmp_path):
@@ -108,7 +107,8 @@ def test_redos_protection(db_path):
     assert "exceeds maximum length" in str(excinfo.value)
     db.close()
 
-def test_connection_closed_error(db_path):
+def test_connection_closed_error(tmp_path):
+    db_path = str(tmp_path / "test_connection.db")
     db = NanaSQLite(db_path)
     child = db.table("slave")
     
@@ -125,9 +125,8 @@ def test_connection_closed_error(db_path):
     assert "table: 'slave'" in str(excinfo.value)
     
     # Self closed
-    db2 = NanaSQLite("test2.db")
+    db2_path = str(tmp_path / "test2.db")
+    db2 = NanaSQLite(db2_path)
     db2.close()
     with pytest.raises(NanaSQLiteClosedError):
         db2["key"] = "val"
-    if os.path.exists("test2.db"):
-        os.remove("test2.db")
