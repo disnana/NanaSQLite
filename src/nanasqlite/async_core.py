@@ -1300,6 +1300,11 @@ class AsyncNanaSQLite:
         async_sub_db._loop = loop  # イベントループを共有
         async_sub_db._executor = self._executor  # 同じエグゼキューターを共有
         async_sub_db._owns_executor = False  # エグゼキューターは所有しない
+        # セキュリティ関連の設定も親インスタンスから継承する
+        async_sub_db._strict_sql_validation = self._strict_sql_validation
+        async_sub_db._allowed_sql_functions = self._allowed_sql_functions
+        async_sub_db._forbidden_sql_functions = self._forbidden_sql_functions
+        async_sub_db._max_clause_length = self._max_clause_length
         return async_sub_db
 
     # ==================== Async Method Aliases (Consistency & Stability) ====================
