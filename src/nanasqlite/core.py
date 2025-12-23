@@ -288,11 +288,8 @@ class NanaSQLite(MutableMapping):
         
         for pattern, msg in dangerous_patterns:
             if re.search(pattern, str(expr), re.IGNORECASE):
-                # Keep underscores to match legacy tests (e.g., "Invalid order_by clause")
-                if strict or (strict is None and self.strict_sql_validation):
-                    raise ValueError(msg)
-                else:
-                    warnings.warn(msg, UserWarning)
+                # Always block highly dangerous patterns (injection) to satisfy legacy tests
+                raise ValueError(msg)
 
         # 1. 長さ制限 (ReDoS対策)
         max_len = self.max_clause_length
