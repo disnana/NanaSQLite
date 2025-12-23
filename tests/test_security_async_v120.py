@@ -1,5 +1,6 @@
 import pytest
-from nanasqlite import AsyncNanaSQLite, NanaSQLiteValidationError, NanaSQLiteClosedError
+import apsw
+from nanasqlite import AsyncNanaSQLite, NanaSQLiteValidationError, NanaSQLiteClosedError, NanaSQLiteError
 
 @pytest.fixture
 def db_path(tmp_path):
@@ -28,8 +29,9 @@ async def test_async_sql_validation_warning_mode(db_path):
     with pytest.warns(UserWarning, match="DANGEROUS_FUNC"):
         try:
             await db.aquery(columns=["DANGEROUS_FUNC(*)"])
-        except Exception:
-            # Intentionally ignore any execution errors; this test only asserts that a warning is emitted.
+        except (apsw.Error, ValueError, NanaSQLiteError):
+            # SQLite may fail because DANGEROUS_FUNC is not defined;
+            # this test only asserts that a warning was emitted.
             pass
     await db.close()
 
