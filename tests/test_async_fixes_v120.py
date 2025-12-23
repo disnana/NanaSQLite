@@ -6,16 +6,25 @@ from nanasqlite import AsyncNanaSQLite, NanaSQLiteValidationError
 async def test_query_reserved_keyword_column(tmp_path):
     """
     AsyncNanaSQLite.query で予約語（group）をカラム名に使用できることを検証
+    識別子サニタイズにより、予約語が引用符で適切にエスケープされることを確認
     """
     db_path = str(tmp_path / "test_sanitization.db")
     db = AsyncNanaSQLite(db_path)
     await db.create_table("test", {"group": "TEXT", "name": "TEXT"})
     await db.sql_insert("test", {"group": "Admin", "name": "Alice"})
     
-    # 修正前はここで syntax error が発生していた
+    # 予約語カラムを含むクエリが成功することを検証
     results = await db.query(table_name="test", columns=["group", "name"])
     assert len(results) == 1
     assert results[0]["group"] == "Admin"
+    assert results[0]["name"] == "Alice"
+    
+    # 識別子が適切に引用符でエスケープされていることを検証
+    # _sanitize_identifierの動作を間接的に確認
+    from nanasqlite import NanaSQLite
+    assert NanaSQLite._sanitize_identifier("group") == '"group"'
+    assert NanaSQLite._sanitize_identifier("name") == '"name"'
+    
     await db.close()
 
 @pytest.mark.asyncio
