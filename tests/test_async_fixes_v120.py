@@ -107,7 +107,6 @@ def test_eq_when_closed(tmp_path):
     DB接続が閉じている場合に == 演算子が NanaSQLiteClosedError を発生させることを検証 (#5)
     """
     from nanasqlite import NanaSQLite, NanaSQLiteClosedError
-    import pytest
     
     db_path = str(tmp_path / "test_eq_closed.db")
     db1 = NanaSQLite(db_path)
