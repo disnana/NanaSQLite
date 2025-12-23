@@ -890,7 +890,7 @@ class AsyncNanaSQLite:
                 "override_allowed": override_allowed
             }
             
-            self._db._validate_expression(table_name, **v_args, context="table")
+            # table_name is already split-tested/sanitized via _sanitize_identifier above
             if columns:
                 for col in columns:
                     self._db._validate_expression(col, **v_args, context="column")
@@ -998,12 +998,19 @@ class AsyncNanaSQLite:
             target_table = self._db._sanitize_identifier(table_name) if table_name else self._db._table
 
             # Validation (Delegated to Main Instance logic)
-            self._db._validate_expression(table_name, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="table")
-            self._db._validate_expression(where, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="where")
-            self._db._validate_expression(order_by, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="order_by")
+            v_args = {
+                "strict": strict_sql_validation,
+                "allowed": allowed_sql_functions,
+                "forbidden": forbidden_sql_functions,
+                "override_allowed": override_allowed
+            }
+
+            # table_name is already validated via _sanitize_identifier above
+            self._db._validate_expression(where, **v_args, context="where")
+            self._db._validate_expression(order_by, **v_args, context="order_by")
             if columns:
                 for col in columns:
-                    self._db._validate_expression(col, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="column")
+                    self._db._validate_expression(col, **v_args, context="column")
 
             # Column handling
             if columns is None:
