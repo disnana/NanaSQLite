@@ -1,5 +1,4 @@
 import pytest
-import warnings
 from nanasqlite import NanaSQLite, NanaSQLiteValidationError, NanaSQLiteClosedError
 import os
 
