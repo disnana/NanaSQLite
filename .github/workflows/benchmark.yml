@@ -137,13 +137,13 @@ jobs:
     - uses: actions/checkout@v4
     
     - name: Download sync benchmark results
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         pattern: benchmark-results-*
         path: benchmark-results
     
     - name: Download async benchmark results
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         pattern: async-benchmark-results-*
         path: async-benchmark-results
