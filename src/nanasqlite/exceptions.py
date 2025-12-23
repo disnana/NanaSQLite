@@ -76,8 +76,9 @@ class NanaSQLiteConnectionError(NanaSQLiteError):
 
 class NanaSQLiteClosedError(NanaSQLiteConnectionError):
     """
-    クローズ済みエラー
+    Closed instance error / クローズ済みエラー
 
+    Occurs when operating on a closed instance, or on a child instance whose parent has been closed.
     閉じられたインスタンスや、親が閉じられた子インスタンスを操作しようとした時に発生。
     """
     pass
