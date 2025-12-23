@@ -180,7 +180,8 @@ class AsyncNanaSQLite:
         Yields a pooled connection if available, otherwise yields the main DB connection.
         """
         if self._read_pool is None:
-            yield self._db._connection
+            with self._db._lock:
+                yield self._db._connection
             return
 
         conn = self._read_pool.get()
