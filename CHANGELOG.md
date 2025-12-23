@@ -6,6 +6,32 @@
 
 ## 日本語
 
+### [1.2.0dev1] - 2025-12-23
+
+#### 修正
+- **非同期APIの一貫性向上**:
+  - `AsyncNanaSQLite` に全てのメソッドの `a` プレフィックス付きエイリアス（`abatch_update`, `ato_dict` 等）を追加。
+  - ベンチマークテスト (`test_async_benchmark.py`) でのメソッド未定義エラーを解消。
+- **後方互換性の修正**:
+  - SQLインジェクション検知時のエラーメッセージを `test_security.py` 等の既存テストが期待する形式（"Invalid order_by clause" 等）に再調整。
+  - `test_enhancements.py` において `NanaSQLiteClosedError` を許容するように修正し、例外クラス名チェックとの整合性を確保。
+- **Windows環境の安定性向上**:
+  - `test_security_v120.py` で `pytest` の `tmp_path` フィクスチャを使用するように変更し、Windowsでの `BusyError` や `IOError` を回避。
+
+### [1.2.0dev0] - 2025-12-22
+
+#### 追加
+- **セキュリティ強化 (Phase 1)**:
+  - `strict_sql_validation` フラグの導入（未許可関数の使用時に例外または警告）。
+  - `max_clause_length` による動的SQLの長さ制限（ReDoS対策）。
+  - 文字列ベースの危険なSQLパターン（`;`, `--`, `/*`）およびSQLキーワード（`DROP`, `DELETE` 等）の検知ロジックの強化。
+- **接続管理の厳格化**:
+  - `NanaSQLiteClosedError` の導入。
+  - 親インスタンス・クローズ時に子インスタンス（`table()`で作成）を自動的に無効化する追跡機構の実装。
+- **メンテナンス性向上**:
+  - `DEVELOPMENT_GUIDE.md` の作成（日英）。
+  - `pip install -e . -U` による環境同期ルールの明文化。
+
 ### [1.1.0] - 2025-12-19
 
 #### 追加
@@ -250,6 +276,32 @@
 ---
 
 ## English
+
+### [1.2.0dev1] - 2025-12-23
+
+#### Fixed
+- **Async API Consistency**:
+  - Added `a`-prefixed aliases for all methods in `AsyncNanaSQLite` (e.g., `abatch_update`, `ato_dict`).
+  - Resolved "method not defined" errors in `test_async_benchmark.py`.
+- **Backward Compatibility Fixes**:
+  - Re-aligned SQL injection error messages to match legacy test expectations (e.g., "Invalid order_by clause").
+  - Updated `test_enhancements.py` to handle `NanaSQLiteClosedError` alongside class name checks.
+- **Windows Stability**:
+  - Refactored `test_security_v120.py` to use `tmp_path` fixture, resolving `BusyError` and `IOError` on Windows.
+
+### [1.2.0dev0] - 2025-12-22
+
+#### Added
+- **Security Enhancements (Phase 1)**:
+  - Introduced `strict_sql_validation` flag (Exception or Warning for unauthorized functions).
+  - Introduced `max_clause_length` to limit dynamic SQL length (ReDoS protection).
+  - Enhanced detection for dangerous SQL patterns (`;`, `--`, `/*`) and keywords (`DROP`, `DELETE`, etc.).
+- **Strict Connection Management**:
+  - Introduced `NanaSQLiteClosedError`.
+  - Implemented child instance tracking/invalidation when the parent instance is closed.
+- **Maintenance**:
+  - Created `DEVELOPMENT_GUIDE.md` (Bilingual).
+  - Codified environment sync rule: `pip install -e . -U`.
 
 ### [1.1.0] - 2025-12-19
 
