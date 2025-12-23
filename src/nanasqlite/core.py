@@ -222,6 +222,7 @@ class NanaSQLite(MutableMapping):
         """
         if isinstance(other, (dict, MutableMapping)):
             try:
+                self._check_connection()
                 return dict(self.items()) == dict(other.items())
             except NanaSQLiteClosedError:
                 # When the underlying connection is closed, treat the mapping as unequal
@@ -288,7 +289,10 @@ class NanaSQLite(MutableMapping):
         for pattern, msg in dangerous_patterns:
             if re.search(pattern, str(expr), re.IGNORECASE):
                 # Keep underscores to match legacy tests (e.g., "Invalid order_by clause")
-                raise ValueError(msg)
+                if strict or (strict is None and self.strict_sql_validation):
+                    raise ValueError(msg)
+                else:
+                    warnings.warn(msg, UserWarning)
 
         # 1. 長さ制限 (ReDoS対策)
         max_len = self.max_clause_length

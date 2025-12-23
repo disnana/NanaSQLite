@@ -929,8 +929,25 @@ class AsyncNanaSQLite:
                 cursor.execute(sql, parameters)
                 
                 # Column name extraction using cursor metadata (robust against AS alias parsing issues)
-                description = cursor.getdescription()
-                col_names = [col_info[0] for col_info in description]
+                try:
+                    description = cursor.getdescription()
+                    col_names = [col_info[0] for col_info in description]
+                except apsw.ExecutionCompleteError:
+                    # Fallback for zero-row results (e.g., limit=0)
+                    if columns is None:
+                        # Get column names from table metadata
+                        p_cursor = conn.cursor()
+                        p_cursor.execute(f"PRAGMA table_info({target_table})")
+                        col_names = [row[1] for row in p_cursor]
+                    else:
+                        # Extract aliases from provided columns list
+                        col_names = []
+                        for col in columns:
+                            parts = re.split(r'\s+as\s+', col, flags=re.IGNORECASE)
+                            if len(parts) > 1:
+                                col_names.append(parts[-1].strip().strip('"').strip("'"))
+                            else:
+                                col_names.append(col.strip())
 
                 return [dict(zip(col_names, row)) for row in cursor]
 
@@ -1039,8 +1056,25 @@ class AsyncNanaSQLite:
                 cursor.execute(sql, parameters)
                 
                 # Column name extraction using cursor metadata (robust against AS alias parsing issues)
-                description = cursor.getdescription()
-                col_names = [col_info[0] for col_info in description]
+                try:
+                    description = cursor.getdescription()
+                    col_names = [col_info[0] for col_info in description]
+                except apsw.ExecutionCompleteError:
+                    # Fallback for zero-row results (e.g., limit=0)
+                    if columns is None:
+                        # Get column names from table metadata
+                        p_cursor = conn.cursor()
+                        p_cursor.execute(f"PRAGMA table_info({target_table})")
+                        col_names = [row[1] for row in p_cursor]
+                    else:
+                        # Extract aliases from provided columns list
+                        col_names = []
+                        for col in columns:
+                            parts = re.split(r'\s+as\s+', col, flags=re.IGNORECASE)
+                            if len(parts) > 1:
+                                col_names.append(parts[-1].strip().strip('"').strip("'"))
+                            else:
+                                col_names.append(col.strip())
 
                 # Convert to dict list
                 return [dict(zip(col_names, row)) for row in cursor]
