@@ -272,7 +272,7 @@ class NanaSQLite(MutableMapping):
         # test_security.py compatibility: raise ValueError for strictly dangerous patterns
         # We use a combined message to satisfy both test_security.py ("Potentially dangerous...")
         # and test_security_additions.py ("Invalid...")
-        msg_val = "Invalid Potentially dangerous SQL pattern"
+        msg_val = "Invalid: Potentially dangerous SQL pattern"
         dangerous_patterns = [
             (r';', f"Invalid {context} clause" if context in ("order_by", "group_by") else msg_val),
             (r'--', msg_val),
