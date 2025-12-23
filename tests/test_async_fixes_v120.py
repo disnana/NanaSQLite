@@ -107,4 +107,4 @@ def test_eq_when_closed(tmp_path):
     
     db1.close()
     # 以前はここで NanaSQLiteClosedError が発生していた
-    assert (db1 == db2) is False # クローズ後は False
+    assert db1 != db2 # クローズ後は False
