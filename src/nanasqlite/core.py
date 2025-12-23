@@ -1125,7 +1125,7 @@ class NanaSQLite(MutableMapping):
         if order_by:
             sql += f" ORDER BY {order_by}"
         
-        if limit:
+        if limit is not None:
             sql += f" LIMIT {limit}"
         
         # 実行
@@ -1618,10 +1618,10 @@ class NanaSQLite(MutableMapping):
         if order_by:
             sql += f" ORDER BY {order_by}"
         
-        if limit:
+        if limit is not None:
             sql += f" LIMIT {limit}"
         
-        if offset:
+        if offset is not None:
             sql += f" OFFSET {offset}"
         
         # 実行

@@ -17,6 +17,11 @@
   - `test_enhancements.py` において `NanaSQLiteClosedError` を許容するように修正し、例外クラス名チェックとの整合性を確保。
 - **Windows環境の安定性向上**:
   - `test_security_v120.py` で `pytest` の `tmp_path` フィクスチャを使用するように変更し、Windowsでの `BusyError` や `IOError` を回避。
+- **`query`/`query_with_pagination` のバグ修正**:
+  - `limit=0` および `offset=0` が無視されていた問題を修正。`if limit:` から `if limit is not None:` に変更。
+  - ⚠️ **後方互換性**: 以前は `limit=0` を渡すと全件取得していましたが、今後は正しく0件を返します。`limit=0` を「制限なし」の意味で使用していた場合は `limit=None` に変更してください。
+- **エッジケーステストの追加**:
+  - `tests/test_edge_cases_v120.py` を新規作成。空リストでの `batch_*` 操作やページネーションの境界値テストを追加。
 
 ### [1.2.0dev0] - 2025-12-22
 
@@ -288,6 +293,11 @@
   - Updated `test_enhancements.py` to handle `NanaSQLiteClosedError` alongside class name checks.
 - **Windows Stability**:
   - Refactored `test_security_v120.py` to use `tmp_path` fixture, resolving `BusyError` and `IOError` on Windows.
+- **`query`/`query_with_pagination` Bug Fix**:
+  - Fixed issue where `limit=0` and `offset=0` were ignored. Changed `if limit:` to `if limit is not None:`.
+  - ⚠️ **Backward Compatibility**: Previously, passing `limit=0` returned all rows. Now it correctly returns 0 rows. If you used `limit=0` to mean "no limit", change to `limit=None`.
+- **Edge Case Tests Added**:
+  - Created `tests/test_edge_cases_v120.py` with tests for empty `batch_*` operations and pagination boundary conditions.
 
 ### [1.2.0dev0] - 2025-12-22
 
