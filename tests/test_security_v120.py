@@ -1,4 +1,5 @@
 import pytest
+import apsw
 from nanasqlite import NanaSQLite, NanaSQLiteValidationError, NanaSQLiteClosedError
 
 @pytest.fixture
