@@ -221,7 +221,12 @@ class NanaSQLite(MutableMapping):
             このエラーは意図的なもので、閉じられた接続での操作を防ぐためです。
         """
         if isinstance(other, (dict, MutableMapping)):
-            return dict(self.items()) == dict(other.items())
+            try:
+                return dict(self.items()) == dict(other.items())
+            except NanaSQLiteClosedError:
+                # When the underlying connection is closed, treat the mapping as unequal
+                # instead of propagating an operational error from an equality check.
+                return False
         return self is other
 
     def _check_connection(self) -> None:

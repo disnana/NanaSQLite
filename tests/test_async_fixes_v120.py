@@ -35,7 +35,10 @@ async def test_query_per_query_validation(tmp_path):
         
     # クエリ単位で許可すれば成功するはず
     results = await db.query(table_name="test", columns=["HEX(name)"], allowed_sql_functions=["HEX"])
-    assert results[0]["HEX(name)"] == "416C696365"
+    hex_value = results[0]["HEX(name)"]
+    assert hex_value == "416C696365"
+    # HEX値をデコードして元の文字列と一致することを確認 (#4)
+    assert bytes.fromhex(hex_value).decode("utf-8") == "Alice"
     await db.close()
 
 @pytest.mark.asyncio
@@ -67,22 +70,42 @@ async def test_groupby_validation_in_pagination(tmp_path):
     await db.close()
 
 @pytest.mark.asyncio
-async def test_pool_initialization_naming(tmp_path):
+async def test_complex_column_aliases_metadata(tmp_path):
     """
-    命名規約を修正した _init_pool_connection が正常に動作し、
-    接続プールが適切に初期化されることを検証
+    cursor.description を使用したカラム名抽出が複雑な式でも正常に動作することを検証 (#2)
     """
-    db_path = str(tmp_path / "test_pool.db")
-    # read_pool_size > 0 で初期化
-    db = AsyncNanaSQLite(db_path, read_pool_size=2)
-    await db.create_table("test", {"id": "INTEGER"})
+    db_path = str(tmp_path / "test_complex_cols.db")
+    db = AsyncNanaSQLite(db_path)
+    await db.create_table("test", {"name": "TEXT", "val": "INTEGER"})
+    await db.sql_insert("test", {"name": "Alice as Bob", "val": 10})
     
-    # 接続プールが作成されていることを間接的に確認
-    assert db._read_pool is not None
-    assert db._read_pool.qsize() == 2
+    # " as " を含む文字列リテラルや複雑なエイリアス
+    # 以前の正規表現パースでは "Alice as Bob" の " as " で誤分割される可能性があった
+    sql_cols = [
+        "name as \"user_name\"",
+        "val + 100 as total",
+        "'prefix as ' || name as complex_label"
+    ]
+    results = await db.query(table_name="test", columns=sql_cols)
     
-    # プールからの読み取りが正常に行えるか
-    results = await db.query("test")
-    assert results == []
-    
+    assert len(results) == 1
+    assert results[0]["user_name"] == "Alice as Bob"
+    assert results[0]["total"] == 110
+    assert results[0]["complex_label"] == "prefix as Alice as Bob"
     await db.close()
+
+def test_eq_when_closed(tmp_path):
+    """
+    DB接続が閉じている場合に == 演算子が False を返すことを検証 (#5)
+    """
+    from nanasqlite import NanaSQLite
+    db_path = str(tmp_path / "test_eq_closed.db")
+    db1 = NanaSQLite(db_path)
+    db1["k"] = "v"
+    
+    db2 = {"k": "v"}
+    assert db1 == db2 # 接続中は True
+    
+    db1.close()
+    # 以前はここで NanaSQLiteClosedError が発生していた
+    assert (db1 == db2) is False # クローズ後は False

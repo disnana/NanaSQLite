@@ -184,11 +184,13 @@ class AsyncNanaSQLite:
                 yield self._db._connection
             return
 
-        conn = self._read_pool.get()
+        # Capture reference locally to ensure safety even if self._read_pool is set to None elsewhere
+        pool = self._read_pool
+        conn = pool.get()
         try:
             yield conn
         finally:
-            self._read_pool.put(conn)
+            pool.put(conn)
     
     async def _run_in_executor(self, func, *args):
         """Run a synchronous function in the executor"""
@@ -926,23 +928,9 @@ class AsyncNanaSQLite:
                 cursor = conn.cursor()
                 cursor.execute(sql, parameters)
                 
-                # Column name extraction
-                if columns is None:
-                    # For * query, get columns from table info
-                    # We use the same connection to verify table schema
-                    pragma_cursor = conn.execute(f"PRAGMA table_info({target_table})")
-                    col_names = [row[1] for row in pragma_cursor]
-                else:
-                    # Extract aliases from AS clauses (case-insensitive)
-                    col_names = []
-                    for col in columns:
-                        parts = re.split(r'\s+as\s+', col, flags=re.IGNORECASE)
-                        if len(parts) > 1:
-                            col_names.append(parts[-1].strip().strip('"').strip("'"))
-                        else:
-                            # If no alias, use the column expression itself (cleaned if necessary, 
-                            # but sync impl just takes the string or simple strip)
-                            col_names.append(col.strip().strip('"').strip("'"))
+                # Column name extraction using cursor metadata (robust against AS alias parsing issues)
+                description = cursor.getdescription()
+                col_names = [col_info[0] for col_info in description]
 
                 return [dict(zip(col_names, row)) for row in cursor]
 
@@ -1050,20 +1038,9 @@ class AsyncNanaSQLite:
                 cursor = conn.cursor()
                 cursor.execute(sql, parameters)
                 
-                # Column name extraction
-                if columns is None:
-                    # For * query, get columns from table info
-                    pragma_cursor = conn.execute(f"PRAGMA table_info({target_table})")
-                    col_names = [row[1] for row in pragma_cursor]
-                else:
-                    # Extract aliases or use description
-                    col_names = []
-                    for col in columns:
-                        parts = re.split(r'\s+as\s+', col, flags=re.IGNORECASE)
-                        if len(parts) > 1:
-                            col_names.append(parts[-1].strip().strip('"').strip("'"))
-                        else:
-                            col_names.append(col.strip().strip('"').strip("'"))
+                # Column name extraction using cursor metadata (robust against AS alias parsing issues)
+                description = cursor.getdescription()
+                col_names = [col_info[0] for col_info in description]
 
                 # Convert to dict list
                 return [dict(zip(col_names, row)) for row in cursor]
@@ -1414,12 +1391,12 @@ class AsyncNanaSQLite:
         
         # Close Read-Only Pool
         if self._read_pool:
-            while not self._read_pool.empty():
+            while True:
                 try:
                     conn = self._read_pool.get_nowait()
                     conn.close()
-                except queue.Empty:
-                    # Queue is already empty; safe to stop draining
+                except (queue.Empty, AttributeError):
+                    # Queue is empty or pool already gone; safe to stop draining
                     break
                 except apsw.Error as e:
                     # Ignore close errors during best-effort cleanup but log for debugging

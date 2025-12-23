@@ -27,9 +27,15 @@ def test_sql_validation_warning_mode(db_path):
         try:
             db.query(columns=["DANGEROUS_FUNC(*)"])
         except Exception:
-            # Intentionally ignore any execution errors; this test only asserts that a warning is emitted.
-            # Expected: SQLite will raise an error because DANGEROUS_FUNC doesn't exist.
-            # We're only testing that the warning is issued, not the execution result.
+            pass
+            
+    # Test WHERE clause warning in non-strict mode (#3)
+    with pytest.warns(UserWarning, match="Potentially dangerous SQL pattern"):
+        try:
+            db.query(where="1=1; DROP TABLE data")
+        except Exception:
+            # SQLite might fail due to multiple statements or syntax, 
+            # but we check if NanaSQLite emitted a warning first.
             pass
     db.close()
 
