@@ -1436,7 +1436,7 @@ class AsyncNanaSQLite:
                     # Queue is empty; safe to stop draining
                     break
                 except AttributeError as e:
-                    # Programming error: conn is not an apsw.Connection or get_nowait failed
+                    # Programming error: conn is not an apsw.Connection
                     logging.getLogger(__name__).error(
                         "AttributeError during pool cleanup - possible programming error: %s (conn=%r)",
                         e,
