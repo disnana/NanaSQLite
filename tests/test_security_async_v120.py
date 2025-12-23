@@ -1,5 +1,4 @@
 import pytest
-import asyncio
 from nanasqlite import AsyncNanaSQLite, NanaSQLiteValidationError, NanaSQLiteClosedError
 
 @pytest.fixture
