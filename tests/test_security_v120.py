@@ -106,7 +106,8 @@ def test_redos_protection(db_path):
     assert "exceeds maximum length" in str(excinfo.value)
     db.close()
 
-def test_connection_closed_error(db_path, tmp_path):
+def test_connection_closed_error(tmp_path):
+    db_path = str(tmp_path / "test_connection.db")
     db = NanaSQLite(db_path)
     child = db.table("slave")
     
