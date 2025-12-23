@@ -20,9 +20,12 @@ Example:
 from __future__ import annotations
 
 import asyncio
+import queue
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Tuple, Type
 
+import apsw
 from .core import NanaSQLite
 
 
@@ -73,6 +76,7 @@ class AsyncNanaSQLite:
         allowed_sql_functions: Optional[List[str]] = None,
         forbidden_sql_functions: Optional[List[str]] = None,
         max_clause_length: Optional[int] = 1000,
+        read_pool_size: int = 0,
     ):
         """
         Args:
@@ -87,6 +91,7 @@ class AsyncNanaSQLite:
             allowed_sql_functions: 追加で許可するSQL関数のリスト (v1.2.0)
             forbidden_sql_functions: 明示的に禁止するSQL関数のリスト (v1.2.0)
             max_clause_length: SQL句の最大長（ReDoS対策）。Noneで制限なし (v1.2.0)
+            read_pool_size: 読み取り専用プールサイズ (デフォルト: 0 = 無効) (v1.1.0)
         """
         self._db_path = db_path
         self._table = table
@@ -95,8 +100,8 @@ class AsyncNanaSQLite:
         self._cache_size_mb = cache_size_mb
         self._max_workers = max_workers
         self._thread_name_prefix = thread_name_prefix
-        
-        # セキュリティ設定
+        self._read_pool_size = read_pool_size
+        self._read_pool: Optional[queue.Queue] = None
         self._strict_sql_validation = strict_sql_validation
         self._allowed_sql_functions = allowed_sql_functions
         self._forbidden_sql_functions = forbidden_sql_functions
@@ -131,6 +136,46 @@ class AsyncNanaSQLite:
                     max_clause_length=self._max_clause_length
                 )
             )
+
+            # Initialize Read-Only Pool if requested
+            if self._read_pool_size > 0:
+                self._read_pool = queue.Queue(maxsize=self._read_pool_size)
+                
+                def _init_pool_Connection():
+                    # mode=ro (Read-Only) is mandatory for safety
+                    flags = apsw.SQLITE_OPEN_READONLY | apsw.SQLITE_OPEN_URI
+                    uri_path = f"file:{self._db_path}?mode=ro"
+                    
+                    for _ in range(self._read_pool_size):
+                        conn = apsw.Connection(uri_path, flags=flags)
+                        # Apply optimizations to pool connections too (WAL, mmap)
+                        # We use a cursor to set PRAGMAs
+                        c = conn.cursor()
+                        c.execute("PRAGMA journal_mode = WAL")
+                        c.execute("PRAGMA synchronous = NORMAL")
+                        c.execute("PRAGMA mmap_size = 268435456")
+                        # Smaller cache for pool connections (don't hog memory)
+                        c.execute("PRAGMA cache_size = -2000") # ~2MB
+                        c.execute("PRAGMA temp_store = MEMORY")
+                        self._read_pool.put(conn)
+
+                await loop.run_in_executor(self._executor, _init_pool_Connection)
+
+    @contextmanager
+    def _read_connection(self):
+        """
+        Context manager to yield a connection for read-only operations.
+        Yields a pooled connection if available, otherwise yields the main DB connection.
+        """
+        if self._read_pool is None:
+            yield self._db._connection
+            return
+
+        conn = self._read_pool.get()
+        try:
+            yield conn
+        finally:
+            self._read_pool.put(conn)
     
     async def _run_in_executor(self, func, *args):
         """Run a synchronous function in the executor"""
@@ -669,12 +714,16 @@ class AsyncNanaSQLite:
             >>> row = await db.fetch_one("SELECT value FROM data WHERE key = ?", ("user",))
         """
         await self._ensure_initialized()
+        
+        def _fetch_one_impl():
+            with self._read_connection() as conn:
+                cursor = conn.execute(sql, parameters)
+                return cursor.fetchone()
+
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
-            self._db.fetch_one,
-            sql,
-            parameters
+            _fetch_one_impl
         )
     
     async def fetch_all(self, sql: str, parameters: tuple = None) -> List[tuple]:
@@ -692,12 +741,16 @@ class AsyncNanaSQLite:
             >>> rows = await db.fetch_all("SELECT key, value FROM data WHERE key LIKE ?", ("user%",))
         """
         await self._ensure_initialized()
+        
+        def _fetch_all_impl():
+            with self._read_connection() as conn:
+                cursor = conn.execute(sql, parameters)
+                return list(cursor)
+
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
-            self._db.fetch_all,
-            sql,
-            parameters
+            _fetch_all_impl
         )
     
     # ==================== Async SQLite Wrapper Functions ====================
@@ -811,20 +864,50 @@ class AsyncNanaSQLite:
             ... )
         """
         await self._ensure_initialized()
+        
+        def _query_impl():
+            target_table = self._db._sanitize_identifier(table_name) if table_name else self._db._table
+            
+            # Validation (Delegated to Main Instance logic)
+            # We must access _validate_expression on self._db
+            self._db._validate_expression(table_name, strict=strict_sql_validation)
+            if columns:
+                for col in columns:
+                    self._db._validate_expression(col, strict=strict_sql_validation)
+            self._db._validate_expression(where, strict=strict_sql_validation)
+            self._db._validate_expression(order_by, strict=strict_sql_validation, context="order_by")
+            
+            nonlocal allowed_sql_functions, forbidden_sql_functions
+
+            cols_clause = "*"
+            if columns:
+                cols_clause = ", ".join(columns)
+                
+            sql = f"SELECT {cols_clause} FROM {target_table}"
+            
+            if where:
+                sql += f" WHERE {where}"
+            
+            if order_by:
+                sql += f" ORDER BY {order_by}"
+                
+            if limit is not None:
+                sql += f" LIMIT {limit}"
+                
+            # Execute on pool
+            with self._read_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(sql, parameters)
+                
+                if cursor.description:
+                    cols = [d[0] for d in cursor.description]
+                    return [dict(zip(cols, row)) for row in cursor]
+                return []
+
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
-            self._db.query,
-            table_name,
-            columns,
-            where,
-            parameters,
-            order_by,
-            limit,
-            strict_sql_validation,
-            allowed_sql_functions,
-            forbidden_sql_functions,
-            override_allowed
+            _query_impl
         )
 
     async def query_with_pagination(self, table_name: str = None, columns: List[str] = None,
@@ -1212,6 +1295,16 @@ class AsyncNanaSQLite:
                 self._db.close
             )
             self._db = None
+        
+        # Close Read-Only Pool
+        if self._read_pool:
+            while not self._read_pool.empty():
+                try:
+                    conn = self._read_pool.get_nowait()
+                    conn.close()
+                except (queue.Empty, apsw.Error):
+                    pass
+            self._read_pool = None
         
         # 所有しているエグゼキューターをシャットダウン（ノンブロッキング）
         if self._owns_executor and self._executor is not None:
