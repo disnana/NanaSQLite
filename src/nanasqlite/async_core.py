@@ -1435,9 +1435,10 @@ class AsyncNanaSQLite:
                     # Queue is empty or pool already gone; safe to stop draining
                     break
                 except apsw.Error as e:
-                    # Ignore close errors during best-effort cleanup but log for debugging
-                    logging.getLogger(__name__).debug(
-                        "Error while closing read-only NanaSQLite connection: %s",
+                    # Ignore close errors during best-effort cleanup but log at warning level with context
+                    logging.getLogger(__name__).warning(
+                        "Error while closing read-only NanaSQLite connection %r: %s",
+                        conn,
                         e,
                     )
             self._read_pool = None
