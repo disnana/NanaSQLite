@@ -375,6 +375,16 @@ db = NanaSQLite("mydata.db",
     max_clause_length=500        # Limit SQL length to prevent ReDoS
 )
 
+# v1.2.0 Read-Only Connection Pool (Async only)
+async with AsyncNanaSQLite("mydata.db", read_pool_size=5) as db:
+    # Heavy read operations (query, fetch_all) use the pool automatically
+    # allowing parallel execution without blocking writes or other reads
+    results = await asyncio.gather(
+        db.query("logs", where="level=?", parameters=("ERROR",)),
+        db.query("logs", where="level=?", parameters=("INFO",)),
+        db.query("logs", where="level=?", parameters=("WARN",))
+    )
+
 # Strict Connection Management
 with db.transaction():
     sub_db = db.table("sub")
@@ -390,6 +400,8 @@ await db.abatch_update(data)
 await db.abatch_get(keys)
 await db.ato_dict()
 ```
+
+---
 
 ---
 
@@ -703,6 +715,16 @@ db = NanaSQLite("mydata.db",
     strict_sql_validation=True,  # 未許可のSQL関数を禁止
     max_clause_length=500        # SQLの長さを制限してReDoSを防止
 )
+
+# v1.2.0 読み取り専用接続プール（非同期のみ）
+async with AsyncNanaSQLite("mydata.db", read_pool_size=5) as db:
+    # 重い読み取り操作（query, fetch_all）は自動的にプールを使用
+    # 書き込みや他の読み取りをブロックすることなく並列実行が可能
+    results = await asyncio.gather(
+        db.query("logs", where="level=?", parameters=("ERROR",)),
+        db.query("logs", where="level=?", parameters=("INFO",)),
+        db.query("logs", where="level=?", parameters=("WARN",))
+    )
 
 # 厳格な接続管理
 with db.transaction():

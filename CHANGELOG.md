@@ -11,7 +11,8 @@
 #### 追加
 - **非同期読み取り専用接続プール**:
   - `AsyncNanaSQLite` に `read_pool_size` 引数を追加。
-  - `query`, `fetch_all`, `fetch_one` メソッドで読み取り専用プールを使用可能に。
+  - `AsyncNanaSQLite` に `read_pool_size` 引数を追加。
+  - `query`, `query_with_pagination`, `fetch_all`, `fetch_one` メソッドで読み取り専用プールを使用可能に。
   - 安全性のため、プール接続は常に `read-only` モードで動作。
 
 ### [1.2.0dev1] - 2025-12-23
@@ -295,7 +296,8 @@
 #### Added
 - **Async Read-Only Connection Pool**:
   - Added `read_pool_size` logic to `AsyncNanaSQLite`.
-  - Enables parallel execution for `query`, `fetch_all`, `fetch_one`.
+  - Added `read_pool_size` logic to `AsyncNanaSQLite`.
+  - Enables parallel execution for `query`, `query_with_pagination`, `fetch_all`, `fetch_one`.
   - Enforces `read-only` mode for pool connections for safety.
 
 ### [1.2.0dev1] - 2025-12-23

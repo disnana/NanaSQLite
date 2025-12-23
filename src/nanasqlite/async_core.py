@@ -19,6 +19,7 @@ Example:
 
 from __future__ import annotations
 
+import re
 import asyncio
 import queue
 from concurrent.futures import ThreadPoolExecutor
@@ -949,23 +950,79 @@ class AsyncNanaSQLite:
             ...     offset=0
             ... )
         """
-        await self._ensure_initialized()
+        if self._db is None:
+            await self._ensure_initialized()
+
+        def _query_with_pagination_impl():
+            target_table = self._db._sanitize_identifier(table_name) if table_name else self._db._table
+
+            # Validation (Delegated to Main Instance logic)
+            self._db._validate_expression(where, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="where")
+            self._db._validate_expression(order_by, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="order_by")
+            if columns:
+                for col in columns:
+                    self._db._validate_expression(col, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="column")
+
+            # Column handling
+            if columns is None:
+                columns_sql = "*"
+            else:
+                safe_cols = []
+                for col in columns:
+                    if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', col):
+                        safe_cols.append(self._db._sanitize_identifier(col))
+                    else:
+                        safe_cols.append(col)
+                columns_sql = ", ".join(safe_cols)
+
+            # Validate limit
+            if limit is not None:
+                if not isinstance(limit, int):
+                    raise ValueError(f"limit must be an integer, got {type(limit).__name__}")
+                if limit < 0:
+                    raise ValueError("limit must be non-negative")
+
+            # SQL Construction
+            sql = f"SELECT {columns_sql} FROM {target_table}"
+            if where:
+                sql += f" WHERE {where}"
+            if group_by:
+                sql += f" GROUP BY {group_by}"
+            if order_by:
+                sql += f" ORDER BY {order_by}"
+            if limit is not None:
+                sql += f" LIMIT {limit}"
+            if offset is not None:
+                sql += f" OFFSET {offset}"
+
+            # Execute on pool
+            with self._read_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(sql, parameters)
+                
+                # Column name extraction
+                if columns is None:
+                    # For * query, get columns from description
+                    if cursor.description:
+                        col_names = [d[0] for d in cursor.description]
+                    else:
+                        return []
+                else:
+                    # Extract aliases or use description
+                    col_names = []
+                    if cursor.description:
+                         col_names = [d[0] for d in cursor.description]
+                    else:
+                         # Fallback (rarely reached if data returned)
+                         return []
+
+                # Convert to dict list
+                return [dict(zip(col_names, row)) for row in cursor]
+
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
-            self._db.query_with_pagination,
-            table_name,
-            columns,
-            where,
-            parameters,
-            order_by,
-            limit,
-            offset,
-            group_by,
-            strict_sql_validation,
-            allowed_sql_functions,
-            forbidden_sql_functions,
-            override_allowed
+            _query_with_pagination_impl
         )
     
     async def table_exists(self, table_name: str) -> bool:
