@@ -47,7 +47,7 @@ class NanaSQLite(MutableMapping):
     
     def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
                  optimize: bool = True, cache_size_mb: int = 64,
-                 strict_sql_validation: bool = False,
+                 strict_sql_validation: bool = True,
                  allowed_sql_functions: Optional[List[str]] = None,
                  forbidden_sql_functions: Optional[List[str]] = None,
                  max_clause_length: Optional[int] = 1000,
@@ -288,8 +288,11 @@ class NanaSQLite(MutableMapping):
         
         for pattern, msg in dangerous_patterns:
             if re.search(pattern, str(expr), re.IGNORECASE):
-                # Always block highly dangerous patterns (injection) to satisfy legacy tests
-                raise ValueError(msg)
+                # Block highly dangerous patterns in strict mode, but only warn in non-strict
+                if strict or (strict is None and self.strict_sql_validation):
+                    raise ValueError(msg)
+                else:
+                    warnings.warn(msg, UserWarning)
 
         # 1. 長さ制限 (ReDoS対策)
         max_len = self.max_clause_length

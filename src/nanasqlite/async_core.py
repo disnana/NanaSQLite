@@ -76,7 +76,7 @@ class AsyncNanaSQLite:
         cache_size_mb: int = 64,
         max_workers: int = 5,
         thread_name_prefix: str = "AsyncNanaSQLite",
-        strict_sql_validation: bool = False,
+        strict_sql_validation: bool = True,
         allowed_sql_functions: Optional[List[str]] = None,
         forbidden_sql_functions: Optional[List[str]] = None,
         max_clause_length: Optional[int] = 1000,
