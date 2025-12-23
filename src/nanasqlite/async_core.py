@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 
 import apsw
 from .core import NanaSQLite
+from .exceptions import NanaSQLiteClosedError
 
 
 class AsyncNanaSQLite:
@@ -107,6 +108,9 @@ class AsyncNanaSQLite:
         self._allowed_sql_functions = allowed_sql_functions
         self._forbidden_sql_functions = forbidden_sql_functions
         self._max_clause_length = max_clause_length
+        self._closed = False
+        self._child_instances: List[AsyncNanaSQLite] = []
+        self._is_connection_owner = True
         
         # 専用スレッドプールエグゼキューターを作成
         self._executor = ThreadPoolExecutor(
@@ -119,6 +123,11 @@ class AsyncNanaSQLite:
     
     async def _ensure_initialized(self) -> None:
         """Ensure the underlying sync database is initialized"""
+        if self._closed:
+            if not getattr(self, "_is_connection_owner", True):
+                raise NanaSQLiteClosedError(f"Parent database connection is closed (table: {self._table!r})")
+            raise NanaSQLiteClosedError("Database connection is closed")
+            
         if self._db is None:
             # Initialize in thread pool to avoid blocking
             loop = asyncio.get_running_loop()
@@ -871,14 +880,20 @@ class AsyncNanaSQLite:
             
             # Validation (Delegated to Main Instance logic)
             # We must access _validate_expression on self._db
-            self._db._validate_expression(table_name, strict=strict_sql_validation)
+            self._db._validate_expression(table_name, strict=strict_sql_validation, 
+                                        allowed=allowed_sql_functions, forbidden=forbidden_sql_functions, 
+                                        override_allowed=override_allowed, context="table")
             if columns:
                 for col in columns:
-                    self._db._validate_expression(col, strict=strict_sql_validation)
-            self._db._validate_expression(where, strict=strict_sql_validation)
-            self._db._validate_expression(order_by, strict=strict_sql_validation, context="order_by")
-            
-            nonlocal allowed_sql_functions, forbidden_sql_functions
+                    self._db._validate_expression(col, strict=strict_sql_validation, 
+                                                allowed=allowed_sql_functions, forbidden=forbidden_sql_functions, 
+                                                override_allowed=override_allowed, context="column")
+            self._db._validate_expression(where, strict=strict_sql_validation, 
+                                        allowed=allowed_sql_functions, forbidden=forbidden_sql_functions, 
+                                        override_allowed=override_allowed, context="where")
+            self._db._validate_expression(order_by, strict=strict_sql_validation, 
+                                        allowed=allowed_sql_functions, forbidden=forbidden_sql_functions, 
+                                        override_allowed=override_allowed, context="order_by")
 
             cols_clause = "*"
             if columns:
@@ -972,6 +987,7 @@ class AsyncNanaSQLite:
             target_table = self._db._sanitize_identifier(table_name) if table_name else self._db._table
 
             # Validation (Delegated to Main Instance logic)
+            self._db._validate_expression(table_name, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="table")
             self._db._validate_expression(where, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="where")
             self._db._validate_expression(order_by, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="order_by")
             if columns:
@@ -1359,6 +1375,9 @@ class AsyncNanaSQLite:
         Example:
             >>> await db.close()
         """
+        if self._closed:
+            return
+
         if self._db is not None:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
@@ -1366,6 +1385,13 @@ class AsyncNanaSQLite:
                 self._db.close
             )
             self._db = None
+        
+        self._closed = True
+        
+        # 子インスタンスに通知
+        for child in self._child_instances:
+            child._mark_parent_closed()
+        self._child_instances.clear()
         
         # Close Read-Only Pool
         if self._read_pool:
@@ -1382,6 +1408,15 @@ class AsyncNanaSQLite:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self._executor.shutdown, True)
             self._executor = None
+    
+    def _mark_parent_closed(self) -> None:
+        """親インスタンスが閉じられた際に呼ばれる"""
+        self._closed = True
+        self._db = None
+        # 子がさらに子を持っている場合も再帰的に閉じる
+        for child in self._child_instances:
+            child._mark_parent_closed()
+        self._child_instances.clear()
     
     def __repr__(self) -> str:
         if self._db is not None:
@@ -1459,14 +1494,20 @@ class AsyncNanaSQLite:
         async_sub_db._max_workers = self._max_workers
         async_sub_db._thread_name_prefix = self._thread_name_prefix + f"_{table_name}"
         async_sub_db._db = sub_db  # 接続を共有した同期版DBを設定
+        async_sub_db._closed = False  # クローズ状態を初期化
         async_sub_db._loop = loop  # イベントループを共有
         async_sub_db._executor = self._executor  # 同じエグゼキューターを共有
         async_sub_db._owns_executor = False  # エグゼキューターは所有しない
+        async_sub_db._is_connection_owner = False  # 接続の所有権はない
         # セキュリティ関連の設定も親インスタンスから継承する
         async_sub_db._strict_sql_validation = self._strict_sql_validation
         async_sub_db._allowed_sql_functions = self._allowed_sql_functions
         async_sub_db._forbidden_sql_functions = self._forbidden_sql_functions
         async_sub_db._max_clause_length = self._max_clause_length
+        # 子インスタンス管理
+        async_sub_db._child_instances = []
+        self._child_instances.append(async_sub_db)
+
         # Read-Only Pool は sub-instance では使用しない (シンプルさと後方互換性のため)
         async_sub_db._read_pool_size = 0
         async_sub_db._read_pool = None
