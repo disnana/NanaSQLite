@@ -6,8 +6,6 @@ particularly for sanitizing SQL expressions to prevent injection attacks
 and handle edge cases in SQL parsing.
 """
 
-from typing import Optional
-
 
 def sanitize_sql_for_function_scan(sql: str) -> str:
     """

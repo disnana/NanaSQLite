@@ -225,7 +225,7 @@ class TestSanitizeSqlForFunctionScan:
         sql = "SELECT name FROM users WHERE id = 'x'' OR ''1''=''1' -- '"
         result = sanitize_sql_for_function_scan(sql)
         # The OR condition should be sanitized out
-        assert "OR" not in result or result.count("OR") == 0
+        assert "OR" not in result
         assert result == "SELECT name FROM users WHERE id =                        "
     
     def test_backslash_not_escape(self):
