@@ -43,6 +43,8 @@ class AsyncNanaSQLite:
         bulk_load: Trueの場合、初期化時に全データをメモリに読み込む
         optimize: Trueの場合、WALモードなど高速化設定を適用
         cache_size_mb: SQLiteキャッシュサイズ（MB）、デフォルト64MB
+        strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否 (v1.2.0)
+        max_clause_length: SQL句の最大長（ReDoS対策、v1.2.0）
         max_workers: スレッドプール内の最大ワーカー数（デフォルト: 5）
         thread_name_prefix: スレッド名のプレフィックス（デフォルト: "AsyncNanaSQLite"）
     
@@ -81,6 +83,10 @@ class AsyncNanaSQLite:
             cache_size_mb: SQLiteキャッシュサイズ（MB）、デフォルト64MB
             max_workers: スレッドプール内の最大ワーカー数（デフォルト: 5）
             thread_name_prefix: スレッド名のプレフィックス（デフォルト: "AsyncNanaSQLite"）
+            strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否 (v1.2.0)
+            allowed_sql_functions: 追加で許可するSQL関数のリスト (v1.2.0)
+            forbidden_sql_functions: 明示的に禁止するSQL関数のリスト (v1.2.0)
+            max_clause_length: SQL句の最大長（ReDoS対策）。Noneで制限なし (v1.2.0)
         """
         self._db_path = db_path
         self._table = table
