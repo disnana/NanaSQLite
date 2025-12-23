@@ -31,20 +31,17 @@ from .exceptions import (
 
 class NanaSQLite(MutableMapping):
     """
-    APSW SQLite-backed dict wrapper.
+    APSW SQLite-backed dict wrapper with Security and Connection Enhancements (v1.2.0).
     
     内部でPython dictを保持し、操作時にSQLiteとの同期を行う。
+    v1.2.0では、動的SQLのバリデーション強化、ReDoS対策、および厳格な接続管理が導入されています。
     
     Args:
         db_path: SQLiteデータベースファイルのパス
         table: 使用するテーブル名 (デフォルト: "data")
         bulk_load: Trueの場合、初期化時に全データをメモリに読み込む
-    
-    Example:
-        >>> db = NanaSQLite("mydata.db")
-        >>> db["user"] = {"name": "Nana", "age": 20}
-        >>> print(db["user"])
-        {'name': 'Nana', 'age': 20}
+        strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否 (v1.2.0)
+        max_clause_length: SQL句の最大長（ReDoS対策、v1.2.0）
     """
     
     def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
