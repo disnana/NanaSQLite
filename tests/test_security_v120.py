@@ -1,6 +1,5 @@
 import pytest
 from nanasqlite import NanaSQLite, NanaSQLiteValidationError, NanaSQLiteClosedError
-import os
 
 @pytest.fixture
 def db_path(tmp_path):
