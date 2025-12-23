@@ -636,6 +636,17 @@ class TestStandardCompatibility:
         assert db == {"a": 1}
         assert {"a": 1} == db
         assert db != {"a": 2}
+    
+    def test_equality_closed_connection(self, db):
+        """閉じられた接続での等価比較はNanaSQLiteClosedErrorを発生させる"""
+        from nanasqlite import NanaSQLiteClosedError
+        
+        db["a"] = 1
+        db.close()
+        
+        # Closed connection should raise NanaSQLiteClosedError on equality check
+        with pytest.raises(NanaSQLiteClosedError):
+            _ = db == {"a": 1}
 
 
 # ==================== バッチ操作テスト ====================
