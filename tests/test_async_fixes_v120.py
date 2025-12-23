@@ -1,6 +1,5 @@
 
 import pytest
-import os
 from nanasqlite import AsyncNanaSQLite, NanaSQLiteValidationError
 
 @pytest.mark.asyncio
