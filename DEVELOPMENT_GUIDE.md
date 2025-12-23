@@ -23,12 +23,12 @@ Always run the full test suite before pushing any changes:
 
 Windows環境では、以下のコマンドを推奨します。
 ```bash
-pytest tests/ -v --tb=short --junitxml=test-results.xml -n 4 --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py
+pytest tests/ -v -n 4 --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py
 ```
 
 Linux/macOS環境では、以下のコマンドを推奨します。
 ```bash
-pytest tests/ -v --tb=short --junitxml=test-results.xml -n auto --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py
+pytest tests/ -v -n auto --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py
 ```
 
 ## 🛠️ Coding Standards / コーディング規格
