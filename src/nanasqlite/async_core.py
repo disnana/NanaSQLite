@@ -1428,6 +1428,7 @@ class AsyncNanaSQLite:
         # Close Read-Only Pool
         if self._read_pool:
             while True:
+                conn = None
                 try:
                     conn = self._read_pool.get_nowait()
                     conn.close()
@@ -1435,7 +1436,7 @@ class AsyncNanaSQLite:
                     # Queue is empty; safe to stop draining
                     break
                 except AttributeError as e:
-                    # Programming error: conn is not an apsw.Connection
+                    # Programming error: conn is not an apsw.Connection or get_nowait failed
                     logging.getLogger(__name__).error(
                         "AttributeError during pool cleanup - possible programming error: %s (conn=%r)",
                         e,
