@@ -463,9 +463,10 @@ class NanaSQLite(MutableMapping):
                     raise NanaSQLiteValidationError(msg)
                 else:
                     warnings.warn(msg, UserWarning)
+                continue
             
             # 許可リストにない場合
-            elif func_upper not in effective_allowed:
+            if func_upper not in effective_allowed:
                 msg = (
                     f"SQL function '{func_upper}' is not in the allowed list. "
                     "Use 'allowed_sql_functions' to permit it if you trust this function."
