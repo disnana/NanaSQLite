@@ -113,10 +113,13 @@ def test_eq_when_closed(tmp_path):
     db1["k"] = "v"
     
     db2 = {"k": "v"}
-    assert db1 == db2 # 接続中は True
+    def _compare_db1_db2():
+        return db1 == db2
+    
+    assert _compare_db1_db2() is True  # 接続中は True
     
     db1.close()
     # 閉じられた接続での等価性チェックは NanaSQLiteClosedError を発生させる
     # これは他のマジックメソッド（__getitem__, __setitem__, __delitem__）と一貫性があります
     with pytest.raises(NanaSQLiteClosedError):
-        _ = db1 == db2
+        _ = _compare_db1_db2()
