@@ -1592,8 +1592,8 @@ class AsyncNanaSQLite:
     asql_delete = sql_delete
     acount = count
     avacuum = vacuum
-    aget = get
-
+    get = aget
+    contains = acontains
 
 class _AsyncTransactionContext:
     """非同期トランザクションのコンテキストマネージャ"""
