@@ -1448,7 +1448,7 @@ class AsyncNanaSQLite:
                         e,
                         conn,
                     )
-                    break
+                    # continue draining the queue instead of breaking
                 except apsw.Error as e:
                     # Ignore close errors during best-effort cleanup but log at warning level
                     logging.getLogger(__name__).warning(
