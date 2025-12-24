@@ -880,86 +880,22 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         
-        def _query_impl():
-            target_table = self._db._sanitize_identifier(table_name) if table_name else self._db._table
-            
-            # Validation (Delegated to Main Instance logic)
-            # We must access _validate_expression on self._db
-            v_args = {
-                "strict": strict_sql_validation,
-                "allowed": allowed_sql_functions,
-                "forbidden": forbidden_sql_functions,
-                "override_allowed": override_allowed
-            }
-            
-            # table_name is already split-tested/sanitized via _sanitize_identifier above
-            if columns:
-                for col in columns:
-                    self._db._validate_expression(col, **v_args, context="column")
-            self._db._validate_expression(where, **v_args, context="where")
-            self._db._validate_expression(order_by, **v_args, context="order_by")
-
-            cols_clause = "*"
-            if columns:
-                safe_cols = []
-                for col in columns:
-                    if IDENTIFIER_PATTERN.match(col):
-                        safe_cols.append(self._db._sanitize_identifier(col))
-                    else:
-                        safe_cols.append(col)
-                cols_clause = ", ".join(safe_cols)
-                
-            sql = f"SELECT {cols_clause} FROM {target_table}"
-            
-            if where:
-                sql += f" WHERE {where}"
-            
-            if order_by:
-                sql += f" ORDER BY {order_by}"
-
-            # Validate limit as in sync implementation: must be a non-negative integer
-            if limit is not None:
-                if not isinstance(limit, int):
-                    raise ValueError("limit must be an integer")
-                if limit < 0:
-                    raise ValueError("limit must be non-negative")
-                sql += f" LIMIT {limit}"
-                
-            # Execute on pool
-            try:
-                with self._read_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute(sql, parameters)
-                    
-                    # Column name extraction using cursor metadata (robust against AS alias parsing issues)
-                    try:
-                        description = cursor.getdescription()
-                        col_names = [col_info[0] for col_info in description]
-                    except apsw.ExecutionCompleteError:
-                        # Fallback for zero-row results (e.g., limit=0)
-                        if columns is None:
-                            # Get column names from table metadata
-                            p_cursor = conn.cursor()
-                            p_cursor.execute(f"PRAGMA table_info({target_table})")
-                            col_names = [row[1] for row in p_cursor]
-                        else:
-                            # Extract aliases from provided columns list
-                            col_names = []
-                            for col in columns:
-                                parts = re.split(r'\s+as\s+', col, flags=re.IGNORECASE)
-                                if len(parts) > 1:
-                                    col_names.append(parts[-1].strip().strip('"').strip("'"))
-                                else:
-                                    col_names.append(col.strip())
-
-                    return [dict(zip(col_names, row)) for row in cursor]
-            except apsw.Error as e:
-                raise NanaSQLiteDatabaseError(f"Failed to execute query: {e}", original_error=e) from e
-
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
-            _query_impl
+            self._shared_query_impl,
+            table_name,
+            columns,
+            where,
+            parameters,
+            order_by,
+            limit,
+            None,  # offset
+            None,  # group_by
+            strict_sql_validation,
+            allowed_sql_functions,
+            forbidden_sql_functions,
+            override_allowed
         )
 
     async def query_with_pagination(self, table_name: str = None, columns: List[str] = None,
@@ -1004,93 +940,22 @@ class AsyncNanaSQLite:
         if self._db is None:
             await self._ensure_initialized()
 
-        def _query_with_pagination_impl():
-            target_table = self._db._sanitize_identifier(table_name) if table_name else self._db._table
-
-            # Validation (Delegated to Main Instance logic)
-            v_args = {
-                "strict": strict_sql_validation,
-                "allowed": allowed_sql_functions,
-                "forbidden": forbidden_sql_functions,
-                "override_allowed": override_allowed
-            }
-
-            # table_name is already validated via _sanitize_identifier above
-            self._db._validate_expression(where, **v_args, context="where")
-            self._db._validate_expression(order_by, **v_args, context="order_by")
-            self._db._validate_expression(group_by, **v_args, context="group_by")
-            if columns:
-                for col in columns:
-                    self._db._validate_expression(col, **v_args, context="column")
-
-            # Column handling
-            if columns is None:
-                columns_sql = "*"
-            else:
-                safe_cols = []
-                for col in columns:
-                    if IDENTIFIER_PATTERN.match(col):
-                        safe_cols.append(self._db._sanitize_identifier(col))
-                    else:
-                        safe_cols.append(col)
-                columns_sql = ", ".join(safe_cols)
-
-            # Validate limit
-            if limit is not None:
-                if not isinstance(limit, int):
-                    raise ValueError(f"limit must be an integer, got {type(limit).__name__}")
-                if limit < 0:
-                    raise ValueError("limit must be non-negative")
-
-            # SQL Construction
-            sql = f"SELECT {columns_sql} FROM {target_table}"
-            if where:
-                sql += f" WHERE {where}"
-            if group_by:
-                sql += f" GROUP BY {group_by}"
-            if order_by:
-                sql += f" ORDER BY {order_by}"
-            if limit is not None:
-                sql += f" LIMIT {limit}"
-            if offset is not None:
-                sql += f" OFFSET {offset}"
-
-            # Execute on pool
-            try:
-                with self._read_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute(sql, parameters)
-                    
-                    # Column name extraction using cursor metadata (robust against AS alias parsing issues)
-                    try:
-                        description = cursor.getdescription()
-                        col_names = [col_info[0] for col_info in description]
-                    except apsw.ExecutionCompleteError:
-                        # Fallback for zero-row results (e.g., limit=0)
-                        if columns is None:
-                            # Get column names from table metadata
-                            p_cursor = conn.cursor()
-                            p_cursor.execute(f"PRAGMA table_info({target_table})")
-                            col_names = [row[1] for row in p_cursor]
-                        else:
-                            # Extract aliases from provided columns list
-                            col_names = []
-                            for col in columns:
-                                parts = re.split(r'\s+as\s+', col, flags=re.IGNORECASE)
-                                if len(parts) > 1:
-                                    col_names.append(parts[-1].strip().strip('"').strip("'"))
-                                else:
-                                    col_names.append(col.strip())
-
-                    # Convert to dict list
-                    return [dict(zip(col_names, row)) for row in cursor]
-            except apsw.Error as e:
-                raise NanaSQLiteDatabaseError(f"Failed to execute query: {e}", original_error=e) from e
-
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
-            _query_with_pagination_impl
+            self._shared_query_impl,
+            table_name,
+            columns,
+            where,
+            parameters,
+            order_by,
+            limit,
+            offset,
+            group_by,
+            strict_sql_validation,
+            allowed_sql_functions,
+            forbidden_sql_functions,
+            override_allowed
         )
     
     async def table_exists(self, table_name: str) -> bool:
@@ -1598,6 +1463,104 @@ class AsyncNanaSQLite:
     asql_delete = sql_delete
     acount = count
     avacuum = vacuum
+    def _shared_query_impl(
+        self,
+        table_name: str,
+        columns: List[str],
+        where: str,
+        parameters: tuple,
+        order_by: str,
+        limit: int,
+        offset: int = None,
+        group_by: str = None,
+        strict_sql_validation: bool = None,
+        allowed_sql_functions: List[str] = None,
+        forbidden_sql_functions: List[str] = None,
+        override_allowed: bool = False
+    ) -> List[dict]:
+        """Internal shared implementation for query execution"""
+        target_table = self._db._sanitize_identifier(table_name) if table_name else self._db._table
+
+        # Validation (Delegated to Main Instance logic)
+        v_args = {
+            "strict": strict_sql_validation,
+            "allowed": allowed_sql_functions,
+            "forbidden": forbidden_sql_functions,
+            "override_allowed": override_allowed
+        }
+
+        # table_name is already validated via _sanitize_identifier above
+        self._db._validate_expression(where, **v_args, context="where")
+        self._db._validate_expression(order_by, **v_args, context="order_by")
+        self._db._validate_expression(group_by, **v_args, context="group_by")
+        if columns:
+            for col in columns:
+                self._db._validate_expression(col, **v_args, context="column")
+
+        # Column handling
+        if columns is None:
+            columns_sql = "*"
+        else:
+            safe_cols = []
+            for col in columns:
+                if IDENTIFIER_PATTERN.match(col):
+                    safe_cols.append(self._db._sanitize_identifier(col))
+                else:
+                    safe_cols.append(col)
+            columns_sql = ", ".join(safe_cols)
+
+        # Validate limit
+        if limit is not None:
+            if not isinstance(limit, int):
+                raise ValueError(f"limit must be an integer, got {type(limit).__name__}")
+            if limit < 0:
+                raise ValueError("limit must be non-negative")
+
+        # SQL Construction
+        sql = f"SELECT {columns_sql} FROM {target_table}"
+        if where:
+            sql += f" WHERE {where}"
+        if group_by:
+            sql += f" GROUP BY {group_by}"
+        if order_by:
+            sql += f" ORDER BY {order_by}"
+        if limit is not None:
+            sql += f" LIMIT {limit}"
+        if offset is not None:
+            sql += f" OFFSET {offset}"
+
+        # Execute on pool
+        try:
+            with self._read_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(sql, parameters)
+
+                # Column name extraction using cursor metadata (robust against AS alias parsing issues)
+                try:
+                    description = cursor.getdescription()
+                    col_names = [col_info[0] for col_info in description]
+                except apsw.ExecutionCompleteError:
+                    # Fallback for zero-row results (e.g., limit=0)
+                    if columns is None:
+                        # Get column names from table metadata
+                        p_cursor = conn.cursor()
+                        p_cursor.execute(f"PRAGMA table_info({target_table})")
+                        col_names = [row[1] for row in p_cursor]
+                    else:
+                        # Extract aliases from provided columns list
+                        col_names = []
+                        for col in columns:
+                            parts = re.split(r'\s+as\s+', col, flags=re.IGNORECASE)
+                            if len(parts) > 1:
+                                col_names.append(parts[-1].strip().strip('"').strip("'"))
+                            else:
+                                col_names.append(col.strip())
+
+                # Convert to dict list
+                return [dict(zip(col_names, row)) for row in cursor]
+        except apsw.Error as e:
+            raise NanaSQLiteDatabaseError(f"Failed to execute query: {e}", original_error=e) from e
+
     get = aget
     contains = acontains
     keys = akeys
