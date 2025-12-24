@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import json
 import re
+import warnings
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Type, Union
+from typing import Any, Dict, Iterator, List, Literal, Optional, Set, Tuple, Type
 from collections.abc import MutableMapping
 import apsw
 import threading
@@ -25,29 +26,35 @@ from .exceptions import (
     NanaSQLiteTransactionError,
     NanaSQLiteConnectionError,
     NanaSQLiteLockError,
+    NanaSQLiteClosedError,
 )
+from .sql_utils import sanitize_sql_for_function_scan
+
+# 識別子バリデーション用の正規表現パターン（英数字とアンダースコアのみ、数字で開始しない）
+IDENTIFIER_PATTERN = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 
 
 class NanaSQLite(MutableMapping):
     """
-    APSW SQLite-backed dict wrapper.
+    APSW SQLite-backed dict wrapper with Security and Connection Enhancements (v1.2.0).
     
     内部でPython dictを保持し、操作時にSQLiteとの同期を行う。
+    v1.2.0では、動的SQLのバリデーション強化、ReDoS対策、および厳格な接続管理が導入されています。
     
     Args:
         db_path: SQLiteデータベースファイルのパス
         table: 使用するテーブル名 (デフォルト: "data")
         bulk_load: Trueの場合、初期化時に全データをメモリに読み込む
-    
-    Example:
-        >>> db = NanaSQLite("mydata.db")
-        >>> db["user"] = {"name": "Nana", "age": 20}
-        >>> print(db["user"])
-        {'name': 'Nana', 'age': 20}
+        strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否 (v1.2.0)
+        max_clause_length: SQL句の最大長（ReDoS対策、v1.2.0）
     """
     
     def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
                  optimize: bool = True, cache_size_mb: int = 64,
+                 strict_sql_validation: bool = True,
+                 allowed_sql_functions: Optional[List[str]] = None,
+                 forbidden_sql_functions: Optional[List[str]] = None,
+                 max_clause_length: Optional[int] = 1000,
                  _shared_connection: Optional[apsw.Connection] = None,
                  _shared_lock: Optional[threading.RLock] = None):
         """
@@ -57,6 +64,10 @@ class NanaSQLite(MutableMapping):
             bulk_load: Trueの場合、初期化時に全データをメモリに読み込む
             optimize: Trueの場合、WALモードなど高速化設定を適用
             cache_size_mb: SQLiteキャッシュサイズ（MB）、デフォルト64MB
+            strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否
+            allowed_sql_functions: 追加で許可するSQL関数のリスト
+            forbidden_sql_functions: 明示的に禁止するSQL関数のリスト
+            max_clause_length: SQL句の最大長（ReDoS対策）。Noneで制限なし
             _shared_connection: 内部用：共有する接続（table()メソッドで使用）
             _shared_lock: 内部用：共有するロック（table()メソッドで使用）
         """
@@ -66,12 +77,25 @@ class NanaSQLite(MutableMapping):
         self._cached_keys: Set[str] = set()  # キャッシュ済みキーの追跡
         self._all_loaded: bool = False  # 全データ読み込み済みフラグ
 
+        # セキュリティ設定
+        self.strict_sql_validation = strict_sql_validation
+        self.allowed_sql_functions = set(allowed_sql_functions or [])
+        self.forbidden_sql_functions = set(forbidden_sql_functions or [])
+        self.max_clause_length = max_clause_length
+
+        # デフォルトで許可されるSQL関数
+        self._default_allowed_functions = {
+            "COUNT", "SUM", "AVG", "MIN", "MAX", "ABS", "UPPER", "LOWER", 
+            "LENGTH", "ROUND", "COALESCE", "IFNULL", "NULLIF", "STRFTIME",
+            "DATE", "TIME", "DATETIME", "JULIANDAY"
+        }
+
         # トランザクション状態管理
         self._in_transaction: bool = False  # トランザクション中かどうか
         self._transaction_depth: int = 0  # ネストレベル（警告用）
 
         # 子インスタンスの追跡（リソース管理用）
-        self._child_instances: List[weakref.ref] = []  # 弱参照で追跡
+        self._child_instances = weakref.WeakSet()  # WeakSetによる弱参照追跡（死んだ参照は自動的にクリーンアップ）
         self._is_closed: bool = False  # 接続が閉じられたか
         self._parent_closed: bool = False  # 親接続が閉じられたか
 
@@ -173,20 +197,178 @@ class NanaSQLite(MutableMapping):
     
     # ==================== Private Methods ====================
     
+    def __hash__(self):
+        # MutableMapping inhibits hashing by default because it's mutable.
+        # However, we need identity-based hashing to track instances in WeakSet.
+        # This is safe as long as we don't rely on content-based hashing in sets.
+        # NOTE: This technically violates the rule that a==b implies hash(a)==hash(b),
+        # because __eq__ implements content equivalence while __hash__ implements identity.
+        # This is an intentional design choice to support WeakSet management while providing
+        # convenient dict-like equality comparisons.
+        return id(self)
+
+    def __eq__(self, other):
+        """
+        辞書のような等価性比較を実装
+        
+        他のマッピング（dictやMutableMapping）との比較では内容ベースの比較を行い、
+        それ以外では同一性（is）での比較を行う。
+        
+        Args:
+            other: 比較対象のオブジェクト
+        
+        Returns:
+            bool: 等価な場合True、そうでない場合False
+        
+        Raises:
+            NanaSQLiteClosedError: 接続が閉じられている場合
+        """
+        if isinstance(other, (dict, MutableMapping)):
+            # Ensure the connection is open; propagate NanaSQLiteClosedError if not.
+            self._check_connection()
+            return dict(self.items()) == dict(other.items())
+        return self is other
+
     def _check_connection(self) -> None:
         """
         接続が有効かチェック
 
         Raises:
-            NanaSQLiteConnectionError: 接続が閉じられている、または親が閉じられている場合
+            NanaSQLiteClosedError: 接続が閉じられている、または親が閉じられている場合
         """
         if self._is_closed:
-            raise NanaSQLiteConnectionError("Database connection is closed")
-        if self._parent_closed:
-            raise NanaSQLiteConnectionError(
-                "Parent database connection is closed. "
-                "This table instance cannot be used anymore."
+            raise NanaSQLiteClosedError(
+                f"Database connection is closed (table: '{self._table}')."
             )
+        if self._parent_closed:
+            raise NanaSQLiteClosedError(
+                f"Parent database connection is closed (table: '{self._table}'). "
+                "If you obtained this instance via .table(), ensure the primary "
+                "NanaSQLite instance remains open during usage."
+            )
+
+    def _validate_expression(
+        self, 
+        expr: Optional[str], 
+        strict: Optional[bool] = None,
+        allowed: Optional[List[str]] = None,
+        forbidden: Optional[List[str]] = None,
+        override_allowed: bool = False,
+        context: Optional[Literal["order_by", "group_by", "where", "column"]] = None
+    ) -> None:
+        """
+        SQL表現（ORDER BY, GROUP BY, 列名等）を検証。
+        
+        Args:
+            expr: 検証するSQL表現
+            strict: 強制停止モード。Noneの場合はインスタンス設定を使用。
+            allowed: 今回のクエリで追加/置換して許可する関数。
+            forbidden: 今回のクエリで明示的に禁止する関数。
+            override_allowed: Trueの場合、インスタンス許可設定を無視して今回のallowedのみ参照。
+            context: エラーメッセージのコンテキスト ("order_by", "group_by", "where", "column")
+            
+        Raises:
+            NanaSQLiteValidationError: strict=True かつ不適切な表現の場合
+            UserWarning: strict=False かつ不適切な表現の場合（実行は許可）
+        """
+        if not expr:
+            return
+
+        # 0. legacy check for SQL injection patterns
+        # test_security.py compatibility: raise ValueError for strictly dangerous patterns
+        # We use a combined message to satisfy both test_security.py ("Potentially dangerous...")
+        # and test_security_additions.py ("Invalid...")
+        warning_text = "Potentially dangerous SQL pattern"
+        
+        context_labels = {
+            "order_by": "order_by clause",
+            "group_by": "group_by clause",
+            "where": "where clause",
+            "column": "column name",
+        }
+        label = context_labels.get(context)
+        
+        # Standardize format: "Invalid [label]: [warning_text]" (or "Invalid: [warning_text]" if no label)
+        # This satisfies both legacy and new security tests.
+        if label:
+            full_msg = f"Invalid {label}: {warning_text}"
+        else:
+            full_msg = f"Invalid: {warning_text}"
+
+        dangerous_patterns = [
+            (r';', full_msg),
+            (r'--', full_msg),
+            (r'/\*', full_msg),
+            (r'\b(DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER)\b', full_msg),
+        ]
+        
+        for pattern, msg in dangerous_patterns:
+            if re.search(pattern, str(expr), re.IGNORECASE):
+                # Block highly dangerous patterns in strict mode, but only warn in non-strict
+                if strict or (strict is None and self.strict_sql_validation):
+                    raise ValueError(msg)
+                else:
+                    warnings.warn(msg, UserWarning)
+
+        # 1. 長さ制限 (ReDoS対策)
+        max_len = self.max_clause_length
+        if max_len and len(expr) > max_len:
+            msg = f"SQL expression exceeds maximum length of {max_len} characters."
+            if strict or (strict is None and self.strict_sql_validation):
+                raise NanaSQLiteValidationError(msg)
+            else:
+                warnings.warn(msg, UserWarning)
+
+        # 2. 禁止リストの整理 (メソッド指定を優先、なければインスタンス設定)
+        forbidden_list = set(forbidden) if forbidden is not None else self.forbidden_sql_functions
+        if "*" in forbidden_list:
+            msg = "All SQL functions are forbidden for this expression."
+            if strict or (strict is None and self.strict_sql_validation):
+                raise NanaSQLiteValidationError(msg)
+            else:
+                warnings.warn(msg, UserWarning)
+                return
+
+        # 3. 許可リストの整理
+        effective_allowed = set()
+        if not override_allowed:
+            effective_allowed.update(self._default_allowed_functions)
+            effective_allowed.update(self.allowed_sql_functions)
+        
+        if allowed:
+            effective_allowed.update(allowed)
+            
+        # 禁止リストに含まれるものは許可から削除
+        effective_allowed -= forbidden_list
+
+        # 4. 関数呼び出しの抽出
+        # 文字列リテラルやコメントをマスクした上で関数呼び出しを検索
+        # これにより、SELECT 'COUNT(' ... のようなパターンでの誤検知を防ぐ
+        sanitized_expr = sanitize_sql_for_function_scan(expr)
+        matches = re.findall(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*\(', sanitized_expr)
+        
+        for func in matches:
+            func_upper = func.upper()
+            
+            # 明示的に禁止されている場合
+            if func_upper in forbidden_list:
+                msg = f"SQL function '{func_upper}' is explicitly forbidden."
+                if strict or (strict is None and self.strict_sql_validation):
+                    raise NanaSQLiteValidationError(msg)
+                else:
+                    warnings.warn(msg, UserWarning)
+                continue
+            
+            # 許可リストにない場合
+            if func_upper not in effective_allowed:
+                msg = (
+                    f"SQL function '{func_upper}' is not in the allowed list. "
+                    "Use 'allowed_sql_functions' to permit it if you trust this function."
+                )
+                if strict or (strict is None and self.strict_sql_validation):
+                    raise NanaSQLiteValidationError(msg)
+                else:
+                    warnings.warn(msg, UserWarning)
 
     def _mark_parent_closed(self) -> None:
         """
@@ -612,11 +794,10 @@ class NanaSQLite(MutableMapping):
             )
 
         # 子インスタンスに通知
-        for child_ref in self._child_instances:
-            child = child_ref()
-            if child is not None:
-                child._mark_parent_closed()
+        for child in self._child_instances:
+            child._mark_parent_closed()
 
+        self._child_instances.clear()
         self._is_closed = True
 
         if self._is_connection_owner:
@@ -892,7 +1073,11 @@ class NanaSQLite(MutableMapping):
     
     def query(self, table_name: str = None, columns: List[str] = None,
              where: str = None, parameters: tuple = None,
-             order_by: str = None, limit: int = None) -> List[dict]:
+             order_by: str = None, limit: int = None,
+             strict_sql_validation: bool = None,
+             allowed_sql_functions: List[str] = None,
+             forbidden_sql_functions: List[str] = None,
+             override_allowed: bool = False) -> List[dict]:
         """
         シンプルなSELECTクエリを実行
         
@@ -903,6 +1088,10 @@ class NanaSQLite(MutableMapping):
             parameters: WHERE句のパラメータ
             order_by: ORDER BY句
             limit: LIMIT句
+            strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否
+            allowed_sql_functions: このクエリで一時的に許可するSQL関数のリスト
+            forbidden_sql_functions: このクエリで一時的に禁止するSQL関数のリスト
+            override_allowed: Trueの場合、インスタンス許可設定を無視
         
         Returns:
             結果のリスト（各行はdict）
@@ -926,26 +1115,27 @@ class NanaSQLite(MutableMapping):
         
         safe_table_name = self._sanitize_identifier(table_name)
         
+        # バリデーション
+        self._validate_expression(where, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="where")
+        self._validate_expression(order_by, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="order_by")
+        if columns:
+            for col in columns:
+                # 関数使用の可能性を考慮して識別子サニタイズは行わないがバリデーションは行う
+                self._validate_expression(col, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="column")
+
         # カラム指定
         if columns is None:
             columns_sql = "*"
             # カラム名は後でPRAGMAから取得
         else:
-            # Allow complex column expressions (functions, aliases) with validation
-            safe_columns = []
+            # 識別子（カラム名のみ）の場合はサニタイズ、式の場合はそのまま（バリデーション済み）
+            safe_cols = []
             for col in columns:
-                # Accept simple identifiers, or expressions like COUNT(*), MAX(age), etc.
-                # Allow: alphanumeric, underscore, *, spaces, parentheses, commas, periods, AS clauses
-                # Disallow dangerous patterns: semicolon, --, /*, */, DROP, DELETE, INSERT, UPDATE, etc.
-                if re.match(r'^[\w\*\s\(\),\.]+(?:\s+as\s+\w+)?$', col, re.IGNORECASE):
-                    # Additional check: block SQL keywords that could be dangerous (using word boundaries)
-                    if not re.search(r'(;|--|/\*|\*/)|\b(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE)\b', col, re.IGNORECASE):
-                        safe_columns.append(col)
-                    else:
-                        raise ValueError(f"Invalid or dangerous column expression: {col}")
+                if IDENTIFIER_PATTERN.match(col):
+                    safe_cols.append(self._sanitize_identifier(col))
                 else:
-                    raise ValueError(f"Invalid column expression: {col}")
-            columns_sql = ", ".join(safe_columns)
+                    safe_cols.append(col)
+            columns_sql = ", ".join(safe_cols)
         
         # Validate limit is an integer and non-negative if provided
         if limit is not None:
@@ -961,16 +1151,9 @@ class NanaSQLite(MutableMapping):
             sql += f" WHERE {where}"
         
         if order_by:
-            # Validate order_by to prevent SQL injection and ReDoS
-            # Split by comma and validate each part separately (O(n) complexity, no backtracking)
-            order_parts = [part.strip() for part in order_by.split(',')]
-            for part in order_parts:
-                # Each part should be: column_name [ASC|DESC]
-                if not re.match(r'^[a-zA-Z0-9_]+(?:\s+(?:ASC|DESC))?$', part, re.IGNORECASE):
-                    raise ValueError(f"Invalid order_by clause: {order_by}")
             sql += f" ORDER BY {order_by}"
         
-        if limit:
+        if limit is not None:
             sql += f" LIMIT {limit}"
         
         # 実行
@@ -1093,7 +1276,7 @@ class NanaSQLite(MutableMapping):
         
         sql = f"ALTER TABLE {safe_table_name} ADD COLUMN {safe_column_name} {column_type}"
         if default is not None:
-            # For default values, if it's a string, ensure it's properly quoted and escaped
+            # For default values: if it's a string, ensure it's properly quoted and escaped
             if isinstance(default, str):
                 # Strip leading/trailing single quotes if present, then escape and re-quote
                 stripped = default
@@ -1314,7 +1497,11 @@ class NanaSQLite(MutableMapping):
         return self.get_last_insert_rowid()
     
     def count(self, table_name: str = None, where: str = None, 
-             parameters: tuple = None) -> int:
+             parameters: tuple = None,
+             strict_sql_validation: bool = None,
+             allowed_sql_functions: List[str] = None,
+             forbidden_sql_functions: List[str] = None,
+             override_allowed: bool = False) -> int:
         """
         レコード数を取得
         
@@ -1322,9 +1509,10 @@ class NanaSQLite(MutableMapping):
             table_name: テーブル名（Noneの場合はデフォルトテーブル）
             where: WHERE句の条件（オプション）
             parameters: WHERE句のパラメータ
-        
-        Returns:
-            レコード数
+            strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否
+            allowed_sql_functions: このクエリで一時的に許可するSQL関数のリスト
+            forbidden_sql_functions: このクエリで一時的に禁止するSQL関数のリスト
+            override_allowed: Trueの場合、インスタンス許可設定を無視
         
         Example:
             >>> total = db.count("users")
@@ -1334,6 +1522,9 @@ class NanaSQLite(MutableMapping):
             table_name = self._table
         
         safe_table_name = self._sanitize_identifier(table_name)
+        
+        # バリデーション
+        self._validate_expression(where, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed)
         
         sql = f"SELECT COUNT(*) FROM {safe_table_name}"
         if where:
@@ -1368,7 +1559,11 @@ class NanaSQLite(MutableMapping):
     def query_with_pagination(self, table_name: str = None, columns: List[str] = None,
                              where: str = None, parameters: tuple = None,
                              order_by: str = None, limit: int = None, 
-                             offset: int = None, group_by: str = None) -> List[dict]:
+                             offset: int = None, group_by: str = None,
+                             strict_sql_validation: bool = None,
+                             allowed_sql_functions: List[str] = None,
+                             forbidden_sql_functions: List[str] = None,
+                             override_allowed: bool = False) -> List[dict]:
         """
         拡張されたクエリ（offset、group_by対応）
         
@@ -1381,6 +1576,10 @@ class NanaSQLite(MutableMapping):
             limit: LIMIT句
             offset: OFFSET句（ページネーション用）
             group_by: GROUP BY句
+            strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否
+            allowed_sql_functions: このクエリで一時的に許可するSQL関数のリスト
+            forbidden_sql_functions: このクエリで一時的に禁止するSQL関数のリスト
+            override_allowed: Trueの場合、インスタンス許可設定を無視
         
         Returns:
             結果のリスト
@@ -1401,6 +1600,14 @@ class NanaSQLite(MutableMapping):
         
         safe_table_name = self._sanitize_identifier(table_name)
         
+        # バリデーション
+        self._validate_expression(where, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="where")
+        self._validate_expression(order_by, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="order_by")
+        self._validate_expression(group_by, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="group_by")
+        if columns:
+            for col in columns:
+                self._validate_expression(col, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="column")
+
         # Validate limit and offset are non-negative integers if provided
         if limit is not None:
             if not isinstance(limit, int):
@@ -1418,20 +1625,14 @@ class NanaSQLite(MutableMapping):
         if columns is None:
             columns_sql = "*"
         else:
-            # For columns with aggregation functions or AS clauses, we keep the original
-            # but sanitize the column names that are simple identifiers
-            safe_column_list = []
+            # 識別子（カラム名のみ）の場合はサニタイズ、式の場合はそのまま（バリデーション済み）
+            safe_cols = []
             for col in columns:
-                # Check if it's a simple identifier
-                if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', col.strip()):
-                    safe_column_list.append(self._sanitize_identifier(col.strip()))
+                if IDENTIFIER_PATTERN.match(col):
+                    safe_cols.append(self._sanitize_identifier(col))
                 else:
-                    # Contains functions, AS clauses, or other SQL
-                    # Validate for dangerous patterns to prevent SQL injection (consistent with query())
-                    if re.search(r'(;|--|/\*|\*/)|\b(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE)\b', col, re.IGNORECASE):
-                        raise ValueError(f"Potentially dangerous SQL pattern in column: {col}")
-                    safe_column_list.append(col)
-            columns_sql = ", ".join(safe_column_list)
+                    safe_cols.append(col)
+            columns_sql = ", ".join(safe_cols)
         
         # SQL構築
         sql = f"SELECT {columns_sql} FROM {safe_table_name}"
@@ -1440,26 +1641,15 @@ class NanaSQLite(MutableMapping):
             sql += f" WHERE {where}"
         
         if group_by:
-            # Validate group_by to prevent SQL injection
-            # Allow column names, spaces, commas only
-            if not re.match(r'^[\w\s,]+$', group_by):
-                raise ValueError(f"Invalid group_by clause: {group_by}")
             sql += f" GROUP BY {group_by}"
         
         if order_by:
-            # Validate order_by to prevent SQL injection and ReDoS
-            # Split by comma and validate each part separately (O(n) complexity, no backtracking)
-            order_parts = [part.strip() for part in order_by.split(',')]
-            for part in order_parts:
-                # Each part should be: column_name [ASC|DESC]
-                if not re.match(r'^[a-zA-Z0-9_]+(?:\s+(?:ASC|DESC))?$', part, re.IGNORECASE):
-                    raise ValueError(f"Invalid order_by clause: {order_by}")
             sql += f" ORDER BY {order_by}"
         
-        if limit:
+        if limit is not None:
             sql += f" LIMIT {limit}"
         
-        if offset:
+        if offset is not None:
             sql += f" OFFSET {offset}"
         
         # 実行
@@ -1808,8 +1998,13 @@ class NanaSQLite(MutableMapping):
             _shared_lock=self._lock
         )
 
-        # 弱参照で子インスタンスを追跡
-        self._child_instances.append(weakref.ref(child))
+        # If the parent is the connection owner, the child is not.
+        # This ensures only one instance (the owner) attempts to close the connection.
+        if self._is_connection_owner:
+            child._is_connection_owner = False
+        
+        # 子インスタンスを追跡 (WeakSetに直接オブジェクトを追加すると、WeakSetが弱参照を保持する)
+        self._child_instances.add(child)
 
         return child
 

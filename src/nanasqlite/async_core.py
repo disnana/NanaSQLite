@@ -19,11 +19,18 @@ Example:
 
 from __future__ import annotations
 
+import re
 import asyncio
+import queue
+import weakref
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Tuple, Type
+import logging
 
-from .core import NanaSQLite
+import apsw
+from .core import NanaSQLite, IDENTIFIER_PATTERN
+from .exceptions import NanaSQLiteClosedError, NanaSQLiteDatabaseError
 
 
 class AsyncNanaSQLite:
@@ -43,6 +50,8 @@ class AsyncNanaSQLite:
         bulk_load: Trueの場合、初期化時に全データをメモリに読み込む
         optimize: Trueの場合、WALモードなど高速化設定を適用
         cache_size_mb: SQLiteキャッシュサイズ（MB）、デフォルト64MB
+        strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否 (v1.2.0)
+        max_clause_length: SQL句の最大長（ReDoS対策、v1.2.0）
         max_workers: スレッドプール内の最大ワーカー数（デフォルト: 5）
         thread_name_prefix: スレッド名のプレフィックス（デフォルト: "AsyncNanaSQLite"）
     
@@ -66,7 +75,12 @@ class AsyncNanaSQLite:
         optimize: bool = True,
         cache_size_mb: int = 64,
         max_workers: int = 5,
-        thread_name_prefix: str = "AsyncNanaSQLite"
+        thread_name_prefix: str = "AsyncNanaSQLite",
+        strict_sql_validation: bool = True,
+        allowed_sql_functions: Optional[List[str]] = None,
+        forbidden_sql_functions: Optional[List[str]] = None,
+        max_clause_length: Optional[int] = 1000,
+        read_pool_size: int = 0,
     ):
         """
         Args:
@@ -77,6 +91,11 @@ class AsyncNanaSQLite:
             cache_size_mb: SQLiteキャッシュサイズ（MB）、デフォルト64MB
             max_workers: スレッドプール内の最大ワーカー数（デフォルト: 5）
             thread_name_prefix: スレッド名のプレフィックス（デフォルト: "AsyncNanaSQLite"）
+            strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否 (v1.2.0)
+            allowed_sql_functions: 追加で許可するSQL関数のリスト (v1.2.0)
+            forbidden_sql_functions: 明示的に禁止するSQL関数のリスト (v1.2.0)
+            max_clause_length: SQL句の最大長（ReDoS対策）。Noneで制限なし (v1.2.0)
+            read_pool_size: 読み取り専用プールサイズ (デフォルト: 0 = 無効) (v1.1.0)
         """
         self._db_path = db_path
         self._table = table
@@ -85,6 +104,15 @@ class AsyncNanaSQLite:
         self._cache_size_mb = cache_size_mb
         self._max_workers = max_workers
         self._thread_name_prefix = thread_name_prefix
+        self._read_pool_size = read_pool_size
+        self._read_pool: Optional[queue.Queue] = None
+        self._strict_sql_validation = strict_sql_validation
+        self._allowed_sql_functions = allowed_sql_functions
+        self._forbidden_sql_functions = forbidden_sql_functions
+        self._max_clause_length = max_clause_length
+        self._closed = False
+        self._child_instances = weakref.WeakSet()  # WeakSetによる弱参照追跡（死んだ参照は自動的にクリーンアップ）
+        self._is_connection_owner = True
         
         # 専用スレッドプールエグゼキューターを作成
         self._executor = ThreadPoolExecutor(
@@ -97,6 +125,11 @@ class AsyncNanaSQLite:
     
     async def _ensure_initialized(self) -> None:
         """Ensure the underlying sync database is initialized"""
+        if self._closed:
+            if not getattr(self, "_is_connection_owner", True):
+                raise NanaSQLiteClosedError(f"Parent database connection is closed (table: {self._table!r})")
+            raise NanaSQLiteClosedError("Database connection is closed")
+            
         if self._db is None:
             # Initialize in thread pool to avoid blocking
             loop = asyncio.get_running_loop()
@@ -108,9 +141,56 @@ class AsyncNanaSQLite:
                     table=self._table,
                     bulk_load=self._bulk_load,
                     optimize=self._optimize,
-                    cache_size_mb=self._cache_size_mb
+                    cache_size_mb=self._cache_size_mb,
+                    strict_sql_validation=self._strict_sql_validation,
+                    allowed_sql_functions=self._allowed_sql_functions,
+                    forbidden_sql_functions=self._forbidden_sql_functions,
+                    max_clause_length=self._max_clause_length
                 )
             )
+
+            # Initialize Read-Only Pool if requested
+            if self._read_pool_size > 0:
+                self._read_pool = queue.Queue(maxsize=self._read_pool_size)
+                
+                def _init_pool_connection():
+                    # mode=ro (Read-Only) is mandatory for safety
+                    flags = apsw.SQLITE_OPEN_READONLY | apsw.SQLITE_OPEN_URI
+                    uri_path = f"file:{self._db_path}?mode=ro"
+                    
+                    for _ in range(self._read_pool_size):
+                        conn = apsw.Connection(uri_path, flags=flags)
+                        # Apply optimizations to pool connections too (WAL, mmap)
+                        # We use a cursor to set PRAGMAs
+                        c = conn.cursor()
+                        c.execute("PRAGMA journal_mode = WAL")
+                        c.execute("PRAGMA synchronous = NORMAL")
+                        c.execute("PRAGMA mmap_size = 268435456")
+                        # Smaller cache for pool connections (don't hog memory)
+                        c.execute("PRAGMA cache_size = -2000") # ~2MB
+                        c.execute("PRAGMA temp_store = MEMORY")
+                        self._read_pool.put(conn)
+
+                await loop.run_in_executor(self._executor, _init_pool_connection)
+
+    @contextmanager
+    def _read_connection(self):
+        """
+        Context manager to yield a connection for read-only operations.
+        Yields a pooled connection if available, otherwise yields the main DB connection.
+        """
+        if self._read_pool is None:
+            with self._db._lock:
+                yield self._db._connection
+            return
+
+        # Capture reference locally to ensure safety even if self._read_pool is set to None elsewhere
+        pool = self._read_pool
+        conn = pool.get()
+        try:
+            yield conn
+        finally:
+            pool.put(conn)
     
     async def _run_in_executor(self, func, *args):
         """Run a synchronous function in the executor"""
@@ -584,6 +664,8 @@ class AsyncNanaSQLite:
             model_class
         )
     
+
+    
     # ==================== Async SQL Execution ====================
     
     async def execute(self, sql: str, parameters: Optional[Tuple] = None) -> Any:
@@ -647,12 +729,16 @@ class AsyncNanaSQLite:
             >>> row = await db.fetch_one("SELECT value FROM data WHERE key = ?", ("user",))
         """
         await self._ensure_initialized()
+        
+        def _fetch_one_impl():
+            with self._read_connection() as conn:
+                cursor = conn.execute(sql, parameters)
+                return cursor.fetchone()
+
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
-            self._db.fetch_one,
-            sql,
-            parameters
+            _fetch_one_impl
         )
     
     async def fetch_all(self, sql: str, parameters: tuple = None) -> List[tuple]:
@@ -670,12 +756,16 @@ class AsyncNanaSQLite:
             >>> rows = await db.fetch_all("SELECT key, value FROM data WHERE key LIKE ?", ("user%",))
         """
         await self._ensure_initialized()
+        
+        def _fetch_all_impl():
+            with self._read_connection() as conn:
+                cursor = conn.execute(sql, parameters)
+                return list(cursor)
+
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
-            self._db.fetch_all,
-            sql,
-            parameters
+            _fetch_all_impl
         )
     
     # ==================== Async SQLite Wrapper Functions ====================
@@ -754,7 +844,11 @@ class AsyncNanaSQLite:
         where: str = None,
         parameters: tuple = None,
         order_by: str = None,
-        limit: int = None
+        limit: int = None,
+        strict_sql_validation: bool = None,
+        allowed_sql_functions: List[str] = None,
+        forbidden_sql_functions: List[str] = None,
+        override_allowed: bool = False
     ) -> List[dict]:
         """
         非同期でSELECTクエリを実行
@@ -766,6 +860,10 @@ class AsyncNanaSQLite:
             parameters: WHERE句のパラメータ
             order_by: ORDER BY句
             limit: LIMIT句
+            strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否
+            allowed_sql_functions: このクエリで一時的に許可するSQL関数のリスト
+            forbidden_sql_functions: このクエリで一時的に禁止するSQL関数のリスト
+            override_allowed: Trueの場合、インスタンス許可設定を無視
         
         Returns:
             結果のリスト（各行はdict）
@@ -781,16 +879,83 @@ class AsyncNanaSQLite:
             ... )
         """
         await self._ensure_initialized()
+        
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
-            self._db.query,
+            self._shared_query_impl,
             table_name,
             columns,
             where,
             parameters,
             order_by,
-            limit
+            limit,
+            None,  # offset
+            None,  # group_by
+            strict_sql_validation,
+            allowed_sql_functions,
+            forbidden_sql_functions,
+            override_allowed
+        )
+
+    async def query_with_pagination(self, table_name: str = None, columns: List[str] = None,
+                                   where: str = None, parameters: tuple = None,
+                                   order_by: str = None, limit: int = None, 
+                                   offset: int = None, group_by: str = None,
+                                   strict_sql_validation: bool = None,
+                                   allowed_sql_functions: List[str] = None,
+                                   forbidden_sql_functions: List[str] = None,
+                                   override_allowed: bool = False) -> List[dict]:
+        """
+        非同期で拡張されたクエリを実行
+        
+        Args:
+            table_name: テーブル名
+            columns: 取得するカラム
+            where: WHERE句
+            parameters: パラメータ
+            order_by: ORDER BY句
+            limit: LIMIT句
+            offset: OFFSET句
+            group_by: GROUP BY句
+            strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否
+            allowed_sql_functions: このクエリで一時的に許可するSQL関数のリスト
+            forbidden_sql_functions: このクエリで一時的に禁止するSQL関数のリスト
+            override_allowed: Trueの場合、インスタンス許可設定を無視
+        
+        Returns:
+            結果のリスト（各行はdict）
+        
+        Example:
+            >>> results = await db.query_with_pagination(
+            ...     table_name="users",
+            ...     columns=["id", "name", "email"],
+            ...     where="age > ?",
+            ...     parameters=(20,),
+            ...     order_by="name ASC",
+            ...     limit=10,
+            ...     offset=0
+            ... )
+        """
+        if self._db is None:
+            await self._ensure_initialized()
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            self._shared_query_impl,
+            table_name,
+            columns,
+            where,
+            parameters,
+            order_by,
+            limit,
+            offset,
+            group_by,
+            strict_sql_validation,
+            allowed_sql_functions,
+            forbidden_sql_functions,
+            override_allowed
         )
     
     async def table_exists(self, table_name: str) -> bool:
@@ -960,6 +1125,44 @@ class AsyncNanaSQLite:
             parameters
         )
     
+    async def count(self, table_name: str = None, where: str = None, 
+                   parameters: tuple = None,
+                   strict_sql_validation: bool = None,
+                   allowed_sql_functions: List[str] = None,
+                   forbidden_sql_functions: List[str] = None,
+                   override_allowed: bool = False) -> int:
+        """
+        非同期でレコード数を取得
+        
+        Args:
+            table_name: テーブル名
+            where: WHERE句の条件
+            parameters: WHERE句のパラメータ
+            strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否
+            allowed_sql_functions: このクエリで一時的に許可するSQL関数のリスト
+            forbidden_sql_functions: このクエリで一時的に禁止するSQL関数のリスト
+            override_allowed: Trueの場合、インスタンス許可設定を無視
+        
+        Returns:
+            レコード数
+        
+        Example:
+            >>> count = await db.count("users", "age < ?", (18,))
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            self._db.count,
+            table_name,
+            where,
+            parameters,
+            strict_sql_validation,
+            allowed_sql_functions,
+            forbidden_sql_functions,
+            override_allowed
+        )
+    
     async def vacuum(self) -> None:
         """
         非同期でデータベースを最適化（VACUUM実行）
@@ -1075,6 +1278,9 @@ class AsyncNanaSQLite:
         Example:
             >>> await db.close()
         """
+        if self._closed:
+            return
+
         if self._db is not None:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
@@ -1083,11 +1289,54 @@ class AsyncNanaSQLite:
             )
             self._db = None
         
+        self._closed = True
+        
+        # 子インスタンスに通知
+        for child in self._child_instances:
+            child._mark_parent_closed()
+        self._child_instances.clear()
+        
+        # Close Read-Only Pool
+        if self._read_pool:
+            while True:
+                conn = None
+                try:
+                    conn = self._read_pool.get_nowait()
+                    conn.close()
+                except queue.Empty:
+                    # Queue is empty; safe to stop draining
+                    break
+                except AttributeError as e:
+                    # Programming error: conn is not an apsw.Connection
+                    logging.getLogger(__name__).error(
+                        "AttributeError during pool cleanup - possible programming error: %s (conn=%r)",
+                        e,
+                        conn,
+                    )
+                    # continue draining the queue instead of breaking
+                except apsw.Error as e:
+                    # Ignore close errors during best-effort cleanup but log at warning level
+                    logging.getLogger(__name__).warning(
+                        "Error while closing read-only NanaSQLite connection %r: %s",
+                        conn,
+                        e,
+                    )
+            self._read_pool = None
+        
         # 所有しているエグゼキューターをシャットダウン（ノンブロッキング）
         if self._owns_executor and self._executor is not None:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self._executor.shutdown, True)
             self._executor = None
+    
+    def _mark_parent_closed(self) -> None:
+        """親インスタンスが閉じられた際に呼ばれる"""
+        self._closed = True
+        self._db = None
+        # 子がさらに子を持っている場合も再帰的に閉じる
+        for child in self._child_instances:
+            child._mark_parent_closed()
+        self._child_instances.clear()
     
     def __repr__(self) -> str:
         if self._db is not None:
@@ -1165,11 +1414,158 @@ class AsyncNanaSQLite:
         async_sub_db._max_workers = self._max_workers
         async_sub_db._thread_name_prefix = self._thread_name_prefix + f"_{table_name}"
         async_sub_db._db = sub_db  # 接続を共有した同期版DBを設定
+        async_sub_db._closed = False  # クローズ状態を初期化
         async_sub_db._loop = loop  # イベントループを共有
         async_sub_db._executor = self._executor  # 同じエグゼキューターを共有
         async_sub_db._owns_executor = False  # エグゼキューターは所有しない
+        async_sub_db._is_connection_owner = False  # 接続の所有権はない
+        # セキュリティ関連の設定も親インスタンスから継承する
+        async_sub_db._strict_sql_validation = self._strict_sql_validation
+        async_sub_db._allowed_sql_functions = self._allowed_sql_functions
+        async_sub_db._forbidden_sql_functions = self._forbidden_sql_functions
+        async_sub_db._max_clause_length = self._max_clause_length
+        # 子インスタンス管理
+        async_sub_db._child_instances = weakref.WeakSet()
+        self._child_instances.add(async_sub_db)
+
+        # Read-Only Pool は sub-instance では使用しない (シンプルさと後方互換性のため)
+        async_sub_db._read_pool_size = 0
+        async_sub_db._read_pool = None
         return async_sub_db
 
+    # ==================== Async Method Aliases (Consistency & Stability) ====================
+    # For a fully 'a'-prefixed API and compatibility with all tests/benchmarks
+    
+    aload_all = load_all
+    arefresh = refresh
+    ais_cached = is_cached
+    abatch_update = batch_update
+    abatch_delete = batch_delete
+    ato_dict = to_dict
+    acopy = copy
+    aget_fresh = get_fresh
+    aset_model = set_model
+    aget_model = get_model
+    aexecute = execute
+    aexecute_many = execute_many
+    afetch_one = fetch_one
+    afetch_all = fetch_all
+    acreate_table = create_table
+    acreate_index = create_index
+    aquery = query
+    aquery_with_pagination = query_with_pagination
+    atable = table
+    atable_exists = table_exists
+    alist_tables = list_tables
+    adrop_table = drop_table
+    asql_insert = sql_insert
+    asql_update = sql_update
+    asql_delete = sql_delete
+    acount = count
+    avacuum = vacuum
+    def _shared_query_impl(
+        self,
+        table_name: str,
+        columns: List[str],
+        where: str,
+        parameters: tuple,
+        order_by: str,
+        limit: int,
+        offset: int = None,
+        group_by: str = None,
+        strict_sql_validation: bool = None,
+        allowed_sql_functions: List[str] = None,
+        forbidden_sql_functions: List[str] = None,
+        override_allowed: bool = False
+    ) -> List[dict]:
+        """Internal shared implementation for query execution"""
+        target_table = self._db._sanitize_identifier(table_name) if table_name else self._db._table
+
+        # Validation (Delegated to Main Instance logic)
+        v_args = {
+            "strict": strict_sql_validation,
+            "allowed": allowed_sql_functions,
+            "forbidden": forbidden_sql_functions,
+            "override_allowed": override_allowed
+        }
+
+        # table_name is already validated via _sanitize_identifier above
+        self._db._validate_expression(where, **v_args, context="where")
+        self._db._validate_expression(order_by, **v_args, context="order_by")
+        self._db._validate_expression(group_by, **v_args, context="group_by")
+        if columns:
+            for col in columns:
+                self._db._validate_expression(col, **v_args, context="column")
+
+        # Column handling
+        if columns is None:
+            columns_sql = "*"
+        else:
+            safe_cols = []
+            for col in columns:
+                if IDENTIFIER_PATTERN.match(col):
+                    safe_cols.append(self._db._sanitize_identifier(col))
+                else:
+                    safe_cols.append(col)
+            columns_sql = ", ".join(safe_cols)
+
+        # Validate limit
+        if limit is not None:
+            if not isinstance(limit, int):
+                raise ValueError(f"limit must be an integer, got {type(limit).__name__}")
+            if limit < 0:
+                raise ValueError("limit must be non-negative")
+
+        # SQL Construction
+        sql = f"SELECT {columns_sql} FROM {target_table}"
+        if where:
+            sql += f" WHERE {where}"
+        if group_by:
+            sql += f" GROUP BY {group_by}"
+        if order_by:
+            sql += f" ORDER BY {order_by}"
+        if limit is not None:
+            sql += f" LIMIT {limit}"
+        if offset is not None:
+            sql += f" OFFSET {offset}"
+
+        # Execute on pool
+        try:
+            with self._read_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(sql, parameters)
+
+                # Column name extraction using cursor metadata (robust against AS alias parsing issues)
+                try:
+                    description = cursor.getdescription()
+                    col_names = [col_info[0] for col_info in description]
+                except apsw.ExecutionCompleteError:
+                    # Fallback for zero-row results (e.g., limit=0)
+                    if columns is None:
+                        # Get column names from table metadata
+                        p_cursor = conn.cursor()
+                        p_cursor.execute(f"PRAGMA table_info({target_table})")
+                        col_names = [row[1] for row in p_cursor]
+                    else:
+                        # Extract aliases from provided columns list
+                        col_names = []
+                        for col in columns:
+                            parts = re.split(r'\s+as\s+', col, flags=re.IGNORECASE)
+                            if len(parts) > 1:
+                                col_names.append(parts[-1].strip().strip('"').strip("'"))
+                            else:
+                                col_names.append(col.strip())
+
+                # Convert to dict list
+                return [dict(zip(col_names, row)) for row in cursor]
+        except apsw.Error as e:
+            raise NanaSQLiteDatabaseError(f"Failed to execute query: {e}", original_error=e) from e
+
+    get = aget
+    contains = acontains
+    keys = akeys
+    values = avalues
+    items = aitems
 
 class _AsyncTransactionContext:
     """非同期トランザクションのコンテキストマネージャ"""

@@ -21,6 +21,7 @@
 - **Smart Caching**: Lazy load (on-access) or bulk load (all at once)
 - **Nested Structures**: Full support for nested dicts and lists (up to 30+ levels)
 - **High Performance**: WAL mode, mmap, and batch operations for maximum speed
+- **Security & Stability (v1.2.0)**: SQL validation, ReDoS protection, and strict connection management
 - **Zero Configuration**: Works out of the box with sensible defaults
 
 ### 📦 Installation
@@ -68,6 +69,8 @@ with NanaSQLite("mydata.db") as db:
 
 - [English Documentation](docs/en/README.md)
 - [API Reference](docs/en/reference.md)
+- [Migration Guide (v1.1.x to v1.2.0)](MIGRATION_GUIDE.md)
+- [Development Guide](DEVELOPMENT_GUIDE.md)
 
 ### ✨ New Features (v1.0.3rc3+)
 
@@ -361,6 +364,44 @@ asyncio.run(main())
 - aiohttp (async HTTP client/server)
 - Discord.py, Telegram bots (async bots)
 - Any asyncio-based application
+### ✨ v1.2.0 New Features
+
+**Security Enhancements & Strict Connection Management:**
+
+```python
+# v1.2.0 Security Features
+db = NanaSQLite("mydata.db", 
+    strict_sql_validation=True,  # Disallow unauthorized SQL functions
+    max_clause_length=500        # Limit SQL length to prevent ReDoS
+)
+
+# v1.2.0 Read-Only Connection Pool (Async only)
+async with AsyncNanaSQLite("mydata.db", read_pool_size=5) as db:
+    # Heavy read operations (query, fetch_all) use the pool automatically
+    # allowing parallel execution without blocking writes or other reads
+    results = await asyncio.gather(
+        db.query("logs", where="level=?", parameters=("ERROR",)),
+        db.query("logs", where="level=?", parameters=("INFO",)),
+        db.query("logs", where="level=?", parameters=("WARN",))
+    )
+
+# Strict Connection Management
+with db.transaction():
+    sub_db = db.table("sub")
+    # ... operations ...
+db.close()
+# Accessing sub_db now raises NanaSQLiteClosedError for safety!
+```
+
+**Consistent Async API:**
+```python
+# All methods now have 'a' prefixed aliases in AsyncNanaSQLite
+await db.abatch_update(data)
+await db.abatch_get(keys)
+await db.ato_dict()
+```
+
+---
 
 ---
 
@@ -373,6 +414,7 @@ asyncio.run(main())
 - **スマートキャッシュ**: 遅延ロード（アクセス時）または一括ロード（起動時）
 - **ネスト構造対応**: 30階層以上のネストしたdict/listをサポート
 - **高性能**: WALモード、mmap、バッチ操作で最高速度を実現
+- **セキュリティと安定性 (v1.2.0)**: SQL検証、ReDoS対策、厳格な接続管理を導入
 - **設定不要**: 合理的なデフォルト設定でそのまま動作
 
 ### 📦 インストール
@@ -420,6 +462,8 @@ with NanaSQLite("mydata.db") as db:
 
 - [日本語ドキュメント](docs/ja/README.md)
 - [APIリファレンス](docs/ja/reference.md)
+- [移行ガイド (v1.1.x から v1.2.0)](MIGRATION_GUIDE.md)
+- [開発ガイド](DEVELOPMENT_GUIDE.md)
 
 ### ✨ 新機能 (v1.0.3rc3+)
 
@@ -661,6 +705,42 @@ asyncio.run(main())
 - aiohttp（非同期HTTP クライアント/サーバー）
 - Discord.py, Telegramボット（非同期ボット）
 - あらゆるasyncioベースのアプリケーション
+### ✨ v1.2.0 新機能
+
+**セキュリティ強化と厳格な接続管理:**
+
+```python
+# v1.2.0 セキュリティ機能
+db = NanaSQLite("mydata.db", 
+    strict_sql_validation=True,  # 未許可のSQL関数を禁止
+    max_clause_length=500        # SQLの長さを制限してReDoSを防止
+)
+
+# v1.2.0 読み取り専用接続プール（非同期のみ）
+async with AsyncNanaSQLite("mydata.db", read_pool_size=5) as db:
+    # 重い読み取り操作（query, fetch_all）は自動的にプールを使用
+    # 書き込みや他の読み取りをブロックすることなく並列実行が可能
+    results = await asyncio.gather(
+        db.query("logs", where="level=?", parameters=("ERROR",)),
+        db.query("logs", where="level=?", parameters=("INFO",)),
+        db.query("logs", where="level=?", parameters=("WARN",))
+    )
+
+# 厳格な接続管理
+with db.transaction():
+    sub_db = db.table("sub")
+    # ... 操作 ...
+db.close()
+# 無効化された sub_db へのアクセスは、安全のために NanaSQLiteClosedError を送出します。
+```
+
+**一貫性のある非同期API:**
+```python
+# AsyncNanaSQLiteの全てのメソッドに 'a' プレフィックス付きのエイリアスを追加
+await db.abatch_update(data)
+await db.abatch_get(keys)
+await db.ato_dict()
+```
 
 ---
 

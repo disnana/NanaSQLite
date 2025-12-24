@@ -6,6 +6,87 @@
 
 ## 日本語
 
+### [1.2.0b1] - 2025-12-24
+
+#### セキュリティと堅牢性
+- **`ORDER BY` 解析の強化**:
+  - `NanaSQLite` に専用のパーサー `_parse_order_by_clause` を実装し、複雑な `ORDER BY` 句を安全に処理・検証できるようにしました。
+  - 正当なソートパターンをサポートしつつ、SQLインジェクションに対する保護を強化しました。
+- **厳格な検証の修正**:
+  - 危険なパターン（`;`, `--`, `/*`）に対するエラーメッセージを `Invalid [label]: [message]` の形式に統一しました。
+  - すべての検証エラーに対して統一されたメッセージ形式を適用することで、レガシーテストと新しいセキュリティテスト間の一貫した動作を保証しました。
+
+#### リファクタリング
+- **コード構成**:
+  - `_sanitize_sql_for_function_scan` ロジックを新しい `nanasqlite.sql_utils` モジュールに抽出・移動し、保守性を向上させました。
+  - `AsyncNanaSQLite` の `query` と `query_with_pagination` メソッドから重複コードを削除し、共通ロジックを `_shared_query_impl` ヘルパーメソッドに統合しました（約150行の削減）。
+- **型安全性**:
+  - `context` パラメータに `Literal` 型ヒントを追加し、IDEサポートと型チェックを強化しました (PR #36)。
+
+#### 修正と改善
+- **非同期ロギング**:
+  - 読み取り専用プールのクリーンアップ中に発生するエラーのログレベルを DEBUG から WARNING に引き上げ、リソースの問題を検知しやすくしました。
+  - エラーメッセージに接続コンテキスト情報を追加しました。
+- **非同期プールクリーンアップの堅牢性向上**:
+  - `AsyncNanaSQLite.close()` メソッドにおいて、プール内の一部の接続でエラーが発生しても、残りの接続を確実にクリーンアップするように改善しました。
+  - `AttributeError` 発生時に `break` していた処理を継続するように変更し、リソースリークを防止します。
+- **テスト**:
+  - インスタンスがクローズされている場合に `__eq__` が正しく `NanaSQLiteClosedError` を送出するように修正しました (PR #44)。
+  - セキュリティテストにおける例外ハンドリングの具体性を向上させました (PR #43)。
+  - セキュリティテストのコメントを明確化し、検証タイミングの説明を追加しました (PR #35)。
+  - 重複していた `pytest` インポートを削除し、一時的なテストファイル（`temp_test_parser.py`）を整理しました。
+
+### [1.2.0a2] - 2025-12-23
+
+- **非同期セキュリティ機能の強化**:
+  - `AsyncNanaSQLite.query` および `query_with_pagination` において、`allowed_sql_functions`, `forbidden_sql_functions`, `override_allowed` が正しく `_validate_expression` に渡されるように修正。
+  - `AsyncNanaSQLite` の非同期セキュリティテスト (`tests/test_security_async_v120.py`) を追加。
+- **非同期接続管理の改善**:
+  - `AsyncNanaSQLite` にクローズ状態を追跡する `_closed` フラグを追加。
+  - 親インスタンスがクローズされた際に、`table()` で作成された子インスタンスも即座にクローズ状態となるように改善。
+  - 未初期化のインスタンスをクローズした場合でも、その後の操作で正しく `NanaSQLiteClosedError` が発生するように修正。
+
+### [1.2.0a1] - 2025-12-23
+
+- **非同期読み取り専用接続プール**:
+  - `AsyncNanaSQLite` に `read_pool_size` 引数を追加。
+  - `query`, `query_with_pagination`, `fetch_all`, `fetch_one` メソッドで読み取り専用プールを使用可能に。
+  - 安全性のため、プール接続は常に `read-only` モードで動作。
+- **バグ修正**:
+  - `query` および `query_with_pagination` で結果が0件の場合に発生していた `apsw.ExecutionCompleteError` を修正。
+  - カラム名の取得方法を `cursor.description` 依存から同期版と同様の `PRAGMA table_info` および手動パース方式に変更。
+
+### [1.2.0dev1] - 2025-12-23
+
+#### 修正
+- **非同期APIの一貫性向上**:
+  - `AsyncNanaSQLite` に全てのメソッドの `a` プレフィックス付きエイリアス（`abatch_update`, `ato_dict` 等）を追加。
+  - ベンチマークテスト (`test_async_benchmark.py`) でのメソッド未定義エラーを解消。
+- **後方互換性の修正**:
+  - SQLインジェクション検知時のエラーメッセージを `test_security.py` 等の既存テストが期待する形式（"Invalid order_by clause" 等）に再調整。
+  - `test_enhancements.py` において `NanaSQLiteClosedError` を許容するように修正し、例外クラス名チェックとの整合性を確保。
+- **Windows環境の安定性向上**:
+  - `test_security_v120.py` で `pytest` の `tmp_path` フィクスチャを使用するように変更し、Windowsでの `BusyError` や `IOError` を回避。
+- **`query`/`query_with_pagination` のバグ修正**:
+  - `limit=0` および `offset=0` が無視されていた問題を修正。`if limit:` から `if limit is not None:` に変更。
+  - ⚠️ **後方互換性**: 以前は `limit=0` を渡すと全件取得していましたが、今後は正しく0件を返します。`limit=0` を「制限なし」の意味で使用していた場合は `limit=None` に変更してください。
+- **エッジケーステストの追加**:
+  - `tests/test_edge_cases_v120.py` を新規作成。空リストでの `batch_*` 操作やページネーションの境界値テストを追加。
+
+### [1.2.0dev0] - 2025-12-22
+
+#### 追加
+- **セキュリティ強化 (Phase 1)**:
+  - `strict_sql_validation` フラグの導入（未許可関数の使用時に例外または警告）。
+  - `max_clause_length` による動的SQLの長さ制限（ReDoS対策）。
+  - 文字列ベースの危険なSQLパターン（`;`, `--`, `/*`）およびSQLキーワード（`DROP`, `DELETE` 等）の検知ロジックの強化。
+- **接続管理の厳格化**:
+  - `NanaSQLiteClosedError` の導入。
+  - 親インスタンス・クローズ時に子インスタンス（`table()`で作成）を自動的に無効化する追跡機構の実装。
+- **メンテナンス性向上**:
+  - `DEVELOPMENT_GUIDE.md` の作成（日英）。
+  - `pip install -e . -U` による環境同期ルールの明文化。
+
 ### [1.1.0] - 2025-12-19
 
 #### 追加
@@ -250,6 +331,87 @@
 ---
 
 ## English
+
+### [1.2.0b1] - 2025-12-24
+
+#### Security & Robustness
+- **Enhanced `ORDER BY` Parsing**:
+  - Implemented a dedicated parser `_parse_order_by_clause` in `NanaSQLite` to safely handle and validate complex `ORDER BY` clauses.
+  - Improved protection against SQL injection while supporting legitimate complex sorting patterns.
+- **Strict Validation Fixes**:
+  - Standardized error messages for dangerous patterns (`;`, `--`, `/*`) to consistently follow the `Invalid [label]: [message]` format.
+  - Ensured consistent behavior between legacy and new security tests by applying a unified message format for all validation failures.
+
+#### Refactoring
+- **Code Organization**:
+  - Extracted `_sanitize_sql_for_function_scan` logic to a new `nanasqlite.sql_utils` module for better maintainability.
+  - Eliminated code duplication in `AsyncNanaSQLite` by consolidating `query` and `query_with_pagination` methods into a shared `_shared_query_impl` helper method (~150 lines reduced).
+- **Type Safety**:
+  - Added `Literal` type hints for `context` parameter to improve IDE support and type checking (PR #36).
+
+#### Fixes & Improvements
+- **Async Logging**:
+  - Increased log level from DEBUG to WARNING for errors occurring during read-pool cleanup to ensure resource issues are visible.
+  - Added connection context to cleanup error messages.
+- **Improved Async Pool Cleanup Robustness**:
+  - Enhanced `AsyncNanaSQLite.close()` method to ensure all pool connections are cleaned up even if some connections encounter errors.
+  - Changed error handling to continue cleanup instead of breaking on `AttributeError`, preventing resource leaks.
+- **Tests**:
+  - Fixed `__eq__` method to correctly propagate `NanaSQLiteClosedError` when instances are closed (PR #44).
+  - Improved exception handling specificity in security tests (PR #43).
+  - Clarified comments in security tests regarding validation timing (PR #35).
+  - Removed duplicate `pytest` imports and cleaned up temporary test files (`temp_test_parser.py`).
+
+### [1.2.0a2] - 2025-12-23
+
+- **Enhanced Async Security Features**:
+  - Fixed `AsyncNanaSQLite.query` and `query_with_pagination` to correctly pass `allowed_sql_functions`, `forbidden_sql_functions`, and `override_allowed` to `_validate_expression`.
+  - Added comprehensive asynchronous security tests in `tests/test_security_async_v120.py`.
+- **Improved Async Connection Management**:
+  - Added `_closed` flag to `AsyncNanaSQLite` to track the connection state.
+  - Improved child instance invalidation: sub-instances created via `table()` are now immediately marked as closed when the parent is closed.
+  - Fixed `close()` behavior to ensure that even uninitialized instances correctly transition to a closed state, raising `NanaSQLiteClosedError` on subsequent operations.
+
+### [1.2.0a1] - 2025-12-23
+
+- **Async Read-Only Connection Pool**:
+  - Added `read_pool_size` logic to `AsyncNanaSQLite`.
+  - Enables parallel execution for `query`, `query_with_pagination`, `fetch_all`, `fetch_one`.
+  - Enforces `read-only` mode for pool connections for safety.
+- **Bug Fixes**:
+  - Fixed `apsw.ExecutionCompleteError` occurring in `query` and `query_with_pagination` when results are empty (0 rows).
+  - Aligned column metadata extraction with sync implementation using `PRAGMA table_info` and manual parsing instead of relying on `cursor.description`.
+
+### [1.2.0dev1] - 2025-12-23
+
+#### Fixed
+- **Async API Consistency**:
+  - Added `a`-prefixed aliases for all methods in `AsyncNanaSQLite` (e.g., `abatch_update`, `ato_dict`).
+  - Resolved "method not defined" errors in `test_async_benchmark.py`.
+- **Backward Compatibility Fixes**:
+  - Re-aligned SQL injection error messages to match legacy test expectations (e.g., "Invalid order_by clause").
+  - Updated `test_enhancements.py` to handle `NanaSQLiteClosedError` alongside class name checks.
+- **Windows Stability**:
+  - Refactored `test_security_v120.py` to use `tmp_path` fixture, resolving `BusyError` and `IOError` on Windows.
+- **`query`/`query_with_pagination` Bug Fix**:
+  - Fixed issue where `limit=0` and `offset=0` were ignored. Changed `if limit:` to `if limit is not None:`.
+  - ⚠️ **Backward Compatibility**: Previously, passing `limit=0` returned all rows. Now it correctly returns 0 rows. If you used `limit=0` to mean "no limit", change to `limit=None`.
+- **Edge Case Tests Added**:
+  - Created `tests/test_edge_cases_v120.py` with tests for empty `batch_*` operations and pagination boundary conditions.
+
+### [1.2.0dev0] - 2025-12-22
+
+#### Added
+- **Security Enhancements (Phase 1)**:
+  - Introduced `strict_sql_validation` flag (Exception or Warning for unauthorized functions).
+  - Introduced `max_clause_length` to limit dynamic SQL length (ReDoS protection).
+  - Enhanced detection for dangerous SQL patterns (`;`, `--`, `/*`) and keywords (`DROP`, `DELETE`, etc.).
+- **Strict Connection Management**:
+  - Introduced `NanaSQLiteClosedError`.
+  - Implemented child instance tracking/invalidation when the parent instance is closed.
+- **Maintenance**:
+  - Created `DEVELOPMENT_GUIDE.md` (Bilingual).
+  - Codified environment sync rule: `pip install -e . -U`.
 
 ### [1.1.0] - 2025-12-19
 
