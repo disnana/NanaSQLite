@@ -28,6 +28,7 @@ from .exceptions import (
     NanaSQLiteLockError,
     NanaSQLiteClosedError,
 )
+from .sql_utils import sanitize_sql_for_function_scan
 
 
 class NanaSQLite(MutableMapping):
@@ -338,111 +339,9 @@ class NanaSQLite(MutableMapping):
         effective_allowed -= forbidden_list
 
         # 4. 関数呼び出しの抽出
-        def _sanitize_sql_for_function_scan(sql: str) -> str:
-            """
-            Return a version of the SQL string where string literals and comments
-            are replaced with spaces so that function-like patterns inside them
-            are ignored by the validation regex.
-            """
-            result = []
-            i = 0
-            length = len(sql)
-            in_single = False
-            in_double = False
-            in_line_comment = False
-            in_block_comment = False
-            
-            while i < length:
-                ch = sql[i]
-                
-                # 行コメント内
-                if in_line_comment:
-                    if ch == '\n':
-                        in_line_comment = False
-                        result.append(ch)
-                    else:
-                        result.append(" ")
-                    i += 1
-                    continue
-                    
-                # ブロックコメント内
-                if in_block_comment:
-                    if ch == "*" and i + 1 < length and sql[i + 1] == "/":
-                        in_block_comment = False
-                        result.append("  ") # */
-                        i += 2
-                    else:
-                        result.append(" ")
-                        i += 1
-                    continue
-                    
-                # 文字列リテラル内 (シングル)
-                if in_single:
-                    if ch == "'" and i + 1 < length and sql[i + 1] == "'":
-                        # エスケープされたシングルクォート
-                        result.append("  ")
-                        i += 2
-                    elif ch == "'":
-                        in_single = False
-                        result.append(" ")
-                        i += 1
-                    else:
-                        result.append(" ")
-                        i += 1
-                    continue
-                    
-                # 文字列リテラル内 (ダブル)
-                if in_double:
-                    if ch == '"' and i + 1 < length and sql[i + 1] == '"':
-                        # エスケープされたダブルクォート
-                        result.append("  ")
-                        i += 2
-                    elif ch == '"':
-                        in_double = False
-                        result.append(" ")
-                        i += 1
-                    else:
-                        result.append(" ")
-                        i += 1
-                    continue
-                
-                # ここからはリテラル／コメントの外側
-                
-                # 行コメント開始
-                if ch == "-" and i + 1 < length and sql[i + 1] == "-":
-                    in_line_comment = True
-                    result.append("  ")
-                    i += 2
-                    continue
-                    
-                # ブロックコメント開始
-                if ch == "/" and i + 1 < length and sql[i + 1] == "*":
-                    in_block_comment = True
-                    result.append("  ")
-                    i += 2
-                    continue
-                    
-                # 文字列リテラル開始
-                if ch == "'":
-                    in_single = True
-                    result.append(" ")
-                    i += 1
-                    continue
-                if ch == '"':
-                    in_double = True
-                    result.append(" ")
-                    i += 1
-                    continue
-                    
-                # 通常コード
-                result.append(ch)
-                i += 1
-                
-            return "".join(result)
-
         # 文字列リテラルやコメントをマスクした上で関数呼び出しを検索
         # これにより、SELECT 'COUNT(' ... のようなパターンでの誤検知を防ぐ
-        sanitized_expr = _sanitize_sql_for_function_scan(expr)
+        sanitized_expr = sanitize_sql_for_function_scan(expr)
         matches = re.findall(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*\(', sanitized_expr)
         
         for func in matches:
