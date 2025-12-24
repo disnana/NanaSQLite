@@ -30,7 +30,7 @@ import logging
 
 import apsw
 from .core import NanaSQLite, IDENTIFIER_PATTERN
-from .exceptions import NanaSQLiteClosedError
+from .exceptions import NanaSQLiteClosedError, NanaSQLiteDatabaseError
 
 
 class AsyncNanaSQLite:
@@ -926,32 +926,35 @@ class AsyncNanaSQLite:
                 sql += f" LIMIT {limit}"
                 
             # Execute on pool
-            with self._read_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(sql, parameters)
-                
-                # Column name extraction using cursor metadata (robust against AS alias parsing issues)
-                try:
-                    description = cursor.getdescription()
-                    col_names = [col_info[0] for col_info in description]
-                except apsw.ExecutionCompleteError:
-                    # Fallback for zero-row results (e.g., limit=0)
-                    if columns is None:
-                        # Get column names from table metadata
-                        p_cursor = conn.cursor()
-                        p_cursor.execute(f"PRAGMA table_info({target_table})")
-                        col_names = [row[1] for row in p_cursor]
-                    else:
-                        # Extract aliases from provided columns list
-                        col_names = []
-                        for col in columns:
-                            parts = re.split(r'\s+as\s+', col, flags=re.IGNORECASE)
-                            if len(parts) > 1:
-                                col_names.append(parts[-1].strip().strip('"').strip("'"))
-                            else:
-                                col_names.append(col.strip())
+            try:
+                with self._read_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(sql, parameters)
+                    
+                    # Column name extraction using cursor metadata (robust against AS alias parsing issues)
+                    try:
+                        description = cursor.getdescription()
+                        col_names = [col_info[0] for col_info in description]
+                    except apsw.ExecutionCompleteError:
+                        # Fallback for zero-row results (e.g., limit=0)
+                        if columns is None:
+                            # Get column names from table metadata
+                            p_cursor = conn.cursor()
+                            p_cursor.execute(f"PRAGMA table_info({target_table})")
+                            col_names = [row[1] for row in p_cursor]
+                        else:
+                            # Extract aliases from provided columns list
+                            col_names = []
+                            for col in columns:
+                                parts = re.split(r'\s+as\s+', col, flags=re.IGNORECASE)
+                                if len(parts) > 1:
+                                    col_names.append(parts[-1].strip().strip('"').strip("'"))
+                                else:
+                                    col_names.append(col.strip())
 
-                return [dict(zip(col_names, row)) for row in cursor]
+                    return [dict(zip(col_names, row)) for row in cursor]
+            except apsw.Error as e:
+                raise NanaSQLiteDatabaseError(f"Failed to execute query: {e}", original_error=e) from e
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
@@ -1053,33 +1056,36 @@ class AsyncNanaSQLite:
                 sql += f" OFFSET {offset}"
 
             # Execute on pool
-            with self._read_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(sql, parameters)
-                
-                # Column name extraction using cursor metadata (robust against AS alias parsing issues)
-                try:
-                    description = cursor.getdescription()
-                    col_names = [col_info[0] for col_info in description]
-                except apsw.ExecutionCompleteError:
-                    # Fallback for zero-row results (e.g., limit=0)
-                    if columns is None:
-                        # Get column names from table metadata
-                        p_cursor = conn.cursor()
-                        p_cursor.execute(f"PRAGMA table_info({target_table})")
-                        col_names = [row[1] for row in p_cursor]
-                    else:
-                        # Extract aliases from provided columns list
-                        col_names = []
-                        for col in columns:
-                            parts = re.split(r'\s+as\s+', col, flags=re.IGNORECASE)
-                            if len(parts) > 1:
-                                col_names.append(parts[-1].strip().strip('"').strip("'"))
-                            else:
-                                col_names.append(col.strip())
+            try:
+                with self._read_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(sql, parameters)
+                    
+                    # Column name extraction using cursor metadata (robust against AS alias parsing issues)
+                    try:
+                        description = cursor.getdescription()
+                        col_names = [col_info[0] for col_info in description]
+                    except apsw.ExecutionCompleteError:
+                        # Fallback for zero-row results (e.g., limit=0)
+                        if columns is None:
+                            # Get column names from table metadata
+                            p_cursor = conn.cursor()
+                            p_cursor.execute(f"PRAGMA table_info({target_table})")
+                            col_names = [row[1] for row in p_cursor]
+                        else:
+                            # Extract aliases from provided columns list
+                            col_names = []
+                            for col in columns:
+                                parts = re.split(r'\s+as\s+', col, flags=re.IGNORECASE)
+                                if len(parts) > 1:
+                                    col_names.append(parts[-1].strip().strip('"').strip("'"))
+                                else:
+                                    col_names.append(col.strip())
 
-                # Convert to dict list
-                return [dict(zip(col_names, row)) for row in cursor]
+                    # Convert to dict list
+                    return [dict(zip(col_names, row)) for row in cursor]
+            except apsw.Error as e:
+                raise NanaSQLiteDatabaseError(f"Failed to execute query: {e}", original_error=e) from e
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
