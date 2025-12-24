@@ -1592,6 +1592,7 @@ class AsyncNanaSQLite:
     asql_delete = sql_delete
     acount = count
     avacuum = vacuum
+    aget = get
 
 
 class _AsyncTransactionContext:
