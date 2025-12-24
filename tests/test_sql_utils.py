@@ -5,7 +5,6 @@ This module contains comprehensive tests for the sql_utils module,
 particularly focusing on the sanitize_sql_for_function_scan function.
 """
 
-import pytest
 from nanasqlite.sql_utils import sanitize_sql_for_function_scan
 
 
