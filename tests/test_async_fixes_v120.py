@@ -104,9 +104,10 @@ async def test_complex_column_aliases_metadata(tmp_path):
 
 def test_eq_when_closed(tmp_path):
     """
-    DB接続が閉じている場合に == 演算子が False を返すことを検証 (#5)
+    DB接続が閉じている場合に == 演算子が NanaSQLiteClosedError を発生させることを検証 (#5)
     """
-    from nanasqlite import NanaSQLite
+    from nanasqlite import NanaSQLite, NanaSQLiteClosedError
+    
     db_path = str(tmp_path / "test_eq_closed.db")
     db1 = NanaSQLite(db_path)
     db1["k"] = "v"
@@ -115,6 +116,7 @@ def test_eq_when_closed(tmp_path):
     assert db1 == db2 # 接続中は True
     
     db1.close()
-    # 以前はここで NanaSQLiteClosedError が発生していた
-    # 修正後は == 演算子が False を返す（!= は True になる）
-    assert (db1 == db2) is False
+    # 閉じられた接続での等価性チェックは NanaSQLiteClosedError を発生させる
+    # これは他のマジックメソッド（__getitem__, __setitem__, __delitem__）と一貫性があります
+    with pytest.raises(NanaSQLiteClosedError):
+        _ = db1 == db2

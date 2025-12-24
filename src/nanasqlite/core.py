@@ -217,21 +217,12 @@ class NanaSQLite(MutableMapping):
             bool: 等価な場合True、そうでない場合False
         
         Raises:
-            NanaSQLiteClosedError: 接続が閉じられている状態で他のマッピングとの比較を試みた場合
-        
-        Note:
-            接続が閉じられた状態でdictやMutableMappingとの比較を行うと、
-            内部でself.items()が呼ばれ、NanaSQLiteClosedErrorが発生します。
-            このエラーは意図的なもので、閉じられた接続での操作を防ぐためです。
+            NanaSQLiteClosedError: 接続が閉じられている場合
         """
         if isinstance(other, (dict, MutableMapping)):
-            try:
-                self._check_connection()
-                return dict(self.items()) == dict(other.items())
-            except NanaSQLiteClosedError:
-                # When the underlying connection is closed, treat the mapping as unequal
-                # instead of propagating an operational error from an equality check.
-                return False
+            # Ensure the connection is open; propagate NanaSQLiteClosedError if not.
+            self._check_connection()
+            return dict(self.items()) == dict(other.items())
         return self is other
 
     def _check_connection(self) -> None:
