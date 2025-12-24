@@ -6,6 +6,32 @@
 
 ## 日本語
 
+### [1.2.0b1] - 2025-12-24
+
+#### セキュリティと堅牢性
+- **`ORDER BY` 解析の強化**:
+  - `NanaSQLite` に専用のパーサー `_parse_order_by_clause` を実装し、複雑な `ORDER BY` 句を安全に処理・検証できるようにしました。
+  - 正当なソートパターンをサポートしつつ、SQLインジェクションに対する保護を強化しました。
+- **厳格な検証の修正**:
+  - 危険なパターン（`;`, `--`, `/*`）に対するエラーメッセージを `Invalid [label]: [message]` の形式に統一しました。
+  - すべての検証エラーに対して統一されたメッセージ形式を適用することで、レガシーテストと新しいセキュリティテスト間の一貫した動作を保証しました。
+
+#### リファクタリング
+- **コード構成**:
+  - `_sanitize_sql_for_function_scan` ロジックを新しい `nanasqlite.sql_utils` モジュールに抽出・移動し、保守性を向上させました。
+- **型安全性**:
+  - `context` パラメータに `Literal` 型ヒントを追加し、IDEサポートと型チェックを強化しました (PR #36)。
+
+#### 修正と改善
+- **非同期ロギング**:
+  - 読み取り専用プールのクリーンアップ中に発生するエラーのログレベルを DEBUG から WARNING に引き上げ、リソースの問題を検知しやすくしました。
+  - エラーメッセージに接続コンテキスト情報を追加しました。
+- **テスト**:
+  - インスタンスがクローズされている場合に `__eq__` が正しく `NanaSQLiteClosedError` を送出するように修正しました (PR #44)。
+  - セキュリティテストにおける例外ハンドリングの具体性を向上させました (PR #43)。
+  - セキュリティテストのコメントを明確化し、検証タイミングの説明を追加しました (PR #35)。
+  - 重複していた `pytest` インポートを削除し、一時的なテストファイル（`temp_test_parser.py`）を整理しました。
+
 ### [1.2.0a2] - 2025-12-23
 
 - **非同期セキュリティ機能の強化**:
@@ -301,6 +327,32 @@
 ---
 
 ## English
+
+### [1.2.0b1] - 2025-12-24
+
+#### Security & Robustness
+- **Enhanced `ORDER BY` Parsing**:
+  - Implemented a dedicated parser `_parse_order_by_clause` in `NanaSQLite` to safely handle and validate complex `ORDER BY` clauses.
+  - Improved protection against SQL injection while supporting legitimate complex sorting patterns.
+- **Strict Validation Fixes**:
+  - Standardized error messages for dangerous patterns (`;`, `--`, `/*`) to consistently follow the `Invalid [label]: [message]` format.
+  - Ensured consistent behavior between legacy and new security tests by applying a unified message format for all validation failures.
+
+#### Refactoring
+- **Code Organization**:
+  - Extracted `_sanitize_sql_for_function_scan` logic to a new `nanasqlite.sql_utils` module for better maintainability.
+- **Type Safety**:
+  - Added `Literal` type hints for `context` parameter to improve IDE support and type checking (PR #36).
+
+#### Fixes & Improvements
+- **Async Logging**:
+  - Increased log level from DEBUG to WARNING for errors occurring during read-pool cleanup to ensure resource issues are visible.
+  - Added connection context to cleanup error messages.
+- **Tests**:
+  - Fixed `__eq__` method to correctly propagate `NanaSQLiteClosedError` when instances are closed (PR #44).
+  - Improved exception handling specificity in security tests (PR #43).
+  - Clarified comments in security tests regarding validation timing (PR #35).
+  - Removed duplicate `pytest` imports and cleaned up temporary test files (`temp_test_parser.py`).
 
 ### [1.2.0a2] - 2025-12-23
 
