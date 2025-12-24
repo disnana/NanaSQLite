@@ -19,6 +19,7 @@
 #### リファクタリング
 - **コード構成**:
   - `_sanitize_sql_for_function_scan` ロジックを新しい `nanasqlite.sql_utils` モジュールに抽出・移動し、保守性を向上させました。
+  - `AsyncNanaSQLite` の `query` と `query_with_pagination` メソッドから重複コードを削除し、共通ロジックを `_shared_query_impl` ヘルパーメソッドに統合しました（約150行の削減）。
 - **型安全性**:
   - `context` パラメータに `Literal` 型ヒントを追加し、IDEサポートと型チェックを強化しました (PR #36)。
 
@@ -26,6 +27,9 @@
 - **非同期ロギング**:
   - 読み取り専用プールのクリーンアップ中に発生するエラーのログレベルを DEBUG から WARNING に引き上げ、リソースの問題を検知しやすくしました。
   - エラーメッセージに接続コンテキスト情報を追加しました。
+- **非同期プールクリーンアップの堅牢性向上**:
+  - `AsyncNanaSQLite.close()` メソッドにおいて、プール内の一部の接続でエラーが発生しても、残りの接続を確実にクリーンアップするように改善しました。
+  - `AttributeError` 発生時に `break` していた処理を継続するように変更し、リソースリークを防止します。
 - **テスト**:
   - インスタンスがクローズされている場合に `__eq__` が正しく `NanaSQLiteClosedError` を送出するように修正しました (PR #44)。
   - セキュリティテストにおける例外ハンドリングの具体性を向上させました (PR #43)。
@@ -341,6 +345,7 @@
 #### Refactoring
 - **Code Organization**:
   - Extracted `_sanitize_sql_for_function_scan` logic to a new `nanasqlite.sql_utils` module for better maintainability.
+  - Eliminated code duplication in `AsyncNanaSQLite` by consolidating `query` and `query_with_pagination` methods into a shared `_shared_query_impl` helper method (~150 lines reduced).
 - **Type Safety**:
   - Added `Literal` type hints for `context` parameter to improve IDE support and type checking (PR #36).
 
@@ -348,6 +353,9 @@
 - **Async Logging**:
   - Increased log level from DEBUG to WARNING for errors occurring during read-pool cleanup to ensure resource issues are visible.
   - Added connection context to cleanup error messages.
+- **Improved Async Pool Cleanup Robustness**:
+  - Enhanced `AsyncNanaSQLite.close()` method to ensure all pool connections are cleaned up even if some connections encounter errors.
+  - Changed error handling to continue cleanup instead of breaking on `AttributeError`, preventing resource leaks.
 - **Tests**:
   - Fixed `__eq__` method to correctly propagate `NanaSQLiteClosedError` when instances are closed (PR #44).
   - Improved exception handling specificity in security tests (PR #43).
