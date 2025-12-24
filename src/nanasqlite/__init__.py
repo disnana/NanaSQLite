@@ -34,7 +34,7 @@ from .exceptions import (
     NanaSQLiteClosedError,
 )
 
-__version__ = "1.2.0b1"
+__version__ = "1.2.0"
 __author__ = "Disnana"
 __all__ = [
     "NanaSQLite",
