@@ -29,7 +29,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 import logging
 
 import apsw
-from .core import NanaSQLite
+from .core import NanaSQLite, IDENTIFIER_PATTERN
 from .exceptions import NanaSQLiteClosedError
 
 
@@ -903,7 +903,7 @@ class AsyncNanaSQLite:
             if columns:
                 safe_cols = []
                 for col in columns:
-                    if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', col):
+                    if IDENTIFIER_PATTERN.match(col):
                         safe_cols.append(self._db._sanitize_identifier(col))
                     else:
                         safe_cols.append(col)
@@ -1026,7 +1026,7 @@ class AsyncNanaSQLite:
             else:
                 safe_cols = []
                 for col in columns:
-                    if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', col):
+                    if IDENTIFIER_PATTERN.match(col):
                         safe_cols.append(self._db._sanitize_identifier(col))
                     else:
                         safe_cols.append(col)
@@ -1594,6 +1594,9 @@ class AsyncNanaSQLite:
     avacuum = vacuum
     get = aget
     contains = acontains
+    keys = akeys
+    values = avalues
+    items = aitems
 
 class _AsyncTransactionContext:
     """非同期トランザクションのコンテキストマネージャ"""

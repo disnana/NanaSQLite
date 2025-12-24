@@ -30,6 +30,9 @@ from .exceptions import (
 )
 from .sql_utils import sanitize_sql_for_function_scan
 
+# 識別子バリデーション用の正規表現パターン（英数字とアンダースコアのみ、数字で開始しない）
+IDENTIFIER_PATTERN = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+
 
 class NanaSQLite(MutableMapping):
     """
@@ -1128,7 +1131,7 @@ class NanaSQLite(MutableMapping):
             # 識別子（カラム名のみ）の場合はサニタイズ、式の場合はそのまま（バリデーション済み）
             safe_cols = []
             for col in columns:
-                if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', col):
+                if IDENTIFIER_PATTERN.match(col):
                     safe_cols.append(self._sanitize_identifier(col))
                 else:
                     safe_cols.append(col)
@@ -1625,7 +1628,7 @@ class NanaSQLite(MutableMapping):
             # 識別子（カラム名のみ）の場合はサニタイズ、式の場合はそのまま（バリデーション済み）
             safe_cols = []
             for col in columns:
-                if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', col):
+                if IDENTIFIER_PATTERN.match(col):
                     safe_cols.append(self._sanitize_identifier(col))
                 else:
                     safe_cols.append(col)

@@ -1,6 +1,6 @@
 import pytest
 import apsw
-from nanasqlite import AsyncNanaSQLite, NanaSQLiteValidationError, NanaSQLiteClosedError, NanaSQLiteError
+from nanasqlite import AsyncNanaSQLite, NanaSQLiteValidationError, NanaSQLiteClosedError, NanaSQLiteError, NanaSQLiteDatabaseError
 
 @pytest.fixture
 def db_path(tmp_path):
@@ -40,11 +40,10 @@ async def test_async_allowed_sql_functions_init(db_path):
     db = AsyncNanaSQLite(db_path, strict_sql_validation=True, allowed_sql_functions=["MY_CUSTOM_FUNC"])
     
     # Should pass validation, but might fail execution if function not actually defined in SQLite
-    try:
+    with pytest.raises(NanaSQLiteDatabaseError) as excinfo:
         await db.aquery(columns=["MY_CUSTOM_FUNC(*)"])
-    except (apsw.Error, ValueError, NanaSQLiteError) as e:
-        # If it's a database error about the function missing, validation passed!
-        assert "no such function" in str(e).lower()
+    
+    assert "no such function" in str(excinfo.value).lower()
     await db.close()
 
 @pytest.mark.asyncio
@@ -56,10 +55,10 @@ async def test_async_allowed_sql_functions_query(db_path):
         await db.aquery(columns=["LOCAL_FUNC(*)"])
         
     # Should work with query-level permission (validation side)
-    try:
+    with pytest.raises(NanaSQLiteDatabaseError) as excinfo:
         await db.aquery(columns=["LOCAL_FUNC(*)"], allowed_sql_functions=["LOCAL_FUNC"])
-    except (apsw.Error, ValueError, NanaSQLiteError) as e:
-        assert "no such function" in str(e).lower()
+    
+    assert "no such function" in str(excinfo.value).lower()
     await db.close()
 
 @pytest.mark.asyncio
@@ -67,10 +66,10 @@ async def test_async_forbidden_sql_functions(db_path):
     db = AsyncNanaSQLite(db_path, strict_sql_validation=True, allowed_sql_functions=["SOME_FUNC"])
     
     # Validation passes
-    try:
+    with pytest.raises(NanaSQLiteDatabaseError) as excinfo:
         await db.aquery(columns=["SOME_FUNC(*)"])
-    except (apsw.Error, ValueError, NanaSQLiteError) as e:
-        assert "no such function" in str(e).lower()
+    
+    assert "no such function" in str(excinfo.value).lower()
     
     # Specific forbidden
     with pytest.raises(NanaSQLiteValidationError):
@@ -82,20 +81,20 @@ async def test_async_override_allowed(db_path):
     db = AsyncNanaSQLite(db_path, strict_sql_validation=True, allowed_sql_functions=["FUNC_A"])
     
     # FUNC_A is allowed globally (validation side)
-    try:
+    with pytest.raises(NanaSQLiteDatabaseError) as excinfo:
         await db.aquery(columns=["FUNC_A(*)"])
-    except (apsw.Error, ValueError, NanaSQLiteError) as e:
-        assert "no such function" in str(e).lower()
+    
+    assert "no such function" in str(excinfo.value).lower()
     
     # With override_allowed=True, FUNC_A is no longer allowed unless included in method call
     with pytest.raises(NanaSQLiteValidationError):
         await db.aquery(columns=["FUNC_A(*)"], allowed_sql_functions=["FUNC_B"], override_allowed=True)
         
     # Only FUNC_B works (validation side)
-    try:
+    with pytest.raises(NanaSQLiteDatabaseError) as excinfo:
         await db.aquery(columns=["FUNC_B(*)"], allowed_sql_functions=["FUNC_B"], override_allowed=True)
-    except (apsw.Error, ValueError, NanaSQLiteError) as e:
-        assert "no such function" in str(e).lower()
+    
+    assert "no such function" in str(excinfo.value).lower()
     await db.close()
 
 @pytest.mark.asyncio
