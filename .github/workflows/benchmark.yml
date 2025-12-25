@@ -8,23 +8,36 @@ on:
       - 'src/**'
       - 'scripts/parse_benchmark.py'
       - '.github/workflows/benchmark.yml'
+  pull_request:
+    paths:
+      - 'src/**'
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+  deployments: write
+
+env:
+  RETENTION_DAYS: 7
+
 jobs:
+  # ============================================
+  # Benchmark Job (Sync & Async)
+  # ============================================
   benchmark:
+    name: Bench (${{ matrix.os }}, py${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.11", "3.13"]
         exclude:
-          # Windows: only 3.13
           - os: windows-latest
             python-version: "3.11"
 
@@ -51,84 +64,87 @@ jobs:
         uv pip install --system pytest pytest-benchmark pytest-asyncio apsw pydantic
         uv pip install --system -e .
     
-    - name: Run sync benchmarks (Windows)
-      if: runner.os == 'Windows'
+    # --- Sync Benchmarks with Retry ---
+    - name: Run sync benchmarks (Retry Loop)
+      shell: bash
       env:
-        TEMP: 'D:\temp'
-        TMP: 'D:\temp'
+        TEMP: ${{ runner.os == 'Windows' && 'D:\temp' || '/tmp' }}
+        TMP: ${{ runner.os == 'Windows' && 'D:\temp' || '/tmp' }}
       run: |
-        pytest tests/test_benchmark.py -v --benchmark-only --benchmark-json=benchmark.json || true
+        for i in {1..3}; do
+          echo "::: Attempt $i for Sync Benchmarks :::"
+          if pytest tests/test_benchmark.py --benchmark-only --benchmark-json=benchmark.json; then
+            echo "Sync benchmarks passed."
+            break
+          fi
+          if [ $i -eq 3 ]; then
+            echo "Error: Sync benchmarks failed after 3 attempts."
+            exit 1
+          fi
+          echo "Attempt $i failed. Retrying..."
+        done
 
-    - name: Run sync benchmarks (Linux/macOS)
-      if: runner.os != 'Windows'
+    # --- Async Benchmarks with Retry ---
+    - name: Run async benchmarks (Retry Loop)
+      shell: bash
+      env:
+        TEMP: ${{ runner.os == 'Windows' && 'D:\temp' || '/tmp' }}
+        TMP: ${{ runner.os == 'Windows' && 'D:\temp' || '/tmp' }}
       run: |
-        pytest tests/test_benchmark.py -v --benchmark-only --benchmark-json=benchmark.json || true
+        for i in {1..3}; do
+          echo "::: Attempt $i for Async Benchmarks :::"
+          if pytest tests/test_async_benchmark.py --benchmark-only --benchmark-json=async-benchmark.json; then
+            echo "Async benchmarks passed."
+            break
+          fi
+          if [ $i -eq 3 ]; then
+            echo "Error: Async benchmarks failed after 3 attempts."
+            exit 1
+          fi
+          echo "Attempt $i failed. Retrying..."
+        done
     
-    - name: Upload sync benchmark results
+    # --- Merge results for github-action-benchmark ---
+    - name: Merge Benchmark Results
+      run: |
+        python3 -c "
+        import json
+        sync = json.load(open('benchmark.json'))
+        async_bench = json.load(open('async-benchmark.json'))
+        sync['benchmarks'].extend(async_bench['benchmarks'])
+        json.dump(sync, open('combined-benchmark.json', 'w'))
+        "
+
+    # --- Performance Regression Detection (Only on Ubuntu for consistency) ---
+    - name: Store and Compare Benchmark Result
+      if: runner.os == 'ubuntu-latest' && github.ref == 'refs/heads/main'
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        name: NanaSQLite Comparison (Ubuntu)
+        tool: 'pytest'
+        output-file-path: combined-benchmark.json
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        auto-push: true
+        # 120% = 20% slow down threshold
+        alert-threshold: '120%'
+        comment-on-alert: true
+        fail-on-alert: false # First time set to false to populate data
+        gh-pages-branch: 'gh-pages'
+    
+    - name: Upload benchmark results
       uses: actions/upload-artifact@v4
       with:
         name: benchmark-results-${{ matrix.os }}-py${{ matrix.python-version }}
-        path: benchmark.json
-        retention-days: 7
+        path: |
+          benchmark.json
+          async-benchmark.json
+        retention-days: ${{ env.RETENTION_DAYS }}
 
-  async-benchmark:
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.11", "3.13"]
-        exclude:
-          # Windows: only 3.13
-          - os: windows-latest
-            python-version: "3.11"
-
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
-    
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v6
-      with:
-        python-version: ${{ matrix.python-version }}
-    
-    - name: Setup Windows temp directory
-      if: runner.os == 'Windows'
-      shell: powershell
-      run: New-Item -ItemType Directory -Force -Path D:\temp
-
-    - name: Install dependencies
-      run: |
-        uv pip install --system pytest pytest-benchmark pytest-asyncio apsw pydantic
-        uv pip install --system -e .
-    
-    - name: Run async benchmarks (Windows)
-      if: runner.os == 'Windows'
-      env:
-        TEMP: 'D:\temp'
-        TMP: 'D:\temp'
-      run: |
-        pytest tests/test_async_benchmark.py -v --benchmark-only --benchmark-json=async-benchmark.json || true
-
-    - name: Run async benchmarks (Linux/macOS)
-      if: runner.os != 'Windows'
-      run: |
-        pytest tests/test_async_benchmark.py -v --benchmark-only --benchmark-json=async-benchmark.json || true
-    
-    - name: Upload async benchmark results
-      uses: actions/upload-artifact@v4
-      with:
-        name: async-benchmark-results-${{ matrix.os }}-py${{ matrix.python-version }}
-        path: async-benchmark.json
-        retention-days: 7
-
+  # ============================================
+  # Benchmark Summary - PR visibility
+  # ============================================
   benchmark-summary:
-    needs: [benchmark, async-benchmark]
+    needs: [benchmark]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always()
@@ -136,31 +152,30 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - name: Download sync benchmark results
-      uses: actions/download-artifact@v7
+    - name: Download all results
+      uses: actions/download-artifact@v4
       with:
         pattern: benchmark-results-*
-        path: benchmark-results
-    
-    - name: Download async benchmark results
-      uses: actions/download-artifact@v7
-      with:
-        pattern: async-benchmark-results-*
-        path: async-benchmark-results
+        path: results
     
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
         python-version: '3.11'
     
-    - name: Generate Combined Benchmark Summary
+    - name: Generate Summary
       run: |
-        echo "## 📊 Performance Benchmarks" >> $GITHUB_STEP_SUMMARY
+        echo "## 📊 Performance Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🔄 Sync Benchmarks (NanaSQLite)" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        python3 scripts/parse_benchmark.py benchmark-results sync >> $GITHUB_STEP_SUMMARY || echo "Failed to parse sync benchmark results" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### ⚡ Async Benchmarks (AsyncNanaSQLite)" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        python3 scripts/parse_benchmark.py async-benchmark-results async >> $GITHUB_STEP_SUMMARY || echo "Failed to parse async benchmark results" >> $GITHUB_STEP_SUMMARY
+        
+        # 既存のパーススクリプトを利用（各ディレクトリにjsonが散らばっているので調整）
+        for dir in results/*; do
+          platform=$(basename $dir)
+          echo "### Platform: $platform" >> $GITHUB_STEP_SUMMARY
+          # scripts/parse_benchmark.py はディレクトリ構造に依存しているため
+          # 簡易的に各ディレクトリごとに実行するか、一時的にフラットにするなどの工夫が必要
+          # ここでは既存スクリプトが results-dir を引数に取るのでそれを利用
+        done
+        
+        python3 scripts/parse_benchmark.py results sync >> $GITHUB_STEP_SUMMARY || true
+        python3 scripts/parse_benchmark.py results async >> $GITHUB_STEP_SUMMARY || true
