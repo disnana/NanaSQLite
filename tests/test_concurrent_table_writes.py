@@ -2,15 +2,13 @@
 テーブル間の同時書き込みの徹底テスト
 メインテーブルとサブテーブルに同時に大量書き込みを行い、データ整合性を確認
 """
-import pytest
 import asyncio
-import tempfile
 import os
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
-import json
 
-from src.nanasqlite import NanaSQLite, AsyncNanaSQLite
+import pytest
+from src.nanasqlite import AsyncNanaSQLite, NanaSQLite
 
 
 class TestConcurrentTableWrites:

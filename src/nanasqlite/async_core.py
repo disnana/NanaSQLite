@@ -7,43 +7,44 @@ in async applications by running database operations in a thread pool.
 Example:
     >>> import asyncio
     >>> from nanasqlite import AsyncNanaSQLite
-    >>> 
+    >>>
     >>> async def main():
     ...     async with AsyncNanaSQLite("mydata.db") as db:
     ...         await db.aset("user", {"name": "Nana", "age": 20})
     ...         user = await db.aget("user")
     ...         print(user)
-    >>> 
+    >>>
     >>> asyncio.run(main())
 """
 
 from __future__ import annotations
 
-import re
 import asyncio
+import logging
 import queue
+import re
 import weakref
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from typing import Any, Dict, List, Optional, Tuple, Type
-import logging
+from typing import Any
 
 import apsw
-from .core import NanaSQLite, IDENTIFIER_PATTERN
+
+from .core import IDENTIFIER_PATTERN, NanaSQLite
 from .exceptions import NanaSQLiteClosedError, NanaSQLiteDatabaseError
 
 
 class AsyncNanaSQLite:
     """
     Async wrapper for NanaSQLite with optimized thread pool executor.
-    
+
     All database operations are executed in a dedicated thread pool executor to prevent
     blocking the async event loop. This allows NanaSQLite to be used safely
     in async applications like FastAPI, aiohttp, etc.
-    
+
     The implementation uses a configurable thread pool for optimal concurrency
     and performance in high-load scenarios.
-    
+
     Args:
         db_path: SQLiteデータベースファイルのパス
         table: 使用するテーブル名 (デフォルト: "data")
@@ -54,19 +55,19 @@ class AsyncNanaSQLite:
         max_clause_length: SQL句の最大長（ReDoS対策、v1.2.0）
         max_workers: スレッドプール内の最大ワーカー数（デフォルト: 5）
         thread_name_prefix: スレッド名のプレフィックス（デフォルト: "AsyncNanaSQLite"）
-    
+
     Example:
         >>> async with AsyncNanaSQLite("mydata.db") as db:
         ...     await db.aset("config", {"theme": "dark"})
         ...     config = await db.aget("config")
         ...     print(config)
-        
+
         >>> # 高負荷環境向けの設定
         >>> async with AsyncNanaSQLite("mydata.db", max_workers=10) as db:
         ...     # 並行処理が多い場合に最適化
         ...     results = await asyncio.gather(*[db.aget(f"key_{i}") for i in range(100)])
     """
-    
+
     def __init__(
         self,
         db_path: str,
@@ -77,9 +78,9 @@ class AsyncNanaSQLite:
         max_workers: int = 5,
         thread_name_prefix: str = "AsyncNanaSQLite",
         strict_sql_validation: bool = True,
-        allowed_sql_functions: Optional[List[str]] = None,
-        forbidden_sql_functions: Optional[List[str]] = None,
-        max_clause_length: Optional[int] = 1000,
+        allowed_sql_functions: list[str] | None = None,
+        forbidden_sql_functions: list[str] | None = None,
+        max_clause_length: int | None = 1000,
         read_pool_size: int = 0,
     ):
         """
@@ -105,7 +106,7 @@ class AsyncNanaSQLite:
         self._max_workers = max_workers
         self._thread_name_prefix = thread_name_prefix
         self._read_pool_size = read_pool_size
-        self._read_pool: Optional[queue.Queue] = None
+        self._read_pool: queue.Queue | None = None
         self._strict_sql_validation = strict_sql_validation
         self._allowed_sql_functions = allowed_sql_functions
         self._forbidden_sql_functions = forbidden_sql_functions
@@ -113,23 +114,23 @@ class AsyncNanaSQLite:
         self._closed = False
         self._child_instances = weakref.WeakSet()  # WeakSetによる弱参照追跡（死んだ参照は自動的にクリーンアップ）
         self._is_connection_owner = True
-        
+
         # 専用スレッドプールエグゼキューターを作成
         self._executor = ThreadPoolExecutor(
             max_workers=max_workers,
             thread_name_prefix=thread_name_prefix
         )
-        self._db: Optional[NanaSQLite] = None
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._db: NanaSQLite | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._owns_executor = True  # このインスタンスがエグゼキューターを所有
-    
+
     async def _ensure_initialized(self) -> None:
         """Ensure the underlying sync database is initialized"""
         if self._closed:
             if not getattr(self, "_is_connection_owner", True):
                 raise NanaSQLiteClosedError(f"Parent database connection is closed (table: {self._table!r})")
             raise NanaSQLiteClosedError("Database connection is closed")
-            
+
         if self._db is None:
             # Initialize in thread pool to avoid blocking
             loop = asyncio.get_running_loop()
@@ -152,12 +153,12 @@ class AsyncNanaSQLite:
             # Initialize Read-Only Pool if requested
             if self._read_pool_size > 0:
                 self._read_pool = queue.Queue(maxsize=self._read_pool_size)
-                
+
                 def _init_pool_connection():
                     # mode=ro (Read-Only) is mandatory for safety
                     flags = apsw.SQLITE_OPEN_READONLY | apsw.SQLITE_OPEN_URI
                     uri_path = f"file:{self._db_path}?mode=ro"
-                    
+
                     for _ in range(self._read_pool_size):
                         conn = apsw.Connection(uri_path, flags=flags)
                         # Apply optimizations to pool connections too (WAL, mmap)
@@ -191,26 +192,26 @@ class AsyncNanaSQLite:
             yield conn
         finally:
             pool.put(conn)
-    
+
     async def _run_in_executor(self, func, *args):
         """Run a synchronous function in the executor"""
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, func, *args)
-    
+
     # ==================== Async Dict-like Interface ====================
-    
+
     async def aget(self, key: str, default: Any = None) -> Any:
         """
         非同期でキーの値を取得
-        
+
         Args:
             key: 取得するキー
             default: キーが存在しない場合のデフォルト値
-        
+
         Returns:
             キーの値（存在しない場合はdefault）
-        
+
         Example:
             >>> user = await db.aget("user")
             >>> config = await db.aget("config", {})
@@ -223,15 +224,15 @@ class AsyncNanaSQLite:
             key,
             default
         )
-    
+
     async def aset(self, key: str, value: Any) -> None:
         """
         非同期でキーに値を設定
-        
+
         Args:
             key: 設定するキー
             value: 設定する値
-        
+
         Example:
             >>> await db.aset("user", {"name": "Nana", "age": 20})
         """
@@ -243,17 +244,17 @@ class AsyncNanaSQLite:
             key,
             value
         )
-    
+
     async def adelete(self, key: str) -> None:
         """
         非同期でキーを削除
-        
+
         Args:
             key: 削除するキー
-        
+
         Raises:
             KeyError: キーが存在しない場合
-        
+
         Example:
             >>> await db.adelete("old_data")
         """
@@ -264,17 +265,17 @@ class AsyncNanaSQLite:
             self._db.__delitem__,
             key
         )
-    
+
     async def acontains(self, key: str) -> bool:
         """
         非同期でキーの存在確認
-        
+
         Args:
             key: 確認するキー
-        
+
         Returns:
             キーが存在する場合True
-        
+
         Example:
             >>> if await db.acontains("user"):
             ...     print("User exists")
@@ -286,14 +287,14 @@ class AsyncNanaSQLite:
             self._db.__contains__,
             key
         )
-    
+
     async def alen(self) -> int:
         """
         非同期でデータベースの件数を取得
-        
+
         Returns:
             データベース内のキーの数
-        
+
         Example:
             >>> count = await db.alen()
         """
@@ -303,14 +304,14 @@ class AsyncNanaSQLite:
             self._executor,
             self._db.__len__
         )
-    
-    async def akeys(self) -> List[str]:
+
+    async def akeys(self) -> list[str]:
         """
         非同期で全キーを取得
-        
+
         Returns:
             全キーのリスト
-        
+
         Example:
             >>> keys = await db.akeys()
         """
@@ -320,14 +321,14 @@ class AsyncNanaSQLite:
             self._executor,
             self._db.keys
         )
-    
-    async def avalues(self) -> List[Any]:
+
+    async def avalues(self) -> list[Any]:
         """
         非同期で全値を取得
-        
+
         Returns:
             全値のリスト
-        
+
         Example:
             >>> values = await db.avalues()
         """
@@ -337,14 +338,14 @@ class AsyncNanaSQLite:
             self._executor,
             self._db.values
         )
-    
-    async def aitems(self) -> List[Tuple[str, Any]]:
+
+    async def aitems(self) -> list[tuple[str, Any]]:
         """
         非同期で全アイテムを取得
-        
+
         Returns:
             全アイテムのリスト（キーと値のタプル）
-        
+
         Example:
             >>> items = await db.aitems()
         """
@@ -354,18 +355,18 @@ class AsyncNanaSQLite:
             self._executor,
             self._db.items
         )
-    
+
     async def apop(self, key: str, *args) -> Any:
         """
         非同期でキーを削除して値を返す
-        
+
         Args:
             key: 削除するキー
             *args: デフォルト値（オプション）
-        
+
         Returns:
             削除されたキーの値
-        
+
         Example:
             >>> value = await db.apop("temp_data")
             >>> value = await db.apop("maybe_missing", "default")
@@ -378,35 +379,35 @@ class AsyncNanaSQLite:
             key,
             *args
         )
-    
+
     async def aupdate(self, mapping: dict = None, **kwargs) -> None:
         """
         非同期で複数のキーを更新
-        
+
         Args:
             mapping: 更新するキーと値のdict
             **kwargs: キーワード引数として渡す更新
-        
+
         Example:
             >>> await db.aupdate({"key1": "value1", "key2": "value2"})
             >>> await db.aupdate(key3="value3", key4="value4")
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        
+
         # Create a wrapper function that captures kwargs
         def update_wrapper():
             self._db.update(mapping, **kwargs)
-        
+
         await loop.run_in_executor(
             self._executor,
             update_wrapper
         )
-    
+
     async def aclear(self) -> None:
         """
         非同期で全データを削除
-        
+
         Example:
             >>> await db.aclear()
         """
@@ -416,18 +417,18 @@ class AsyncNanaSQLite:
             self._executor,
             self._db.clear
         )
-    
+
     async def asetdefault(self, key: str, default: Any = None) -> Any:
         """
         非同期でキーが存在しない場合のみ値を設定
-        
+
         Args:
             key: キー
             default: デフォルト値
-        
+
         Returns:
             キーの値（既存または新規設定した値）
-        
+
         Example:
             >>> value = await db.asetdefault("config", {})
         """
@@ -439,13 +440,13 @@ class AsyncNanaSQLite:
             key,
             default
         )
-    
+
     # ==================== Async Special Methods ====================
-    
+
     async def load_all(self) -> None:
         """
         非同期で全データを一括ロード
-        
+
         Example:
             >>> await db.load_all()
         """
@@ -455,14 +456,14 @@ class AsyncNanaSQLite:
             self._executor,
             self._db.load_all
         )
-    
+
     async def refresh(self, key: str = None) -> None:
         """
         非同期でキャッシュを更新
-        
+
         Args:
             key: 更新するキー（Noneの場合は全キャッシュ）
-        
+
         Example:
             >>> await db.refresh("user")
             >>> await db.refresh()  # 全キャッシュ更新
@@ -474,17 +475,17 @@ class AsyncNanaSQLite:
             self._db.refresh,
             key
         )
-    
+
     async def is_cached(self, key: str) -> bool:
         """
         非同期でキーがキャッシュ済みか確認
-        
+
         Args:
             key: 確認するキー
-        
+
         Returns:
             キャッシュ済みの場合True
-        
+
         Example:
             >>> cached = await db.is_cached("user")
         """
@@ -495,14 +496,14 @@ class AsyncNanaSQLite:
             self._db.is_cached,
             key
         )
-    
-    async def batch_update(self, mapping: Dict[str, Any]) -> None:
+
+    async def batch_update(self, mapping: dict[str, Any]) -> None:
         """
         非同期で一括書き込み（高速）
-        
+
         Args:
             mapping: 書き込むキーと値のdict
-        
+
         Example:
             >>> await db.batch_update({
             ...     "key1": "value1",
@@ -517,14 +518,14 @@ class AsyncNanaSQLite:
             self._db.batch_update,
             mapping
         )
-    
-    async def batch_delete(self, keys: List[str]) -> None:
+
+    async def batch_delete(self, keys: list[str]) -> None:
         """
         非同期で一括削除（高速）
-        
+
         Args:
             keys: 削除するキーのリスト
-        
+
         Example:
             >>> await db.batch_delete(["key1", "key2", "key3"])
         """
@@ -535,14 +536,14 @@ class AsyncNanaSQLite:
             self._db.batch_delete,
             keys
         )
-    
+
     async def to_dict(self) -> dict:
         """
         非同期で全データをPython dictとして取得
-        
+
         Returns:
             全データを含むdict
-        
+
         Example:
             >>> data = await db.to_dict()
         """
@@ -552,14 +553,14 @@ class AsyncNanaSQLite:
             self._executor,
             self._db.to_dict
         )
-    
+
     async def copy(self) -> dict:
         """
         非同期で浅いコピーを作成
-        
+
         Returns:
             全データのコピー
-        
+
         Example:
             >>> data_copy = await db.copy()
         """
@@ -569,18 +570,18 @@ class AsyncNanaSQLite:
             self._executor,
             self._db.copy
         )
-    
+
     async def get_fresh(self, key: str, default: Any = None) -> Any:
         """
         非同期でDBから直接読み込み、キャッシュを更新
-        
+
         Args:
             key: 取得するキー
             default: キーが存在しない場合のデフォルト値
-        
+
         Returns:
             DBから取得した最新の値
-        
+
         Example:
             >>> value = await db.get_fresh("key")
         """
@@ -593,16 +594,16 @@ class AsyncNanaSQLite:
             default
         )
 
-    async def abatch_get(self, keys: List[str]) -> Dict[str, Any]:
+    async def abatch_get(self, keys: list[str]) -> dict[str, Any]:
         """
         非同期で複数のキーを一度に取得
-        
+
         Args:
             keys: 取得するキーのリスト
-            
+
         Returns:
             取得に成功したキーと値の dict
-            
+
         Example:
             >>> results = await db.abatch_get(["key1", "key2"])
         """
@@ -615,15 +616,15 @@ class AsyncNanaSQLite:
         )
 
     # ==================== Async Pydantic Support ====================
-    
+
     async def set_model(self, key: str, model: Any) -> None:
         """
         非同期でPydanticモデルを保存
-        
+
         Args:
             key: 保存するキー
             model: Pydanticモデルのインスタンス
-        
+
         Example:
             >>> from pydantic import BaseModel
             >>> class User(BaseModel):
@@ -640,18 +641,18 @@ class AsyncNanaSQLite:
             key,
             model
         )
-    
-    async def get_model(self, key: str, model_class: Type = None) -> Any:
+
+    async def get_model(self, key: str, model_class: type = None) -> Any:
         """
         非同期でPydanticモデルを取得
-        
+
         Args:
             key: 取得するキー
             model_class: Pydanticモデルのクラス
-        
+
         Returns:
             Pydanticモデルのインスタンス
-        
+
         Example:
             >>> user = await db.get_model("user", User)
         """
@@ -663,22 +664,22 @@ class AsyncNanaSQLite:
             key,
             model_class
         )
-    
 
-    
+
+
     # ==================== Async SQL Execution ====================
-    
-    async def execute(self, sql: str, parameters: Optional[Tuple] = None) -> Any:
+
+    async def execute(self, sql: str, parameters: tuple | None = None) -> Any:
         """
         非同期でSQLを直接実行
-        
+
         Args:
             sql: 実行するSQL文
             parameters: SQLのパラメータ
-        
+
         Returns:
             APSWのCursorオブジェクト
-        
+
         Example:
             >>> cursor = await db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
         """
@@ -690,15 +691,15 @@ class AsyncNanaSQLite:
             sql,
             parameters
         )
-    
-    async def execute_many(self, sql: str, parameters_list: List[tuple]) -> None:
+
+    async def execute_many(self, sql: str, parameters_list: list[tuple]) -> None:
         """
         非同期でSQLを複数のパラメータで一括実行
-        
+
         Args:
             sql: 実行するSQL文
             parameters_list: パラメータのリスト
-        
+
         Example:
             >>> await db.execute_many(
             ...     "INSERT OR REPLACE INTO custom (id, name) VALUES (?, ?)",
@@ -713,23 +714,23 @@ class AsyncNanaSQLite:
             sql,
             parameters_list
         )
-    
-    async def fetch_one(self, sql: str, parameters: tuple = None) -> Optional[tuple]:
+
+    async def fetch_one(self, sql: str, parameters: tuple = None) -> tuple | None:
         """
         非同期でSQLを実行して1行取得
-        
+
         Args:
             sql: 実行するSQL文
             parameters: SQLのパラメータ
-        
+
         Returns:
             1行の結果（tuple）
-        
+
         Example:
             >>> row = await db.fetch_one("SELECT value FROM data WHERE key = ?", ("user",))
         """
         await self._ensure_initialized()
-        
+
         def _fetch_one_impl():
             with self._read_connection() as conn:
                 cursor = conn.execute(sql, parameters)
@@ -740,23 +741,23 @@ class AsyncNanaSQLite:
             self._executor,
             _fetch_one_impl
         )
-    
-    async def fetch_all(self, sql: str, parameters: tuple = None) -> List[tuple]:
+
+    async def fetch_all(self, sql: str, parameters: tuple = None) -> list[tuple]:
         """
         非同期でSQLを実行して全行取得
-        
+
         Args:
             sql: 実行するSQL文
             parameters: SQLのパラメータ
-        
+
         Returns:
             全行の結果（tupleのリスト）
-        
+
         Example:
             >>> rows = await db.fetch_all("SELECT key, value FROM data WHERE key LIKE ?", ("user%",))
         """
         await self._ensure_initialized()
-        
+
         def _fetch_all_impl():
             with self._read_connection() as conn:
                 cursor = conn.execute(sql, parameters)
@@ -767,9 +768,9 @@ class AsyncNanaSQLite:
             self._executor,
             _fetch_all_impl
         )
-    
+
     # ==================== Async SQLite Wrapper Functions ====================
-    
+
     async def create_table(
         self,
         table_name: str,
@@ -779,13 +780,13 @@ class AsyncNanaSQLite:
     ) -> None:
         """
         非同期でテーブルを作成
-        
+
         Args:
             table_name: テーブル名
             columns: カラム定義のdict
             if_not_exists: Trueの場合、存在しない場合のみ作成
             primary_key: プライマリキーのカラム名
-        
+
         Example:
             >>> await db.create_table("users", {
             ...     "id": "INTEGER PRIMARY KEY",
@@ -803,25 +804,25 @@ class AsyncNanaSQLite:
             if_not_exists,
             primary_key
         )
-    
+
     async def create_index(
         self,
         index_name: str,
         table_name: str,
-        columns: List[str],
+        columns: list[str],
         unique: bool = False,
         if_not_exists: bool = True
     ) -> None:
         """
         非同期でインデックスを作成
-        
+
         Args:
             index_name: インデックス名
             table_name: テーブル名
             columns: インデックスを作成するカラムのリスト
             unique: Trueの場合、ユニークインデックスを作成
             if_not_exists: Trueの場合、存在しない場合のみ作成
-        
+
         Example:
             >>> await db.create_index("idx_users_email", "users", ["email"], unique=True)
         """
@@ -836,23 +837,23 @@ class AsyncNanaSQLite:
             unique,
             if_not_exists
         )
-    
+
     async def query(
         self,
         table_name: str = None,
-        columns: List[str] = None,
+        columns: list[str] = None,
         where: str = None,
         parameters: tuple = None,
         order_by: str = None,
         limit: int = None,
         strict_sql_validation: bool = None,
-        allowed_sql_functions: List[str] = None,
-        forbidden_sql_functions: List[str] = None,
+        allowed_sql_functions: list[str] = None,
+        forbidden_sql_functions: list[str] = None,
         override_allowed: bool = False
-    ) -> List[dict]:
+    ) -> list[dict]:
         """
         非同期でSELECTクエリを実行
-        
+
         Args:
             table_name: テーブル名
             columns: 取得するカラムのリスト
@@ -864,10 +865,10 @@ class AsyncNanaSQLite:
             allowed_sql_functions: このクエリで一時的に許可するSQL関数のリスト
             forbidden_sql_functions: このクエリで一時的に禁止するSQL関数のリスト
             override_allowed: Trueの場合、インスタンス許可設定を無視
-        
+
         Returns:
             結果のリスト（各行はdict）
-        
+
         Example:
             >>> results = await db.query(
             ...     table_name="users",
@@ -879,7 +880,7 @@ class AsyncNanaSQLite:
             ... )
         """
         await self._ensure_initialized()
-        
+
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
@@ -898,17 +899,17 @@ class AsyncNanaSQLite:
             override_allowed
         )
 
-    async def query_with_pagination(self, table_name: str = None, columns: List[str] = None,
+    async def query_with_pagination(self, table_name: str = None, columns: list[str] = None,
                                    where: str = None, parameters: tuple = None,
-                                   order_by: str = None, limit: int = None, 
+                                   order_by: str = None, limit: int = None,
                                    offset: int = None, group_by: str = None,
                                    strict_sql_validation: bool = None,
-                                   allowed_sql_functions: List[str] = None,
-                                   forbidden_sql_functions: List[str] = None,
-                                   override_allowed: bool = False) -> List[dict]:
+                                   allowed_sql_functions: list[str] = None,
+                                   forbidden_sql_functions: list[str] = None,
+                                   override_allowed: bool = False) -> list[dict]:
         """
         非同期で拡張されたクエリを実行
-        
+
         Args:
             table_name: テーブル名
             columns: 取得するカラム
@@ -922,10 +923,10 @@ class AsyncNanaSQLite:
             allowed_sql_functions: このクエリで一時的に許可するSQL関数のリスト
             forbidden_sql_functions: このクエリで一時的に禁止するSQL関数のリスト
             override_allowed: Trueの場合、インスタンス許可設定を無視
-        
+
         Returns:
             結果のリスト（各行はdict）
-        
+
         Example:
             >>> results = await db.query_with_pagination(
             ...     table_name="users",
@@ -957,17 +958,17 @@ class AsyncNanaSQLite:
             forbidden_sql_functions,
             override_allowed
         )
-    
+
     async def table_exists(self, table_name: str) -> bool:
         """
         非同期でテーブルの存在確認
-        
+
         Args:
             table_name: テーブル名
-        
+
         Returns:
             存在する場合True
-        
+
         Example:
             >>> exists = await db.table_exists("users")
         """
@@ -978,14 +979,14 @@ class AsyncNanaSQLite:
             self._db.table_exists,
             table_name
         )
-    
-    async def list_tables(self) -> List[str]:
+
+    async def list_tables(self) -> list[str]:
         """
         非同期でデータベース内の全テーブル一覧を取得
-        
+
         Returns:
             テーブル名のリスト
-        
+
         Example:
             >>> tables = await db.list_tables()
         """
@@ -995,15 +996,15 @@ class AsyncNanaSQLite:
             self._executor,
             self._db.list_tables
         )
-    
+
     async def drop_table(self, table_name: str, if_exists: bool = True) -> None:
         """
         非同期でテーブルを削除
-        
+
         Args:
             table_name: テーブル名
             if_exists: Trueの場合、存在する場合のみ削除
-        
+
         Example:
             >>> await db.drop_table("old_table")
         """
@@ -1015,15 +1016,15 @@ class AsyncNanaSQLite:
             table_name,
             if_exists
         )
-    
+
     async def drop_index(self, index_name: str, if_exists: bool = True) -> None:
         """
         非同期でインデックスを削除
-        
+
         Args:
             index_name: インデックス名
             if_exists: Trueの場合、存在する場合のみ削除
-        
+
         Example:
             >>> await db.drop_index("idx_users_email")
         """
@@ -1035,18 +1036,18 @@ class AsyncNanaSQLite:
             index_name,
             if_exists
         )
-    
+
     async def sql_insert(self, table_name: str, data: dict) -> int:
         """
         非同期でdictから直接INSERT
-        
+
         Args:
             table_name: テーブル名
             data: カラム名と値のdict
-        
+
         Returns:
             挿入されたROWID
-        
+
         Example:
             >>> rowid = await db.sql_insert("users", {
             ...     "name": "Alice",
@@ -1062,7 +1063,7 @@ class AsyncNanaSQLite:
             table_name,
             data
         )
-    
+
     async def sql_update(
         self,
         table_name: str,
@@ -1072,16 +1073,16 @@ class AsyncNanaSQLite:
     ) -> int:
         """
         非同期でdictとwhere条件でUPDATE
-        
+
         Args:
             table_name: テーブル名
             data: 更新するカラム名と値のdict
             where: WHERE句の条件
             parameters: WHERE句のパラメータ
-        
+
         Returns:
             更新された行数
-        
+
         Example:
             >>> count = await db.sql_update("users",
             ...     {"age": 26, "status": "active"},
@@ -1099,19 +1100,19 @@ class AsyncNanaSQLite:
             where,
             parameters
         )
-    
+
     async def sql_delete(self, table_name: str, where: str, parameters: tuple = None) -> int:
         """
         非同期でwhere条件でDELETE
-        
+
         Args:
             table_name: テーブル名
             where: WHERE句の条件
             parameters: WHERE句のパラメータ
-        
+
         Returns:
             削除された行数
-        
+
         Example:
             >>> count = await db.sql_delete("users", "age < ?", (18,))
         """
@@ -1124,16 +1125,16 @@ class AsyncNanaSQLite:
             where,
             parameters
         )
-    
-    async def count(self, table_name: str = None, where: str = None, 
+
+    async def count(self, table_name: str = None, where: str = None,
                    parameters: tuple = None,
                    strict_sql_validation: bool = None,
-                   allowed_sql_functions: List[str] = None,
-                   forbidden_sql_functions: List[str] = None,
+                   allowed_sql_functions: list[str] = None,
+                   forbidden_sql_functions: list[str] = None,
                    override_allowed: bool = False) -> int:
         """
         非同期でレコード数を取得
-        
+
         Args:
             table_name: テーブル名
             where: WHERE句の条件
@@ -1142,10 +1143,10 @@ class AsyncNanaSQLite:
             allowed_sql_functions: このクエリで一時的に許可するSQL関数のリスト
             forbidden_sql_functions: このクエリで一時的に禁止するSQL関数のリスト
             override_allowed: Trueの場合、インスタンス許可設定を無視
-        
+
         Returns:
             レコード数
-        
+
         Example:
             >>> count = await db.count("users", "age < ?", (18,))
         """
@@ -1162,11 +1163,11 @@ class AsyncNanaSQLite:
             forbidden_sql_functions,
             override_allowed
         )
-    
+
     async def vacuum(self) -> None:
         """
         非同期でデータベースを最適化（VACUUM実行）
-        
+
         Example:
             >>> await db.vacuum()
         """
@@ -1176,7 +1177,7 @@ class AsyncNanaSQLite:
             self._executor,
             self._db.vacuum
         )
-    
+
     # ==================== Transaction Control ====================
 
     async def begin_transaction(self) -> None:
@@ -1258,23 +1259,23 @@ class AsyncNanaSQLite:
         return _AsyncTransactionContext(self)
 
     # ==================== Context Manager Support ====================
-    
+
     async def __aenter__(self):
         """Async context manager entry"""
         await self._ensure_initialized()
         return self
-    
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit"""
         await self.close()
         return False
-    
+
     async def close(self) -> None:
         """
         非同期でデータベース接続を閉じる
-        
+
         スレッドプールエグゼキューターもシャットダウンします。
-        
+
         Example:
             >>> await db.close()
         """
@@ -1288,14 +1289,14 @@ class AsyncNanaSQLite:
                 self._db.close
             )
             self._db = None
-        
+
         self._closed = True
-        
+
         # 子インスタンスに通知
         for child in self._child_instances:
             child._mark_parent_closed()
         self._child_instances.clear()
-        
+
         # Close Read-Only Pool
         if self._read_pool:
             while True:
@@ -1322,13 +1323,13 @@ class AsyncNanaSQLite:
                         e,
                     )
             self._read_pool = None
-        
+
         # 所有しているエグゼキューターをシャットダウン（ノンブロッキング）
         if self._owns_executor and self._executor is not None:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self._executor.shutdown, True)
             self._executor = None
-    
+
     def _mark_parent_closed(self) -> None:
         """親インスタンスが閉じられた際に呼ばれる"""
         self._closed = True
@@ -1337,24 +1338,24 @@ class AsyncNanaSQLite:
         for child in self._child_instances:
             child._mark_parent_closed()
         self._child_instances.clear()
-    
+
     def __repr__(self) -> str:
         if self._db is not None:
             return f"AsyncNanaSQLite({self._db_path!r}, table={self._table!r}, max_workers={self._max_workers}, initialized=True)"
         return f"AsyncNanaSQLite({self._db_path!r}, table={self._table!r}, max_workers={self._max_workers}, initialized=False)"
-    
+
     # ==================== Sync DB Access (for advanced use) ====================
-    
+
     @property
-    def sync_db(self) -> Optional[NanaSQLite]:
+    def sync_db(self) -> NanaSQLite | None:
         """
         同期DBインスタンスへのアクセス（上級者向け）
-        
+
         Warning:
             このプロパティは上級者向けです。
             非同期コンテキストで同期操作を行うとイベントループがブロックされる可能性があります。
             通常は非同期メソッドを使用してください。
-        
+
         Returns:
             内部のNanaSQLiteインスタンス
         """
@@ -1435,7 +1436,7 @@ class AsyncNanaSQLite:
 
     # ==================== Async Method Aliases (Consistency & Stability) ====================
     # For a fully 'a'-prefixed API and compatibility with all tests/benchmarks
-    
+
     aload_all = load_all
     arefresh = refresh
     ais_cached = is_cached
@@ -1466,7 +1467,7 @@ class AsyncNanaSQLite:
     def _shared_query_impl(
         self,
         table_name: str,
-        columns: List[str],
+        columns: list[str],
         where: str,
         parameters: tuple,
         order_by: str,
@@ -1474,10 +1475,10 @@ class AsyncNanaSQLite:
         offset: int = None,
         group_by: str = None,
         strict_sql_validation: bool = None,
-        allowed_sql_functions: List[str] = None,
-        forbidden_sql_functions: List[str] = None,
+        allowed_sql_functions: list[str] = None,
+        forbidden_sql_functions: list[str] = None,
         override_allowed: bool = False
-    ) -> List[dict]:
+    ) -> list[dict]:
         """Internal shared implementation for query execution"""
         target_table = self._db._sanitize_identifier(table_name) if table_name else self._db._table
 

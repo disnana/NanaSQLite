@@ -7,34 +7,34 @@ Example:
     >>> db["user"] = {"name": "Nana", "age": 20}
     >>> print(db["user"])
     {'name': 'Nana', 'age': 20}
-    
+
 Async Example:
     >>> import asyncio
     >>> from nanasqlite import AsyncNanaSQLite
-    >>> 
+    >>>
     >>> async def main():
     ...     async with AsyncNanaSQLite("mydata.db") as db:
     ...         await db.aset("user", {"name": "Nana", "age": 20})
     ...         user = await db.aget("user")
     ...         print(user)
-    >>> 
+    >>>
     >>> asyncio.run(main())
 """
 
-from .core import NanaSQLite
 from .async_core import AsyncNanaSQLite
+from .core import NanaSQLite
 from .exceptions import (
-    NanaSQLiteError,
-    NanaSQLiteValidationError,
-    NanaSQLiteDatabaseError,
-    NanaSQLiteTransactionError,
-    NanaSQLiteConnectionError,
-    NanaSQLiteLockError,
     NanaSQLiteCacheError,
     NanaSQLiteClosedError,
+    NanaSQLiteConnectionError,
+    NanaSQLiteDatabaseError,
+    NanaSQLiteError,
+    NanaSQLiteLockError,
+    NanaSQLiteTransactionError,
+    NanaSQLiteValidationError,
 )
 
-__version__ = "1.2.0"
+__version__ = "1.2.1b1"
 __author__ = "Disnana"
 __all__ = [
     "NanaSQLite",

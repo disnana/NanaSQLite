@@ -34,6 +34,8 @@ jobs:
           # Windows: only 3.13
           - os: windows-latest
             python-version: "3.11"
+          - os: macos-latest
+            python-version: "3.11"
 
     steps:
     - uses: actions/checkout@v4
