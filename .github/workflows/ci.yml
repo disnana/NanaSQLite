@@ -1,0 +1,395 @@
+name: CI
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - 'tox.ini'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - 'tox.ini'
+      - '.github/workflows/ci.yml'
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: 1
+  TOX_TESTENV_PASSENV: FORCE_COLOR
+  DEFAULT_PYTHON_VERSION: "3.11"
+
+jobs:
+  # ============================================
+  # Lint Job - All branches
+  # ============================================
+  lint:
+    name: Lint (Ruff)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ env.DEFAULT_PYTHON_VERSION }}
+    
+    - name: Install tox
+      run: pip install tox
+    
+    - name: Run python -m tox -e lint
+      run: python -m tox -e lint
+
+  # ============================================
+  # Type Check Job - All branches
+  # ============================================
+  type:
+    name: Type Check (mypy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ env.DEFAULT_PYTHON_VERSION }}
+    
+    - name: Install tox
+      run: pip install tox
+    
+    - name: Run python -m tox -e type
+      run: python -m tox -e type
+
+  # ============================================
+  # Test Job - Matrix based on branch
+  # main: Python 3.9-3.14 × all OS
+  # other: Python 3.13 × each OS (limited)
+  # ============================================
+  test:
+    name: Test (py${{ matrix.python-version }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # Main branch: full matrix
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ${{ github.ref == 'refs/heads/main' && fromJSON('["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]') || fromJSON('["3.13"]') }}
+        exclude:
+          # macOS: limit versions for speed (skip 3.10, 3.12, 3.14)
+          - os: macos-latest
+            python-version: "3.10"
+          - os: macos-latest
+            python-version: "3.12"
+          - os: macos-latest
+            python-version: "3.14"
+          # Windows: limit versions for speed (skip 3.10, 3.12, 3.14)
+          - os: windows-latest
+            python-version: "3.10"
+          - os: windows-latest
+            python-version: "3.12"
+          - os: windows-latest
+            python-version: "3.14"
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    # Windows: TEMP optimization
+    - name: Setup Windows temp directory
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: New-Item -ItemType Directory -Force -Path D:\temp
+
+    - name: Install dependencies
+      run: |
+        uv pip install --system pytest pytest-asyncio pytest-xdist apsw pydantic
+        uv pip install --system -e .
+
+    # Windows: TEMP optimization + fixed parallelism
+    - name: Run tests (Windows)
+      if: runner.os == 'Windows'
+      env:
+        TEMP: 'D:\temp'
+        TMP: 'D:\temp'
+      run: |
+        pytest tests/ -v --tb=short --junitxml=test-results.xml -n 4 --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py
+
+    # Linux/macOS: auto parallelism
+    - name: Run tests (Linux/macOS)
+      if: runner.os != 'Windows'
+      run: |
+        pytest tests/ -v --tb=short --junitxml=test-results.xml -n auto --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results-${{ matrix.os }}-py${{ matrix.python-version }}
+        path: test-results.xml
+        retention-days: 7
+
+  # ============================================
+  # All-Green Summary - Always runs
+  # ============================================
+  summary:
+    name: ✅ All Checks
+    needs: [lint, type, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    if: always()
+    steps:
+    - name: Check job results
+      run: |
+        echo "Lint: ${{ needs.lint.result }}"
+        echo "Type: ${{ needs.type.result }}"
+        echo "Test: ${{ needs.test.result }}"
+        
+        if [ "${{ needs.lint.result }}" != "success" ] || \
+           [ "${{ needs.type.result }}" != "success" ] || \
+           [ "${{ needs.test.result }}" != "success" ]; then
+          echo "Some checks failed"
+          exit 1
+        fi
+        echo "All checks passed!"
+
+    - name: Generate Summary
+      if: always()
+      run: |
+        echo "## 🔍 CI Pipeline Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+        
+        # Lint status
+        if [ "${{ needs.lint.result }}" == "success" ]; then
+          echo "| 🧹 Lint (ruff) | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| 🧹 Lint (ruff) | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Type status
+        if [ "${{ needs.type.result }}" == "success" ]; then
+          echo "| 🔍 Type (mypy) | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| 🔍 Type (mypy) | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Test status
+        if [ "${{ needs.test.result }}" == "success" ]; then
+          echo "| 🧪 Tests | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| 🧪 Tests | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "🚀 **Main branch** - Ready for release if all checks pass" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📋 Local Commands" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+        echo "python -m tox -e lint    # Ruff linter" >> $GITHUB_STEP_SUMMARY
+        echo "python -m tox -e type    # mypy type check" >> $GITHUB_STEP_SUMMARY
+        echo "pytest tests/            # Run tests" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================
+  # Check Version - Main branch only
+  # ============================================
+  check-version:
+    name: Check Version
+    needs: [summary]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && needs.summary.result == 'success'
+    outputs:
+      should_publish: ${{ steps.check.outputs.should_publish }}
+      local_version: ${{ steps.check.outputs.local_version }}
+      pypi_version: ${{ steps.check.outputs.pypi_version }}
+      is_prerelease: ${{ steps.check.outputs.is_prerelease }}
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ env.DEFAULT_PYTHON_VERSION }}
+    
+    - name: Check version difference
+      id: check
+      run: |
+        # Get local version from __init__.py
+        LOCAL_VERSION=$(grep -oP '__version__\s*=\s*"\K[^"]+' src/nanasqlite/__init__.py || echo "0.0.0")
+        echo "local_version=$LOCAL_VERSION" >> $GITHUB_OUTPUT
+        echo "Local version: $LOCAL_VERSION"
+        
+        # Detect prerelease (alpha/beta/rc/dev)
+        if [[ "$LOCAL_VERSION" =~ (a|alpha|b|beta|rc|dev) ]]; then
+          echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          echo "⚠️ Prerelease version detected"
+        else
+          echo "is_prerelease=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # Check if version exists on PyPI
+        if curl -s "https://pypi.org/pypi/nanasqlite/${LOCAL_VERSION}/json" 2>/dev/null | grep -q '"version"'; then
+          PYPI_VERSION="$LOCAL_VERSION"
+          echo "PyPI version: $PYPI_VERSION (exact match found)"
+          echo "should_publish=false" >> $GITHUB_OUTPUT
+          echo "✅ Version $LOCAL_VERSION already on PyPI, skipping publish"
+        else
+          # Get latest version
+          PYPI_VERSION=$(curl -s https://pypi.org/pypi/nanasqlite/json 2>/dev/null | grep -oP '"version"\s*:\s*"\K[^"]+' | head -1 || echo "0.0.0")
+          if [ -z "$PYPI_VERSION" ]; then
+            PYPI_VERSION="0.0.0"
+          fi
+          echo "PyPI version: $PYPI_VERSION (latest)"
+          echo "should_publish=true" >> $GITHUB_OUTPUT
+          echo "📦 New version detected: $LOCAL_VERSION"
+        fi
+        echo "pypi_version=$PYPI_VERSION" >> $GITHUB_OUTPUT
+
+  # ============================================
+  # Build - Main branch only, new version only
+  # ============================================
+  build:
+    name: Build Package
+    needs: [check-version]
+    if: needs.check-version.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+    
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ env.DEFAULT_PYTHON_VERSION }}
+    
+    - name: Install build tools
+      run: uv pip install --system build
+    
+    - name: Build package
+      run: python -m build
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: dist
+        path: dist/
+        retention-days: 7
+
+  # ============================================
+  # Publish - Main branch only, new version only
+  # ============================================
+  publish:
+    name: Publish to PyPI
+    needs: [check-version, build]
+    if: needs.check-version.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    
+    steps:
+    - name: Download build artifacts
+      uses: actions/download-artifact@v7
+      with:
+        name: dist
+        path: dist/
+    
+    - name: Publish to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+
+  # ============================================
+  # Release - Main branch only, after publish
+  # ============================================
+  release:
+    name: GitHub Release
+    needs: [check-version, build, publish]
+    if: needs.check-version.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download build artifacts
+      uses: actions/download-artifact@v7
+      with:
+        name: dist
+        path: dist/
+    
+    - name: Create source zip
+      run: |
+        zip -r nanasqlite-${{ needs.check-version.outputs.local_version }}-src.zip src/ README.md LICENSE pyproject.toml
+    
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ needs.check-version.outputs.local_version }}
+        name: v${{ needs.check-version.outputs.local_version }}
+        body: |
+          ## NanaSQLite v${{ needs.check-version.outputs.local_version }}
+          
+          ### インストール / Installation
+          ```bash
+          pip install nanasqlite==${{ needs.check-version.outputs.local_version }}
+          ```
+          
+          ### ダウンロード / Downloads
+          - 📦 **wheel**: ビルド済みパッケージ
+          - 📁 **tar.gz**: ソース配布物
+          - 🗂️ **src.zip**: ソースコードのみ
+          
+          詳細は [CHANGELOG.md](CHANGELOG.md) を参照してください。
+        files: |
+          dist/*
+          nanasqlite-${{ needs.check-version.outputs.local_version }}-src.zip
+        draft: false
+        prerelease: ${{ needs.check-version.outputs.is_prerelease == 'true' }}
+    
+    - name: Release Summary
+      run: |
+        echo "## 🎉 Release Complete" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Version:** v${{ needs.check-version.outputs.local_version }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Published to:" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ PyPI" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ GitHub Releases" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+        echo "pip install nanasqlite==${{ needs.check-version.outputs.local_version }}" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
