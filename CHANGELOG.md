@@ -11,7 +11,7 @@
 #### 開発ツール
 - **CI/CDワークフローの統合**:
   - `lint.yml`, `test.yml`, `publish.yml`, `quality-gate.yml` を一つの `ci.yml` に統合。
-  - リリリースサマリーにPyPIとGitHub Releaseへの直接リンクを追加。
+  - リリースサマリーにPyPIとGitHub Releaseへの直接リンク、詳細なジョブステータス（Cancelled/Skipped対応）を追加。
 - **テスト環境の最適化**:
   - CIテストマトリックスを調整。Ubuntuは全バージョン、Windows/macOSは利用率の高い Python 3.11および3.13に絞り込み、実行時間を短縮。
   - dev依存関係に `pytest-xdist` を追加し、並列テストをサポート。
@@ -362,7 +362,7 @@
 #### Development Tools
 - **CI/CD Workflow Consolidation**:
   - Consolidated `lint.yml`, `test.yml`, `publish.yml`, and `quality-gate.yml` into a single `ci.yml`.
-  - Added direct links to PyPI and GitHub Release in the final release summary.
+  - Added direct links to PyPI and GitHub Release, and detailed job statuses (Cancelled/Skipped support) in the final summary.
 - **Test Environment Optimization**:
   - Refined the CI test matrix. Ubuntu runs all versions, while Windows/macOS focus on popular versions (3.11 and 3.13) to reduce execution time.
   - Added `pytest-xdist` to dev dependencies for parallel testing support.
