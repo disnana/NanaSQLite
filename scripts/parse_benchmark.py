@@ -85,11 +85,10 @@ def format_time(ms):
         return f"{ms / 1000:.2f}s"
 
 
-def format_ops(ms):
+def format_ops(ops):
     """1秒あたりの操作回数(Ops/sec)をフォーマット"""
-    if ms <= 0:
+    if ops <= 0:
         return "0"
-    ops = 1000.0 / ms
     if ops >= 1000000:
         return f"{ops / 1000000:.2f}M"
     elif ops >= 1000:
@@ -243,15 +242,18 @@ def main():
         for b in data.get('benchmarks', []):
             name = b['name'].split('::')[-1]
             mean = b['stats']['mean'] * 1000  # ms
+            ops = b['stats'].get('ops', 0)    # raw ops/sec
             
             test_data[name]['by_os'][os_name].append({
                 'py': py_version,
-                'mean': mean
+                'mean': mean,
+                'ops': ops
             })
             test_data[name]['all_means'].append({
                 'os': os_name,
                 'py': py_version,
-                'mean': mean
+                'mean': mean,
+                'ops': ops
             })
     
     if not test_data:
@@ -266,11 +268,16 @@ def main():
     test_averages = []
     for test_name, data in test_data.items():
         means = [x['mean'] for x in data['all_means']]
+        ops_list = [x['ops'] for x in data['all_means']]
+        
         avg = sum(means) / len(means) if means else 0
+        avg_ops = sum(ops_list) / len(ops_list) if ops_list else 0
+        
         fastest = min(data['all_means'], key=lambda x: x['mean']) if data['all_means'] else None
         test_averages.append({
             'name': test_name,
             'avg': avg,
+            'ops': avg_ops,
             'fastest': fastest
         })
     
@@ -283,9 +290,9 @@ def main():
     for i, item in enumerate(sorted_by_speed[:10], 1):
         fastest_str = f"{item['fastest']['os']} py{item['fastest']['py']}" if item['fastest'] else "-"
         prev_ops = previous_data.get(item['name'])
-        current_ops = 1000.0 / item['avg'] if item['avg'] > 0 else 0
+        current_ops = item['ops']
         diff_str, _ = format_diff_ops(current_ops, prev_ops)
-        print(f"| {i} | {item['name']} | {format_time(item['avg'])} | {format_ops(item['avg'])} | {diff_str} | {fastest_str} |")
+        print(f"| {i} | {item['name']} | {format_time(item['avg'])} | {format_ops(current_ops)} | {diff_str} | {fastest_str} |")
     
     print()
     
@@ -299,9 +306,9 @@ def main():
         slowest = max(test_data[item['name']]['all_means'], key=lambda x: x['mean']) if test_data[item['name']]['all_means'] else None
         slowest_str = f"{slowest['os']} py{slowest['py']}" if slowest else "-"
         prev_ops = previous_data.get(item['name'])
-        current_ops = 1000.0 / item['avg'] if item['avg'] > 0 else 0
+        current_ops = item['ops']
         diff_str, _ = format_diff_ops(current_ops, prev_ops)
-        print(f"| {i} | {item['name']} | {format_time(item['avg'])} | {format_ops(item['avg'])} | {diff_str} | {slowest_str} |")
+        print(f"| {i} | {item['name']} | {format_time(item['avg'])} | {format_ops(current_ops)} | {diff_str} | {slowest_str} |")
     
     print()
     
@@ -310,18 +317,27 @@ def main():
     for test_name, data in test_data.items():
         category = categorize_test(test_name)
         means = [x['mean'] for x in data['all_means']]
-        avg = sum(means) / len(means) if means else 0
+        ops_list = [x['ops'] for x in data['all_means']]
         
-        # OS別の平均値を計算
-        os_avgs = {}
+        avg = sum(means) / len(means) if means else 0
+        avg_ops = sum(ops_list) / len(ops_list) if ops_list else 0
+        
+        # OS別の統計を計算
+        os_stats = {}
         for os_name in sorted_os:
-            os_means = [x['mean'] for x in data['by_os'].get(os_name, [])]
-            os_avgs[os_name] = sum(os_means) / len(os_means) if os_means else None
+            entries = data['by_os'].get(os_name, [])
+            if entries:
+                mean_avg = sum(x['mean'] for x in entries) / len(entries)
+                ops_avg = sum(x['ops'] for x in entries) / len(entries)
+                os_stats[os_name] = {'mean': mean_avg, 'ops': ops_avg}
+            else:
+                os_stats[os_name] = None
         
         categories[category].append({
             'name': test_name,
             'avg': avg,
-            'os_avgs': os_avgs
+            'ops': avg_ops,
+            'os_stats': os_stats
         })
     
     print("#### 📋 Results by Category\n")
@@ -341,17 +357,17 @@ def main():
         for test in tests_sorted:
             os_values = []
             for os_name in sorted_os:
-                val = test['os_avgs'].get(os_name)
-                if val:
-                    os_values.append(f"{format_time(val)}<br>({format_ops(val)})")
+                stats = test['os_stats'].get(os_name)
+                if stats:
+                    os_values.append(f"{format_time(stats['mean'])}<br>({format_ops(stats['ops'])})")
                 else:
                     os_values.append("-")
             
             os_cells = " | ".join(os_values)
             prev_ops = previous_data.get(test['name'])
-            current_ops = 1000.0 / test['avg'] if test['avg'] > 0 else 0
+            current_ops = test['ops']
             diff_str, _ = format_diff_ops(current_ops, prev_ops)
-            print(f"| {test['name']} | {format_time(test['avg'])} | {format_ops(test['avg'])} | {diff_str} | {os_cells} |")
+            print(f"| {test['name']} | {format_time(test['avg'])} | {format_ops(current_ops)} | {diff_str} | {os_cells} |")
         
         print("\n</details>\n")
     
@@ -369,7 +385,7 @@ def main():
         for item in test_averages:
             prev_ops = previous_data.get(item['name'])
             if prev_ops and prev_ops > 0 and item['avg'] > 0:
-                current_ops = 1000.0 / item['avg']
+                current_ops = item['ops']
                 # change_pct: positive = faster (improvement), negative = slower (regression)
                 change_pct = ((current_ops / prev_ops) - 1) * 100
                 
@@ -404,6 +420,14 @@ def main():
 
 
 if __name__ == '__main__':
+    # Ensure UTF-8 output for Windows to handle emojis correctly
+    if sys.stdout.encoding != 'utf-8':
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except AttributeError:
+            # Python < 3.7 doesn't support reconfigure, but we target >= 3.9
+            pass
+
     try:
         exit_code = main()
         sys.exit(exit_code)
