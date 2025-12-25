@@ -69,6 +69,7 @@ with NanaSQLite("mydata.db") as db:
 
 - [English Documentation](docs/en/README.md)
 - [API Reference](docs/en/reference.md)
+- [Benchmark Results](https://disnana.github.io/NanaSQLite/dev/bench/)
 - [Migration Guide (v1.1.x to v1.2.0)](MIGRATION_GUIDE.md)
 - [Development Guide](DEVELOPMENT_GUIDE.md)
 
@@ -462,6 +463,7 @@ with NanaSQLite("mydata.db") as db:
 
 - [日本語ドキュメント](docs/ja/README.md)
 - [APIリファレンス](docs/ja/reference.md)
+- [ベンチマーク結果](https://disnana.github.io/NanaSQLite/dev/bench/)
 - [移行ガイド (v1.1.x から v1.2.0)](MIGRATION_GUIDE.md)
 - [開発ガイド](DEVELOPMENT_GUIDE.md)
 
