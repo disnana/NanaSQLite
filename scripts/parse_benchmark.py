@@ -6,8 +6,13 @@ New format:
 - Category-based grouping with collapsible sections
 - OS comparison in horizontal format
 - Performance diff vs previous run (when available)
+
+Environment Variables:
+    BENCHMARK_REGRESSION_THRESHOLD: Percentage threshold for severe regression (default: 20)
+                                    If any test is slower than this threshold, exit with code 2.
 """
 import json
+import os
 import subprocess
 import sys
 from collections import defaultdict
@@ -57,12 +62,9 @@ def load_previous_benchmark():
                     if '::' in name:
                         name = name.split('::')[-1]
                     if name:
-                        # value is in iter/sec, convert to ms: 1000 / (iter/sec) = ms/iter
+                        # Store ops/sec directly for comparison
                         iter_per_sec = bench.get('value', 0)
-                        if iter_per_sec > 0:
-                            previous[name] = 1000.0 / iter_per_sec  # Convert iter/sec to ms
-                        else:
-                            previous[name] = 0
+                        previous[name] = iter_per_sec  # Keep as ops/sec
         
         return previous
     except Exception:
@@ -96,33 +98,56 @@ def format_ops(ms):
         return f"{ops:.1f}"
 
 
-def format_diff(current_ms, previous_ms):
-    """Format performance difference with emoji indicator."""
-    if previous_ms is None or previous_ms <= 0:
-        return "-"
+def format_diff_ops(current_ops, previous_ops):
+    """Format performance difference based on ops/sec.
     
-    diff_ms = current_ms - previous_ms
-    diff_pct = ((current_ms / previous_ms) - 1) * 100
+    Higher ops/sec = better performance.
+    Returns tuple of (formatted_string, improvement_percentage)
+    
+    Display convention:
+      +X% (+Y ops) = X% faster (improvement, more ops/sec)
+      -X% (-Y ops) = X% slower (regression, fewer ops/sec)
+    """
+    if previous_ops is None or previous_ops <= 0:
+        return "-", 0
+    
+    if current_ops <= 0:
+        return "🔴 N/A", -100
+    
+    # Calculate percentage change in ops/sec
+    # Positive = faster (more ops), Negative = slower (fewer ops)
+    change_pct = ((current_ops / previous_ops) - 1) * 100
+    ops_diff = current_ops - previous_ops
     
     # Determine emoji based on performance change
-    if diff_pct <= -5:
-        emoji = "🚀"  # Significant improvement
-    elif diff_pct <= -1:
+    if change_pct >= 5:
+        emoji = "🚀"  # Significant improvement (5%+ faster)
+    elif change_pct >= 1:
         emoji = "✅"  # Minor improvement
-    elif diff_pct < 1:
+    elif change_pct > -1:
         emoji = "➖"  # No change
-    elif diff_pct < 5:
+    elif change_pct > -5:
         emoji = "⚠️"  # Minor regression
     else:
-        emoji = "🔴"  # Significant regression
+        emoji = "🔴"  # Significant regression (5%+ slower)
     
-    # Format the difference string
-    if diff_ms >= 0:
+    # Format ops difference with appropriate unit
+    def format_ops_diff(ops):
+        abs_ops = abs(ops)
+        if abs_ops >= 1000000:
+            return f"{ops/1000000:+.1f}M"
+        elif abs_ops >= 1000:
+            return f"{ops/1000:+.1f}k"
+        else:
+            return f"{ops:+.0f}"
+    
+    # Format: positive = faster (good), negative = slower (bad)
+    if change_pct >= 0:
         sign = "+"
     else:
         sign = ""
     
-    return f"{emoji} {sign}{diff_pct:.1f}%"
+    return f"{emoji} {sign}{change_pct:.1f}% ({format_ops_diff(ops_diff)})", change_pct
 
 
 def categorize_test(test_name):
@@ -257,8 +282,9 @@ def main():
     
     for i, item in enumerate(sorted_by_speed[:10], 1):
         fastest_str = f"{item['fastest']['os']} py{item['fastest']['py']}" if item['fastest'] else "-"
-        prev_ms = previous_data.get(item['name'])
-        diff_str = format_diff(item['avg'], prev_ms)
+        prev_ops = previous_data.get(item['name'])
+        current_ops = 1000.0 / item['avg'] if item['avg'] > 0 else 0
+        diff_str, _ = format_diff_ops(current_ops, prev_ops)
         print(f"| {i} | {item['name']} | {format_time(item['avg'])} | {format_ops(item['avg'])} | {diff_str} | {fastest_str} |")
     
     print()
@@ -272,8 +298,9 @@ def main():
     for i, item in enumerate(sorted_by_slow[:10], 1):
         slowest = max(test_data[item['name']]['all_means'], key=lambda x: x['mean']) if test_data[item['name']]['all_means'] else None
         slowest_str = f"{slowest['os']} py{slowest['py']}" if slowest else "-"
-        prev_ms = previous_data.get(item['name'])
-        diff_str = format_diff(item['avg'], prev_ms)
+        prev_ops = previous_data.get(item['name'])
+        current_ops = 1000.0 / item['avg'] if item['avg'] > 0 else 0
+        diff_str, _ = format_diff_ops(current_ops, prev_ops)
         print(f"| {i} | {item['name']} | {format_time(item['avg'])} | {format_ops(item['avg'])} | {diff_str} | {slowest_str} |")
     
     print()
@@ -321,8 +348,9 @@ def main():
                     os_values.append("-")
             
             os_cells = " | ".join(os_values)
-            prev_ms = previous_data.get(test['name'])
-            diff_str = format_diff(test['avg'], prev_ms)
+            prev_ops = previous_data.get(test['name'])
+            current_ops = 1000.0 / test['avg'] if test['avg'] > 0 else 0
+            diff_str, _ = format_diff_ops(current_ops, prev_ops)
             print(f"| {test['name']} | {format_time(test['avg'])} | {format_ops(test['avg'])} | {diff_str} | {os_cells} |")
         
         print("\n</details>\n")
@@ -339,15 +367,18 @@ def main():
         regression_threshold = float(os.environ.get('BENCHMARK_REGRESSION_THRESHOLD', '20'))
         
         for item in test_averages:
-            prev_ms = previous_data.get(item['name'])
-            if prev_ms and prev_ms > 0:
-                diff_pct = ((item['avg'] / prev_ms) - 1) * 100
-                if diff_pct <= -1:
+            prev_ops = previous_data.get(item['name'])
+            if prev_ops and prev_ops > 0 and item['avg'] > 0:
+                current_ops = 1000.0 / item['avg']
+                # change_pct: positive = faster (improvement), negative = slower (regression)
+                change_pct = ((current_ops / prev_ops) - 1) * 100
+                
+                if change_pct >= 1:
                     improvements += 1
-                elif diff_pct >= regression_threshold:
+                elif change_pct <= -regression_threshold:
                     severe_regressions += 1
                     regressions += 1
-                elif diff_pct >= 1:
+                elif change_pct <= -1:
                     regressions += 1
                 else:
                     unchanged += 1
@@ -373,7 +404,6 @@ def main():
 
 
 if __name__ == '__main__':
-    import os
     try:
         exit_code = main()
         sys.exit(exit_code)
@@ -382,4 +412,3 @@ if __name__ == '__main__':
         import traceback
         traceback.print_exc()
         sys.exit(1)
-
