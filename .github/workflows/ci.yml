@@ -2,8 +2,11 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:  # Manual trigger for other branches
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -31,37 +34,29 @@ jobs:
     - name: Check changed files
       id: check
       run: |
-        # For main branch: always run
+        # workflow_dispatch: always run
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          echo "run_ci=true" >> $GITHUB_OUTPUT
+          echo "Manual trigger - CI required"
+          exit 0
+        fi
+
+        # For main branch push: always run
         if [ "${{ github.ref }}" == "refs/heads/main" ]; then
           echo "run_ci=true" >> $GITHUB_OUTPUT
           echo "Main branch - CI required"
           exit 0
         fi
 
-        # For PRs targeting main: always run
-        if [ "${{ github.base_ref }}" == "main" ]; then
+        # For PRs: always run
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
           echo "run_ci=true" >> $GITHUB_OUTPUT
-          echo "PR to main - CI required"
+          echo "PR - CI required"
           exit 0
         fi
 
-        # For other cases: check if relevant files changed
-        if [ "${{ github.event_name }}" == "pull_request" ]; then
-          BASE_SHA="${{ github.event.pull_request.base.sha }}"
-        else
-          BASE_SHA="${{ github.event.before }}"
-        fi
-
-        CHANGED_FILES=$(git diff --name-only $BASE_SHA ${{ github.sha }} 2>/dev/null || echo "")
-        
-        # Check if any relevant files changed
-        if echo "$CHANGED_FILES" | grep -qE '^(src/|tests/|pyproject\.toml|tox\.ini|\.github/workflows/ci\.yml)'; then
-          echo "run_ci=true" >> $GITHUB_OUTPUT
-          echo "Relevant files changed - CI required"
-        else
-          echo "run_ci=false" >> $GITHUB_OUTPUT
-          echo "No relevant files changed - CI skipped"
-        fi
+        # Default: run
+        echo "run_ci=true" >> $GITHUB_OUTPUT
 
   # ============================================
   # Lint Job - All branches
