@@ -57,7 +57,12 @@ def load_previous_benchmark():
                     if '::' in name:
                         name = name.split('::')[-1]
                     if name:
-                        previous[name] = bench.get('value', 0) / 1000  # Convert to ms
+                        # value is in iter/sec, convert to ms: 1000 / (iter/sec) = ms/iter
+                        iter_per_sec = bench.get('value', 0)
+                        if iter_per_sec > 0:
+                            previous[name] = 1000.0 / iter_per_sec  # Convert iter/sec to ms
+                        else:
+                            previous[name] = 0
         
         return previous
     except Exception:
