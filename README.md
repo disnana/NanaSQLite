@@ -4,7 +4,7 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/nanasqlite.svg)](https://pypi.org/project/nanasqlite/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Downloads](https://static.pepy.tech/badge/nanasqlite)](https://pepy.tech/project/nanasqlite)
-[![Tests](https://github.com/disnana/nanasqlite/actions/workflows/test.yml/badge.svg)](https://github.com/disnana/nanasqlite/actions/workflows/test.yml)
+[![Tests](https://github.com/disnana/nanasqlite/actions/workflows/ci.yml/badge.svg)](https://github.com/disnana/nanasqlite/actions/workflows/ci.yml)
 
 **A dict-like SQLite wrapper with instant persistence and intelligent caching.**
 
