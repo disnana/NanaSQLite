@@ -391,8 +391,8 @@ jobs:
         echo "**Version:** v${{ needs.check-version.outputs.local_version }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Published to:" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ PyPI" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ GitHub Releases" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ [PyPI](https://pypi.org/project/nanasqlite/${{ needs.check-version.outputs.local_version }}/)" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ [GitHub Release](https://github.com/${{ github.repository }}/releases/tag/v${{ needs.check-version.outputs.local_version }})" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
         echo "pip install nanasqlite==${{ needs.check-version.outputs.local_version }}" >> $GITHUB_STEP_SUMMARY

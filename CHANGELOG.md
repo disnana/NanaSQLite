@@ -6,7 +6,17 @@
 
 ## 日本語
 
-### [1.2.1b1] - 2025-12-25
+### [1.2.1b2] - 2025-12-25
+
+#### 開発ツール
+- **CI/CDワークフローの統合**:
+  - `lint.yml`, `test.yml`, `publish.yml`, `quality-gate.yml` を一つの `ci.yml` に統合。
+  - リリリースサマリーにPyPIとGitHub Releaseへの直接リンクを追加。
+- **テスト環境の最適化**:
+  - CIテストマトリックスを調整。Ubuntuは全バージョン、Windows/macOSは利用率の高い Python 3.11および3.13に絞り込み、実行時間を短縮。
+  - dev依存関係に `pytest-xdist` を追加し、並列テストをサポート。
+- **型チェックの改善**:
+  - mypy設定の緩和と整理により、156件の型エラーを解消（`--no-strict-optional` の導入とエラーコードの個別制御）。
 
 #### 開発ツール
 - **リント・CI環境の追加**:
@@ -347,7 +357,17 @@
 
 ## English
 
-### [1.2.1b1] - 2025-12-25
+### [1.2.1b2] - 2025-12-25
+
+#### Development Tools
+- **CI/CD Workflow Consolidation**:
+  - Consolidated `lint.yml`, `test.yml`, `publish.yml`, and `quality-gate.yml` into a single `ci.yml`.
+  - Added direct links to PyPI and GitHub Release in the final release summary.
+- **Test Environment Optimization**:
+  - Refined the CI test matrix. Ubuntu runs all versions, while Windows/macOS focus on popular versions (3.11 and 3.13) to reduce execution time.
+  - Added `pytest-xdist` to dev dependencies for parallel testing support.
+- **Type Checking Improvements**:
+  - Resolved 156 mypy errors by refining the configuration (introduced `--no-strict-optional` and fine-tuned error code controls).
 
 #### Development Tools
 - **Lint & CI Environment**:
