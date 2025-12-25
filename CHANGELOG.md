@@ -6,6 +6,20 @@
 
 ## 日本語
 
+### [1.2.2a1] - 2025-12-26
+
+#### 開発ツール (ベンチマーク・CI/CD)
+- **ベンチマークの性能比較ロジックを修正**:
+  - 比較計算を Ops/sec ベースに統一し、速度向上時に正しく `+`（🚀/✅）が表示されるように改善。
+  - サマリーテーブルに Ops/sec の絶対値の差分（例: `+2.1M ops`）を追加。
+  - 0.001ms 未満の微小な時間計測結果に対して `ns` (nanoseconds) 単位を正しく表示。
+  - 絵文字（🚀, ✅, ➖, ⚠️, 🔴）による直感的なパフォーマンス評価を追加。
+- **CI/CDワークフローの最適化**:
+  - `benchmark.yml`: GitHub Actions ランナーの性能ばらつき（10-60%）を考慮し、ベンチマークを「情報提供のみ」に変更。性能低下による CI 失敗を防止。
+  - `ci.yml`: トリガーを最適化し、`push` による自動実行を `main` ブランチのみに限定。他ブランチは `workflow_dispatch` で手動実行可能に。
+  - `should-run` ジョブの判定ロジックを簡略化。
+
+
 ### [1.2.1b2] - 2025-12-25
 
 #### 開発ツール
@@ -356,6 +370,20 @@
 ---
 
 ## English
+
+### [1.2.2a1] - 2025-12-26
+
+#### Development Tools (Benchmarks & CI/CD)
+- **Fixed Benchmark Comparison Logic**:
+  - Standardized comparison to use ops/sec; higher values now correctly show as positive (🚀/✅) improvements.
+  - Added absolute ops/sec difference (e.g., `+2.1M ops`) to the performance summary table.
+  - Corrected time formatting for sub-microsecond values to explicitly use `ns` (nanoseconds).
+  - Introduced status emojis (🚀, ✅, ➖, ⚠️, 🔴) for quick visual performance assessment.
+- **Workflow Optimizations**:
+  - `benchmark.yml`: Changed benchmarks to be informational-only to prevent CI failures caused by GitHub Actions runner performance variance (~10-60%).
+  - `ci.yml`: Optimized triggers by restricting automatic `push` runs to the `main` branch. Added `workflow_dispatch` for manual runs on other branches.
+  - Simplified `should-run` check logic.
+
 
 ### [1.2.1b2] - 2025-12-25
 
