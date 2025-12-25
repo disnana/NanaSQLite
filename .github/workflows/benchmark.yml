@@ -2,15 +2,8 @@ name: NanaSQLite Benchmarks
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - 'src/**'
-      - 'scripts/parse_benchmark.py'
-      - '.github/workflows/benchmark.yml'
   pull_request:
-    paths:
-      - 'src/**'
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 concurrency:
@@ -22,7 +15,56 @@ permissions:
   deployments: write
 
 jobs:
+  # ============================================
+  # Should-Run Check - Determines if benchmarks needed
+  # ============================================
+  should-run:
+    name: Check if Benchmark needed
+    runs-on: ubuntu-latest
+    outputs:
+      run_benchmark: ${{ steps.check.outputs.run_benchmark }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Check changed files
+      id: check
+      run: |
+        # For workflow_dispatch: always run
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          echo "run_benchmark=true" >> $GITHUB_OUTPUT
+          echo "workflow_dispatch - Benchmark required"
+          exit 0
+        fi
+
+        # For main branch: always run
+        if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+          echo "run_benchmark=true" >> $GITHUB_OUTPUT
+          echo "Main branch - Benchmark required"
+          exit 0
+        fi
+
+        # For PRs: check if src/ changed
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+        else
+          BASE_SHA="${{ github.event.before }}"
+        fi
+
+        CHANGED_FILES=$(git diff --name-only $BASE_SHA ${{ github.sha }} 2>/dev/null || echo "")
+        
+        # Check if src/ files changed
+        if echo "$CHANGED_FILES" | grep -qE '^src/'; then
+          echo "run_benchmark=true" >> $GITHUB_OUTPUT
+          echo "src/ changed - Benchmark required"
+        else
+          echo "run_benchmark=false" >> $GITHUB_OUTPUT
+          echo "No src/ changes - Benchmark skipped"
+        fi
   benchmark:
+    needs: should-run
+    if: needs.should-run.outputs.run_benchmark == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -79,6 +121,8 @@ jobs:
         retention-days: 7
 
   async-benchmark:
+    needs: should-run
+    if: needs.should-run.outputs.run_benchmark == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -135,54 +179,85 @@ jobs:
         retention-days: 7
 
   benchmark-summary:
-    needs: [benchmark, async-benchmark]
+    needs: [should-run, benchmark, async-benchmark]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always()
     
     steps:
+    - name: Skip Summary (No src changes)
+      if: needs.should-run.outputs.run_benchmark != 'true'
+      run: |
+        echo "## 📊 Performance Benchmarks" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "⏭️ **Benchmarks skipped** - No changes in \`src/\` directory" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Benchmarks only run when source code is modified." >> $GITHUB_STEP_SUMMARY
+
     - uses: actions/checkout@v4
+      if: needs.should-run.outputs.run_benchmark == 'true'
       with:
         fetch-depth: 0
         token: ${{ secrets.GITHUB_TOKEN }}
     
-    - name: Fetch gh-pages branch
-      if: github.ref == 'refs/heads/main'
+    - name: Fetch gh-pages branch for comparison
+      if: needs.should-run.outputs.run_benchmark == 'true'
       run: |
-        git fetch origin gh-pages:gh-pages || echo "gh-pages branch not found, will be created"
+        git fetch origin gh-pages:gh-pages || echo "gh-pages branch not found (first run)"
     
     - name: Download sync benchmark results
+      if: needs.should-run.outputs.run_benchmark == 'true'
       uses: actions/download-artifact@v4
       with:
         pattern: benchmark-results-*
         path: benchmark-results
     
     - name: Download async benchmark results
+      if: needs.should-run.outputs.run_benchmark == 'true'
       uses: actions/download-artifact@v4
       with:
         pattern: async-benchmark-results-*
         path: async-benchmark-results
     
     - name: Set up Python
+      if: needs.should-run.outputs.run_benchmark == 'true'
       uses: actions/setup-python@v6
       with:
         python-version: '3.11'
     
     - name: Generate Combined Benchmark Summary
+      id: benchmark-results
+      if: needs.should-run.outputs.run_benchmark == 'true'
+      env:
+        BENCHMARK_REGRESSION_THRESHOLD: '20'  # Fail if any test is >20% slower
       run: |
         echo "## 📊 Performance Benchmarks" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 🔄 Sync Benchmarks (NanaSQLite)" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        python3 scripts/parse_benchmark.py benchmark-results sync >> $GITHUB_STEP_SUMMARY || echo "Failed to parse sync benchmark results" >> $GITHUB_STEP_SUMMARY
+        
+        SYNC_EXIT=0
+        python3 scripts/parse_benchmark.py benchmark-results sync >> $GITHUB_STEP_SUMMARY || SYNC_EXIT=$?
+        
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### ⚡ Async Benchmarks (AsyncNanaSQLite)" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        python3 scripts/parse_benchmark.py async-benchmark-results async >> $GITHUB_STEP_SUMMARY || echo "Failed to parse async benchmark results" >> $GITHUB_STEP_SUMMARY
+        
+        ASYNC_EXIT=0
+        python3 scripts/parse_benchmark.py async-benchmark-results async >> $GITHUB_STEP_SUMMARY || ASYNC_EXIT=$?
+        
+        # Exit with error if either benchmark shows significant regression
+        if [ "$SYNC_EXIT" -eq 2 ] || [ "$ASYNC_EXIT" -eq 2 ]; then
+          echo ""
+          echo "❌ **Performance regression detected!** Some tests are >20% slower than baseline." >> $GITHUB_STEP_SUMMARY
+          echo "has_regression=true" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+        echo "has_regression=false" >> $GITHUB_OUTPUT
 
-    # --- Performance Regression Detection (Only on main branch) ---
+    # --- Performance Regression Detection (Only on main branch when benchmarks ran) ---
     - name: Merge all results for comparison
-      if: github.ref == 'refs/heads/main'
+      if: github.ref == 'refs/heads/main' && needs.should-run.outputs.run_benchmark == 'true'
       run: |
         python3 -c "
         import json
@@ -221,7 +296,7 @@ jobs:
         "
 
     - name: Store and Compare Benchmark Result
-      if: github.ref == 'refs/heads/main'
+      if: github.ref == 'refs/heads/main' && needs.should-run.outputs.run_benchmark == 'true'
       uses: benchmark-action/github-action-benchmark@v1
       with:
         name: NanaSQLite Performance
