@@ -72,8 +72,10 @@ def load_previous_benchmark():
 def format_time(ms):
     """時間を適切な単位でフォーマット"""
     if ms < 0.001:
-        return f"{ms * 1000000:.2f}µs"
+        # 1 ms = 1,000,000 ns, so ms * 1,000,000 = ns
+        return f"{ms * 1000000:.2f}ns"
     elif ms < 1:
+        # 1 ms = 1,000 µs, so ms * 1,000 = µs
         return f"{ms * 1000:.2f}µs"
     elif ms < 1000:
         return f"{ms:.3f}ms"
@@ -326,11 +328,15 @@ def main():
         print("\n</details>\n")
     
     # ========== Summary Stats ==========
+    has_significant_regression = False
     if test_averages:
         improvements = 0
         regressions = 0
+        severe_regressions = 0  # >20% slower
         unchanged = 0
         no_data = 0
+        
+        regression_threshold = float(os.environ.get('BENCHMARK_REGRESSION_THRESHOLD', '20'))
         
         for item in test_averages:
             prev_ms = previous_data.get(item['name'])
@@ -338,6 +344,9 @@ def main():
                 diff_pct = ((item['avg'] / prev_ms) - 1) * 100
                 if diff_pct <= -1:
                     improvements += 1
+                elif diff_pct >= regression_threshold:
+                    severe_regressions += 1
+                    regressions += 1
                 elif diff_pct >= 1:
                     regressions += 1
                 else:
@@ -351,16 +360,26 @@ def main():
             print(f"- 🚀 **Improved**: {improvements} tests")
             print(f"- ➖ **Unchanged**: {unchanged} tests")
             print(f"- ⚠️ **Regressed**: {regressions} tests")
+            if severe_regressions > 0:
+                print(f"- 🔴 **Severe (>{regression_threshold:.0f}%)**: {severe_regressions} tests")
+                has_significant_regression = True
             if no_data > 0:
                 print(f"- ❓ **No previous data**: {no_data} tests")
             print()
+    
+    # Return exit code 2 if significant regression detected
+    # (exit code 1 is reserved for errors)
+    return 2 if has_significant_regression else 0
 
 
 if __name__ == '__main__':
+    import os
     try:
-        main()
+        exit_code = main()
+        sys.exit(exit_code)
     except Exception as e:
         print(f"Error parsing benchmark results: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc()
         sys.exit(1)
+
