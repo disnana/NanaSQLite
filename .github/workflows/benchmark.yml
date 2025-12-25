@@ -231,7 +231,7 @@ jobs:
       run: |
         echo "## 📊 Performance Benchmarks" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "> ⚠️ **Note**: GitHub Actions runners have ~10-60% performance variance. These results are informational only." >> $GITHUB_STEP_SUMMARY
+        echo "> ⚠️ **Note**: GitHub Actions runners have performance variance. These results are informational only." >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 🔄 Sync Benchmarks (NanaSQLite)" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
