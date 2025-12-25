@@ -3,13 +3,14 @@
 """
 
 import pytest
+
 from nanasqlite import (
     NanaSQLite,
-    NanaSQLiteError,
-    NanaSQLiteValidationError,
-    NanaSQLiteDatabaseError,
-    NanaSQLiteTransactionError,
     NanaSQLiteConnectionError,
+    NanaSQLiteDatabaseError,
+    NanaSQLiteError,
+    NanaSQLiteTransactionError,
+    NanaSQLiteValidationError,
 )
 
 

@@ -11,22 +11,20 @@ from __future__ import annotations
 
 import json
 import re
-import warnings
-from contextlib import contextmanager
-from typing import Any, Dict, Iterator, List, Literal, Optional, Set, Tuple, Type
-from collections.abc import MutableMapping
-import apsw
 import threading
+import warnings
 import weakref
+from collections.abc import Iterator, MutableMapping
+from typing import Any, Literal
+
+import apsw
 
 from .exceptions import (
-    NanaSQLiteError,
-    NanaSQLiteValidationError,
+    NanaSQLiteClosedError,
+    NanaSQLiteConnectionError,
     NanaSQLiteDatabaseError,
     NanaSQLiteTransactionError,
-    NanaSQLiteConnectionError,
-    NanaSQLiteLockError,
-    NanaSQLiteClosedError,
+    NanaSQLiteValidationError,
 )
 from .sql_utils import sanitize_sql_for_function_scan
 
@@ -37,10 +35,10 @@ IDENTIFIER_PATTERN = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 class NanaSQLite(MutableMapping):
     """
     APSW SQLite-backed dict wrapper with Security and Connection Enhancements (v1.2.0).
-    
+
     内部でPython dictを保持し、操作時にSQLiteとの同期を行う。
     v1.2.0では、動的SQLのバリデーション強化、ReDoS対策、および厳格な接続管理が導入されています。
-    
+
     Args:
         db_path: SQLiteデータベースファイルのパス
         table: 使用するテーブル名 (デフォルト: "data")
@@ -48,15 +46,15 @@ class NanaSQLite(MutableMapping):
         strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否 (v1.2.0)
         max_clause_length: SQL句の最大長（ReDoS対策、v1.2.0）
     """
-    
+
     def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
                  optimize: bool = True, cache_size_mb: int = 64,
                  strict_sql_validation: bool = True,
-                 allowed_sql_functions: Optional[List[str]] = None,
-                 forbidden_sql_functions: Optional[List[str]] = None,
-                 max_clause_length: Optional[int] = 1000,
-                 _shared_connection: Optional[apsw.Connection] = None,
-                 _shared_lock: Optional[threading.RLock] = None):
+                 allowed_sql_functions: list[str] | None = None,
+                 forbidden_sql_functions: list[str] | None = None,
+                 max_clause_length: int | None = 1000,
+                 _shared_connection: apsw.Connection | None = None,
+                 _shared_lock: threading.RLock | None = None):
         """
         Args:
             db_path: SQLiteデータベースファイルのパス
@@ -73,8 +71,8 @@ class NanaSQLite(MutableMapping):
         """
         self._db_path: str = db_path
         self._table: str = table
-        self._data: Dict[str, Any] = {}  # 内部dict（メモリキャッシュ）
-        self._cached_keys: Set[str] = set()  # キャッシュ済みキーの追跡
+        self._data: dict[str, Any] = {}  # 内部dict（メモリキャッシュ）
+        self._cached_keys: set[str] = set()  # キャッシュ済みキーの追跡
         self._all_loaded: bool = False  # 全データ読み込み済みフラグ
 
         # セキュリティ設定
@@ -85,7 +83,7 @@ class NanaSQLite(MutableMapping):
 
         # デフォルトで許可されるSQL関数
         self._default_allowed_functions = {
-            "COUNT", "SUM", "AVG", "MIN", "MAX", "ABS", "UPPER", "LOWER", 
+            "COUNT", "SUM", "AVG", "MIN", "MAX", "ABS", "UPPER", "LOWER",
             "LENGTH", "ROUND", "COALESCE", "IFNULL", "NULLIF", "STRFTIME",
             "DATE", "TIME", "DATETIME", "JULIANDAY"
         }
@@ -130,11 +128,11 @@ class NanaSQLite(MutableMapping):
         # 一括ロード
         if bulk_load:
             self.load_all()
-    
+
     def _apply_optimizations(self, cache_size_mb: int = 64) -> None:
         """
         APSWの高速化設定を適用
-        
+
         - WALモード: 書き込み並行性向上、30ms+ -> 1ms以下に改善
         - synchronous=NORMAL: 安全性を保ちつつ高速化
         - mmap: メモリマップドI/Oで読み込み高速化
@@ -142,37 +140,37 @@ class NanaSQLite(MutableMapping):
         - temp_store=MEMORY: 一時テーブルをメモリに
         """
         cursor = self._connection.cursor()
-        
+
         # WALモード（Write-Ahead Logging）- 書き込み高速化の核心
         cursor.execute("PRAGMA journal_mode = WAL")
-        
+
         # synchronous=NORMAL: WALモードでは安全かつ高速
         cursor.execute("PRAGMA synchronous = NORMAL")
-        
+
         # メモリマップドI/O（256MB）- 読み込み高速化
         cursor.execute("PRAGMA mmap_size = 268435456")
-        
+
         # キャッシュサイズ（負の値=KB単位）
         cache_kb = cache_size_mb * 1024
         cursor.execute(f"PRAGMA cache_size = -{cache_kb}")
-        
+
         # 一時テーブルをメモリに
         cursor.execute("PRAGMA temp_store = MEMORY")
-        
+
         # ページサイズ最適化（新規DBのみ効果あり）
         cursor.execute("PRAGMA page_size = 4096")
-    
+
     @staticmethod
     def _sanitize_identifier(identifier: str) -> str:
         """
         SQLiteの識別子（テーブル名、カラム名など）を検証
-        
+
         Args:
             identifier: 検証する識別子
-        
+
         Returns:
             検証済み識別子（ダブルクォートで囲まれる）
-        
+
         Raises:
             NanaSQLiteValidationError: 識別子が無効な場合
 
@@ -191,12 +189,12 @@ class NanaSQLite(MutableMapping):
                 f"Invalid identifier '{identifier}': must start with letter or underscore "
                 "and contain only alphanumeric characters and underscores"
             )
-        
+
         # SQLiteではダブルクォートで囲むことで識別子をエスケープ
         return f'"{identifier}"'
-    
+
     # ==================== Private Methods ====================
-    
+
     def __hash__(self):
         # MutableMapping inhibits hashing by default because it's mutable.
         # However, we need identity-based hashing to track instances in WeakSet.
@@ -210,16 +208,16 @@ class NanaSQLite(MutableMapping):
     def __eq__(self, other):
         """
         辞書のような等価性比較を実装
-        
+
         他のマッピング（dictやMutableMapping）との比較では内容ベースの比較を行い、
         それ以外では同一性（is）での比較を行う。
-        
+
         Args:
             other: 比較対象のオブジェクト
-        
+
         Returns:
             bool: 等価な場合True、そうでない場合False
-        
+
         Raises:
             NanaSQLiteClosedError: 接続が閉じられている場合
         """
@@ -248,17 +246,17 @@ class NanaSQLite(MutableMapping):
             )
 
     def _validate_expression(
-        self, 
-        expr: Optional[str], 
-        strict: Optional[bool] = None,
-        allowed: Optional[List[str]] = None,
-        forbidden: Optional[List[str]] = None,
+        self,
+        expr: str | None,
+        strict: bool | None = None,
+        allowed: list[str] | None = None,
+        forbidden: list[str] | None = None,
         override_allowed: bool = False,
-        context: Optional[Literal["order_by", "group_by", "where", "column"]] = None
+        context: Literal["order_by", "group_by", "where", "column"] | None = None
     ) -> None:
         """
         SQL表現（ORDER BY, GROUP BY, 列名等）を検証。
-        
+
         Args:
             expr: 検証するSQL表現
             strict: 強制停止モード。Noneの場合はインスタンス設定を使用。
@@ -266,7 +264,7 @@ class NanaSQLite(MutableMapping):
             forbidden: 今回のクエリで明示的に禁止する関数。
             override_allowed: Trueの場合、インスタンス許可設定を無視して今回のallowedのみ参照。
             context: エラーメッセージのコンテキスト ("order_by", "group_by", "where", "column")
-            
+
         Raises:
             NanaSQLiteValidationError: strict=True かつ不適切な表現の場合
             UserWarning: strict=False かつ不適切な表現の場合（実行は許可）
@@ -279,7 +277,7 @@ class NanaSQLite(MutableMapping):
         # We use a combined message to satisfy both test_security.py ("Potentially dangerous...")
         # and test_security_additions.py ("Invalid...")
         warning_text = "Potentially dangerous SQL pattern"
-        
+
         context_labels = {
             "order_by": "order_by clause",
             "group_by": "group_by clause",
@@ -287,7 +285,7 @@ class NanaSQLite(MutableMapping):
             "column": "column name",
         }
         label = context_labels.get(context)
-        
+
         # Standardize format: "Invalid [label]: [warning_text]" (or "Invalid: [warning_text]" if no label)
         # This satisfies both legacy and new security tests.
         if label:
@@ -301,14 +299,14 @@ class NanaSQLite(MutableMapping):
             (r'/\*', full_msg),
             (r'\b(DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER)\b', full_msg),
         ]
-        
+
         for pattern, msg in dangerous_patterns:
             if re.search(pattern, str(expr), re.IGNORECASE):
                 # Block highly dangerous patterns in strict mode, but only warn in non-strict
                 if strict or (strict is None and self.strict_sql_validation):
                     raise ValueError(msg)
                 else:
-                    warnings.warn(msg, UserWarning)
+                    warnings.warn(msg, UserWarning, stacklevel=2)
 
         # 1. 長さ制限 (ReDoS対策)
         max_len = self.max_clause_length
@@ -317,7 +315,7 @@ class NanaSQLite(MutableMapping):
             if strict or (strict is None and self.strict_sql_validation):
                 raise NanaSQLiteValidationError(msg)
             else:
-                warnings.warn(msg, UserWarning)
+                warnings.warn(msg, UserWarning, stacklevel=2)
 
         # 2. 禁止リストの整理 (メソッド指定を優先、なければインスタンス設定)
         forbidden_list = set(forbidden) if forbidden is not None else self.forbidden_sql_functions
@@ -326,7 +324,7 @@ class NanaSQLite(MutableMapping):
             if strict or (strict is None and self.strict_sql_validation):
                 raise NanaSQLiteValidationError(msg)
             else:
-                warnings.warn(msg, UserWarning)
+                warnings.warn(msg, UserWarning, stacklevel=2)
                 return
 
         # 3. 許可リストの整理
@@ -334,10 +332,10 @@ class NanaSQLite(MutableMapping):
         if not override_allowed:
             effective_allowed.update(self._default_allowed_functions)
             effective_allowed.update(self.allowed_sql_functions)
-        
+
         if allowed:
             effective_allowed.update(allowed)
-            
+
         # 禁止リストに含まれるものは許可から削除
         effective_allowed -= forbidden_list
 
@@ -346,19 +344,19 @@ class NanaSQLite(MutableMapping):
         # これにより、SELECT 'COUNT(' ... のようなパターンでの誤検知を防ぐ
         sanitized_expr = sanitize_sql_for_function_scan(expr)
         matches = re.findall(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*\(', sanitized_expr)
-        
+
         for func in matches:
             func_upper = func.upper()
-            
+
             # 明示的に禁止されている場合
             if func_upper in forbidden_list:
                 msg = f"SQL function '{func_upper}' is explicitly forbidden."
                 if strict or (strict is None and self.strict_sql_validation):
                     raise NanaSQLiteValidationError(msg)
                 else:
-                    warnings.warn(msg, UserWarning)
+                    warnings.warn(msg, UserWarning, stacklevel=2)
                 continue
-            
+
             # 許可リストにない場合
             if func_upper not in effective_allowed:
                 msg = (
@@ -368,7 +366,7 @@ class NanaSQLite(MutableMapping):
                 if strict or (strict is None and self.strict_sql_validation):
                     raise NanaSQLiteValidationError(msg)
                 else:
-                    warnings.warn(msg, UserWarning)
+                    warnings.warn(msg, UserWarning, stacklevel=2)
 
     def _mark_parent_closed(self) -> None:
         """
@@ -379,11 +377,11 @@ class NanaSQLite(MutableMapping):
     def _serialize(self, value: Any) -> str:
         """値をJSON文字列にシリアライズ"""
         return json.dumps(value, ensure_ascii=False)
-    
+
     def _deserialize(self, value: str) -> Any:
         """JSON文字列を値にデシリアライズ"""
         return json.loads(value)
-    
+
     def _write_to_db(self, key: str, value: Any) -> None:
         """即時書き込み: SQLiteに値を保存"""
         serialized = self._serialize(value)
@@ -393,7 +391,7 @@ class NanaSQLite(MutableMapping):
                 (key, serialized)
             )
 
-    def _read_from_db(self, key: str) -> Optional[Any]:
+    def _read_from_db(self, key: str) -> Any | None:
         """SQLiteから値を読み込み"""
         with self._lock:
             cursor = self._connection.execute(
@@ -428,24 +426,24 @@ class NanaSQLite(MutableMapping):
         """
         if key in self._cached_keys:
             return key in self._data
-        
+
         # DBから読み込み
         value = self._read_from_db(key)
         self._cached_keys.add(key)
-        
+
         if value is not None:
             self._data[key] = value
             return True
         return False
-    
+
     # ==================== Dict Interface ====================
-    
+
     def __getitem__(self, key: str) -> Any:
         """dict[key] - 遅延ロード後、メモリから取得"""
         if self._ensure_cached(key):
             return self._data[key]
         raise KeyError(key)
-    
+
     def __setitem__(self, key: str, value: Any) -> None:
         """dict[key] = value - 即時書き込み + メモリ更新"""
         self._check_connection()
@@ -454,7 +452,7 @@ class NanaSQLite(MutableMapping):
         self._cached_keys.add(key)
         # 即時書き込み
         self._write_to_db(key, value)
-    
+
     def __delitem__(self, key: str) -> None:
         """del dict[key] - 即時削除"""
         if not self._ensure_cached(key):
@@ -464,17 +462,17 @@ class NanaSQLite(MutableMapping):
         self._cached_keys.add(key)  # 削除済みとしてマーク
         # DBから削除
         self._delete_from_db(key)
-    
+
     def __contains__(self, key: str) -> bool:
         """
         key in dict - キーの存在確認
-        
+
         キャッシュにある場合はO(1)、ない場合は軽量なEXISTSクエリを使用。
         存在確認のみの場合、value全体を読み込まないため高速。
         """
         if key in self._cached_keys:
             return key in self._data
-        
+
         # 軽量な存在確認クエリ（valueを読み込まない）
         with self._lock:
             cursor = self._connection.execute(
@@ -488,9 +486,9 @@ class NanaSQLite(MutableMapping):
         else:
             # 存在しないこともキャッシュ（次回の高速化のため）
             self._cached_keys.add(key)
-        
+
         return exists
-    
+
     def __len__(self) -> int:
         """len(dict) - DBの実際の件数を返す"""
         with self._lock:
@@ -502,57 +500,57 @@ class NanaSQLite(MutableMapping):
     def __iter__(self) -> Iterator[str]:
         """for key in dict"""
         return iter(self.keys())
-    
+
     def __repr__(self) -> str:
         return f"NanaSQLite({self._db_path!r}, table={self._table!r}, cached={len(self._cached_keys)})"
-    
+
     # ==================== Dict Methods ====================
-    
+
     def keys(self) -> list:
         """全キーを取得（DBから）"""
         return self._get_all_keys_from_db()
-    
+
     def values(self) -> list:
         """全値を取得（一括ロードしてからメモリから）"""
         self._check_connection()
         self.load_all()
         return list(self._data.values())
-    
+
     def items(self) -> list:
         """全アイテムを取得（一括ロードしてからメモリから）"""
         self.load_all()
         return list(self._data.items())
-    
+
     def get(self, key: str, default: Any = None) -> Any:
         """dict.get(key, default)"""
         if self._ensure_cached(key):
             return self._data[key]
         return default
-    
+
     def get_fresh(self, key: str, default: Any = None) -> Any:
         """
         DBから直接読み込み、キャッシュを更新して値を返す
-        
+
         キャッシュをバイパスしてDBから最新の値を取得する。
         `execute()`でDBを直接変更した後などに使用。
-        
+
         通常の`get()`よりオーバーヘッドがあるため、
         キャッシュとDBの不整合が想定される場合のみ使用推奨。
-        
+
         Args:
             key: 取得するキー
             default: キーが存在しない場合のデフォルト値
-        
+
         Returns:
             DBから取得した最新の値（存在しない場合はdefault）
-        
+
         Example:
             >>> db.execute("UPDATE data SET value = ? WHERE key = ?", ('"new"', "key"))
             >>> value = db.get_fresh("key")  # DBから最新値を取得
         """
         # DBから直接読み込み（_read_from_dbを使用してオーバーヘッド最小化）
         value = self._read_from_db(key)
-        
+
         if value is not None:
             # キャッシュを更新
             self._data[key] = value
@@ -564,29 +562,29 @@ class NanaSQLite(MutableMapping):
             self._cached_keys.add(key)  # 「存在しない」ことをキャッシュ
             return default
 
-    def batch_get(self, keys: List[str]) -> Dict[str, Any]:
+    def batch_get(self, keys: list[str]) -> dict[str, Any]:
         """
         複数のキーを一度に取得（効率的な一括ロード）
-        
+
         1回の `SELECT IN (...)` クエリで複数のキーをDBから取得する。
         取得した値は自動的にキャッシュに保存される。
-        
+
         Args:
             keys: 取得するキーのリスト
-            
+
         Returns:
             取得に成功したキーと値の dict
-            
+
         Example:
             >>> results = db.batch_get(["user1", "user2", "user3"])
             >>> print(results)  # {"user1": {...}, "user2": {...}}
         """
         if not keys:
             return {}
-            
+
         results = {}
         missing_keys = []
-        
+
         # 1. キャッシュから取得可能なものをチェック
         for key in keys:
             if key in self._cached_keys:
@@ -594,14 +592,14 @@ class NanaSQLite(MutableMapping):
                     results[key] = self._data[key]
             else:
                 missing_keys.append(key)
-        
+
         if not missing_keys:
             return results
-            
+
         # 2. DBから足りない分を一括取得
         placeholders = ",".join(["?"] * len(missing_keys))
         sql = f"SELECT key, value FROM {self._table} WHERE key IN ({placeholders})"
-        
+
         with self._lock:
             cursor = self._connection.execute(sql, tuple(missing_keys))
             for key, val_str in cursor:
@@ -609,14 +607,14 @@ class NanaSQLite(MutableMapping):
                 self._data[key] = value
                 self._cached_keys.add(key)
                 results[key] = value
-                
+
         # 3. DBにも存在しなかったキーを「存在しない」としてキャッシュ
         # keys に含まれるが results に含まれない missing_keys が対象
         found_keys = set(results.keys())
         for key in missing_keys:
             if key not in found_keys:
                 self._cached_keys.add(key)
-                
+
         return results
 
     def pop(self, key: str, *args) -> Any:
@@ -629,7 +627,7 @@ class NanaSQLite(MutableMapping):
         if args:
             return args[0]
         raise KeyError(key)
-    
+
     def update(self, mapping: dict = None, **kwargs) -> None:
         """dict.update(mapping) - 一括更新"""
         if mapping:
@@ -637,7 +635,7 @@ class NanaSQLite(MutableMapping):
                 self[key] = value
         for key, value in kwargs.items():
             self[key] = value
-    
+
     def clear(self) -> None:
         """dict.clear() - 全削除"""
         self._data.clear()
@@ -652,9 +650,9 @@ class NanaSQLite(MutableMapping):
             return self._data[key]
         self[key] = default
         return default
-    
+
     # ==================== Special Methods ====================
-    
+
     def load_all(self) -> None:
         """一括読み込み: 全データをメモリに展開"""
         if self._all_loaded:
@@ -669,13 +667,13 @@ class NanaSQLite(MutableMapping):
         for key, value in rows:
             self._data[key] = self._deserialize(value)
             self._cached_keys.add(key)
-        
+
         self._all_loaded = True
-    
+
     def refresh(self, key: str = None) -> None:
         """
         キャッシュを更新（DBから再読み込み）
-        
+
         Args:
             key: 特定のキーのみ更新。Noneの場合は全キャッシュをクリアして再読み込み
         """
@@ -688,30 +686,30 @@ class NanaSQLite(MutableMapping):
             self._data.clear()
             self._cached_keys.clear()
             self._all_loaded = False
-    
+
     def is_cached(self, key: str) -> bool:
         """キーがキャッシュ済みかどうか"""
         return key in self._cached_keys
-    
-    def batch_update(self, mapping: Dict[str, Any]) -> None:
+
+    def batch_update(self, mapping: dict[str, Any]) -> None:
         """
         一括書き込み（トランザクション + executemany使用で超高速）
-        
+
         大量のデータを一度に書き込む場合、通常のupdateより10-100倍高速。
         v1.0.3rc5でexecutemanyによる最適化を追加。
-        
+
         Args:
             mapping: 書き込むキーと値のdict
-        
+
         Returns:
             None
-        
+
         Example:
             >>> db.batch_update({"key1": "value1", "key2": "value2", ...})
         """
         if not mapping:
             return  # 空の場合は何もしない
-        
+
         cursor = self._connection.cursor()
         cursor.execute("BEGIN IMMEDIATE")
         try:
@@ -729,23 +727,23 @@ class NanaSQLite(MutableMapping):
         except Exception:
             cursor.execute("ROLLBACK")
             raise
-    
-    def batch_delete(self, keys: List[str]) -> None:
+
+    def batch_delete(self, keys: list[str]) -> None:
         """
         一括削除（トランザクション + executemany使用で高速）
-        
+
         v1.0.3rc5でexecutemanyによる最適化を追加。
-        
+
         Args:
             keys: 削除するキーのリスト
-        
+
         Returns:
             None
         """
         self._check_connection()
         if not keys:
             return  # 空の場合は何もしない
-        
+
         cursor = self._connection.cursor()
         cursor.execute("BEGIN IMMEDIATE")
         try:
@@ -763,17 +761,17 @@ class NanaSQLite(MutableMapping):
         except Exception:
             cursor.execute("ROLLBACK")
             raise
-    
+
     def to_dict(self) -> dict:
         """全データをPython dictとして取得"""
         self._check_connection()
         self.load_all()
         return dict(self._data)
-    
+
     def copy(self) -> dict:
         """浅いコピーを作成（標準dictを返す）"""
         return self.to_dict()
-    
+
     def close(self) -> None:
         """
         データベース接続を閉じる
@@ -806,30 +804,30 @@ class NanaSQLite(MutableMapping):
             except apsw.Error as e:
                 # 接続クローズの失敗は警告に留める
                 import warnings
-                warnings.warn(f"Failed to close database connection: {e}")
+                warnings.warn(f"Failed to close database connection: {e}", stacklevel=2)
 
     def __enter__(self):
         """コンテキストマネージャ対応"""
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         """コンテキストマネージャ対応"""
         self.close()
         return False
-    
+
     # ==================== Pydantic Support ====================
-    
+
     def set_model(self, key: str, model: Any) -> None:
         """
         Pydanticモデルを保存
-        
+
         Pydanticモデル（BaseModelを継承したクラス）をシリアライズして保存。
         model_dump()メソッドを使用してdictに変換し、モデルのクラス情報も保存。
-        
+
         Args:
             key: 保存するキー
             model: Pydanticモデルのインスタンス
-        
+
         Example:
             >>> from pydantic import BaseModel
             >>> class User(BaseModel):
@@ -850,32 +848,32 @@ class NanaSQLite(MutableMapping):
                 raise TypeError(f"Object of type {type(model)} is not a Pydantic model")
         except Exception as e:
             raise TypeError(f"Failed to serialize Pydantic model: {e}")
-    
-    def get_model(self, key: str, model_class: Type = None) -> Any:
+
+    def get_model(self, key: str, model_class: type = None) -> Any:
         """
         Pydanticモデルを取得
-        
+
         保存されたPydanticモデルをデシリアライズして復元。
         model_classが指定されていない場合は、保存時のクラス情報を使用。
-        
+
         Args:
             key: 取得するキー
             model_class: Pydanticモデルのクラス（Noneの場合は自動検出を試みる）
-        
+
         Returns:
             Pydanticモデルのインスタンス
-        
+
         Example:
             >>> user = db.get_model("user", User)
             >>> print(user.name)  # "Nana"
         """
         data = self[key]
-        
+
         if isinstance(data, dict) and '__pydantic_model__' in data and '__pydantic_data__' in data:
             if model_class is None:
                 # 自動検出は複雑なため、model_classを推奨
                 raise ValueError("model_class must be provided for get_model()")
-            
+
             # Pydanticモデルとして復元
             try:
                 return model_class(**data['__pydantic_data__'])
@@ -889,28 +887,28 @@ class NanaSQLite(MutableMapping):
                 raise ValueError(f"Failed to create Pydantic model from data: {e}")
         else:
             raise ValueError("Data is not a Pydantic model and no model_class provided")
-    
+
     # ==================== Direct SQL Execution ====================
-    
-    def execute(self, sql: str, parameters: Optional[Tuple] = None) -> apsw.Cursor:
+
+    def execute(self, sql: str, parameters: tuple | None = None) -> apsw.Cursor:
         """
         SQLを直接実行
-        
+
         任意のSQL文を実行できる。SELECT、INSERT、UPDATE、DELETEなど。
         パラメータバインディングをサポート（SQLインジェクション対策）。
-        
+
         .. warning::
             このメソッドで直接デフォルトテーブル（data）を操作した場合、
             内部キャッシュ（_data）と不整合が発生する可能性があります。
             キャッシュを更新するには `refresh()` を呼び出してください。
-        
+
         Args:
             sql: 実行するSQL文
             parameters: SQLのパラメータ（?プレースホルダー用）
-        
+
         Returns:
             APSWのCursorオブジェクト（結果の取得に使用）
-        
+
         Raises:
             NanaSQLiteConnectionError: 接続が閉じられている場合
             NanaSQLiteDatabaseError: SQL実行エラー
@@ -919,7 +917,7 @@ class NanaSQLite(MutableMapping):
             >>> cursor = db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
             >>> for row in cursor:
             ...     print(row)
-            
+
             # キャッシュ更新が必要な場合:
             >>> db.execute("UPDATE data SET value = ? WHERE key = ?", ('"new"', "key"))
             >>> db.refresh("key")  # キャッシュを更新
@@ -935,17 +933,17 @@ class NanaSQLite(MutableMapping):
         except apsw.Error as e:
             raise NanaSQLiteDatabaseError(f"Failed to execute SQL: {e}", original_error=e) from e
 
-    def execute_many(self, sql: str, parameters_list: List[tuple]) -> None:
+    def execute_many(self, sql: str, parameters_list: list[tuple]) -> None:
         """
         SQLを複数のパラメータで一括実行
-        
+
         同じSQL文を複数のパラメータセットで実行（トランザクション使用）。
         大量のINSERTやUPDATEを高速に実行できる。
-        
+
         Args:
             sql: 実行するSQL文
             parameters_list: パラメータのリスト
-        
+
         Example:
             >>> db.execute_many(
             ...     "INSERT OR REPLACE INTO custom (id, name) VALUES (?, ?)",
@@ -963,35 +961,35 @@ class NanaSQLite(MutableMapping):
                 cursor.execute("ROLLBACK")
                 raise
 
-    def fetch_one(self, sql: str, parameters: tuple = None) -> Optional[tuple]:
+    def fetch_one(self, sql: str, parameters: tuple = None) -> tuple | None:
         """
         SQLを実行して1行取得
-        
+
         Args:
             sql: 実行するSQL文
             parameters: SQLのパラメータ
-        
+
         Returns:
             1行の結果（tuple）、結果がない場合はNone
-        
+
         Example:
             >>> row = db.fetch_one("SELECT value FROM data WHERE key = ?", ("user",))
             >>> print(row[0])
         """
         cursor = self.execute(sql, parameters)
         return cursor.fetchone()
-    
-    def fetch_all(self, sql: str, parameters: tuple = None) -> List[tuple]:
+
+    def fetch_all(self, sql: str, parameters: tuple = None) -> list[tuple]:
         """
         SQLを実行して全行取得
-        
+
         Args:
             sql: 実行するSQL文
             parameters: SQLのパラメータ
-        
+
         Returns:
             全行の結果（tupleのリスト）
-        
+
         Example:
             >>> rows = db.fetch_all("SELECT key, value FROM data WHERE key LIKE ?", ("user%",))
             >>> for key, value in rows:
@@ -999,20 +997,20 @@ class NanaSQLite(MutableMapping):
         """
         cursor = self.execute(sql, parameters)
         return cursor.fetchall()
-    
+
     # ==================== SQLite Wrapper Functions ====================
-    
-    def create_table(self, table_name: str, columns: dict, 
+
+    def create_table(self, table_name: str, columns: dict,
                     if_not_exists: bool = True, primary_key: str = None) -> None:
         """
         テーブルを作成
-        
+
         Args:
             table_name: テーブル名
             columns: カラム定義のdict（カラム名: SQL型）
             if_not_exists: Trueの場合、存在しない場合のみ作成
             primary_key: プライマリキーのカラム名（Noneの場合は指定なし）
-        
+
         Example:
             >>> db.create_table("users", {
             ...     "id": "INTEGER PRIMARY KEY",
@@ -1028,35 +1026,35 @@ class NanaSQLite(MutableMapping):
         """
         if_not_exists_clause = "IF NOT EXISTS " if if_not_exists else ""
         safe_table_name = self._sanitize_identifier(table_name)
-        
+
         column_defs = []
         for col_name, col_type in columns.items():
             safe_col_name = self._sanitize_identifier(col_name)
             column_defs.append(f"{safe_col_name} {col_type}")
-        
+
         if primary_key:
             safe_pk = self._sanitize_identifier(primary_key)
-            if not any(primary_key.upper() in col.upper() and "PRIMARY KEY" in col.upper() 
+            if not any(primary_key.upper() in col.upper() and "PRIMARY KEY" in col.upper()
                                        for col in column_defs):
                 column_defs.append(f"PRIMARY KEY ({safe_pk})")
-        
+
         columns_sql = ", ".join(column_defs)
         sql = f"CREATE TABLE {if_not_exists_clause}{safe_table_name} ({columns_sql})"
-        
+
         self.execute(sql)
-    
-    def create_index(self, index_name: str, table_name: str, columns: List[str],
+
+    def create_index(self, index_name: str, table_name: str, columns: list[str],
                     unique: bool = False, if_not_exists: bool = True) -> None:
         """
         インデックスを作成
-        
+
         Args:
             index_name: インデックス名
             table_name: テーブル名
             columns: インデックスを作成するカラムのリスト
             unique: Trueの場合、ユニークインデックスを作成
             if_not_exists: Trueの場合、存在しない場合のみ作成
-        
+
         Example:
             >>> db.create_index("idx_users_email", "users", ["email"], unique=True)
             >>> db.create_index("idx_posts_user", "posts", ["user_id", "created_at"])
@@ -1067,20 +1065,20 @@ class NanaSQLite(MutableMapping):
         safe_table_name = self._sanitize_identifier(table_name)
         safe_columns = [self._sanitize_identifier(col) for col in columns]
         columns_sql = ", ".join(safe_columns)
-        
+
         sql = f"CREATE {unique_clause}INDEX {if_not_exists_clause}{safe_index_name} ON {safe_table_name} ({columns_sql})"
         self.execute(sql)
-    
-    def query(self, table_name: str = None, columns: List[str] = None,
+
+    def query(self, table_name: str = None, columns: list[str] = None,
              where: str = None, parameters: tuple = None,
              order_by: str = None, limit: int = None,
              strict_sql_validation: bool = None,
-             allowed_sql_functions: List[str] = None,
-             forbidden_sql_functions: List[str] = None,
-             override_allowed: bool = False) -> List[dict]:
+             allowed_sql_functions: list[str] = None,
+             forbidden_sql_functions: list[str] = None,
+             override_allowed: bool = False) -> list[dict]:
         """
         シンプルなSELECTクエリを実行
-        
+
         Args:
             table_name: テーブル名（Noneの場合はデフォルトテーブル）
             columns: 取得するカラムのリスト（Noneの場合は全カラム）
@@ -1092,14 +1090,14 @@ class NanaSQLite(MutableMapping):
             allowed_sql_functions: このクエリで一時的に許可するSQL関数のリスト
             forbidden_sql_functions: このクエリで一時的に禁止するSQL関数のリスト
             override_allowed: Trueの場合、インスタンス許可設定を無視
-        
+
         Returns:
             結果のリスト（各行はdict）
-        
+
         Example:
             >>> # デフォルトテーブルから全データ取得
             >>> results = db.query()
-            
+
             >>> # 条件付き検索
             >>> results = db.query(
             ...     table_name="users",
@@ -1112,9 +1110,9 @@ class NanaSQLite(MutableMapping):
         """
         if table_name is None:
             table_name = self._table
-        
+
         safe_table_name = self._sanitize_identifier(table_name)
-        
+
         # バリデーション
         self._validate_expression(where, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="where")
         self._validate_expression(order_by, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="order_by")
@@ -1136,29 +1134,29 @@ class NanaSQLite(MutableMapping):
                 else:
                     safe_cols.append(col)
             columns_sql = ", ".join(safe_cols)
-        
+
         # Validate limit is an integer and non-negative if provided
         if limit is not None:
             if not isinstance(limit, int):
                 raise ValueError(f"limit must be an integer, got {type(limit).__name__}")
             if limit < 0:
                 raise ValueError("limit must be non-negative")
-        
+
         # SQL構築
         sql = f"SELECT {columns_sql} FROM {safe_table_name}"
-        
+
         if where:
             sql += f" WHERE {where}"
-        
+
         if order_by:
             sql += f" ORDER BY {order_by}"
-        
+
         if limit is not None:
             sql += f" LIMIT {limit}"
-        
+
         # 実行
         cursor = self.execute(sql, parameters)
-        
+
         # カラム名取得
         if columns is None:
             # 全カラムの場合、テーブル情報から取得
@@ -1175,24 +1173,24 @@ class NanaSQLite(MutableMapping):
                 else:
                     # Use the column expression as-is
                     col_names.append(col.strip())
-        
+
         # 結果をdictのリストに変換
         results = []
         for row in cursor:
             results.append(dict(zip(col_names, row)))
-        
+
         return results
-    
+
     def table_exists(self, table_name: str) -> bool:
         """
         テーブルの存在確認
-        
+
         Args:
             table_name: テーブル名
-        
+
         Returns:
             存在する場合True、しない場合False
-        
+
         Example:
             >>> if db.table_exists("users"):
             ...     print("users table exists")
@@ -1202,14 +1200,14 @@ class NanaSQLite(MutableMapping):
             (table_name,)
         )
         return cursor.fetchone() is not None
-    
-    def list_tables(self) -> List[str]:
+
+    def list_tables(self) -> list[str]:
         """
         データベース内の全テーブル一覧を取得
-        
+
         Returns:
             テーブル名のリスト
-        
+
         Example:
             >>> tables = db.list_tables()
             >>> print(tables)  # ['data', 'users', 'posts']
@@ -1218,15 +1216,15 @@ class NanaSQLite(MutableMapping):
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         )
         return [row[0] for row in cursor]
-    
+
     def drop_table(self, table_name: str, if_exists: bool = True) -> None:
         """
         テーブルを削除
-        
+
         Args:
             table_name: テーブル名
             if_exists: Trueの場合、存在する場合のみ削除（エラーを防ぐ）
-        
+
         Example:
             >>> db.drop_table("old_table")
             >>> db.drop_table("temp", if_exists=True)
@@ -1235,15 +1233,15 @@ class NanaSQLite(MutableMapping):
         safe_table_name = self._sanitize_identifier(table_name)
         sql = f"DROP TABLE {if_exists_clause}{safe_table_name}"
         self.execute(sql)
-    
+
     def drop_index(self, index_name: str, if_exists: bool = True) -> None:
         """
         インデックスを削除
-        
+
         Args:
             index_name: インデックス名
             if_exists: Trueの場合、存在する場合のみ削除
-        
+
         Example:
             >>> db.drop_index("idx_users_email")
         """
@@ -1251,18 +1249,18 @@ class NanaSQLite(MutableMapping):
         safe_index_name = self._sanitize_identifier(index_name)
         sql = f"DROP INDEX {if_exists_clause}{safe_index_name}"
         self.execute(sql)
-    
-    def alter_table_add_column(self, table_name: str, column_name: str, 
+
+    def alter_table_add_column(self, table_name: str, column_name: str,
                                column_type: str, default: Any = None) -> None:
         """
         既存テーブルにカラムを追加
-        
+
         Args:
             table_name: テーブル名
             column_name: カラム名
             column_type: カラムの型（SQL型）
             default: デフォルト値（Noneの場合は指定なし）
-        
+
         Example:
             >>> db.alter_table_add_column("users", "phone", "TEXT")
             >>> db.alter_table_add_column("users", "status", "TEXT", default="'active'")
@@ -1273,7 +1271,7 @@ class NanaSQLite(MutableMapping):
         # Also check for closing parenthesis which could break out of ALTER TABLE structure
         if any(c in column_type for c in [";", "'", ")"]) or "--" in column_type or "/*" in column_type:
             raise ValueError(f"Invalid or dangerous column type: {column_type}")
-        
+
         sql = f"ALTER TABLE {safe_table_name} ADD COLUMN {safe_column_name} {column_type}"
         if default is not None:
             # For default values: if it's a string, ensure it's properly quoted and escaped
@@ -1287,17 +1285,17 @@ class NanaSQLite(MutableMapping):
                 default = f"'{escaped_default}'"
             sql += f" DEFAULT {default}"
         self.execute(sql)
-    
-    def get_table_schema(self, table_name: str) -> List[dict]:
+
+    def get_table_schema(self, table_name: str) -> list[dict]:
         """
         テーブル構造を取得
-        
+
         Args:
             table_name: テーブル名
-        
+
         Returns:
             カラム情報のリスト（各カラムはdict）
-        
+
         Example:
             >>> schema = db.get_table_schema("users")
             >>> for col in schema:
@@ -1316,17 +1314,17 @@ class NanaSQLite(MutableMapping):
                 'pk': bool(row[5])
             })
         return columns
-    
-    def list_indexes(self, table_name: str = None) -> List[dict]:
+
+    def list_indexes(self, table_name: str = None) -> list[dict]:
         """
         インデックス一覧を取得
-        
+
         Args:
             table_name: テーブル名（Noneの場合は全インデックス）
-        
+
         Returns:
             インデックス情報のリスト
-        
+
         Example:
             >>> indexes = db.list_indexes("users")
             >>> for idx in indexes:
@@ -1341,7 +1339,7 @@ class NanaSQLite(MutableMapping):
             cursor = self.execute(
                 "SELECT name, tbl_name, sql FROM sqlite_master WHERE type='index' ORDER BY name"
             )
-        
+
         indexes = []
         for row in cursor:
             if row[0] and not row[0].startswith('sqlite_'):  # Skip auto-created indexes
@@ -1351,20 +1349,20 @@ class NanaSQLite(MutableMapping):
                     'sql': row[2]
                 })
         return indexes
-    
+
     # ==================== Data Operation Wrappers ====================
-    
+
     def sql_insert(self, table_name: str, data: dict) -> int:
         """
         dictから直接INSERT
-        
+
         Args:
             table_name: テーブル名
             data: カラム名と値のdict
-        
+
         Returns:
             挿入されたROWID
-        
+
         Example:
             >>> rowid = db.sql_insert("users", {
             ...     "name": "Alice",
@@ -1377,28 +1375,28 @@ class NanaSQLite(MutableMapping):
         values = list(data.values())
         placeholders = ", ".join(["?"] * len(values))
         columns_sql = ", ".join(safe_columns)
-        
+
         sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders})"
         self.execute(sql, tuple(values))
-        
+
         return self.get_last_insert_rowid()
-    
-    def sql_update(self, table_name: str, data: dict, where: str, 
+
+    def sql_update(self, table_name: str, data: dict, where: str,
               parameters: tuple = None) -> int:
         """
         dictとwhere条件でUPDATE
-        
+
         Args:
             table_name: テーブル名
             data: 更新するカラム名と値のdict
             where: WHERE句の条件
             parameters: WHERE句のパラメータ
-        
+
         Returns:
             更新された行数
-        
+
         Example:
-            >>> count = db.sql_update("users", 
+            >>> count = db.sql_update("users",
             ...     {"age": 26, "status": "active"},
             ...     "name = ?",
             ...     ("Alice",)
@@ -1408,27 +1406,27 @@ class NanaSQLite(MutableMapping):
         safe_set_items = [f"{self._sanitize_identifier(col)} = ?" for col in data.keys()]
         set_clause = ", ".join(safe_set_items)
         values = list(data.values())
-        
+
         sql = f"UPDATE {safe_table_name} SET {set_clause} WHERE {where}"
-        
+
         if parameters:
             values.extend(parameters)
-        
+
         self.execute(sql, tuple(values))
         return self._connection.changes()
-    
+
     def sql_delete(self, table_name: str, where: str, parameters: tuple = None) -> int:
         """
         where条件でDELETE
-        
+
         Args:
             table_name: テーブル名
             where: WHERE句の条件
             parameters: WHERE句のパラメータ
-        
+
         Returns:
             削除された行数
-        
+
         Example:
             >>> count = db.sql_delete("users", "age < ?", (18,))
         """
@@ -1436,26 +1434,26 @@ class NanaSQLite(MutableMapping):
         sql = f"DELETE FROM {safe_table_name} WHERE {where}"
         self.execute(sql, parameters)
         return self._connection.changes()
-    
-    def upsert(self, table_name: str, data: dict, 
-              conflict_columns: List[str] = None) -> int:
+
+    def upsert(self, table_name: str, data: dict,
+              conflict_columns: list[str] = None) -> int:
         """
         INSERT OR REPLACE の簡易版（upsert）
-        
+
         Args:
             table_name: テーブル名
             data: カラム名と値のdict
             conflict_columns: 競合判定に使用するカラム（Noneの場合はINSERT OR REPLACE）
-        
+
         Returns:
             挿入/更新されたROWID
-        
+
         Example:
             >>> # 単純なINSERT OR REPLACE
             >>> db.upsert("users", {"id": 1, "name": "Alice", "age": 25})
-            
+
             >>> # ON CONFLICT句を使用
-            >>> db.upsert("users", 
+            >>> db.upsert("users",
             ...     {"email": "alice@example.com", "name": "Alice", "age": 26},
             ...     conflict_columns=["email"]
             ... )
@@ -1465,15 +1463,15 @@ class NanaSQLite(MutableMapping):
         values = list(data.values())
         placeholders = ", ".join(["?"] * len(values))
         columns_sql = ", ".join(safe_columns)
-        
+
         if conflict_columns:
             # ON CONFLICT を使用
             safe_conflict_cols = [self._sanitize_identifier(col) for col in conflict_columns]
             conflict_cols_sql = ", ".join(safe_conflict_cols)
-            
-            update_items = [f"{self._sanitize_identifier(col)} = excluded.{self._sanitize_identifier(col)}" 
+
+            update_items = [f"{self._sanitize_identifier(col)} = excluded.{self._sanitize_identifier(col)}"
                            for col in data.keys() if col not in conflict_columns]
-            
+
             if update_items:
                 update_clause = ", ".join(update_items)
             else:
@@ -1486,25 +1484,25 @@ class NanaSQLite(MutableMapping):
                 if self._connection.changes() == 0:
                     return 0
                 return self.get_last_insert_rowid()
-            
+
             sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders}) "
             sql += f"ON CONFLICT({conflict_cols_sql}) DO UPDATE SET {update_clause}"
         else:
             # INSERT OR REPLACE
             sql = f"INSERT OR REPLACE INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders})"
-        
+
         self.execute(sql, tuple(values))
         return self.get_last_insert_rowid()
-    
-    def count(self, table_name: str = None, where: str = None, 
+
+    def count(self, table_name: str = None, where: str = None,
              parameters: tuple = None,
              strict_sql_validation: bool = None,
-             allowed_sql_functions: List[str] = None,
-             forbidden_sql_functions: List[str] = None,
+             allowed_sql_functions: list[str] = None,
+             forbidden_sql_functions: list[str] = None,
              override_allowed: bool = False) -> int:
         """
         レコード数を取得
-        
+
         Args:
             table_name: テーブル名（Noneの場合はデフォルトテーブル）
             where: WHERE句の条件（オプション）
@@ -1513,38 +1511,38 @@ class NanaSQLite(MutableMapping):
             allowed_sql_functions: このクエリで一時的に許可するSQL関数のリスト
             forbidden_sql_functions: このクエリで一時的に禁止するSQL関数のリスト
             override_allowed: Trueの場合、インスタンス許可設定を無視
-        
+
         Example:
             >>> total = db.count("users")
             >>> adults = db.count("users", "age >= ?", (18,))
         """
         if table_name is None:
             table_name = self._table
-        
+
         safe_table_name = self._sanitize_identifier(table_name)
-        
+
         # バリデーション
         self._validate_expression(where, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed)
-        
+
         sql = f"SELECT COUNT(*) FROM {safe_table_name}"
         if where:
             sql += f" WHERE {where}"
-        
+
         cursor = self.execute(sql, parameters)
         return cursor.fetchone()[0]
-    
+
     def exists(self, table_name: str, where: str, parameters: tuple = None) -> bool:
         """
         レコードの存在確認
-        
+
         Args:
             table_name: テーブル名
             where: WHERE句の条件
             parameters: WHERE句のパラメータ
-        
+
         Returns:
             存在する場合True
-        
+
         Example:
             >>> if db.exists("users", "email = ?", ("alice@example.com",)):
             ...     print("User exists")
@@ -1553,20 +1551,20 @@ class NanaSQLite(MutableMapping):
         sql = f"SELECT EXISTS(SELECT 1 FROM {safe_table_name} WHERE {where})"
         cursor = self.execute(sql, parameters)
         return bool(cursor.fetchone()[0])
-    
+
     # ==================== Query Extensions ====================
-    
-    def query_with_pagination(self, table_name: str = None, columns: List[str] = None,
+
+    def query_with_pagination(self, table_name: str = None, columns: list[str] = None,
                              where: str = None, parameters: tuple = None,
-                             order_by: str = None, limit: int = None, 
+                             order_by: str = None, limit: int = None,
                              offset: int = None, group_by: str = None,
                              strict_sql_validation: bool = None,
-                             allowed_sql_functions: List[str] = None,
-                             forbidden_sql_functions: List[str] = None,
-                             override_allowed: bool = False) -> List[dict]:
+                             allowed_sql_functions: list[str] = None,
+                             forbidden_sql_functions: list[str] = None,
+                             override_allowed: bool = False) -> list[dict]:
         """
         拡張されたクエリ（offset、group_by対応）
-        
+
         Args:
             table_name: テーブル名
             columns: 取得するカラム
@@ -1580,15 +1578,15 @@ class NanaSQLite(MutableMapping):
             allowed_sql_functions: このクエリで一時的に許可するSQL関数のリスト
             forbidden_sql_functions: このクエリで一時的に禁止するSQL関数のリスト
             override_allowed: Trueの場合、インスタンス許可設定を無視
-        
+
         Returns:
             結果のリスト
-        
+
         Example:
             >>> # ページネーション
-            >>> page2 = db.query_with_pagination("users", 
+            >>> page2 = db.query_with_pagination("users",
             ...     limit=10, offset=10, order_by="id ASC")
-            
+
             >>> # グループ集計
             >>> stats = db.query_with_pagination("orders",
             ...     columns=["user_id", "COUNT(*) as order_count"],
@@ -1597,9 +1595,9 @@ class NanaSQLite(MutableMapping):
         """
         if table_name is None:
             table_name = self._table
-        
+
         safe_table_name = self._sanitize_identifier(table_name)
-        
+
         # バリデーション
         self._validate_expression(where, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="where")
         self._validate_expression(order_by, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="order_by")
@@ -1614,13 +1612,13 @@ class NanaSQLite(MutableMapping):
                 raise ValueError(f"limit must be an integer, got {type(limit).__name__}")
             if limit < 0:
                 raise ValueError("limit must be non-negative")
-        
+
         if offset is not None:
             if not isinstance(offset, int):
                 raise ValueError(f"offset must be an integer, got {type(offset).__name__}")
             if offset < 0:
                 raise ValueError("offset must be non-negative")
-        
+
         # カラム指定
         if columns is None:
             columns_sql = "*"
@@ -1633,28 +1631,28 @@ class NanaSQLite(MutableMapping):
                 else:
                     safe_cols.append(col)
             columns_sql = ", ".join(safe_cols)
-        
+
         # SQL構築
         sql = f"SELECT {columns_sql} FROM {safe_table_name}"
-        
+
         if where:
             sql += f" WHERE {where}"
-        
+
         if group_by:
             sql += f" GROUP BY {group_by}"
-        
+
         if order_by:
             sql += f" ORDER BY {order_by}"
-        
+
         if limit is not None:
             sql += f" LIMIT {limit}"
-        
+
         if offset is not None:
             sql += f" OFFSET {offset}"
-        
+
         # 実行
         cursor = self.execute(sql, parameters)
-        
+
         # カラム名取得
         if columns is None:
             pragma_cursor = self.execute(f"PRAGMA table_info({safe_table_name})")
@@ -1668,67 +1666,67 @@ class NanaSQLite(MutableMapping):
                     col_names.append(parts[-1].strip().strip('"').strip("'"))
                 else:
                     col_names.append(col.strip().strip('"').strip("'"))
-        
+
         # 結果をdictのリストに変換
         results = []
         for row in cursor:
             results.append(dict(zip(col_names, row)))
-        
+
         return results
-    
+
     # ==================== Utility Functions ====================
-    
+
     def vacuum(self) -> None:
         """
         データベースを最適化（VACUUM実行）
-        
+
         削除されたレコードの領域を回収し、データベースファイルを最適化。
-        
+
         Example:
             >>> db.vacuum()
         """
         self.execute("VACUUM")
-    
+
     def get_db_size(self) -> int:
         """
         データベースファイルのサイズを取得（バイト単位）
-        
+
         Returns:
             データベースファイルのサイズ
-        
+
         Example:
             >>> size = db.get_db_size()
             >>> print(f"DB size: {size / 1024 / 1024:.2f} MB")
         """
         import os
         return os.path.getsize(self._db_path)
-    
-    def export_table_to_dict(self, table_name: str) -> List[dict]:
+
+    def export_table_to_dict(self, table_name: str) -> list[dict]:
         """
         テーブル全体をdictのリストとして取得
-        
+
         Args:
             table_name: テーブル名
-        
+
         Returns:
             全レコードのリスト
-        
+
         Example:
             >>> all_users = db.export_table_to_dict("users")
         """
         return self.query_with_pagination(table_name=table_name)
-    
-    def import_from_dict_list(self, table_name: str, data_list: List[dict]) -> int:
+
+    def import_from_dict_list(self, table_name: str, data_list: list[dict]) -> int:
         """
         dictのリストからテーブルに一括挿入
-        
+
         Args:
             table_name: テーブル名
             data_list: 挿入するデータのリスト
-        
+
         Returns:
             挿入された行数
-        
+
         Example:
             >>> users = [
             ...     {"name": "Alice", "age": 25},
@@ -1738,53 +1736,53 @@ class NanaSQLite(MutableMapping):
         """
         if not data_list:
             return 0
-        
+
         safe_table_name = self._sanitize_identifier(table_name)
-        
+
         # 最初のdictからカラム名を取得
         columns = list(data_list[0].keys())
         safe_columns = [self._sanitize_identifier(col) for col in columns]
         placeholders = ", ".join(["?"] * len(columns))
         columns_sql = ", ".join(safe_columns)
         sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders})"
-        
+
         # 各dictから値を抽出
         parameters_list = []
         for data in data_list:
             values = [data.get(col) for col in columns]
             parameters_list.append(tuple(values))
-        
+
         self.execute_many(sql, parameters_list)
         return len(data_list)
-    
+
     def get_last_insert_rowid(self) -> int:
         """
         最後に挿入されたROWIDを取得
-        
+
         Returns:
             最後に挿入されたROWID
-        
+
         Example:
             >>> db.sql_insert("users", {"name": "Alice"})
             >>> rowid = db.get_last_insert_rowid()
         """
         return self._connection.last_insert_rowid()
-    
+
     def pragma(self, pragma_name: str, value: Any = None) -> Any:
         """
         PRAGMA設定の取得/設定
-        
+
         Args:
             pragma_name: PRAGMA名
             value: 設定値（Noneの場合は取得のみ）
-        
+
         Returns:
             valueがNoneの場合は現在の値、そうでない場合はNone
-        
+
         Example:
             >>> # 取得
             >>> mode = db.pragma("journal_mode")
-            
+
             >>> # 設定
             >>> db.pragma("foreign_keys", 1)
         """
@@ -1796,10 +1794,10 @@ class NanaSQLite(MutableMapping):
             'busy_timeout', 'query_only', 'recursive_triggers', 'secure_delete',
             'table_info', 'index_list', 'index_info', 'database_list'
         }
-        
+
         if pragma_name not in ALLOWED_PRAGMAS:
             raise ValueError(f"PRAGMA '{pragma_name}' is not allowed. Allowed: {', '.join(sorted(ALLOWED_PRAGMAS))}")
-        
+
         if value is None:
             cursor = self.execute(f"PRAGMA {pragma_name}")
             result = cursor.fetchone()
@@ -1808,7 +1806,7 @@ class NanaSQLite(MutableMapping):
             # Validate value is safe (int, float, or simple string)
             if not isinstance(value, (int, float, str)):
                 raise ValueError(f"PRAGMA value must be int, float, or str, got {type(value).__name__}")
-            
+
             # For string values, validate to prevent SQL injection
             if isinstance(value, str):
                 # Only allow alphanumeric, underscore, dash, and dots for string values
@@ -1817,16 +1815,16 @@ class NanaSQLite(MutableMapping):
                 value_str = f"'{value}'"
             else:
                 value_str = str(value)
-            
+
             self.execute(f"PRAGMA {pragma_name} = {value_str}")
             return None
-    
+
     # ==================== Transaction Control ====================
-    
+
     def begin_transaction(self) -> None:
         """
         トランザクションを開始
-        
+
         Note:
             SQLiteはネストされたトランザクションをサポートしていません。
             既にトランザクション中の場合、NanaSQLiteTransactionErrorが発生します。
@@ -1940,7 +1938,7 @@ class NanaSQLite(MutableMapping):
     def transaction(self):
         """
         トランザクションのコンテキストマネージャ
-        
+
         コンテキストマネージャ内で例外が発生しない場合は自動的にコミット、
         例外が発生した場合は自動的にロールバックします。
 
@@ -2002,7 +2000,7 @@ class NanaSQLite(MutableMapping):
         # This ensures only one instance (the owner) attempts to close the connection.
         if self._is_connection_owner:
             child._is_connection_owner = False
-        
+
         # 子インスタンスを追跡 (WeakSetに直接オブジェクトを追加すると、WeakSetが弱参照を保持する)
         self._child_instances.add(child)
 
@@ -2011,14 +2009,14 @@ class NanaSQLite(MutableMapping):
 
 class _TransactionContext:
     """トランザクションのコンテキストマネージャ"""
-    
+
     def __init__(self, db: NanaSQLite):
         self.db = db
-    
+
     def __enter__(self):
         self.db.begin_transaction()
         return self.db
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is None:
             self.db.commit()

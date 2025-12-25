@@ -6,6 +6,20 @@
 
 ## 日本語
 
+### [1.2.1b1] - 2025-12-25
+
+#### 開発ツール
+- **リント・CI環境の追加**:
+  - `tox.ini` を追加し、`tox -e lint` (ruff), `tox -e type` (mypy), `tox -e format`, `tox -e fix` の環境を構築。
+  - `pyproject.toml` にruff設定を追加（E/W/F/I/B/UP/N/ASYNCルール、Python 3.9+対応、line-length: 120）。
+  - `pyproject.toml` にmypy設定を追加（strict type checking、tests除外）。
+  - `.github/workflows/lint.yml` を追加：PyPA/twineスタイルのCIワークフロー（tox統合、FORCE_COLOR対応、サマリー出力）。
+  - `.github/workflows/quality-gate.yml` を追加：all-greenゲートでmainブランチ判定とpublish準備確認。
+  - dev依存関係に `tox>=4.0.0`, `ruff>=0.8.0`, `mypy>=1.13.0` を追加。
+- **コード品質改善**:
+  - ruff auto-fixで1373件のリントエラーを修正（import順序、未使用import削除、pyupgrade、whitespace等）。
+  - B904 (raise without from), B017 (assert raises Exception) をignore listに追加。
+
 ### [1.2.0b1] - 2025-12-24
 
 #### セキュリティと堅牢性
@@ -331,6 +345,20 @@
 ---
 
 ## English
+
+### [1.2.1b1] - 2025-12-25
+
+#### Development Tools
+- **Lint & CI Environment**:
+  - Added `tox.ini` with environments for `tox -e lint` (ruff), `tox -e type` (mypy), `tox -e format`, and `tox -e fix`.
+  - Added ruff configuration to `pyproject.toml` (E/W/F/I/B/UP/N/ASYNC rules, Python 3.9+ support, line-length: 120).
+  - Added mypy configuration to `pyproject.toml` (strict type checking, tests excluded).
+  - Added `.github/workflows/lint.yml`: PyPA/twine-style CI workflow with tox integration, FORCE_COLOR support, and summary output.
+  - Added `.github/workflows/quality-gate.yml`: All-green gate with main branch detection and publish readiness check.
+  - Added dev dependencies: `tox>=4.0.0`, `ruff>=0.8.0`, `mypy>=1.13.0`.
+- **Code Quality Improvements**:
+  - Fixed 1373 lint errors via ruff auto-fix (import ordering, unused imports removal, pyupgrade, whitespace, etc.).
+  - Added B904 (raise without from) and B017 (assert raises Exception) to ignore list.
 
 ### [1.2.0b1] - 2025-12-24
 

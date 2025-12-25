@@ -1,8 +1,10 @@
 
+import apsw
 import pytest
 import pytest_asyncio
-import apsw
+
 from nanasqlite import AsyncNanaSQLite
+
 
 @pytest_asyncio.fixture
 async def db(tmp_path):
