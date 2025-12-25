@@ -184,25 +184,28 @@ jobs:
         echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
         
         # Lint status
-        if [ "${{ needs.lint.result }}" == "success" ]; then
-          echo "| 🧹 Lint (ruff) | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "| 🧹 Lint (ruff) | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
-        fi
+        case "${{ needs.lint.result }}" in
+          success) echo "| 🧹 Lint (ruff) | ✅ Passed |" >> $GITHUB_STEP_SUMMARY ;;
+          cancelled) echo "| 🧹 Lint (ruff) | ⚠️ Cancelled |" >> $GITHUB_STEP_SUMMARY ;;
+          skipped) echo "| 🧹 Lint (ruff) | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY ;;
+          *) echo "| 🧹 Lint (ruff) | ❌ Failed |" >> $GITHUB_STEP_SUMMARY ;;
+        esac
         
         # Type status
-        if [ "${{ needs.type.result }}" == "success" ]; then
-          echo "| 🔍 Type (mypy) | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "| 🔍 Type (mypy) | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
-        fi
+        case "${{ needs.type.result }}" in
+          success) echo "| 🔍 Type (mypy) | ✅ Passed |" >> $GITHUB_STEP_SUMMARY ;;
+          cancelled) echo "| 🔍 Type (mypy) | ⚠️ Cancelled |" >> $GITHUB_STEP_SUMMARY ;;
+          skipped) echo "| 🔍 Type (mypy) | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY ;;
+          *) echo "| 🔍 Type (mypy) | ❌ Failed |" >> $GITHUB_STEP_SUMMARY ;;
+        esac
         
         # Test status
-        if [ "${{ needs.test.result }}" == "success" ]; then
-          echo "| 🧪 Tests | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "| 🧪 Tests | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
-        fi
+        case "${{ needs.test.result }}" in
+          success) echo "| 🧪 Tests | ✅ Passed |" >> $GITHUB_STEP_SUMMARY ;;
+          cancelled) echo "| 🧪 Tests | ⚠️ Cancelled |" >> $GITHUB_STEP_SUMMARY ;;
+          skipped) echo "| 🧪 Tests | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY ;;
+          *) echo "| 🧪 Tests | ❌ Failed |" >> $GITHUB_STEP_SUMMARY ;;
+        esac
         
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
