@@ -102,42 +102,41 @@ def format_diff_ops(current_ops, previous_ops):
     """Format performance difference based on ops/sec.
     
     Higher ops/sec = better performance.
-    Returns tuple of (formatted_string, regression_percentage)
-    regression_percentage is positive if current is slower.
+    Returns tuple of (formatted_string, improvement_percentage)
+    
+    Display convention:
+      +X% = X% faster (improvement, more ops/sec)
+      -X% = X% slower (regression, fewer ops/sec)
     """
     if previous_ops is None or previous_ops <= 0:
         return "-", 0
     
     if current_ops <= 0:
-        return "🔴 N/A", 100
+        return "🔴 N/A", -100
     
     # Calculate percentage change in ops/sec
     # Positive = faster (more ops), Negative = slower (fewer ops)
-    ops_change_pct = ((current_ops / previous_ops) - 1) * 100
-    
-    # For display, we show regression as positive (how much slower)
-    # regression_pct: positive = slower, negative = faster
-    regression_pct = -ops_change_pct
+    change_pct = ((current_ops / previous_ops) - 1) * 100
     
     # Determine emoji based on performance change
-    if ops_change_pct >= 5:
+    if change_pct >= 5:
         emoji = "🚀"  # Significant improvement (5%+ faster)
-    elif ops_change_pct >= 1:
+    elif change_pct >= 1:
         emoji = "✅"  # Minor improvement
-    elif ops_change_pct > -1:
+    elif change_pct > -1:
         emoji = "➖"  # No change
-    elif ops_change_pct > -5:
+    elif change_pct > -5:
         emoji = "⚠️"  # Minor regression
     else:
         emoji = "🔴"  # Significant regression (5%+ slower)
     
-    # Format: positive = slower, negative = faster
-    if regression_pct >= 0:
+    # Format: positive = faster (good), negative = slower (bad)
+    if change_pct >= 0:
         sign = "+"
     else:
         sign = ""
     
-    return f"{emoji} {sign}{regression_pct:.1f}%", regression_pct
+    return f"{emoji} {sign}{change_pct:.1f}%", change_pct
 
 
 def categorize_test(test_name):
@@ -360,17 +359,15 @@ def main():
             prev_ops = previous_data.get(item['name'])
             if prev_ops and prev_ops > 0 and item['avg'] > 0:
                 current_ops = 1000.0 / item['avg']
-                # ops_change: positive = faster, negative = slower
-                ops_change_pct = ((current_ops / prev_ops) - 1) * 100
-                # regression_pct: positive = slower
-                regression_pct = -ops_change_pct
+                # change_pct: positive = faster (improvement), negative = slower (regression)
+                change_pct = ((current_ops / prev_ops) - 1) * 100
                 
-                if regression_pct <= -1:
+                if change_pct >= 1:
                     improvements += 1
-                elif regression_pct >= regression_threshold:
+                elif change_pct <= -regression_threshold:
                     severe_regressions += 1
                     regressions += 1
-                elif regression_pct >= 1:
+                elif change_pct <= -1:
                     regressions += 1
                 else:
                     unchanged += 1
