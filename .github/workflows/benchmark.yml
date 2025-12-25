@@ -228,32 +228,21 @@ jobs:
     - name: Generate Combined Benchmark Summary
       id: benchmark-results
       if: needs.should-run.outputs.run_benchmark == 'true'
-      env:
-        BENCHMARK_REGRESSION_THRESHOLD: '20'  # Fail if any test is >20% slower
       run: |
         echo "## 📊 Performance Benchmarks" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "> ⚠️ **Note**: GitHub Actions runners have performance variance. These results are informational only." >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 🔄 Sync Benchmarks (NanaSQLite)" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         
-        SYNC_EXIT=0
-        python3 scripts/parse_benchmark.py benchmark-results sync >> $GITHUB_STEP_SUMMARY || SYNC_EXIT=$?
+        python3 scripts/parse_benchmark.py benchmark-results sync >> $GITHUB_STEP_SUMMARY || echo "Failed to parse sync benchmark results" >> $GITHUB_STEP_SUMMARY
         
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### ⚡ Async Benchmarks (AsyncNanaSQLite)" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         
-        ASYNC_EXIT=0
-        python3 scripts/parse_benchmark.py async-benchmark-results async >> $GITHUB_STEP_SUMMARY || ASYNC_EXIT=$?
-        
-        # Exit with error if either benchmark shows significant regression
-        if [ "$SYNC_EXIT" -eq 2 ] || [ "$ASYNC_EXIT" -eq 2 ]; then
-          echo ""
-          echo "❌ **Performance regression detected!** Some tests are >20% slower than baseline." >> $GITHUB_STEP_SUMMARY
-          echo "has_regression=true" >> $GITHUB_OUTPUT
-          exit 1
-        fi
-        echo "has_regression=false" >> $GITHUB_OUTPUT
+        python3 scripts/parse_benchmark.py async-benchmark-results async >> $GITHUB_STEP_SUMMARY || echo "Failed to parse async benchmark results" >> $GITHUB_STEP_SUMMARY
 
     # --- Performance Regression Detection (Only on main branch when benchmarks ran) ---
     - name: Merge all results for comparison
