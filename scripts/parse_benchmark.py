@@ -105,8 +105,8 @@ def format_diff_ops(current_ops, previous_ops):
     Returns tuple of (formatted_string, improvement_percentage)
     
     Display convention:
-      +X% = X% faster (improvement, more ops/sec)
-      -X% = X% slower (regression, fewer ops/sec)
+      +X% (+Y ops) = X% faster (improvement, more ops/sec)
+      -X% (-Y ops) = X% slower (regression, fewer ops/sec)
     """
     if previous_ops is None or previous_ops <= 0:
         return "-", 0
@@ -117,6 +117,7 @@ def format_diff_ops(current_ops, previous_ops):
     # Calculate percentage change in ops/sec
     # Positive = faster (more ops), Negative = slower (fewer ops)
     change_pct = ((current_ops / previous_ops) - 1) * 100
+    ops_diff = current_ops - previous_ops
     
     # Determine emoji based on performance change
     if change_pct >= 5:
@@ -130,13 +131,23 @@ def format_diff_ops(current_ops, previous_ops):
     else:
         emoji = "🔴"  # Significant regression (5%+ slower)
     
+    # Format ops difference with appropriate unit
+    def format_ops_diff(ops):
+        abs_ops = abs(ops)
+        if abs_ops >= 1000000:
+            return f"{ops/1000000:+.1f}M"
+        elif abs_ops >= 1000:
+            return f"{ops/1000:+.1f}k"
+        else:
+            return f"{ops:+.0f}"
+    
     # Format: positive = faster (good), negative = slower (bad)
     if change_pct >= 0:
         sign = "+"
     else:
         sign = ""
     
-    return f"{emoji} {sign}{change_pct:.1f}%", change_pct
+    return f"{emoji} {sign}{change_pct:.1f}% ({format_ops_diff(ops_diff)})", change_pct
 
 
 def categorize_test(test_name):
