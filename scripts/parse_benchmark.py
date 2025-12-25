@@ -396,7 +396,6 @@ def main():
 
 
 if __name__ == '__main__':
-    import os
     try:
         exit_code = main()
         sys.exit(exit_code)
@@ -405,4 +404,3 @@ if __name__ == '__main__':
         import traceback
         traceback.print_exc()
         sys.exit(1)
-
