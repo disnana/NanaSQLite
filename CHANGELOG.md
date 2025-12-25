@@ -12,6 +12,7 @@
 - **ベンチマークの性能比較ロジックを修正**:
   - 比較計算を Ops/sec ベースに統一し、速度向上時に正しく `+`（🚀/✅）が表示されるように改善。
   - サマリーテーブルに Ops/sec の絶対値の差分（例: `+2.1M ops`）を追加。
+  - **Ops/sec 計算の正確性向上**: 平均時間からの逆算（近似値）ではなく、ベンチマークツールの生データ (`ops`) を直接使用するように修正。これにより、OS別詳細表示で `(0.0)` と表示されるバグも解消。
   - 0.001ms 未満の微小な時間計測結果に対して `ns` (nanoseconds) 単位を正しく表示。
   - 絵文字（🚀, ✅, ➖, ⚠️, 🔴）による直感的なパフォーマンス評価を追加。
 - **CI/CDワークフローの最適化**:
@@ -377,6 +378,7 @@
 - **Fixed Benchmark Comparison Logic**:
   - Standardized comparison to use ops/sec; higher values now correctly show as positive (🚀/✅) improvements.
   - Added absolute ops/sec difference (e.g., `+2.1M ops`) to the performance summary table.
+  - **Ops/sec Accuracy**: Switched to using raw `ops` data from the benchmark tool instead of calculating from mean time (approximation). This also fixed the bug where OS details showed `(0.0)`.
   - Corrected time formatting for sub-microsecond values to explicitly use `ns` (nanoseconds).
   - Introduced status emojis (🚀, ✅, ➖, ⚠️, 🔴) for quick visual performance assessment.
 - **Workflow Optimizations**:
