@@ -165,7 +165,6 @@ def main():
     
     # Load previous benchmark data for comparison
     previous_data = load_previous_benchmark()
-    has_previous = len(previous_data) > 0
     
     # 全ベンチマーク結果を収集
     all_results = {}
@@ -246,47 +245,29 @@ def main():
     # Top 10 Fastest
     sorted_by_speed = sorted(test_averages, key=lambda x: x['avg'])
     print("#### 🏆 Top 10 Fastest Operations\n")
-    
-    if has_previous:
-        print("| Rank | Test | Avg Time | Ops/sec | vs Prev | Fastest Platform |")
-        print("|------|------|----------|---------|---------|------------------|")
-    else:
-        print("| Rank | Test | Avg Time | Ops/sec | Fastest Platform |")
-        print("|------|------|----------|---------|------------------|")
+    print("| Rank | Test | Avg Time | Ops/sec | vs Prev | Fastest Platform |")
+    print("|------|------|----------|---------|---------|------------------|")
     
     for i, item in enumerate(sorted_by_speed[:10], 1):
         fastest_str = f"{item['fastest']['os']} py{item['fastest']['py']}" if item['fastest'] else "-"
         prev_ms = previous_data.get(item['name'])
-        diff_str = format_diff(item['avg'], prev_ms) if has_previous else ""
-        
-        if has_previous:
-            print(f"| {i} | {item['name']} | {format_time(item['avg'])} | {format_ops(item['avg'])} | {diff_str} | {fastest_str} |")
-        else:
-            print(f"| {i} | {item['name']} | {format_time(item['avg'])} | {format_ops(item['avg'])} | {fastest_str} |")
+        diff_str = format_diff(item['avg'], prev_ms)
+        print(f"| {i} | {item['name']} | {format_time(item['avg'])} | {format_ops(item['avg'])} | {diff_str} | {fastest_str} |")
     
     print()
     
     # Top 10 Slowest
     sorted_by_slow = sorted(test_averages, key=lambda x: x['avg'], reverse=True)
     print("#### 🐢 Top 10 Slowest Operations\n")
-    
-    if has_previous:
-        print("| Rank | Test | Avg Time | Ops/sec | vs Prev | Slowest Platform |")
-        print("|------|------|----------|---------|---------|------------------|")
-    else:
-        print("| Rank | Test | Avg Time | Ops/sec | Slowest Platform |")
-        print("|------|------|----------|---------|------------------|")
+    print("| Rank | Test | Avg Time | Ops/sec | vs Prev | Slowest Platform |")
+    print("|------|------|----------|---------|---------|------------------|")
     
     for i, item in enumerate(sorted_by_slow[:10], 1):
         slowest = max(test_data[item['name']]['all_means'], key=lambda x: x['mean']) if test_data[item['name']]['all_means'] else None
         slowest_str = f"{slowest['os']} py{slowest['py']}" if slowest else "-"
         prev_ms = previous_data.get(item['name'])
-        diff_str = format_diff(item['avg'], prev_ms) if has_previous else ""
-        
-        if has_previous:
-            print(f"| {i} | {item['name']} | {format_time(item['avg'])} | {format_ops(item['avg'])} | {diff_str} | {slowest_str} |")
-        else:
-            print(f"| {i} | {item['name']} | {format_time(item['avg'])} | {format_ops(item['avg'])} | {slowest_str} |")
+        diff_str = format_diff(item['avg'], prev_ms)
+        print(f"| {i} | {item['name']} | {format_time(item['avg'])} | {format_ops(item['avg'])} | {diff_str} | {slowest_str} |")
     
     print()
     
@@ -320,13 +301,8 @@ def main():
         os_headers = " | ".join([f"{get_os_emoji(os)} {os.replace('-latest', '')}" for os in sorted_os])
         
         print(f"<details><summary>{category} ({len(tests)} tests)</summary>\n")
-        
-        if has_previous:
-            print(f"| Test | Avg | Ops/sec | vs Prev | {os_headers} |")
-            print(f"|------|-----|---------|---------|" + "|".join(["-----"] * len(sorted_os)) + "|")
-        else:
-            print(f"| Test | Avg | Ops/sec | {os_headers} |")
-            print(f"|------|-----|---------|" + "|".join(["-----"] * len(sorted_os)) + "|")
+        print(f"| Test | Avg | Ops/sec | vs Prev | {os_headers} |")
+        print(f"|------|-----|---------|---------|" + "|".join(["-----"] * len(sorted_os)) + "|")
         
         for test in tests_sorted:
             os_values = []
@@ -339,20 +315,17 @@ def main():
             
             os_cells = " | ".join(os_values)
             prev_ms = previous_data.get(test['name'])
-            diff_str = format_diff(test['avg'], prev_ms) if has_previous else ""
-            
-            if has_previous:
-                print(f"| {test['name']} | {format_time(test['avg'])} | {format_ops(test['avg'])} | {diff_str} | {os_cells} |")
-            else:
-                print(f"| {test['name']} | {format_time(test['avg'])} | {format_ops(test['avg'])} | {os_cells} |")
+            diff_str = format_diff(test['avg'], prev_ms)
+            print(f"| {test['name']} | {format_time(test['avg'])} | {format_ops(test['avg'])} | {diff_str} | {os_cells} |")
         
         print("\n</details>\n")
     
     # ========== Summary Stats ==========
-    if has_previous and test_averages:
+    if test_averages:
         improvements = 0
         regressions = 0
         unchanged = 0
+        no_data = 0
         
         for item in test_averages:
             prev_ms = previous_data.get(item['name'])
@@ -364,6 +337,8 @@ def main():
                     regressions += 1
                 else:
                     unchanged += 1
+            else:
+                no_data += 1
         
         total_compared = improvements + regressions + unchanged
         if total_compared > 0:
@@ -371,6 +346,8 @@ def main():
             print(f"- 🚀 **Improved**: {improvements} tests")
             print(f"- ➖ **Unchanged**: {unchanged} tests")
             print(f"- ⚠️ **Regressed**: {regressions} tests")
+            if no_data > 0:
+                print(f"- ❓ **No previous data**: {no_data} tests")
             print()
 
 
