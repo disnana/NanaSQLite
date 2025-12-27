@@ -129,7 +129,7 @@ jobs:
   # セキュリティサマリー
   summary:
     name: Security Summary
-    needs: [codeql, safety, bandit, trivy, bun-audit]
+    needs: [codeql, safety, bandit, trivy, bun-audit, grype]
     runs-on: ubuntu-latest
     if: always()
     
@@ -145,17 +145,35 @@ jobs:
         echo "| Bandit | ${{ needs.bandit.result == 'success' && '✅ Passed' || '⚠️ Check logs' }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Trivy | ${{ needs.trivy.result == 'success' && '✅ Passed' || '⚠️ Check logs' }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Bun Audit | ${{ needs.bun-audit.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Grype | ${{ needs.grype.result == 'success' && '✅ Passed' || '⚠️ Check logs' }} |" >> $GITHUB_STEP_SUMMARY
 
     - name: Verify all checks passed
       if: always()
       run: |
-        if [[ "${{ needs.codeql.result }}" != "success" ]] || \
-           [[ "${{ needs.safety.result }}" != "success" ]] || \
-           [[ "${{ needs.trivy.result }}" != "success" ]] || \
-           [[ "${{ needs.bun-audit.result }}" != "success" ]] || \
-           [[ "${{ needs.grype.result }}" != "success" ]]; then
-          echo "One or more security checks failed. Please review the summary above."
+        echo ""
+        echo "📝 Job statuses:"
+        echo "📝 codeql → ${{ needs.codeql.result == 'success' && '✓ success' || '✗ ' }}${{ needs.codeql.result }} [required]"
+        echo "📝 safety → ${{ needs.safety.result == 'success' && '✓ success' || '✗ ' }}${{ needs.safety.result }} [required]"
+        echo "📝 bandit → ${{ needs.bandit.result == 'success' && '✓ success' || '✗ ' }}${{ needs.bandit.result }} [required]"
+        echo "📝 trivy → ${{ needs.trivy.result == 'success' && '✓ success' || '✗ ' }}${{ needs.trivy.result }} [required]"
+        echo "📝 bun-audit → ${{ needs.bun-audit.result == 'success' && '✓ success' || '✗ ' }}${{ needs.bun-audit.result }} [required]"
+        echo "📝 grype → ${{ needs.grype.result == 'success' && '✓ success' || '✗ ' }}${{ needs.grype.result }} [required]"
+        echo ""
+        
+        # Check for failures
+        FAILED=false
+        if [[ "${{ needs.codeql.result }}" != "success" ]]; then FAILED=true; fi
+        if [[ "${{ needs.safety.result }}" != "success" ]]; then FAILED=true; fi
+        if [[ "${{ needs.bandit.result }}" != "success" ]]; then FAILED=true; fi
+        if [[ "${{ needs.trivy.result }}" != "success" ]]; then FAILED=true; fi
+        if [[ "${{ needs.bun-audit.result }}" != "success" ]]; then FAILED=true; fi
+        if [[ "${{ needs.grype.result }}" != "success" ]]; then FAILED=true; fi
+        
+        if [ "$FAILED" = true ]; then
+          echo "❌ One or more security checks failed."
           exit 1
+        else
+          echo "# ✓ All security checks succeeded 🎉🎉🎉"
         fi
 
   # Grype - 脆弱性スキャン (OS/Python/JS)
