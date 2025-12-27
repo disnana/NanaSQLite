@@ -9,13 +9,13 @@ NanaSQLite: APSW SQLite-backed dict wrapper with memory caching.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, MutableMapping
 import json
 import re
 import threading
-from typing import Any, Literal
 import warnings
 import weakref
+from collections.abc import Iterator, MutableMapping
+from typing import Any, Literal
 
 import apsw
 

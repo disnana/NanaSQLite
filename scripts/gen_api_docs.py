@@ -1,12 +1,13 @@
 import inspect
-import sys
 import re
+import sys
 from pathlib import Path
 
 # Add src to path so we can import nanasqlite
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import nanasqlite  # noqa: F401  # imported for side effects / inspection
+
 
 def extract_lang(text, lang='ja'):
     """
@@ -157,8 +158,8 @@ def main():
     root_dir = Path(__file__).parent.parent / "docs" / "site"
     ja_dir, en_dir = root_dir, root_dir / "en"
     for d in [ja_dir, en_dir]: d.mkdir(parents=True, exist_ok=True)
-    from nanasqlite.core import NanaSQLite
     from nanasqlite.async_core import AsyncNanaSQLite
+    from nanasqlite.core import NanaSQLite
     
     (ja_dir / "api_sync.md").write_text(generate_class_md(NanaSQLite, "同期 API リファレンス", "NanaSQLiteクラスの同期メソッド一覧です。", 'ja'), encoding="utf-8")
     (ja_dir / "api_async.md").write_text(generate_class_md(AsyncNanaSQLite, "非同期 API リファレンス", "AsyncNanaSQLiteクラスの非同期メソッド一覧です。", 'ja'), encoding="utf-8")
