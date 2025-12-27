@@ -467,5 +467,5 @@ def test_with_mock():
 
 詳細な例については以下を参照してください:
 - [チュートリアル](tutorial.md) - 段階的な学習ガイド
-- [APIリファレンス](reference.md) - 完全なメソッドドキュメント
-- [非同期ガイド](async_guide.md) - async/awaitの使用方法
+- [APIリファレンス](../api/nanasqlite.md) - 完全なメソッドドキュメント
+- [非同期ガイド](async.md) - async/awaitの使用方法

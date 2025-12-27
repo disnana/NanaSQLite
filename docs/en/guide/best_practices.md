@@ -467,5 +467,5 @@ def test_with_mock():
 
 For more examples, see:
 - [Tutorial](tutorial.md) - Step-by-step learning guide
-- [API Reference](reference.md) - Complete method documentation
-- [Async Guide](async_guide.md) - Async/await usage
+- [API Reference](../api/nanasqlite.md) - Complete method documentation
+- [Async Guide](async.md) - Async/await usage

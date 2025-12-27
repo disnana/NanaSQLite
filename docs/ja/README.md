@@ -7,8 +7,16 @@ dict風インターフェースでSQLite永続化を実現するライブラリ�
 - [コンセプト](#コンセプト)
 - [インストール](#インストール)
 - [クイックスタート](#クイックスタート)
-- [使い方ガイド](#使い方ガイド)
-- [APIリファレンス](reference.md)
+- [ガイド](#ガイド)
+  - [チュートリアル](guide/tutorial.md)
+  - [非同期サポート](guide/async.md)
+  - [トランザクション](guide/transactions.md)
+  - [エラーハンドリング](guide/error_handling.md)
+  - [パフォーマンス](guide/performance.md)
+  - [ベストプラクティス](guide/best_practices.md)
+- [APIリファレンス](#apiリファレンス)
+  - [NanaSQLite (Sync)](api/nanasqlite.md)
+  - [AsyncNanaSQLite (Async)](api/async_nanasqlite.md)
 
 ---
 
@@ -124,272 +132,22 @@ for key in db.keys():
 
 ---
 
-## 使い方ガイド
+## ガイド
 
-### サポートされるデータ型
+詳細な情報は以下のガイドを参照してください：
 
-NanaSQLiteはすべてのJSON直列化可能な型をサポート：
-
-```python
-db["string"] = "Hello, World!"
-db["integer"] = 42
-db["float"] = 3.14159
-db["boolean"] = True
-db["null"] = None
-db["list"] = [1, 2, 3, "four", 5.0]
-db["dict"] = {"nested": {"deep": {"value": 123}}}
-```
-
-### ネスト構造
-
-深くネストした構造を完全サポート（30階層以上でテスト済み）：
-
-```python
-db["deep"] = {
-    "level1": {
-        "level2": {
-            "level3": {
-                "data": [1, 2, {"key": "value"}]
-            }
-        }
-    }
-}
-
-# ネストしたデータにアクセス
-print(db["deep"]["level1"]["level2"]["level3"]["data"][2]["key"])  # 'value'
-```
-
-### dictメソッド
-
-標準的なdictメソッドをすべて利用可能：
-
-```python
-# keys, values, items
-print(db.keys())    # ['key1', 'key2', ...]
-print(db.values())  # [value1, value2, ...]
-print(db.items())   # [('key1', value1), ...]
-
-# デフォルト値付きget
-value = db.get("missing", "default")
-
-# pop（取得して削除）
-value = db.pop("key")
-
-# 複数キーを更新
-db.update({"a": 1, "b": 2, "c": 3})
-
-# デフォルト値を設定
-db.setdefault("new_key", "default_value")
-
-# 全削除
-db.clear()
-
-# 通常のdictに変換
-regular_dict = db.to_dict()
-```
-
-### バッチ操作
-
-大量書き込みにはバッチメソッドで10〜100倍高速化：
-
-```python
-# バッチ更新（トランザクション使用）
-db.batch_update({
-    f"key_{i}": {"data": i} for i in range(10000)
-})
-
-# バッチ削除
-db.batch_delete(["key_0", "key_1", "key_2"])
-```
-
-### キャッシュ管理
-
-```python
-# キーがメモリキャッシュにあるか確認
-if db.is_cached("key"):
-    print("すでにメモリにロード済み！")
-
-# データベースから強制再読み込み
-db.refresh("key")  # 単一キー
-db.refresh()       # 全キー
-
-# すべてをメモリにロード
-db.load_all()
-```
-
-### 複数テーブル (v1.1.0dev1+)
-
-同じデータベース内で複数のテーブルを安全に操作できます：
-
-```python
-# 方法1: 直接テーブルを指定してインスタンスを作成
-users_db = NanaSQLite("app.db", table="users")
-config_db = NanaSQLite("app.db", table="config")
-
-users_db["alice"] = {"name": "Alice", "age": 30}
-config_db["theme"] = "dark"
-
-# 方法2: table()メソッドで接続を共有（推奨）
-db = NanaSQLite("app.db", table="main")
-users_db = db.table("users")
-config_db = db.table("config")
-
-# 接続とロックを共有するため、スレッドセーフかつメモリ効率的
-users_db["alice"] = {"name": "Alice", "age": 30}
-config_db["theme"] = "dark"
-
-# 各テーブルは独立したキャッシュを持つ
-print(users_db["alice"])  # {"name": "Alice", "age": 30}
-print(config_db["theme"])  # "dark"
-```
-
-**table()メソッドの利点:**
-- **スレッドセーフ**: 複数スレッドからの同時書き込みが安全
-- **メモリ効率**: SQLite接続を再利用してリソースを節約
-- **キャッシュ分離**: 各テーブルは独立したメモリキャッシュを保持
-
-### Pydantic互換性 (v1.0.3rc3+)
-
-PydanticモデルをそのままNanaSQLiteに保存・取得できます：
-
-```python
-from pydantic import BaseModel
-from nanasqlite import NanaSQLite
-
-# Pydanticモデルの定義
-class User(BaseModel):
-    name: str
-    age: int
-    email: str
-
-# データベース作成
-db = NanaSQLite("mydata.db")
-
-# Pydanticモデルを保存
-user = User(name="Nana", age=20, email="nana@example.com")
-db.set_model("user", user)
-
-# Pydanticモデルとして取得
-retrieved_user = db.get_model("user", User)
-print(retrieved_user.name)  # "Nana"
-print(retrieved_user.age)   # 20
-```
-
-### 直接SQL実行 (v1.0.3rc3+)
-
-SQLiteの全機能を活用するために、カスタムSQLを直接実行できます：
-
-```python
-# SELECT文の実行
-cursor = db.execute("SELECT key, value FROM data WHERE key LIKE ?", ("user%",))
-for row in cursor:
-    print(row)
-
-# 複数パラメータで一括実行
-db.execute_many(
-    "INSERT INTO custom (id, name) VALUES (?, ?)",
-    [(1, "Alice"), (2, "Bob"), (3, "Charlie")]
-)
-
-# 便利な取得メソッド
-row = db.fetch_one("SELECT * FROM data WHERE key = ?", ("config",))
-rows = db.fetch_all("SELECT * FROM data ORDER BY key")
-```
-
-### SQLiteラッパー関数 (v1.0.3rc3+)
-
-SQLiteを簡単に使えるラッパー関数を提供：
-
-```python
-# テーブル作成
-db.create_table("users", {
-    "id": "INTEGER PRIMARY KEY",
-    "name": "TEXT NOT NULL",
-    "email": "TEXT UNIQUE",
-    "age": "INTEGER"
-})
-
-# インデックス作成
-db.create_index("idx_users_email", "users", ["email"], unique=True)
-
-# シンプルなクエリ
-results = db.query(
-    table_name="users",
-    columns=["name", "age"],
-    where="age > ?",
-    parameters=(20,),
-    order_by="name ASC",
-    limit=10
-)
-
-# テーブル管理
-if db.table_exists("users"):
-    print("usersテーブルが存在します")
-
-tables = db.list_tables()
-print(f"データベース内のテーブル: {tables}")
-```
-
-### 追加のSQLiteラッパー関数 (v1.0.3rc4+)
-
-より多くの便利な機能を追加：
-
-```python
-# データ操作
-rowid = db.sql_insert("users", {"name": "Alice", "email": "alice@example.com", "age": 25})
-count = db.sql_update("users", {"age": 26}, "name = ?", ("Alice",))
-count = db.sql_delete("users", "age < ?", (18,))
-
-# UPSERT（存在すれば更新、なければ挿入）
-db.upsert("users", {"id": 1, "name": "Alice", "age": 25})
-
-# レコード数と存在確認
-total = db.count("users")
-adults = db.count("users", "age >= ?", (18,))
-if db.exists("users", "email = ?", ("alice@example.com",)):
-    print("ユーザーが存在します")
-
-# ページネーションとグループ化
-page2 = db.query_with_pagination("users", limit=10, offset=10, order_by="id ASC")
-stats = db.query_with_pagination("orders",
-    columns=["user_id", "COUNT(*) as count"],
-    group_by="user_id"
-)
-
-# スキーマ管理
-db.alter_table_add_column("users", "phone", "TEXT")
-schema = db.get_table_schema("users")
-indexes = db.list_indexes("users")
-db.drop_table("old_table", if_exists=True)
-db.drop_index("old_index", if_exists=True)
-
-# ユーティリティ
-db.vacuum()  # データベース最適化
-size = db.get_db_size()  # DBサイズ（バイト）
-exported = db.export_table_to_dict("users")  # テーブルエクスポート
-db.import_from_dict_list("users", data_list)  # 一括インポート
-rowid = db.get_last_insert_rowid()  # 最後のROWID
-mode = db.pragma("journal_mode")  # PRAGMA取得
-
-# トランザクション制御
-with db.transaction():
-    db.sql_insert("users", {"name": "Alice"})
-    db.sql_insert("users", {"name": "Bob"})
-    # 自動的にコミット、例外時はロールバック
-```
-
-### パフォーマンスチューニング
-
-```python
-# 最適化を無効化（非推奨）
-db = NanaSQLite("mydata.db", optimize=False)
-
-# カスタムキャッシュサイズ（デフォルト: 64MB）
-db = NanaSQLite("mydata.db", cache_size_mb=128)
-```
+- **[チュートリアル](guide/tutorial.md)**: 複数テーブルや高度な機能を含む詳細な例。
+- **[非同期サポート](guide/async.md)**: `AsyncNanaSQLite` の使用方法。
+- **[トランザクション](guide/transactions.md)**: データの整合性と一括書き込みの最適化。
+- **[エラーハンドリング](guide/error_handling.md)**: 例外処理とトラブルシューティング。
+- **[パフォーマンス](guide/performance.md)**: NanaSQLiteの速度チューニング。
+- **[ベストプラクティス](guide/best_practices.md)**: 本番環境での推奨パターン。
 
 ---
 
-## 次のステップ
+## APIリファレンス
 
-- [APIリファレンス](reference.md) - 詳細なメソッドドキュメント
+全クラス・メソッドの完全なドキュメント。
+
+- **[NanaSQLite (Sync)](api/nanasqlite.md)**
+- **[AsyncNanaSQLite (Async)](api/async_nanasqlite.md)**
