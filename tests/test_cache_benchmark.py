@@ -4,6 +4,7 @@ Benchmark tests for cache strategies (v1.3.0).
 Run with: pytest tests/test_cache_benchmark.py -v --benchmark-only
 """
 import importlib.util
+
 import pytest
 
 from nanasqlite import CacheType, NanaSQLite
