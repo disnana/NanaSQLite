@@ -1,960 +1,407 @@
-# Asynchronous API Reference
+# AsyncNanaSQLite API Reference
 
-List of asynchronous methods for the AsyncNanaSQLite class.
+Complete documentation for the asynchronous `AsyncNanaSQLite` class.
 
-## AsyncNanaSQLite
+## Class: `AsyncNanaSQLite`
 
-Asynchronous wrapper for NanaSQLite using optimized thread pool.
-
-All database operations are executed within a dedicated thread pool, preventing blocking of the asynchronous event loop.
-This makes it safe to use in asynchronous applications like FastAPI or aiohttp.
-
-Uses a customizable thread pool to achieve optimal concurrency and performance in high-load scenarios.
-
-#### 📥 Arguments
-- **db_path**: Path to the SQLite database file
-- **table**: Default: "data"
-- **bulk_load**: If True, loads all data into memory during initialization
-- **optimize**: If True, applies performance settings like WAL mode
-- **cache_size_mb**: SQLite cache size (MB), default 64MB
-- **strict_sql_validation**: v1.2.0
-- **max_clause_length**: v1.2.0
-- **max_workers**: Max workers in thread pool (default: 5)
-- **thread_name_prefix**: Thread name prefix (default: "AsyncNanaSQLite")
-
-#### 💡 Example
-```python
-    >>> async with AsyncNanaSQLite("mydata.db") as db:
-    ...     await db.aset("config", {"theme": "dark"})
-    ...     config = await db.aget("config")
-    ...     print(config)
-```
-
-```python
-    >>> # Settings for high load
-    >>> async with AsyncNanaSQLite("mydata.db", max_workers=10) as db:
-    ...     # Optimized for high concurrency
-    ...     results = await asyncio.gather(*[db.aget(f"key_{i}") for i in range(100)])
-```
-
----
-
-## Methods
-
-### __init__
-
-```python
-__init__(self, db_path: 'str', table: 'str' = 'data', bulk_load: 'bool' = False, optimize: 'bool' = True, cache_size_mb: 'int' = 64, max_workers: 'int' = 5, thread_name_prefix: 'str' = 'AsyncNanaSQLite', strict_sql_validation: 'bool' = True, allowed_sql_functions: 'list[str] | None' = None, forbidden_sql_functions: 'list[str] | None' = None, max_clause_length: 'int | None' = 1000, read_pool_size: 'int' = 0)
-```
-
-#### 📥 Arguments
-- **db_path**: Path to SQLite database file
-- **max_workers**: Max workers (default: 5)
-- **read_pool_size**: Default: 0 = Disabled (v1.1.0)
-- ... (Same as Sync)
-
----
-
-### aget
-
-```python
-aget(self, key: 'str', default: 'Any' = None) -> 'Any'
-```
-
-Get value asynchronously.
-
----
-
-### get
-
-```python
-get(self, key: 'str', default: 'Any' = None) -> 'Any'
-```
-
-Get value asynchronously.
-
----
-
-### aset
-
-```python
-aset(self, key: 'str', value: 'Any') -> 'None'
-```
-
-Set value asynchronously.
-
----
-
-### adelete
-
-```python
-adelete(self, key: 'str') -> 'None'
-```
-
-Delete key asynchronously.
-
----
-
-### acontains
-
-```python
-acontains(self, key: 'str') -> 'bool'
-```
-
-Check existence asynchronously.
-
----
-
-### contains
-
-```python
-contains(self, key: 'str') -> 'bool'
-```
-
-Check existence asynchronously.
-
----
-
-### alen
-
-```python
-alen(self) -> 'int'
-```
-
-Get database size asynchronously.
-
----
-
-### akeys
-
-```python
-akeys(self) -> 'list[str]'
-```
-
-Get all keys asynchronously.
-
----
-
-### keys
-
-```python
-keys(self) -> 'list[str]'
-```
-
-Get all keys asynchronously.
-
----
-
-### avalues
-
-```python
-avalues(self) -> 'list[Any]'
-```
-
-Get all values asynchronously.
-
----
-
-### values
-
-```python
-values(self) -> 'list[Any]'
-```
-
-Get all values asynchronously.
-
----
-
-### aitems
-
-```python
-aitems(self) -> 'list[tuple[str, Any]]'
-```
-
-Get all items asynchronously.
-
----
-
-### items
-
-```python
-items(self) -> 'list[tuple[str, Any]]'
-```
-
-Get all items asynchronously.
-
----
-
-### apop
-
-```python
-apop(self, key: 'str', *args) -> 'Any'
-```
-
-Remove and return value asynchronously.
-
----
-
-### aupdate
-
-```python
-aupdate(self, mapping: 'dict' = None, **kwargs) -> 'None'
-```
-
-Update multiple keys asynchronously.
-
----
-
-### aclear
-
-```python
-aclear(self) -> 'None'
-```
-
-Clear all data asynchronously.
-
----
-
-### asetdefault
-
-```python
-asetdefault(self, key: 'str', default: 'Any' = None) -> 'Any'
-```
-
-Set default if key not exists asynchronously.
-
----
-
-### aload_all
-
-```python
-aload_all(self) -> 'None'
-```
-
-Load all data asynchronously.
-
----
-
-### load_all
-
-```python
-load_all(self) -> 'None'
-```
-
-Load all data asynchronously.
-
----
-
-### arefresh
-
-```python
-arefresh(self, key: 'str' = None) -> 'None'
-```
-
-Refresh cache asynchronously.
-
----
-
-### refresh
-
-```python
-refresh(self, key: 'str' = None) -> 'None'
-```
-
-Refresh cache asynchronously.
-
----
-
-### ais_cached
-
-```python
-ais_cached(self, key: 'str') -> 'bool'
-```
-
-Check if cached asynchronously.
-
----
-
-### is_cached
-
-```python
-is_cached(self, key: 'str') -> 'bool'
-```
-
-Check if cached asynchronously.
-
----
-
-### abatch_update
-
-```python
-abatch_update(self, mapping: 'dict[str, Any]') -> 'None'
-```
-
-Batch write asynchronously.
-
----
-
-### batch_update
-
 ```python
-batch_update(self, mapping: 'dict[str, Any]') -> 'None'
+class AsyncNanaSQLite
 ```
 
-Batch write asynchronously.
+A non-blocking, async wrapper for `NanaSQLite`.
+It delegates all database operations to a thread pool executor, ensuring that the main asyncio event loop is never blocked. This is essential for high-concurrency applications like FastAPI or discord.py bots.
 
 ---
-
-### abatch_delete
-
-```python
-abatch_delete(self, keys: 'list[str]') -> 'None'
-```
 
-Batch delete asynchronously.
+## Constructor
 
----
+### `__init__`
 
-### batch_delete
-
 ```python
-batch_delete(self, keys: 'list[str]') -> 'None'
+def __init__(
+    self,
+    db_path: str,
+    table: str = "data",
+    bulk_load: bool = False,
+    optimize: bool = True,
+    cache_size_mb: int = 64,
+    max_workers: int = 5,
+    thread_name_prefix: str = "AsyncNanaSQLite",
+    strict_sql_validation: bool = True,
+    allowed_sql_functions: list[str] | None = None,
+    forbidden_sql_functions: list[str] | None = None,
+    max_clause_length: int | None = 1000,
+    read_pool_size: int = 0,
+)
 ```
-
-Batch delete asynchronously.
 
----
-
-### ato_dict
+Initializes the AsyncNanaSQLite interface.
 
-```python
-ato_dict(self) -> 'dict'
-```
+**Parameters:**
 
-Get as dict asynchronously.
+- `db_path` (str): Path to the SQLite database file.
+- `table` (str, optional): Table name to use for storage. Defaults to `"data"`.
+- `max_workers` (int, optional): Maximum number of threads in the thread pool. Defaults to `5`.
+  - Increase this for high-concurrency read workloads.
+- `read_pool_size` (int, optional): Size of the dedicated read-only connection pool. Defaults to `0` (disabled).
+  - Enable this (e.g., `read_pool_size=4`) to allow concurrent reads to bypass the write lock.
+- `strict_sql_validation`, `allowed_sql_functions`, etc.: Same security parameters as `NanaSQLite`.
 
 ---
 
-### to_dict
+## Core Methods
 
-```python
-to_dict(self) -> 'dict'
-```
-
-Get as dict asynchronously.
+### `close`
 
----
-
-### acopy
-
 ```python
-acopy(self) -> 'dict'
+async def close(self) -> None
 ```
-
-Create shallow copy asynchronously.
 
----
+Closes the database connection and shuts down the thread pool.
 
-### copy
+### `table`
 
 ```python
-copy(self) -> 'dict'
+async def table(self, table_name: str) -> AsyncNanaSQLite
 ```
 
-Create shallow copy asynchronously.
+Asynchronously creates a new `AsyncNanaSQLite` instance for a sub-table.
+Shares the thread pool and connection with the parent.
 
 ---
-
-### aget_fresh
-
-```python
-aget_fresh(self, key: 'str', default: 'Any' = None) -> 'Any'
-```
 
-Get fresh from DB asynchronously.
-
----
+## Async Dict-like Interface
 
-### get_fresh
+These methods mirror standard dictionary operations but are `async`.
 
+### `aget` (Alias: `get`)
 ```python
-get_fresh(self, key: 'str', default: 'Any' = None) -> 'Any'
+async def aget(self, key: str, default: Any = None) -> Any
 ```
+Asynchronously retrieves a value.
 
-Get fresh from DB asynchronously.
-
----
-
-### abatch_get
-
+### `aset`
 ```python
-abatch_get(self, keys: 'list[str]') -> 'dict[str, Any]'
+async def aset(self, key: str, value: Any) -> None
 ```
-
-Batch get asynchronously.
-
----
+Asynchronously sets a value.
 
-### aset_model
-
+### `adelete`
 ```python
-aset_model(self, key: 'str', model: 'Any') -> 'None'
+async def adelete(self, key: str) -> None
 ```
-
-Save Pydantic model asynchronously.
+Asynchronously deletes a key.
 
----
-
-### set_model
-
+### `acontains` (Alias: `contains`)
 ```python
-set_model(self, key: 'str', model: 'Any') -> 'None'
+async def acontains(self, key: str) -> bool
 ```
-
-Save Pydantic model asynchronously.
+Asynchronously checks for key existence.
 
----
-
-### aget_model
-
+### `alen`
 ```python
-aget_model(self, key: 'str', model_class: 'type' = None) -> 'Any'
+async def alen(self) -> int
 ```
-
-Get Pydantic model asynchronously.
-
----
+Asynchronously returns the number of items.
 
-### get_model
-
+### `akeys` (Alias: `keys`)
 ```python
-get_model(self, key: 'str', model_class: 'type' = None) -> 'Any'
+async def akeys(self) -> list[str]
 ```
-
-Get Pydantic model asynchronously.
-
----
-
-### aexecute
+Asynchronously returns all keys.
 
+### `avalues` (Alias: `values`)
 ```python
-aexecute(self, sql: 'str', parameters: 'tuple | None' = None) -> 'Any'
+async def avalues(self) -> list[Any]
 ```
-
-Execute SQL asynchronously.
-
----
+Asynchronously returns all values.
 
-### execute
-
+### `aitems` (Alias: `items`)
 ```python
-execute(self, sql: 'str', parameters: 'tuple | None' = None) -> 'Any'
+async def aitems(self) -> list[tuple[str, Any]]
 ```
-
-Execute SQL asynchronously.
-
----
-
-### aexecute_many
+Asynchronously returns all items.
 
+### `aupdate`
 ```python
-aexecute_many(self, sql: 'str', parameters_list: 'list[tuple]') -> 'None'
+async def aupdate(self, mapping: dict = None, **kwargs) -> None
 ```
+Asynchronously updates multiple keys.
 
-Execute many SQL asynchronously.
-
----
-
-### execute_many
-
+### `aclear`
 ```python
-execute_many(self, sql: 'str', parameters_list: 'list[tuple]') -> 'None'
+async def aclear(self) -> None
 ```
-
-Execute many SQL asynchronously.
-
----
+Asynchronously effectively clears the database.
 
-### afetch_one
-
+### `apop`
 ```python
-afetch_one(self, sql: 'str', parameters: 'tuple' = None) -> 'tuple | None'
+async def apop(self, key: str, *args) -> Any
 ```
-
-Fetch one row asynchronously.
-
----
-
-### fetch_one
+Asynchronously pops a value.
 
+### `asetdefault`
 ```python
-fetch_one(self, sql: 'str', parameters: 'tuple' = None) -> 'tuple | None'
+async def asetdefault(self, key: str, default: Any = None) -> Any
 ```
+Asynchronously sets a default value if missing.
 
-Fetch one row asynchronously.
-
 ---
-
-### afetch_all
 
-```python
-afetch_all(self, sql: 'str', parameters: 'tuple' = None) -> 'list[tuple]'
-```
-
-Fetch all rows asynchronously.
+## Data Management
 
----
-
-### fetch_all
+### `load_all`
 
 ```python
-fetch_all(self, sql: 'str', parameters: 'tuple' = None) -> 'list[tuple]'
+async def load_all(self) -> None
 ```
-
-Fetch all rows asynchronously.
-
----
+Loads all data into memory asynchronously.
 
-### acreate_table
+### `refresh`
 
 ```python
-acreate_table(self, table_name: 'str', columns: 'dict', if_not_exists: 'bool' = True, primary_key: 'str' = None) -> 'None'
+async def refresh(self, key: str = None) -> None
 ```
-
-Create table asynchronously.
-
----
+Asynchronously refreshes the cache.
 
-### create_table
+### `get_fresh`
 
 ```python
-create_table(self, table_name: 'str', columns: 'dict', if_not_exists: 'bool' = True, primary_key: 'str' = None) -> 'None'
+async def get_fresh(self, key: str, default: Any = None) -> Any
 ```
-
-Create table asynchronously.
-
----
+Asynchronously fetches fresh data from DB.
 
-### acreate_index
+### `batch_update`
 
 ```python
-acreate_index(self, index_name: 'str', table_name: 'str', columns: 'list[str]', unique: 'bool' = False, if_not_exists: 'bool' = True) -> 'None'
+async def batch_update(self, mapping: dict[str, Any]) -> None
 ```
-
-Create index asynchronously.
-
----
+Asynchronous bulk update.
 
-### create_index
+### `batch_delete`
 
 ```python
-create_index(self, index_name: 'str', table_name: 'str', columns: 'list[str]', unique: 'bool' = False, if_not_exists: 'bool' = True) -> 'None'
+async def batch_delete(self, keys: list[str]) -> None
 ```
-
-Create index asynchronously.
-
----
+Asynchronous bulk delete.
 
-### aquery
+### `abatch_get`
 
 ```python
-aquery(self, table_name: 'str' = None, columns: 'list[str]' = None, where: 'str' = None, parameters: 'tuple' = None, order_by: 'str' = None, limit: 'int' = None, strict_sql_validation: 'bool' = None, allowed_sql_functions: 'list[str]' = None, forbidden_sql_functions: 'list[str]' = None, override_allowed: 'bool' = False) -> 'list[dict]'
+async def abatch_get(self, keys: list[str]) -> dict[str, Any]
 ```
+Asynchronous bulk get.
 
-Query asynchronously.
-
 ---
-
-### query
-
-```python
-query(self, table_name: 'str' = None, columns: 'list[str]' = None, where: 'str' = None, parameters: 'tuple' = None, order_by: 'str' = None, limit: 'int' = None, strict_sql_validation: 'bool' = None, allowed_sql_functions: 'list[str]' = None, forbidden_sql_functions: 'list[str]' = None, override_allowed: 'bool' = False) -> 'list[dict]'
-```
 
-Query asynchronously.
-
----
+## Transaction Control
 
-### aquery_with_pagination
+### `begin_transaction`
 
 ```python
-aquery_with_pagination(self, table_name: 'str' = None, columns: 'list[str]' = None, where: 'str' = None, parameters: 'tuple' = None, order_by: 'str' = None, limit: 'int' = None, offset: 'int' = None, group_by: 'str' = None, strict_sql_validation: 'bool' = None, allowed_sql_functions: 'list[str]' = None, forbidden_sql_functions: 'list[str]' = None, override_allowed: 'bool' = False) -> 'list[dict]'
+async def begin_transaction(self) -> None
 ```
+Starts a transaction.
 
-Query with pagination asynchronously.
+### `commit`
 
----
-
-### query_with_pagination
-
 ```python
-query_with_pagination(self, table_name: 'str' = None, columns: 'list[str]' = None, where: 'str' = None, parameters: 'tuple' = None, order_by: 'str' = None, limit: 'int' = None, offset: 'int' = None, group_by: 'str' = None, strict_sql_validation: 'bool' = None, allowed_sql_functions: 'list[str]' = None, forbidden_sql_functions: 'list[str]' = None, override_allowed: 'bool' = False) -> 'list[dict]'
+async def commit(self) -> None
 ```
+Commits a transaction.
 
-Query with pagination asynchronously.
+### `rollback`
 
----
-
-### atable_exists
-
 ```python
-atable_exists(self, table_name: 'str') -> 'bool'
+async def rollback(self) -> None
 ```
-
-Check table existence asynchronously.
+Rolls back a transaction.
 
----
+### `in_transaction`
 
-### table_exists
-
 ```python
-table_exists(self, table_name: 'str') -> 'bool'
+async def in_transaction(self) -> bool
 ```
-
-Check table existence asynchronously.
+Checks transaction status.
 
----
+### `transaction`
 
-### alist_tables
-
 ```python
-alist_tables(self) -> 'list[str]'
+def transaction(self)
 ```
-
-List tables asynchronously.
+Async context manager for transactions.
 
----
-
-### list_tables
-
 ```python
-list_tables(self) -> 'list[str]'
+async with db.transaction():
+    await db.aset("a", 1)
 ```
 
-List tables asynchronously.
-
 ---
-
-### adrop_table
-
-```python
-adrop_table(self, table_name: 'str', if_exists: 'bool' = True) -> 'None'
-```
 
-Drop table asynchronously.
-
----
+## Querying & SQL
 
-### drop_table
+All SQL and query methods available in `NanaSQLite` are available here as `async` methods.
 
+### `query` (Alias: `aquery`)
 ```python
-drop_table(self, table_name: 'str', if_exists: 'bool' = True) -> 'None'
+async def query(self, table_name: str, columns: list[str] | None = None, where: str | None = None, parameters: tuple = None, order_by: str | None = None, limit: int | None = None) -> list[dict]
 ```
-
-Drop table asynchronously.
-
----
-
-### drop_index
 
+### `query_with_pagination` (Alias: `aquery_with_pagination`)
 ```python
-drop_index(self, index_name: 'str', if_exists: 'bool' = True) -> 'None'
+async def query_with_pagination(self, table_name: str, columns: list[str] | None = None, where: str | None = None, parameters: tuple = None, order_by: str | None = None, limit: int = 20, offset: int = 0, group_by: str | None = None) -> list[dict]
 ```
 
-Drop index asynchronously.
-
----
-
-### asql_insert
-
+### `execute` (Alias: `aexecute`)
 ```python
-asql_insert(self, table_name: 'str', data: 'dict') -> 'int'
+async def execute(self, sql: str, parameters: tuple | None = None) -> Any
 ```
-
-Insert synchronously directly from dict (async wrapper).
-
----
 
-### sql_insert
-
+### `execute_many` (Alias: `aexecute_many`)
 ```python
-sql_insert(self, table_name: 'str', data: 'dict') -> 'int'
+async def execute_many(self, sql: str, parameters: list[tuple]) -> None
 ```
-
-Insert synchronously directly from dict (async wrapper).
-
----
 
-### asql_update
-
+### `fetch_all` (Alias: `afetch_all`)
 ```python
-asql_update(self, table_name: 'str', data: 'dict', where: 'str', parameters: 'tuple' = None) -> 'int'
+async def fetch_all(self, sql: str, parameters: tuple = None) -> list[tuple]
 ```
-
-Update asynchronously.
 
----
-
-### sql_update
-
+### `fetch_one` (Alias: `afetch_one`)
 ```python
-sql_update(self, table_name: 'str', data: 'dict', where: 'str', parameters: 'tuple' = None) -> 'int'
+async def fetch_one(self, sql: str, parameters: tuple = None) -> tuple | None
 ```
-
-Update asynchronously.
-
----
-
-### asql_delete
 
+### `sql_insert` (Alias: `asql_insert`)
 ```python
-asql_delete(self, table_name: 'str', where: 'str', parameters: 'tuple' = None) -> 'int'
+async def sql_insert(self, table_name: str, data: dict) -> int
 ```
 
-Delete asynchronously.
-
----
-
-### sql_delete
-
+### `sql_update` (Alias: `asql_update`)
 ```python
-sql_delete(self, table_name: 'str', where: 'str', parameters: 'tuple' = None) -> 'int'
+async def sql_update(self, table_name: str, data: dict, where: str, parameters: tuple = None) -> None
 ```
-
-Delete asynchronously.
-
----
 
-### aupsert
-
+### `sql_delete` (Alias: `asql_delete`)
 ```python
-aupsert(self, table_name: 'str', data: 'dict', conflict_columns: 'list[str]' = None) -> 'int'
+async def sql_delete(self, table_name: str, where: str, parameters: tuple = None) -> None
 ```
-
-Upsert asynchronously.
 
----
-
-### upsert
-
+### `upsert` (Alias: `aupsert`)
 ```python
-upsert(self, table_name: 'str', data: 'dict', conflict_columns: 'list[str]' = None) -> 'int'
+async def upsert(self, table_name: str, data: dict, unique_keys: list[str]) -> None
 ```
-
-Upsert asynchronously.
 
----
-
-### acount
-
+### `count` (Alias: `acount`)
 ```python
-acount(self, table_name: 'str' = None, where: 'str' = None, parameters: 'tuple' = None, strict_sql_validation: 'bool' = None, allowed_sql_functions: 'list[str]' = None, forbidden_sql_functions: 'list[str]' = None, override_allowed: 'bool' = False) -> 'int'
+async def count(self, table_name: str, where: str | None = None, parameters: tuple = None) -> int
 ```
-
-Count asynchronously.
-
----
 
-### count
-
+### `exists` (Alias: `aexists`)
 ```python
-count(self, table_name: 'str' = None, where: 'str' = None, parameters: 'tuple' = None, strict_sql_validation: 'bool' = None, allowed_sql_functions: 'list[str]' = None, forbidden_sql_functions: 'list[str]' = None, override_allowed: 'bool' = False) -> 'int'
+async def exists(self, table_name: str, where: str, parameters: tuple = None) -> bool
 ```
-
-Count asynchronously.
-
----
-
-### aexists
 
+### `create_table`
 ```python
-aexists(self, table_name: 'str', where: 'str', parameters: 'tuple' = None) -> 'bool'
+async def create_table(self, table_name: str, schema: dict[str, str]) -> None
 ```
-
-Check existence asynchronously.
-
----
 
-### exists
-
+### `drop_table`
 ```python
-exists(self, table_name: 'str', where: 'str', parameters: 'tuple' = None) -> 'bool'
+async def drop_table(self, table_name: str) -> None
 ```
-
-Check existence asynchronously.
 
----
-
-### avacuum
-
+### `create_index`
 ```python
-avacuum(self) -> 'None'
+async def create_index(self, index_name: str, table_name: str, columns: list[str], unique: bool = False) -> None
 ```
-
-Vacuum asynchronously.
 
----
-
-### vacuum
-
+### `drop_index`
 ```python
-vacuum(self) -> 'None'
+async def drop_index(self, index_name: str) -> None
 ```
-
-Vacuum asynchronously.
-
----
-
-### get_db_size
 
+### `alter_table_add_column`
 ```python
-get_db_size(self) -> 'int'
+async def alter_table_add_column(self, table_name: str, column_name: str, column_type: str) -> None
 ```
 
-Get DB size (usually fast enough to be sync, but executed in thread).
-
----
-
-### aexport_table_to_dict
-
+### `get_table_schema`
 ```python
-aexport_table_to_dict(self, table_name: 'str') -> 'list[dict]'
+async def get_table_schema(self, table_name: str) -> list[dict]
 ```
-
-Export table asynchronously.
-
----
 
-### export_table_to_dict
-
+### `list_tables`
 ```python
-export_table_to_dict(self, table_name: 'str') -> 'list[dict]'
+async def list_tables(self) -> list[str]
 ```
-
-Export table asynchronously.
 
----
-
-### aimport_from_dict_list
-
+### `table_exists`
 ```python
-aimport_from_dict_list(self, table_name: 'str', data_list: 'list[dict]') -> 'int'
+async def table_exists(self, table_name: str) -> bool
 ```
-
-Import dict list asynchronously.
 
----
-
-### import_from_dict_list
-
+### `list_indexes`
 ```python
-import_from_dict_list(self, table_name: 'str', data_list: 'list[dict]') -> 'int'
+async def list_indexes(self, table_name: str | None = None) -> list[dict]
 ```
-
-Import dict list asynchronously.
-
----
-
-### get_last_insert_rowid
 
+### `vacuum`
 ```python
-get_last_insert_rowid(self) -> 'int'
+async def vacuum(self) -> None
 ```
 
-Get last rowid.
-
----
-
-### apragma
-
+### `get_db_size`
 ```python
-apragma(self, pragma_name: 'str', value: 'Any' = None) -> 'Any'
+async def get_db_size(self) -> int
 ```
-
-Async PRAGMA.
-
----
 
-### pragma
-
+### `export_table_to_dict`
 ```python
-pragma(self, pragma_name: 'str', value: 'Any' = None) -> 'Any'
+async def export_table_to_dict(self, table_name: str) -> dict[str, Any]
 ```
-
-Async PRAGMA.
-
----
 
-### begin_transaction
-
+### `import_from_dict_list`
 ```python
-begin_transaction(self) -> 'None'
+async def import_from_dict_list(self, table_name: str, data: list[dict], unique_keys: list[str] = None) -> None
 ```
-
-Begin transaction asynchronously.
 
----
-
-### commit
-
+### `get_last_insert_rowid`
 ```python
-commit(self) -> 'None'
+async def get_last_insert_rowid(self) -> int
 ```
-
-Commit transaction asynchronously.
-
----
-
-### rollback
 
+### `pragma`
 ```python
-rollback(self) -> 'None'
+async def pragma(self, name: str, value: Any = None) -> Any
 ```
 
-Rollback transaction asynchronously.
-
 ---
-
-### in_transaction
-
-```python
-in_transaction(self) -> 'bool'
-```
 
-Check transaction status asynchronously.
-
----
+## Pydantic Support
 
-### transaction
+### `set_model`
 
 ```python
-transaction(self)
+async def set_model(self, key: str, model: Any) -> None
 ```
 
-Async context manager for transaction.
+### `get_model`
 
 ```python
-    >>> async with db.transaction():
-    ...     await db.aset("key", "value")
+async def get_model(self, key: str, model_class: type = None) -> Any
 ```
 
 ---
 
-### close
+## Advanced
 
-```python
-close(self) -> 'None'
-```
-
-Close connection asynchronously.
+### `sync_db`
 
----
-
-### table
-
 ```python
-table(self, table_name: 'str')
+@property
+def sync_db(self) -> NanaSQLite | None
 ```
-
-Get AsyncNanaSQLite instance for sub-table.
-Shares thread pool and connection.
+Access to the underlying synchronous `NanaSQLite` instance.
+**Warning**: Calling methods on `sync_db` from an async function will block the event loop. Use with caution.
