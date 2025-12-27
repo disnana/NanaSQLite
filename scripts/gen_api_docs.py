@@ -1,0 +1,183 @@
+import inspect
+import sys
+import os
+import re
+from pathlib import Path
+
+# Add src to path so we can import nanasqlite
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+import nanasqlite
+
+def extract_lang(text, lang='ja'):
+    """
+    Intelligently extracts the desired language while preserving structure and code.
+    """
+    if not text:
+        return ""
+    
+    lines = text.split('\n')
+    result_lines = []
+    in_example = False
+    
+    for line in lines:
+        clean = line.strip()
+        
+        # Preservation of empty lines for spacing
+        if not clean:
+            result_lines.append("")
+            continue
+            
+        # Detect Example blocks (Doctest style)
+        if clean.startswith('>>>') or clean.startswith('...'):
+            in_example = True
+            result_lines.append(line)
+            continue
+            
+        # --- List Items / Parameter Definitions ---
+        # Matches: "param: description" or "  * item: description"
+        param_match = re.match(r'^(\s*[-*]?\s*)([\w_]+:)(.*)$', line)
+        if param_match:
+            in_example = False # Parameters usually end example blocks
+            indent, key, desc = param_match.groups()
+            
+            # Bilingual desc: "desc EN (desc JA)"
+            desc_match = re.search(r'^(.*?)\((.*?)\)$', desc.strip())
+            if desc_match:
+                en, ja = desc_match.groups()
+                result_lines.append(f"{indent}{key} {ja.strip() if lang == 'ja' else en.strip()}")
+            else:
+                result_lines.append(line)
+            continue
+
+        # --- Neutral Blocks (Code / Inline symbols) ---
+        if '`' in line:
+            result_lines.append(line)
+            continue
+            
+        # --- Narrative Text with Language Selection ---
+        # Parentheses pattern: "English (Japanese)"
+        match = re.search(r'^(.*?)\((.*?)\)$', clean)
+        if match:
+            en, ja = match.groups()
+            processed = line.replace(clean, ja.strip() if lang == 'ja' else en.strip())
+            result_lines.append(processed)
+            continue
+            
+        has_ja = bool(re.search(r'[ぁ-んァ-ヶー一-龠]', line))
+        if lang == 'ja':
+            if has_ja:
+                result_lines.append(line)
+        else: # en mode
+            if not has_ja:
+                result_lines.append(line)
+                
+    return "\n".join(result_lines).strip()
+
+def format_docstring(doc, lang='ja'):
+    if not doc:
+        return ""
+    
+    doc = inspect.cleandoc(doc)
+    doc = extract_lang(doc, lang)
+    
+    # 1. Spacing and structural headers
+    if lang == 'ja':
+        labels = {'args': '📥 引数', 'returns': '📤 戻り値', 'raises': '⚠️ 例外', 'example': '💡 使用例', 'note': '📝 注意'}
+    else:
+        labels = {'args': '📥 Arguments', 'returns': '📤 Returns', 'raises': '⚠️ Raises', 'example': '💡 Example', 'note': '📝 Note'}
+
+    # Convert anchors to bold headers with padding
+    doc = re.sub(r'^(Args|引数):', f'\n#### {labels["args"]}\n', doc, flags=re.M | re.I)
+    doc = re.sub(r'^(Returns|戻り値):', f'\n#### {labels["returns"]}\n', doc, flags=re.M | re.I)
+    doc = re.sub(r'^(Raises|例外):', f'\n#### {labels["raises"]}\n', doc, flags=re.M | re.I)
+    doc = re.sub(r'^(Example|使用例):', f'\n#### {labels["example"]}\n', doc, flags=re.M | re.I)
+
+    # 2. Fix List Items (Ensure they are proper Markdown bullets)
+    # Detect lines that look like parameters but aren't bullets yet
+    def make_bullet(m):
+        indent, key, desc = m.groups()
+        return f"{indent}- **{key}** {desc}"
+    
+    doc = re.sub(r'^(\s*)([\w_]+:)(.*)$', make_bullet, doc, flags=re.M)
+
+    # 3. Code Block Highlighting (Doctest style)
+    # Wrap any sequence of >>> or ... into a single code block
+    blocks = []
+    current_block = []
+    lines = doc.split('\n')
+    
+    final_lines = []
+    for line in lines:
+        if line.strip().startswith('>>>') or line.strip().startswith('...'):
+            if not current_block:
+                final_lines.append("```python")
+            current_block.append(line)
+            final_lines.append(line)
+        else:
+            if current_block:
+                final_lines.append("```")
+                current_block = []
+            final_lines.append(line)
+    if current_block:
+        final_lines.append("```")
+        
+    doc = "\n".join(final_lines)
+
+    # 4. Final Spacing Cleanup
+    doc = re.sub(r'\n{3,}', '\n\n', doc) # Max 2 newlines
+    
+    return doc
+
+def generate_class_md(cls_obj, title, description="", lang='ja'):
+    md = f"# {title}\n\n"
+    if description: md += f"{description}\n\n"
+        
+    md += f"## {cls_obj.__name__}\n\n"
+    md += format_docstring(cls_obj.__doc__, lang) + "\n\n"
+    md += "---\n\n"
+    
+    md += "## Methods\n\n" if lang == 'en' else "## メソッド\n\n"
+    
+    members = inspect.getmembers(cls_obj, predicate=lambda x: inspect.isfunction(x) or inspect.ismethod(x))
+    
+    def get_lnum(obj):
+        try: return inspect.getsourcelines(obj)[1]
+        except: return 9999
+            
+    members.sort(key=lambda x: get_lnum(x[1]))
+    
+    for name, method in members:
+        if name.startswith("_") and name != "__init__": continue
+            
+        sig = inspect.signature(method)
+        sig_str = str(sig).replace('NoneType', 'None')
+        
+        md += f"### {name}\n\n"
+        md += f"```python\n{name}{sig_str}\n```\n\n"
+        
+        doc = format_docstring(method.__doc__, lang)
+        if doc:
+            md += doc + "\n\n"
+        
+        md += "---\n\n"
+        
+    return md
+
+def main():
+    root_dir = Path(__file__).parent.parent / "docs" / "site"
+    ja_dir, en_dir = root_dir, root_dir / "en"
+    ja_dir.mkdir(parents=True, exist_ok=True); en_dir.mkdir(parents=True, exist_ok=True)
+    
+    from nanasqlite.core import NanaSQLite
+    from nanasqlite.async_core import AsyncNanaSQLite
+    
+    (ja_dir / "api_sync.md").write_text(generate_class_md(NanaSQLite, "同期 API リファレンス", "NanaSQLiteクラスの同期メソッド一覧です。", 'ja'), encoding="utf-8")
+    (ja_dir / "api_async.md").write_text(generate_class_md(AsyncNanaSQLite, "非同期 API リファレンス", "AsyncNanaSQLiteクラスの非同期メソッド一覧です。", 'ja'), encoding="utf-8")
+    (en_dir / "api_sync.md").write_text(generate_class_md(NanaSQLite, "Synchronous API Reference", "Reference for the synchronous NanaSQLite class.", 'en'), encoding="utf-8")
+    (en_dir / "api_async.md").write_text(generate_class_md(AsyncNanaSQLite, "Asynchronous API Reference", "Reference for the asynchronous AsyncNanaSQLite class.", 'en'), encoding="utf-8")
+    
+    print("API docs regenerated with perfect Markdown formatting.")
+
+if __name__ == "__main__":
+    main()

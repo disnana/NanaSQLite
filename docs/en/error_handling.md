@@ -320,6 +320,37 @@ asyncio.run(main())
 
 ---
 
+## Frequently Asked Questions & Troubleshooting (FAQ)
+
+### Q: I frequently encounter "database is locked" errors
+
+**Cause**: Multiple processes or threads are attempting to write simultaneously, or a long-running transaction is holding the connection.
+
+**Solutions**:
+1.  **Check WAL Mode**: It's enabled by default, but verify that `db.pragma("journal_mode")` returns `wal`.
+2.  **Set Busy Timeout**: Use `db.pragma("busy_timeout", 5000)` to wait for the lock to be released.
+3.  **Shorten Transactions**: Commit as soon as write operations are done, or keep `with db.transaction():` blocks as small as possible.
+4.  **Exclude from Antivirus**: (Windows) Exclude your database files from real-time scans.
+
+### Q: Memory usage keeps increasing
+
+**Cause**: The in-memory cache is accumulating data as you read more keys.
+
+**Solutions**:
+1.  **Refresh Cache**: Periodically call `db.refresh()` to clear the memory and free up space.
+2.  **Use Lazy Loading**: Avoid `bulk_load=True` and only load data as needed.
+3.  **Recreate Instance**: For long-running processes, occasionally closing and reopening the connection can help.
+
+### Q: Updates to specific keys aren't being reflected
+
+**Cause**: Inconsistent connections (e.g., direct manipulation via `execute()`) are causing a mismatch between the memory cache and the database content.
+
+**Solutions**:
+1.  **Use `get_fresh(key)`**: Bypass the cache to get the latest data directly from the DB.
+2.  **Call `refresh()` after `execute()`**: If you modify data via raw SQL, always call `db.refresh(key)` to synchronize the cache.
+
+---
+
 ## Summary
 
 - **Unified exceptions**: All NanaSQLite exceptions inherit from `NanaSQLiteError`

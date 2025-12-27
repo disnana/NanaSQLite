@@ -104,3 +104,4 @@ venv.bak/
 .DS_Store
 Thumbs.db
 開発用.py
+docs/site/node_modules/

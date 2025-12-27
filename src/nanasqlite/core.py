@@ -26,7 +26,7 @@ from .exceptions import (
     NanaSQLiteTransactionError,
     NanaSQLiteValidationError,
 )
-from .sql_utils import sanitize_sql_for_function_scan
+from .sql_utils import sanitize_sql_for_function_scan, fast_validate_sql_chars
 
 # 識別子バリデーション用の正規表現パターン（英数字とアンダースコアのみ、数字で開始しない）
 IDENTIFIER_PATTERN = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
@@ -35,8 +35,12 @@ IDENTIFIER_PATTERN = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 class NanaSQLite(MutableMapping):
     """
     APSW SQLite-backed dict wrapper with Security and Connection Enhancements (v1.2.0).
+    (APSW SQLiteをバックエンドとした、セキュリティ・接続管理強化版の辞書型ラッパー (v1.2.0))
 
-    内部でPython dictを保持し、操作時にSQLiteとの同期を行う。
+    Internally maintains a Python dict and synchronizes with SQLite during operations.
+    In v1.2.0, enhanced dynamic SQL validation, ReDoS protection, and strict connection management are introduced.
+
+    内部でPython dictを保持し、操作時にSQLiteとの同期を行います。
     v1.2.0では、動的SQLのバリデーション強化、ReDoS対策、および厳格な接続管理が導入されています。
 
     Args:
@@ -299,6 +303,17 @@ class NanaSQLite(MutableMapping):
             (r'/\*', full_msg),
             (r'\b(DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER)\b', full_msg),
         ]
+
+        # 0.5. Fast character-set validation (ReDoS countermeasure)
+        if not fast_validate_sql_chars(str(expr)):
+            # If invalid characters are found, we apply strict or warning
+            # Note: This is a preventative layer.
+            # We use full_msg to maintain compatibility with existing tests expecting "Invalid [label]: ..."
+            msg = f"{full_msg} or invalid characters detected."
+            if strict or (strict is None and self.strict_sql_validation):
+                raise ValueError(msg)
+            else:
+                warnings.warn(msg, UserWarning, stacklevel=2)
 
         for pattern, msg in dangerous_patterns:
             if re.search(pattern, str(expr), re.IGNORECASE):
