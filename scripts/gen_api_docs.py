@@ -1,6 +1,5 @@
 import inspect
 import sys
-import os
 import re
 from pathlib import Path
 
@@ -141,7 +140,7 @@ def generate_class_md(cls_obj, title, description="", lang='ja'):
     members = inspect.getmembers(cls_obj, predicate=lambda x: inspect.isfunction(x) or inspect.ismethod(x))
     def get_lnum(obj):
         try: return inspect.getsourcelines(obj)[1]
-        except: return 9999
+        except Exception: return 9999
     members.sort(key=lambda x: get_lnum(x[1]))
     
     for name, method in members:
