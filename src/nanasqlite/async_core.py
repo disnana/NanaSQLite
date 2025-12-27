@@ -299,6 +299,7 @@ class AsyncNanaSQLite:
             ...     print("User exists")
         """
         await self._ensure_initialized()
+        assert self._db is not None
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
