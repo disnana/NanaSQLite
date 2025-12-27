@@ -40,6 +40,11 @@ class CacheStrategy(Protocol):
         ...
 
     @abstractmethod
+    def invalidate(self, key: str) -> None:
+        """Completely remove key from cache knowledge (forget it exists or not)."""
+        ...
+
+    @abstractmethod
     def contains(self, key: str) -> bool:
         """Check if key exists in cache."""
         ...
@@ -94,6 +99,11 @@ class UnboundedCache(CacheStrategy):
         # provided functionality marks it as cached.
         self._cached_keys.add(key)
 
+    def invalidate(self, key: str) -> None:
+        if key in self._data:
+            del self._data[key]
+        self._cached_keys.discard(key)
+
     def contains(self, key: str) -> bool:
         return key in self._data
 
@@ -142,6 +152,9 @@ class StdLRUCache(CacheStrategy):
         if key in self._data:
             del self._data[key]
 
+    def invalidate(self, key: str) -> None:
+        self.delete(key)
+
     def contains(self, key: str) -> bool:
         return key in self._data
 
@@ -185,6 +198,9 @@ class FastLRUCache(CacheStrategy):
     def delete(self, key: str) -> None:
         if key in self._data:
             del self._data[key]
+
+    def invalidate(self, key: str) -> None:
+        self.delete(key)
 
     def contains(self, key: str) -> bool:
         return key in self._data

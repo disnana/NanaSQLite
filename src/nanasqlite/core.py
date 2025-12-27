@@ -692,6 +692,15 @@ class NanaSQLite(MutableMapping):
 
         self._all_loaded = True
 
+    def clear_cache(self) -> None:
+        """
+        キャッシュをクリア
+
+        メモリ上のキャッシュを全削除する。DBのデータは削除されない。
+        """
+        self._cache.clear()
+        self._all_loaded = False
+
     def refresh(self, key: str = None) -> None:
         """
         キャッシュを更新（DBから再読み込み）
@@ -700,7 +709,7 @@ class NanaSQLite(MutableMapping):
             key: 特定のキーのみ更新。Noneの場合は全キャッシュをクリアして再読み込み
         """
         if key is not None:
-            self._cache.delete(key)
+            self._cache.invalidate(key)
             self._ensure_cached(key)
         else:
             self._cache.clear()
