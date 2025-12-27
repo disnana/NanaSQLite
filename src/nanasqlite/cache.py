@@ -1,9 +1,11 @@
 from __future__ import annotations
+
 import logging
 from abc import abstractmethod
-from enum import Enum
-from typing import Any, Protocol, Iterator, Literal, MutableMapping
 from collections import OrderedDict
+from collections.abc import MutableMapping
+from enum import Enum
+from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +63,7 @@ class CacheStrategy(Protocol):
     def get_data(self) -> MutableMapping[str, Any]:
         """Return reference to internal data storage (for legacy compatibility/inspection)."""
         ...
-        
+
     @property
     @abstractmethod
     def size(self) -> int:
@@ -79,32 +81,32 @@ class UnboundedCache(CacheStrategy):
 
     def get(self, key: str) -> Any | None:
         return self._data.get(key)
-    
+
     def set(self, key: str, value: Any) -> None:
         self._data[key] = value
         self._cached_keys.add(key)
-        
+
     def delete(self, key: str) -> None:
         # We assume caller manages DB sync
         if key in self._data:
             del self._data[key]
         # In v1.2.x logic, we usually keep the key in _cached_keys to know it's "deleted"
         # provided functionality marks it as cached.
-        self._cached_keys.add(key) 
+        self._cached_keys.add(key)
 
     def contains(self, key: str) -> bool:
         return key in self._data
 
     def mark_cached(self, key: str) -> None:
         self._cached_keys.add(key)
-        
+
     def is_cached(self, key: str) -> bool:
         return key in self._cached_keys
-        
+
     def clear(self) -> None:
         self._data.clear()
         self._cached_keys.clear()
-        
+
     def get_data(self) -> MutableMapping[str, Any]:
         return self._data
 
@@ -123,7 +125,7 @@ class StdLRUCache(CacheStrategy):
         self._data: OrderedDict[str, Any] = OrderedDict()
         # For LRU, is_cached logic is unified with containment.
         # If it's evicted, it's no longer "cached", so we must fetch again.
-        
+
     def get(self, key: str) -> Any | None:
         if key not in self._data:
             return None
@@ -142,10 +144,10 @@ class StdLRUCache(CacheStrategy):
 
     def contains(self, key: str) -> bool:
         return key in self._data
-        
+
     def mark_cached(self, key: str) -> None:
-        # In strict LRU, we can't just "mark" likely. 
-        # But to support the logic of "key is known to exist", 
+        # In strict LRU, we can't just "mark" likely.
+        # But to support the logic of "key is known to exist",
         # we might need to store it. For now, we only store actual values.
         pass
 
@@ -156,10 +158,10 @@ class StdLRUCache(CacheStrategy):
 
     def clear(self) -> None:
         self._data.clear()
-        
+
     def get_data(self) -> MutableMapping[str, Any]:
         return self._data
-    
+
     @property
     def size(self) -> int:
         return len(self._data)
@@ -210,16 +212,16 @@ def create_cache(strategy: str | CacheType = CacheType.UNBOUNDED, size: int | No
     # Normalize strategy
     if isinstance(strategy, CacheType):
         strategy = strategy.value
-    
+
     if strategy == CacheType.LRU:
         if size is None or size <= 0:
             raise ValueError("cache_size must be a positive integer when using LRU strategy")
-            
+
         if HAS_FAST_LRU:
             logger.info(f"Using FastLRUCache (lru-dict) with size {size}")
             return FastLRUCache(size)
         else:
             logger.warning(f"lru-dict not found. Falling back to key-standard LRUCache (OrderedDict) with size {size}")
             return StdLRUCache(size)
-            
+
     return UnboundedCache()

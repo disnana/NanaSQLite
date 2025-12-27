@@ -19,6 +19,7 @@ from typing import Any, Literal
 
 import apsw
 
+from .cache import CacheStrategy, CacheType, create_cache
 from .exceptions import (
     NanaSQLiteClosedError,
     NanaSQLiteConnectionError,
@@ -27,7 +28,6 @@ from .exceptions import (
     NanaSQLiteValidationError,
 )
 from .sql_utils import fast_validate_sql_chars, sanitize_sql_for_function_scan
-from .cache import create_cache, CacheStrategy, CacheType
 
 # 識別子バリデーション用の正規表現パターン（英数字とアンダースコアのみ、数字で開始しない）
 IDENTIFIER_PATTERN = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
@@ -80,7 +80,7 @@ class NanaSQLite(MutableMapping):
         self._table: str = table
         self._cache: CacheStrategy = create_cache(cache_strategy, cache_size)
         self._all_loaded: bool = False  # 全データ読み込み済みフラグ
-        
+
         # Public attribute but technically internal usage for compatibility if needed.
         # Deprecated: _data and _cached_keys are no longer directly available.
         # Use _cache.get_data() if absolutely necessary for debugging.
@@ -450,11 +450,11 @@ class NanaSQLite(MutableMapping):
 
         # DBから読み込み
         value = self._read_from_db(key)
-        
+
         if value is not None:
             self._cache.set(key, value)
             return True
-            
+
         # Value is None (not in DB)
         # We mark it as "known missing" to avoid repeated DB hits
         # Note: Standard LRU might evict this "missing" knowledge if implemented.
@@ -773,8 +773,7 @@ class NanaSQLite(MutableMapping):
             )
             # キャッシュ更新
             for key in keys:
-                self._data.pop(key, None)
-                self._cached_keys.discard(key)
+                self._cache.delete(key)
             cursor.execute("COMMIT")
         except Exception:
             cursor.execute("ROLLBACK")
@@ -784,7 +783,7 @@ class NanaSQLite(MutableMapping):
         """全データをPython dictとして取得"""
         self._check_connection()
         self.load_all()
-        return dict(self._data)
+        return dict(self._cache.get_data())
 
     def copy(self) -> dict:
         """浅いコピーを作成（標準dictを返す）"""
@@ -1971,7 +1970,7 @@ class NanaSQLite(MutableMapping):
         """
         return _TransactionContext(self)
 
-    def table(self, table_name: str, 
+    def table(self, table_name: str,
               cache_strategy: CacheType | Literal['unbounded', 'lru'] | None = None,
               cache_size: int | None = None):
         """
@@ -2013,7 +2012,7 @@ class NanaSQLite(MutableMapping):
             ...     products_db["prod1"] = {"name": "Laptop"}
         """
         self._check_connection()
-        
+
         # 指定がなければデフォルト（UNBOUNDED）
         strat = cache_strategy if cache_strategy is not None else CacheType.UNBOUNDED
         size = cache_size
