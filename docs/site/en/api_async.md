@@ -13,19 +13,18 @@ in async applications like FastAPI, aiohttp, etc.
 The implementation uses a configurable thread pool for optimal concurrency
 and performance in high-load scenarios.
 
-#### 📥 Arguments
+#### 📥 Arguments 
+- **db_path**: SQLiteデータベースファイルのパス
+- **table**: 使用するテーブル名
+- **bulk_load**: Trueの場合、初期化時に全データをメモリに読み込む
+- **optimize**: Trueの場合、WALモードなど高速化設定を適用
+- **cache_size_mb**: SQLiteキャッシュサイズ（MB）、デフォルト64MB
+- **strict_sql_validation**: Trueの場合、未許可の関数等を含むクエリを拒否
+- **max_clause_length**: SQL句の最大長（ReDoS対策、v1.2.0）
+- **max_workers**: スレッドプール内の最大ワーカー数（デフォルト: 5）
+- **thread_name_prefix**: スレッド名のプレフィックス（デフォルト: "AsyncNanaSQLite"）
 
-    - **db_path:**  SQLiteデータベースファイルのパス
-    - **table:**  使用するテーブル名
-    - **bulk_load:**  Trueの場合、初期化時に全データをメモリに読み込む
-    - **optimize:**  Trueの場合、WALモードなど高速化設定を適用
-    - **cache_size_mb:**  SQLiteキャッシュサイズ（MB）、デフォルト64MB
-    - **strict_sql_validation:**  Trueの場合、未許可の関数等を含むクエリを拒否
-    - **max_clause_length:**  SQL句の最大長（ReDoS対策、v1.2.0）
-    - **max_workers:**  スレッドプール内の最大ワーカー数（デフォルト: 5）
-    - **thread_name_prefix:**  スレッド名のプレフィックス（デフォルト: "AsyncNanaSQLite"）
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> async with AsyncNanaSQLite("mydata.db") as db:
@@ -51,21 +50,19 @@ and performance in high-load scenarios.
 __init__(self, db_path: 'str', table: 'str' = 'data', bulk_load: 'bool' = False, optimize: 'bool' = True, cache_size_mb: 'int' = 64, max_workers: 'int' = 5, thread_name_prefix: 'str' = 'AsyncNanaSQLite', strict_sql_validation: 'bool' = True, allowed_sql_functions: 'list[str] | None' = None, forbidden_sql_functions: 'list[str] | None' = None, max_clause_length: 'int | None' = 1000, read_pool_size: 'int' = 0)
 ```
 
-
-#### 📥 Arguments
-
-    - **db_path:**  SQLiteデータベースファイルのパス
-    - **table:**  使用するテーブル名
-    - **bulk_load:**  Trueの場合、初期化時に全データをメモリに読み込む
-    - **optimize:**  Trueの場合、WALモードなど高速化設定を適用
-    - **cache_size_mb:**  SQLiteキャッシュサイズ（MB）、デフォルト64MB
-    - **max_workers:**  スレッドプール内の最大ワーカー数（デフォルト: 5）
-    - **thread_name_prefix:**  スレッド名のプレフィックス（デフォルト: "AsyncNanaSQLite"）
-    - **strict_sql_validation:**  Trueの場合、未許可の関数等を含むクエリを拒否
-    - **allowed_sql_functions:**  追加で許可するSQL関数のリスト
-    - **forbidden_sql_functions:**  明示的に禁止するSQL関数のリスト
-    - **max_clause_length:**  SQL句の最大長（ReDoS対策）。Noneで制限なし
-    - **read_pool_size:**  読み取り専用プールサイズ
+#### 📥 Arguments 
+- **db_path**: SQLiteデータベースファイルのパス
+- **table**: 使用するテーブル名
+- **bulk_load**: Trueの場合、初期化時に全データをメモリに読み込む
+- **optimize**: Trueの場合、WALモードなど高速化設定を適用
+- **cache_size_mb**: SQLiteキャッシュサイズ（MB）、デフォルト64MB
+- **max_workers**: スレッドプール内の最大ワーカー数（デフォルト: 5）
+- **thread_name_prefix**: スレッド名のプレフィックス（デフォルト: "AsyncNanaSQLite"）
+- **strict_sql_validation**: Trueの場合、未許可の関数等を含むクエリを拒否
+- **allowed_sql_functions**: 追加で許可するSQL関数のリスト
+- **forbidden_sql_functions**: 明示的に禁止するSQL関数のリスト
+- **max_clause_length**: SQL句の最大長（ReDoS対策）。Noneで制限なし
+- **read_pool_size**: 読み取り専用プールサイズ
 
 ---
 
@@ -75,15 +72,13 @@ __init__(self, db_path: 'str', table: 'str' = 'data', bulk_load: 'bool' = False,
 aget(self, key: 'str', default: 'Any' = None) -> 'Any'
 ```
 
+#### 📥 Arguments 
+- **key**: 取得するキー
+- **default**: キーが存在しない場合のデフォルト値
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **key:**  取得するキー
-    - **default:**  キーが存在しない場合のデフォルト値
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> user = await db.aget("user")
@@ -98,15 +93,13 @@ aget(self, key: 'str', default: 'Any' = None) -> 'Any'
 get(self, key: 'str', default: 'Any' = None) -> 'Any'
 ```
 
+#### 📥 Arguments 
+- **key**: 取得するキー
+- **default**: キーが存在しない場合のデフォルト値
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **key:**  取得するキー
-    - **default:**  キーが存在しない場合のデフォルト値
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> user = await db.aget("user")
@@ -121,13 +114,11 @@ get(self, key: 'str', default: 'Any' = None) -> 'Any'
 aset(self, key: 'str', value: 'Any') -> 'None'
 ```
 
+#### 📥 Arguments 
+- **key**: 設定するキー
+- **value**: 設定する値
 
-#### 📥 Arguments
-
-    - **key:**  設定するキー
-    - **value:**  設定する値
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.aset("user", {"name": "Nana", "age": 20})
@@ -141,16 +132,13 @@ aset(self, key: 'str', value: 'Any') -> 'None'
 adelete(self, key: 'str') -> 'None'
 ```
 
+#### 📥 Arguments 
+- **key**: 削除するキー
 
-#### 📥 Arguments
+#### ⚠️ Raises 
+- **KeyError**: キーが存在しない場合
 
-    - **key:**  削除するキー
-
-#### ⚠️ Raises
-
-    - **KeyError:**  キーが存在しない場合
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.adelete("old_data")
@@ -164,14 +152,12 @@ adelete(self, key: 'str') -> 'None'
 acontains(self, key: 'str') -> 'bool'
 ```
 
+#### 📥 Arguments 
+- **key**: 確認するキー
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **key:**  確認するキー
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> if await db.acontains("user"):
@@ -186,14 +172,12 @@ acontains(self, key: 'str') -> 'bool'
 contains(self, key: 'str') -> 'bool'
 ```
 
+#### 📥 Arguments 
+- **key**: 確認するキー
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **key:**  確認するキー
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> if await db.acontains("user"):
@@ -208,10 +192,9 @@ contains(self, key: 'str') -> 'bool'
 alen(self) -> 'int'
 ```
 
+#### 📤 Returns 
 
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> count = await db.alen()
@@ -225,10 +208,9 @@ alen(self) -> 'int'
 akeys(self) -> 'list[str]'
 ```
 
+#### 📤 Returns 
 
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> keys = await db.akeys()
@@ -242,10 +224,9 @@ akeys(self) -> 'list[str]'
 keys(self) -> 'list[str]'
 ```
 
+#### 📤 Returns 
 
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> keys = await db.akeys()
@@ -259,10 +240,9 @@ keys(self) -> 'list[str]'
 avalues(self) -> 'list[Any]'
 ```
 
+#### 📤 Returns 
 
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> values = await db.avalues()
@@ -276,10 +256,9 @@ avalues(self) -> 'list[Any]'
 values(self) -> 'list[Any]'
 ```
 
+#### 📤 Returns 
 
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> values = await db.avalues()
@@ -293,10 +272,9 @@ values(self) -> 'list[Any]'
 aitems(self) -> 'list[tuple[str, Any]]'
 ```
 
+#### 📤 Returns 
 
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> items = await db.aitems()
@@ -310,10 +288,9 @@ aitems(self) -> 'list[tuple[str, Any]]'
 items(self) -> 'list[tuple[str, Any]]'
 ```
 
+#### 📤 Returns 
 
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> items = await db.aitems()
@@ -327,15 +304,13 @@ items(self) -> 'list[tuple[str, Any]]'
 apop(self, key: 'str', *args) -> 'Any'
 ```
 
+#### 📥 Arguments 
+- **key**: 削除するキー
+#### 📥 Arguments デフォルト値（オプション）
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **key:**  削除するキー
-    *args: デフォルト値（オプション）
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> value = await db.apop("temp_data")
@@ -350,12 +325,10 @@ apop(self, key: 'str', *args) -> 'Any'
 aupdate(self, mapping: 'dict' = None, **kwargs) -> 'None'
 ```
 
+#### 📥 Arguments 
+- **mapping**: 更新するキーと値のdict
 
-#### 📥 Arguments
-
-    - **mapping:**  更新するキーと値のdict
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.aupdate({"key1": "value1", "key2": "value2"})
@@ -370,8 +343,7 @@ aupdate(self, mapping: 'dict' = None, **kwargs) -> 'None'
 aclear(self) -> 'None'
 ```
 
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.aclear()
@@ -385,15 +357,13 @@ aclear(self) -> 'None'
 asetdefault(self, key: 'str', default: 'Any' = None) -> 'Any'
 ```
 
+#### 📥 Arguments 
+- **key**: キー
+- **default**: デフォルト値
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **key:**  キー
-    - **default:**  デフォルト値
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> value = await db.asetdefault("config", {})
@@ -407,8 +377,7 @@ asetdefault(self, key: 'str', default: 'Any' = None) -> 'Any'
 aload_all(self) -> 'None'
 ```
 
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.load_all()
@@ -422,8 +391,7 @@ aload_all(self) -> 'None'
 load_all(self) -> 'None'
 ```
 
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.load_all()
@@ -437,12 +405,10 @@ load_all(self) -> 'None'
 arefresh(self, key: 'str' = None) -> 'None'
 ```
 
+#### 📥 Arguments 
+- **key**: 更新するキー（Noneの場合は全キャッシュ）
 
-#### 📥 Arguments
-
-    - **key:**  更新するキー（Noneの場合は全キャッシュ）
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.refresh("user")
@@ -457,12 +423,10 @@ arefresh(self, key: 'str' = None) -> 'None'
 refresh(self, key: 'str' = None) -> 'None'
 ```
 
+#### 📥 Arguments 
+- **key**: 更新するキー（Noneの場合は全キャッシュ）
 
-#### 📥 Arguments
-
-    - **key:**  更新するキー（Noneの場合は全キャッシュ）
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.refresh("user")
@@ -477,14 +441,12 @@ refresh(self, key: 'str' = None) -> 'None'
 ais_cached(self, key: 'str') -> 'bool'
 ```
 
+#### 📥 Arguments 
+- **key**: 確認するキー
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **key:**  確認するキー
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> cached = await db.is_cached("user")
@@ -498,14 +460,12 @@ ais_cached(self, key: 'str') -> 'bool'
 is_cached(self, key: 'str') -> 'bool'
 ```
 
+#### 📥 Arguments 
+- **key**: 確認するキー
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **key:**  確認するキー
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> cached = await db.is_cached("user")
@@ -519,12 +479,10 @@ is_cached(self, key: 'str') -> 'bool'
 abatch_update(self, mapping: 'dict[str, Any]') -> 'None'
 ```
 
+#### 📥 Arguments 
+- **mapping**: 書き込むキーと値のdict
 
-#### 📥 Arguments
-
-    - **mapping:**  書き込むキーと値のdict
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.batch_update({
@@ -542,12 +500,10 @@ abatch_update(self, mapping: 'dict[str, Any]') -> 'None'
 batch_update(self, mapping: 'dict[str, Any]') -> 'None'
 ```
 
+#### 📥 Arguments 
+- **mapping**: 書き込むキーと値のdict
 
-#### 📥 Arguments
-
-    - **mapping:**  書き込むキーと値のdict
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.batch_update({
@@ -565,12 +521,10 @@ batch_update(self, mapping: 'dict[str, Any]') -> 'None'
 abatch_delete(self, keys: 'list[str]') -> 'None'
 ```
 
+#### 📥 Arguments 
+- **keys**: 削除するキーのリスト
 
-#### 📥 Arguments
-
-    - **keys:**  削除するキーのリスト
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.batch_delete(["key1", "key2", "key3"])
@@ -584,12 +538,10 @@ abatch_delete(self, keys: 'list[str]') -> 'None'
 batch_delete(self, keys: 'list[str]') -> 'None'
 ```
 
+#### 📥 Arguments 
+- **keys**: 削除するキーのリスト
 
-#### 📥 Arguments
-
-    - **keys:**  削除するキーのリスト
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.batch_delete(["key1", "key2", "key3"])
@@ -603,10 +555,9 @@ batch_delete(self, keys: 'list[str]') -> 'None'
 ato_dict(self) -> 'dict'
 ```
 
+#### 📤 Returns 
 
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> data = await db.to_dict()
@@ -620,10 +571,9 @@ ato_dict(self) -> 'dict'
 to_dict(self) -> 'dict'
 ```
 
+#### 📤 Returns 
 
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> data = await db.to_dict()
@@ -637,10 +587,9 @@ to_dict(self) -> 'dict'
 acopy(self) -> 'dict'
 ```
 
+#### 📤 Returns 
 
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> data_copy = await db.copy()
@@ -654,10 +603,9 @@ acopy(self) -> 'dict'
 copy(self) -> 'dict'
 ```
 
+#### 📤 Returns 
 
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> data_copy = await db.copy()
@@ -671,15 +619,13 @@ copy(self) -> 'dict'
 aget_fresh(self, key: 'str', default: 'Any' = None) -> 'Any'
 ```
 
+#### 📥 Arguments 
+- **key**: 取得するキー
+- **default**: キーが存在しない場合のデフォルト値
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **key:**  取得するキー
-    - **default:**  キーが存在しない場合のデフォルト値
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> value = await db.get_fresh("key")
@@ -693,15 +639,13 @@ aget_fresh(self, key: 'str', default: 'Any' = None) -> 'Any'
 get_fresh(self, key: 'str', default: 'Any' = None) -> 'Any'
 ```
 
+#### 📥 Arguments 
+- **key**: 取得するキー
+- **default**: キーが存在しない場合のデフォルト値
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **key:**  取得するキー
-    - **default:**  キーが存在しない場合のデフォルト値
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> value = await db.get_fresh("key")
@@ -715,14 +659,12 @@ get_fresh(self, key: 'str', default: 'Any' = None) -> 'Any'
 abatch_get(self, keys: 'list[str]') -> 'dict[str, Any]'
 ```
 
+#### 📥 Arguments 
+- **keys**: 取得するキーのリスト
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **keys:**  取得するキーのリスト
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> results = await db.abatch_get(["key1", "key2"])
@@ -736,13 +678,11 @@ abatch_get(self, keys: 'list[str]') -> 'dict[str, Any]'
 aset_model(self, key: 'str', model: 'Any') -> 'None'
 ```
 
+#### 📥 Arguments 
+- **key**: 保存するキー
+- **model**: Pydanticモデルのインスタンス
 
-#### 📥 Arguments
-
-    - **key:**  保存するキー
-    - **model:**  Pydanticモデルのインスタンス
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> from pydantic import BaseModel
@@ -761,13 +701,11 @@ aset_model(self, key: 'str', model: 'Any') -> 'None'
 set_model(self, key: 'str', model: 'Any') -> 'None'
 ```
 
+#### 📥 Arguments 
+- **key**: 保存するキー
+- **model**: Pydanticモデルのインスタンス
 
-#### 📥 Arguments
-
-    - **key:**  保存するキー
-    - **model:**  Pydanticモデルのインスタンス
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> from pydantic import BaseModel
@@ -786,15 +724,13 @@ set_model(self, key: 'str', model: 'Any') -> 'None'
 aget_model(self, key: 'str', model_class: 'type' = None) -> 'Any'
 ```
 
+#### 📥 Arguments 
+- **key**: 取得するキー
+- **model_class**: Pydanticモデルのクラス
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **key:**  取得するキー
-    - **model_class:**  Pydanticモデルのクラス
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> user = await db.get_model("user", User)
@@ -808,15 +744,13 @@ aget_model(self, key: 'str', model_class: 'type' = None) -> 'Any'
 get_model(self, key: 'str', model_class: 'type' = None) -> 'Any'
 ```
 
+#### 📥 Arguments 
+- **key**: 取得するキー
+- **model_class**: Pydanticモデルのクラス
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **key:**  取得するキー
-    - **model_class:**  Pydanticモデルのクラス
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> user = await db.get_model("user", User)
@@ -830,15 +764,13 @@ get_model(self, key: 'str', model_class: 'type' = None) -> 'Any'
 aexecute(self, sql: 'str', parameters: 'tuple | None' = None) -> 'Any'
 ```
 
+#### 📥 Arguments 
+- **sql**: 実行するSQL文
+- **parameters**: SQLのパラメータ
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **sql:**  実行するSQL文
-    - **parameters:**  SQLのパラメータ
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> cursor = await db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
@@ -852,15 +784,13 @@ aexecute(self, sql: 'str', parameters: 'tuple | None' = None) -> 'Any'
 execute(self, sql: 'str', parameters: 'tuple | None' = None) -> 'Any'
 ```
 
+#### 📥 Arguments 
+- **sql**: 実行するSQL文
+- **parameters**: SQLのパラメータ
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **sql:**  実行するSQL文
-    - **parameters:**  SQLのパラメータ
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> cursor = await db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
@@ -874,13 +804,11 @@ execute(self, sql: 'str', parameters: 'tuple | None' = None) -> 'Any'
 aexecute_many(self, sql: 'str', parameters_list: 'list[tuple]') -> 'None'
 ```
 
+#### 📥 Arguments 
+- **sql**: 実行するSQL文
+- **parameters_list**: パラメータのリスト
 
-#### 📥 Arguments
-
-    - **sql:**  実行するSQL文
-    - **parameters_list:**  パラメータのリスト
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.execute_many(
@@ -897,13 +825,11 @@ aexecute_many(self, sql: 'str', parameters_list: 'list[tuple]') -> 'None'
 execute_many(self, sql: 'str', parameters_list: 'list[tuple]') -> 'None'
 ```
 
+#### 📥 Arguments 
+- **sql**: 実行するSQL文
+- **parameters_list**: パラメータのリスト
 
-#### 📥 Arguments
-
-    - **sql:**  実行するSQL文
-    - **parameters_list:**  パラメータのリスト
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.execute_many(
@@ -920,15 +846,13 @@ execute_many(self, sql: 'str', parameters_list: 'list[tuple]') -> 'None'
 afetch_one(self, sql: 'str', parameters: 'tuple' = None) -> 'tuple | None'
 ```
 
+#### 📥 Arguments 
+- **sql**: 実行するSQL文
+- **parameters**: SQLのパラメータ
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **sql:**  実行するSQL文
-    - **parameters:**  SQLのパラメータ
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> row = await db.fetch_one("SELECT value FROM data WHERE key = ?", ("user",))
@@ -942,15 +866,13 @@ afetch_one(self, sql: 'str', parameters: 'tuple' = None) -> 'tuple | None'
 fetch_one(self, sql: 'str', parameters: 'tuple' = None) -> 'tuple | None'
 ```
 
+#### 📥 Arguments 
+- **sql**: 実行するSQL文
+- **parameters**: SQLのパラメータ
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **sql:**  実行するSQL文
-    - **parameters:**  SQLのパラメータ
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> row = await db.fetch_one("SELECT value FROM data WHERE key = ?", ("user",))
@@ -964,15 +886,13 @@ fetch_one(self, sql: 'str', parameters: 'tuple' = None) -> 'tuple | None'
 afetch_all(self, sql: 'str', parameters: 'tuple' = None) -> 'list[tuple]'
 ```
 
+#### 📥 Arguments 
+- **sql**: 実行するSQL文
+- **parameters**: SQLのパラメータ
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **sql:**  実行するSQL文
-    - **parameters:**  SQLのパラメータ
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> rows = await db.fetch_all("SELECT key, value FROM data WHERE key LIKE ?", ("user%",))
@@ -986,15 +906,13 @@ afetch_all(self, sql: 'str', parameters: 'tuple' = None) -> 'list[tuple]'
 fetch_all(self, sql: 'str', parameters: 'tuple' = None) -> 'list[tuple]'
 ```
 
+#### 📥 Arguments 
+- **sql**: 実行するSQL文
+- **parameters**: SQLのパラメータ
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **sql:**  実行するSQL文
-    - **parameters:**  SQLのパラメータ
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> rows = await db.fetch_all("SELECT key, value FROM data WHERE key LIKE ?", ("user%",))
@@ -1008,15 +926,13 @@ fetch_all(self, sql: 'str', parameters: 'tuple' = None) -> 'list[tuple]'
 acreate_table(self, table_name: 'str', columns: 'dict', if_not_exists: 'bool' = True, primary_key: 'str' = None) -> 'None'
 ```
 
+#### 📥 Arguments 
+- **table_name**: テーブル名
+- **columns**: カラム定義のdict
+- **if_not_exists**: Trueの場合、存在しない場合のみ作成
+- **primary_key**: プライマリキーのカラム名
 
-#### 📥 Arguments
-
-    - **table_name:**  テーブル名
-    - **columns:**  カラム定義のdict
-    - **if_not_exists:**  Trueの場合、存在しない場合のみ作成
-    - **primary_key:**  プライマリキーのカラム名
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.create_table("users", {
@@ -1034,15 +950,13 @@ acreate_table(self, table_name: 'str', columns: 'dict', if_not_exists: 'bool' = 
 create_table(self, table_name: 'str', columns: 'dict', if_not_exists: 'bool' = True, primary_key: 'str' = None) -> 'None'
 ```
 
+#### 📥 Arguments 
+- **table_name**: テーブル名
+- **columns**: カラム定義のdict
+- **if_not_exists**: Trueの場合、存在しない場合のみ作成
+- **primary_key**: プライマリキーのカラム名
 
-#### 📥 Arguments
-
-    - **table_name:**  テーブル名
-    - **columns:**  カラム定義のdict
-    - **if_not_exists:**  Trueの場合、存在しない場合のみ作成
-    - **primary_key:**  プライマリキーのカラム名
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.create_table("users", {
@@ -1060,16 +974,14 @@ create_table(self, table_name: 'str', columns: 'dict', if_not_exists: 'bool' = T
 acreate_index(self, index_name: 'str', table_name: 'str', columns: 'list[str]', unique: 'bool' = False, if_not_exists: 'bool' = True) -> 'None'
 ```
 
+#### 📥 Arguments 
+- **index_name**: インデックス名
+- **table_name**: テーブル名
+- **columns**: インデックスを作成するカラムのリスト
+- **unique**: Trueの場合、ユニークインデックスを作成
+- **if_not_exists**: Trueの場合、存在しない場合のみ作成
 
-#### 📥 Arguments
-
-    - **index_name:**  インデックス名
-    - **table_name:**  テーブル名
-    - **columns:**  インデックスを作成するカラムのリスト
-    - **unique:**  Trueの場合、ユニークインデックスを作成
-    - **if_not_exists:**  Trueの場合、存在しない場合のみ作成
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.create_index("idx_users_email", "users", ["email"], unique=True)
@@ -1083,16 +995,14 @@ acreate_index(self, index_name: 'str', table_name: 'str', columns: 'list[str]', 
 create_index(self, index_name: 'str', table_name: 'str', columns: 'list[str]', unique: 'bool' = False, if_not_exists: 'bool' = True) -> 'None'
 ```
 
+#### 📥 Arguments 
+- **index_name**: インデックス名
+- **table_name**: テーブル名
+- **columns**: インデックスを作成するカラムのリスト
+- **unique**: Trueの場合、ユニークインデックスを作成
+- **if_not_exists**: Trueの場合、存在しない場合のみ作成
 
-#### 📥 Arguments
-
-    - **index_name:**  インデックス名
-    - **table_name:**  テーブル名
-    - **columns:**  インデックスを作成するカラムのリスト
-    - **unique:**  Trueの場合、ユニークインデックスを作成
-    - **if_not_exists:**  Trueの場合、存在しない場合のみ作成
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.create_index("idx_users_email", "users", ["email"], unique=True)
@@ -1106,23 +1016,21 @@ create_index(self, index_name: 'str', table_name: 'str', columns: 'list[str]', u
 aquery(self, table_name: 'str' = None, columns: 'list[str]' = None, where: 'str' = None, parameters: 'tuple' = None, order_by: 'str' = None, limit: 'int' = None, strict_sql_validation: 'bool' = None, allowed_sql_functions: 'list[str]' = None, forbidden_sql_functions: 'list[str]' = None, override_allowed: 'bool' = False) -> 'list[dict]'
 ```
 
+#### 📥 Arguments 
+- **table_name**: テーブル名
+- **columns**: 取得するカラムのリスト
+- **where**: WHERE句の条件
+- **parameters**: WHERE句のパラメータ
+- **order_by**: ORDER BY句
+- **limit**: LIMIT句
+- **strict_sql_validation**: Trueの場合、未許可の関数等を含むクエリを拒否
+- **allowed_sql_functions**: このクエリで一時的に許可するSQL関数のリスト
+- **forbidden_sql_functions**: このクエリで一時的に禁止するSQL関数のリスト
+- **override_allowed**: Trueの場合、インスタンス許可設定を無視
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **table_name:**  テーブル名
-    - **columns:**  取得するカラムのリスト
-    - **where:**  WHERE句の条件
-    - **parameters:**  WHERE句のパラメータ
-    - **order_by:**  ORDER BY句
-    - **limit:**  LIMIT句
-    - **strict_sql_validation:**  Trueの場合、未許可の関数等を含むクエリを拒否
-    - **allowed_sql_functions:**  このクエリで一時的に許可するSQL関数のリスト
-    - **forbidden_sql_functions:**  このクエリで一時的に禁止するSQL関数のリスト
-    - **override_allowed:**  Trueの場合、インスタンス許可設定を無視
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> results = await db.query(
@@ -1143,23 +1051,21 @@ aquery(self, table_name: 'str' = None, columns: 'list[str]' = None, where: 'str'
 query(self, table_name: 'str' = None, columns: 'list[str]' = None, where: 'str' = None, parameters: 'tuple' = None, order_by: 'str' = None, limit: 'int' = None, strict_sql_validation: 'bool' = None, allowed_sql_functions: 'list[str]' = None, forbidden_sql_functions: 'list[str]' = None, override_allowed: 'bool' = False) -> 'list[dict]'
 ```
 
+#### 📥 Arguments 
+- **table_name**: テーブル名
+- **columns**: 取得するカラムのリスト
+- **where**: WHERE句の条件
+- **parameters**: WHERE句のパラメータ
+- **order_by**: ORDER BY句
+- **limit**: LIMIT句
+- **strict_sql_validation**: Trueの場合、未許可の関数等を含むクエリを拒否
+- **allowed_sql_functions**: このクエリで一時的に許可するSQL関数のリスト
+- **forbidden_sql_functions**: このクエリで一時的に禁止するSQL関数のリスト
+- **override_allowed**: Trueの場合、インスタンス許可設定を無視
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **table_name:**  テーブル名
-    - **columns:**  取得するカラムのリスト
-    - **where:**  WHERE句の条件
-    - **parameters:**  WHERE句のパラメータ
-    - **order_by:**  ORDER BY句
-    - **limit:**  LIMIT句
-    - **strict_sql_validation:**  Trueの場合、未許可の関数等を含むクエリを拒否
-    - **allowed_sql_functions:**  このクエリで一時的に許可するSQL関数のリスト
-    - **forbidden_sql_functions:**  このクエリで一時的に禁止するSQL関数のリスト
-    - **override_allowed:**  Trueの場合、インスタンス許可設定を無視
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> results = await db.query(
@@ -1180,25 +1086,23 @@ query(self, table_name: 'str' = None, columns: 'list[str]' = None, where: 'str' 
 aquery_with_pagination(self, table_name: 'str' = None, columns: 'list[str]' = None, where: 'str' = None, parameters: 'tuple' = None, order_by: 'str' = None, limit: 'int' = None, offset: 'int' = None, group_by: 'str' = None, strict_sql_validation: 'bool' = None, allowed_sql_functions: 'list[str]' = None, forbidden_sql_functions: 'list[str]' = None, override_allowed: 'bool' = False) -> 'list[dict]'
 ```
 
+#### 📥 Arguments 
+- **table_name**: テーブル名
+- **columns**: 取得するカラム
+- **where**: WHERE句
+- **parameters**: パラメータ
+- **order_by**: ORDER BY句
+- **limit**: LIMIT句
+- **offset**: OFFSET句
+- **group_by**: GROUP BY句
+- **strict_sql_validation**: Trueの場合、未許可の関数等を含むクエリを拒否
+- **allowed_sql_functions**: このクエリで一時的に許可するSQL関数のリスト
+- **forbidden_sql_functions**: このクエリで一時的に禁止するSQL関数のリスト
+- **override_allowed**: Trueの場合、インスタンス許可設定を無視
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **table_name:**  テーブル名
-    - **columns:**  取得するカラム
-    - **where:**  WHERE句
-    - **parameters:**  パラメータ
-    - **order_by:**  ORDER BY句
-    - **limit:**  LIMIT句
-    - **offset:**  OFFSET句
-    - **group_by:**  GROUP BY句
-    - **strict_sql_validation:**  Trueの場合、未許可の関数等を含むクエリを拒否
-    - **allowed_sql_functions:**  このクエリで一時的に許可するSQL関数のリスト
-    - **forbidden_sql_functions:**  このクエリで一時的に禁止するSQL関数のリスト
-    - **override_allowed:**  Trueの場合、インスタンス許可設定を無視
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> results = await db.query_with_pagination(
@@ -1220,25 +1124,23 @@ aquery_with_pagination(self, table_name: 'str' = None, columns: 'list[str]' = No
 query_with_pagination(self, table_name: 'str' = None, columns: 'list[str]' = None, where: 'str' = None, parameters: 'tuple' = None, order_by: 'str' = None, limit: 'int' = None, offset: 'int' = None, group_by: 'str' = None, strict_sql_validation: 'bool' = None, allowed_sql_functions: 'list[str]' = None, forbidden_sql_functions: 'list[str]' = None, override_allowed: 'bool' = False) -> 'list[dict]'
 ```
 
+#### 📥 Arguments 
+- **table_name**: テーブル名
+- **columns**: 取得するカラム
+- **where**: WHERE句
+- **parameters**: パラメータ
+- **order_by**: ORDER BY句
+- **limit**: LIMIT句
+- **offset**: OFFSET句
+- **group_by**: GROUP BY句
+- **strict_sql_validation**: Trueの場合、未許可の関数等を含むクエリを拒否
+- **allowed_sql_functions**: このクエリで一時的に許可するSQL関数のリスト
+- **forbidden_sql_functions**: このクエリで一時的に禁止するSQL関数のリスト
+- **override_allowed**: Trueの場合、インスタンス許可設定を無視
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **table_name:**  テーブル名
-    - **columns:**  取得するカラム
-    - **where:**  WHERE句
-    - **parameters:**  パラメータ
-    - **order_by:**  ORDER BY句
-    - **limit:**  LIMIT句
-    - **offset:**  OFFSET句
-    - **group_by:**  GROUP BY句
-    - **strict_sql_validation:**  Trueの場合、未許可の関数等を含むクエリを拒否
-    - **allowed_sql_functions:**  このクエリで一時的に許可するSQL関数のリスト
-    - **forbidden_sql_functions:**  このクエリで一時的に禁止するSQL関数のリスト
-    - **override_allowed:**  Trueの場合、インスタンス許可設定を無視
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> results = await db.query_with_pagination(
@@ -1260,14 +1162,12 @@ query_with_pagination(self, table_name: 'str' = None, columns: 'list[str]' = Non
 atable_exists(self, table_name: 'str') -> 'bool'
 ```
 
+#### 📥 Arguments 
+- **table_name**: テーブル名
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **table_name:**  テーブル名
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> exists = await db.table_exists("users")
@@ -1281,14 +1181,12 @@ atable_exists(self, table_name: 'str') -> 'bool'
 table_exists(self, table_name: 'str') -> 'bool'
 ```
 
+#### 📥 Arguments 
+- **table_name**: テーブル名
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **table_name:**  テーブル名
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> exists = await db.table_exists("users")
@@ -1302,10 +1200,9 @@ table_exists(self, table_name: 'str') -> 'bool'
 alist_tables(self) -> 'list[str]'
 ```
 
+#### 📤 Returns 
 
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> tables = await db.list_tables()
@@ -1319,10 +1216,9 @@ alist_tables(self) -> 'list[str]'
 list_tables(self) -> 'list[str]'
 ```
 
+#### 📤 Returns 
 
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> tables = await db.list_tables()
@@ -1336,13 +1232,11 @@ list_tables(self) -> 'list[str]'
 adrop_table(self, table_name: 'str', if_exists: 'bool' = True) -> 'None'
 ```
 
+#### 📥 Arguments 
+- **table_name**: テーブル名
+- **if_exists**: Trueの場合、存在する場合のみ削除
 
-#### 📥 Arguments
-
-    - **table_name:**  テーブル名
-    - **if_exists:**  Trueの場合、存在する場合のみ削除
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.drop_table("old_table")
@@ -1356,13 +1250,11 @@ adrop_table(self, table_name: 'str', if_exists: 'bool' = True) -> 'None'
 drop_table(self, table_name: 'str', if_exists: 'bool' = True) -> 'None'
 ```
 
+#### 📥 Arguments 
+- **table_name**: テーブル名
+- **if_exists**: Trueの場合、存在する場合のみ削除
 
-#### 📥 Arguments
-
-    - **table_name:**  テーブル名
-    - **if_exists:**  Trueの場合、存在する場合のみ削除
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.drop_table("old_table")
@@ -1376,13 +1268,11 @@ drop_table(self, table_name: 'str', if_exists: 'bool' = True) -> 'None'
 drop_index(self, index_name: 'str', if_exists: 'bool' = True) -> 'None'
 ```
 
+#### 📥 Arguments 
+- **index_name**: インデックス名
+- **if_exists**: Trueの場合、存在する場合のみ削除
 
-#### 📥 Arguments
-
-    - **index_name:**  インデックス名
-    - **if_exists:**  Trueの場合、存在する場合のみ削除
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.drop_index("idx_users_email")
@@ -1396,15 +1286,13 @@ drop_index(self, index_name: 'str', if_exists: 'bool' = True) -> 'None'
 asql_insert(self, table_name: 'str', data: 'dict') -> 'int'
 ```
 
+#### 📥 Arguments 
+- **table_name**: テーブル名
+- **data**: カラム名と値のdict
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **table_name:**  テーブル名
-    - **data:**  カラム名と値のdict
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> rowid = await db.sql_insert("users", {
@@ -1422,15 +1310,13 @@ asql_insert(self, table_name: 'str', data: 'dict') -> 'int'
 sql_insert(self, table_name: 'str', data: 'dict') -> 'int'
 ```
 
+#### 📥 Arguments 
+- **table_name**: テーブル名
+- **data**: カラム名と値のdict
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **table_name:**  テーブル名
-    - **data:**  カラム名と値のdict
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> rowid = await db.sql_insert("users", {
@@ -1448,17 +1334,15 @@ sql_insert(self, table_name: 'str', data: 'dict') -> 'int'
 asql_update(self, table_name: 'str', data: 'dict', where: 'str', parameters: 'tuple' = None) -> 'int'
 ```
 
+#### 📥 Arguments 
+- **table_name**: テーブル名
+- **data**: 更新するカラム名と値のdict
+- **where**: WHERE句の条件
+- **parameters**: WHERE句のパラメータ
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **table_name:**  テーブル名
-    - **data:**  更新するカラム名と値のdict
-    - **where:**  WHERE句の条件
-    - **parameters:**  WHERE句のパラメータ
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> count = await db.sql_update("users",
@@ -1476,17 +1360,15 @@ asql_update(self, table_name: 'str', data: 'dict', where: 'str', parameters: 'tu
 sql_update(self, table_name: 'str', data: 'dict', where: 'str', parameters: 'tuple' = None) -> 'int'
 ```
 
+#### 📥 Arguments 
+- **table_name**: テーブル名
+- **data**: 更新するカラム名と値のdict
+- **where**: WHERE句の条件
+- **parameters**: WHERE句のパラメータ
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **table_name:**  テーブル名
-    - **data:**  更新するカラム名と値のdict
-    - **where:**  WHERE句の条件
-    - **parameters:**  WHERE句のパラメータ
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> count = await db.sql_update("users",
@@ -1504,16 +1386,14 @@ sql_update(self, table_name: 'str', data: 'dict', where: 'str', parameters: 'tup
 asql_delete(self, table_name: 'str', where: 'str', parameters: 'tuple' = None) -> 'int'
 ```
 
+#### 📥 Arguments 
+- **table_name**: テーブル名
+- **where**: WHERE句の条件
+- **parameters**: WHERE句のパラメータ
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **table_name:**  テーブル名
-    - **where:**  WHERE句の条件
-    - **parameters:**  WHERE句のパラメータ
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> count = await db.sql_delete("users", "age < ?", (18,))
@@ -1527,16 +1407,14 @@ asql_delete(self, table_name: 'str', where: 'str', parameters: 'tuple' = None) -
 sql_delete(self, table_name: 'str', where: 'str', parameters: 'tuple' = None) -> 'int'
 ```
 
+#### 📥 Arguments 
+- **table_name**: テーブル名
+- **where**: WHERE句の条件
+- **parameters**: WHERE句のパラメータ
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **table_name:**  テーブル名
-    - **where:**  WHERE句の条件
-    - **parameters:**  WHERE句のパラメータ
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> count = await db.sql_delete("users", "age < ?", (18,))
@@ -1550,20 +1428,18 @@ sql_delete(self, table_name: 'str', where: 'str', parameters: 'tuple' = None) ->
 acount(self, table_name: 'str' = None, where: 'str' = None, parameters: 'tuple' = None, strict_sql_validation: 'bool' = None, allowed_sql_functions: 'list[str]' = None, forbidden_sql_functions: 'list[str]' = None, override_allowed: 'bool' = False) -> 'int'
 ```
 
+#### 📥 Arguments 
+- **table_name**: テーブル名
+- **where**: WHERE句の条件
+- **parameters**: WHERE句のパラメータ
+- **strict_sql_validation**: Trueの場合、未許可の関数等を含むクエリを拒否
+- **allowed_sql_functions**: このクエリで一時的に許可するSQL関数のリスト
+- **forbidden_sql_functions**: このクエリで一時的に禁止するSQL関数のリスト
+- **override_allowed**: Trueの場合、インスタンス許可設定を無視
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **table_name:**  テーブル名
-    - **where:**  WHERE句の条件
-    - **parameters:**  WHERE句のパラメータ
-    - **strict_sql_validation:**  Trueの場合、未許可の関数等を含むクエリを拒否
-    - **allowed_sql_functions:**  このクエリで一時的に許可するSQL関数のリスト
-    - **forbidden_sql_functions:**  このクエリで一時的に禁止するSQL関数のリスト
-    - **override_allowed:**  Trueの場合、インスタンス許可設定を無視
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> count = await db.count("users", "age < ?", (18,))
@@ -1577,20 +1453,18 @@ acount(self, table_name: 'str' = None, where: 'str' = None, parameters: 'tuple' 
 count(self, table_name: 'str' = None, where: 'str' = None, parameters: 'tuple' = None, strict_sql_validation: 'bool' = None, allowed_sql_functions: 'list[str]' = None, forbidden_sql_functions: 'list[str]' = None, override_allowed: 'bool' = False) -> 'int'
 ```
 
+#### 📥 Arguments 
+- **table_name**: テーブル名
+- **where**: WHERE句の条件
+- **parameters**: WHERE句のパラメータ
+- **strict_sql_validation**: Trueの場合、未許可の関数等を含むクエリを拒否
+- **allowed_sql_functions**: このクエリで一時的に許可するSQL関数のリスト
+- **forbidden_sql_functions**: このクエリで一時的に禁止するSQL関数のリスト
+- **override_allowed**: Trueの場合、インスタンス許可設定を無視
 
-#### 📥 Arguments
+#### 📤 Returns 
 
-    - **table_name:**  テーブル名
-    - **where:**  WHERE句の条件
-    - **parameters:**  WHERE句のパラメータ
-    - **strict_sql_validation:**  Trueの場合、未許可の関数等を含むクエリを拒否
-    - **allowed_sql_functions:**  このクエリで一時的に許可するSQL関数のリスト
-    - **forbidden_sql_functions:**  このクエリで一時的に禁止するSQL関数のリスト
-    - **override_allowed:**  Trueの場合、インスタンス許可設定を無視
-
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> count = await db.count("users", "age < ?", (18,))
@@ -1604,8 +1478,7 @@ count(self, table_name: 'str' = None, where: 'str' = None, parameters: 'tuple' =
 avacuum(self) -> 'None'
 ```
 
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.vacuum()
@@ -1619,8 +1492,7 @@ avacuum(self) -> 'None'
 vacuum(self) -> 'None'
 ```
 
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.vacuum()
@@ -1634,8 +1506,7 @@ vacuum(self) -> 'None'
 begin_transaction(self) -> 'None'
 ```
 
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.begin_transaction()
@@ -1655,8 +1526,7 @@ begin_transaction(self) -> 'None'
 commit(self) -> 'None'
 ```
 
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.commit()
@@ -1670,8 +1540,7 @@ commit(self) -> 'None'
 rollback(self) -> 'None'
 ```
 
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.rollback()
@@ -1685,12 +1554,10 @@ rollback(self) -> 'None'
 in_transaction(self) -> 'bool'
 ```
 
+#### 📤 Returns 
+- **bool**: トランザクション中の場合True
 
-#### 📤 Returns
-
-    - **bool:**  トランザクション中の場合True
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> status = await db.in_transaction()
@@ -1705,8 +1572,7 @@ in_transaction(self) -> 'bool'
 transaction(self)
 ```
 
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> async with db.transaction():
@@ -1723,8 +1589,7 @@ transaction(self)
 close(self) -> 'None'
 ```
 
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> await db.close()
@@ -1738,21 +1603,20 @@ close(self) -> 'None'
 atable(self, table_name: 'str') -> 'AsyncNanaSQLite'
 ```
 
-- 推奨: テーブルインスタンスを変数に保存して再利用してください
+- **推奨**: テーブルインスタンスを変数に保存して再利用してください
 
-- **非推奨:** 
+- **非推奨**: 
     sub1 = await db.table
 
-- **推奨:** 
+- **推奨**: 
     users_db = await db.table
 
-#### 📥 Arguments
+#### 📥 Arguments 
+- **table_name**: 取得するサブテーブル名
 
-    - **table_name:**  取得するサブテーブル名
+#### 📤 Returns 
 
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> async with AsyncNanaSQLite("mydata.db", table="main") as db:
@@ -1770,21 +1634,20 @@ atable(self, table_name: 'str') -> 'AsyncNanaSQLite'
 table(self, table_name: 'str') -> 'AsyncNanaSQLite'
 ```
 
-- 推奨: テーブルインスタンスを変数に保存して再利用してください
+- **推奨**: テーブルインスタンスを変数に保存して再利用してください
 
-- **非推奨:** 
+- **非推奨**: 
     sub1 = await db.table
 
-- **推奨:** 
+- **推奨**: 
     users_db = await db.table
 
-#### 📥 Arguments
+#### 📥 Arguments 
+- **table_name**: 取得するサブテーブル名
 
-    - **table_name:**  取得するサブテーブル名
+#### 📤 Returns 
 
-#### 📤 Returns
-
-#### 💡 Example
+#### 💡 Example 
 
 ```python
     >>> async with AsyncNanaSQLite("mydata.db", table="main") as db:

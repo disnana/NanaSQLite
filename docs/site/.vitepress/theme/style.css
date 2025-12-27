@@ -1,5 +1,22 @@
 @import "tailwindcss";
 
+/* Prevent logo dragging and selection for a more native feel */
+.VPNavBarTitle .logo,
+.VPHero .image-src {
+  user-drag: none;
+  -webkit-user-drag: none;
+  user-select: none;
+  pointer-events: none;
+  /* Make it completely non-interactive */
+}
+
+/* Optimize logo visibility in dark mode */
+.dark .VPNavBarTitle .logo,
+.dark .VPHero .image-src {
+  /* Invert dark colors to light while maintaining hue (indigo) */
+  filter: invert(0.9) hue-rotate(180deg) drop-shadow(0 0 12px rgba(99, 102, 241, 0.4));
+}
+
 :root {
   --vp-c-brand-1: #4f46e5;
   --vp-c-brand-2: #6366f1;

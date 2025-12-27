@@ -6,7 +6,7 @@ hero:
   text: "高性能キャッシュ搭載 SQLiteベース・ディクトラッパー"
   tagline: "高速、安全、スレッドセーフなPythonライブラリ。SQLiteを辞書感覚で。"
   image:
-    src: /logo.png
+    src: /logo.svg
     alt: NanaSQLite Logo
   actions:
     - theme: brand

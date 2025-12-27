@@ -6,7 +6,7 @@ hero:
   text: "SQLite-backed dict wrapper with High-Performance Caching"
   tagline: "Ultra-fast, Security-Hardened, and Thread-Safe Python Library."
   image:
-    src: /logo.png
+    src: /logo.svg
     alt: NanaSQLite Logo
   actions:
     - theme: brand

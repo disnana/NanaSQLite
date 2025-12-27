@@ -4,8 +4,11 @@ export default defineConfig({
     title: "NanaSQLite",
     description: "Ultra-fast SQLite dict wrapper for Python",
     base: '/',
+    head: [
+        ['link', { rel: 'icon', href: '/logo.svg' }]
+    ],
     themeConfig: {
-        logo: '/logo.png',
+        logo: '/logo.svg',
         nav: [
             { text: 'ホーム', link: '/' },
             { text: '導入ガイド', link: '/guide' },
