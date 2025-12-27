@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: "NanaSQLite"
-  text: "SQLite-backed dict wrapper with High-Performance Caching"
-  tagline: "Ultra-fast, Security-Hardened, and Thread-Safe Python Library."
+  text: "High-Performance SQLite Dict Wrapper with Caching"
+  tagline: "Fast, Safe, Thread-Safe Python Library. Use SQLite like a Dictionary."
   image:
     src: /logo.svg
     alt: NanaSQLite Logo
@@ -13,16 +13,16 @@ hero:
       text: Get Started
       link: /en/guide
     - theme: alt
-      text: View on GitHub
+      text: GitHub
       link: https://github.com/disnana/NanaSQLite
 
 features:
-  - title: "High-Performance Caching"
-    details: "Built-in memory cache with lazy-loading and bulk-load support for near-instant access."
-  - title: "Security Hardened"
-    details: "Strict SQL validation, ReDoS protection, and injection countermeasures for dynamic queries."
+  - title: "Fast Memory Caching"
+    details: "Supports lazy loading and bulk loading. Achieves memory-like access speeds."
+  - title: "Enhanced Security (v1.2.0+)"
+    details: "Equipped with strict SQL validation, ReDoS protection, and injection countermeasures."
   - title: "Async Support"
-    details: "Full asynchronous API with lock-free connection pooling for modern applications."
-  - title: "Simple API"
-    details: "Feels just like a Python dictionary. Persistent storage without the boilerplate."
+    details: "Delivers maximum performance in asynchronous environments like FastAPI with a custom thread pool."
+  - title: "Intuitive API"
+    details: "Just like a Python dictionary. Persistence without boilerplate code."
 ---

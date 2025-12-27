@@ -152,7 +152,93 @@ jobs:
         if [[ "${{ needs.codeql.result }}" != "success" ]] || \
            [[ "${{ needs.safety.result }}" != "success" ]] || \
            [[ "${{ needs.trivy.result }}" != "success" ]] || \
-           [[ "${{ needs.bun-audit.result }}" != "success" ]]; then
+           [[ "${{ needs.bun-audit.result }}" != "success" ]] || \
+           [[ "${{ needs.grype.result }}" != "success" ]]; then
           echo "One or more security checks failed. Please review the summary above."
           exit 1
         fi
+
+  # Grype - 脆弱性スキャン (OS/Python/JS)
+  grype:
+    name: Grype Vulnerability Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Scan for vulnerabilities
+      uses: anchore/scan-action@v5
+      with:
+        path: "."
+        fail-build: false # レポート集約のため、ここでは落とさない（後のステップで判定）
+        output-format: json
+    
+    - name: Upload Grype report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: grype-results
+        path: results.json
+
+  # セキュリティレポート集約
+  security-report:
+    name: Generate Security Report
+    needs: [codeql, safety, bandit, trivy, bun-audit, grype]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Generate Detailed Report
+      run: |
+        echo "# 🛡️ Comprehensive Security Report" > security-report.md
+        echo "Generated at: $(date -u)" >> security-report.md
+        echo "" >> security-report.md
+        
+        echo "## 📊 Summary" >> security-report.md
+        echo "| Scan Tool | Status |" >> security-report.md
+        echo "|-----------|--------|" >> security-report.md
+        echo "| CodeQL | ${{ needs.codeql.result }} |" >> security-report.md
+        echo "| Safety | ${{ needs.safety.result }} |" >> security-report.md
+        echo "| Bandit | ${{ needs.bandit.result }} |" >> security-report.md
+        echo "| Trivy | ${{ needs.trivy.result }} |" >> security-report.md
+        echo "| Bun Audit | ${{ needs.bun-audit.result }} |" >> security-report.md
+        echo "| Grype | ${{ needs.grype.result }} |" >> security-report.md
+        echo "" >> security-report.md
+
+        echo "## 🔍 Detailed Findings" >> security-report.md
+        
+        # Grype Findings
+        if [ -f artifacts/grype-results/results.json ]; then
+            echo "### 📦 Grype Scan Results" >> security-report.md
+            # JSON解析してMarkdownに変換 (簡易的なjq処理)
+            echo "\`\`\`json" >> security-report.md
+            jq -r '.matches[] | "Title: " + .vulnerability.id + "\nPackage: " + .artifact.name + " (" + .artifact.version + ")\nSeverity: " + .vulnerability.severity + "\nLink: " + .vulnerability.dataSource + "\n---"' artifacts/grype-results/results.json | head -n 50 >> security-report.md || echo "No matches found or parse error" >> security-report.md
+            echo "\`\`\`" >> security-report.md
+        else
+            echo "### 📦 Grype Scan Results" >> security-report.md
+            echo "No report found." >> security-report.md
+        fi
+
+        # Bandit Findings
+        if [ -f artifacts/bandit-report/bandit-report.json ]; then
+            echo "### 🐍 Bandit Scan Results" >> security-report.md
+            echo "\`\`\`json" >> security-report.md
+            jq -r '.results[] | "Issue: " + .issue_text + "\nSeverity: " + .issue_severity + "\nFile: " + .filename + ":" + (.line_number|tostring) + "\n---"' artifacts/bandit-report/bandit-report.json | head -n 50 >> security-report.md || echo "No issues found" >> security-report.md
+            echo "\`\`\`" >> security-report.md
+        fi
+
+        cat security-report.md >> $GITHUB_STEP_SUMMARY
+
+    - name: Upload Full Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: full-security-report
+        path: security-report.md
+

@@ -47,14 +47,26 @@ export default defineConfig({
             themeConfig: {
                 nav: [
                     { text: 'Home', link: '/en/' },
-                    { text: 'Guide', link: '/en/guide' }
+                    { text: 'Guide', link: '/en/guide' },
+                    { text: 'Performance', link: '/en/performance_tuning' }
                 ],
                 sidebar: [
                     {
+                        text: 'Documentation',
+                        items: [
+                            { text: 'Guide', link: '/en/guide' },
+                            { text: 'Performance', link: '/en/performance_tuning' },
+                            { text: 'Error Handling', link: '/en/error_handling' },
+                            { text: 'Best Practices', link: '/en/best_practices' },
+                            { text: 'Transactions', link: '/en/transaction_guide' }
+                        ]
+                    },
+                    {
                         text: 'API Reference',
                         items: [
-                            { text: 'Sync API', link: '/en/api_sync' },
-                            { text: 'Async API', link: '/en/api_async' }
+                            { text: 'Synchronous API', link: '/en/api_sync' },
+                            { text: 'Asynchronous API', link: '/en/api_async' },
+                            { text: 'Reference', link: '/en/reference' }
                         ]
                     }
                 ]
