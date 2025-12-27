@@ -8,6 +8,9 @@ NanaSQLite v1.1.0+ provides unified custom exception classes to make error handl
 2. [Exception Hierarchy](#exception-hierarchy)
 3. [Common Error Scenarios](#common-error-scenarios)
 4. [Best Practices](#best-practices)
+5. [Debugging and Troubleshooting](#debugging-and-troubleshooting)
+6. [Async Error Handling](#async-error-handling)
+7. [FAQ](#faq)
 
 ---
 
@@ -118,6 +121,14 @@ try:
 except NanaSQLiteConnectionError as e:
     print(f"Connection error: {e}")
 ```
+
+#### `NanaSQLiteLockError`
+
+Reserved for future use regarding lock acquisition failures.
+
+#### `NanaSQLiteCacheError`
+
+Reserved for future use regarding cache inconsistencies.
 
 ---
 
@@ -234,6 +245,47 @@ with NanaSQLite("mydata.db") as db:
     # Automatically closed
 ```
 
+### 4. Orphaned Child Instances
+
+**Problem**: Trying to use a child instance (`.table()`) after the parent connection has been closed.
+
+```python
+main_db = NanaSQLite("app.db")
+sub_db = main_db.table("users")
+
+main_db.close()  # Close parent
+
+try:
+    sub_db["key"] = "value"  # Error!
+except NanaSQLiteConnectionError as e:
+    print(f"Parent connection closed: {e}")
+```
+
+**Solution**: Manage parent and child scope together.
+
+```python
+with NanaSQLite("app.db") as main_db:
+    sub_db = main_db.table("users")
+    sub_db["key"] = "value"
+```
+
+### 5. Invalid Identifiers
+
+**Problem**: Identifiers are strictly validated to prevent SQL injection.
+
+```python
+try:
+    db.create_table("my table", {"id": "INTEGER"}) # contains space
+except NanaSQLiteValidationError as e:
+    print(f"Invalid identifier: {e}")
+```
+
+**Solution**: Use valid alphanumeric characters and underscores.
+
+```python
+db.create_table("my_table", {"id": "INTEGER"})
+```
+
 ---
 
 ## Best Practices
@@ -298,6 +350,100 @@ except NanaSQLiteError as e:
     print(f"Transaction failed: {e}")
 ```
 
+### 4. Use Logging
+
+```python
+import logging
+from nanasqlite import NanaSQLite, NanaSQLiteError
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+try:
+    db = NanaSQLite("mydata.db")
+    db["key"] = "value"
+    logger.info("Data saved successfully")
+except NanaSQLiteError as e:
+    logger.error(f"Error occurred: {e}", exc_info=True)
+```
+
+---
+
+## Debugging and Troubleshooting
+
+### Retrieving Error Information
+
+`NanaSQLiteDatabaseError` holds the original APSW error.
+
+```python
+from nanasqlite import NanaSQLite, NanaSQLiteDatabaseError
+
+try:
+    db = NanaSQLite("mydata.db")
+    db.execute("INVALID SQL")
+except NanaSQLiteDatabaseError as e:
+    print(f"Message: {e}")
+    if e.original_error:
+        print(f"Original APSW Error: {e.original_error}")
+        print(f"Error Type: {type(e.original_error)}")
+```
+
+### Checking Transaction State
+
+```python
+db = NanaSQLite("mydata.db")
+
+print(f"In transaction: {db.in_transaction()}")  # False
+
+db.begin_transaction()
+print(f"In transaction: {db.in_transaction()}")  # True
+
+db.commit()
+print(f"In transaction: {db.in_transaction()}")  # False
+```
+
+### Checking Connection State
+
+```python
+db = NanaSQLite("mydata.db")
+print(f"Is owner: {db._is_connection_owner}")
+print(f"Is closed: {db._is_closed}")
+
+sub_db = db.table("users")
+print(f"Child is owner: {sub_db._is_connection_owner}")  # False
+print(f"Parent closed: {sub_db._parent_closed}")  # False
+
+db.close()
+print(f"Child check parent closed: {sub_db._parent_closed}")  # True
+```
+
+### Enabling Debug Mode
+
+You can use Python's `-v` flag or `PYTHONVERBOSE` environment variable to see module loading and some internal details.
+
+```bash
+# Windows
+$env:PYTHONVERBOSE=1
+python your_script.py
+
+# Linux/Mac
+PYTHONVERBOSE=1 python your_script.py
+```
+
+### Detailed Traceback
+
+```python
+import traceback
+from nanasqlite import NanaSQLite, NanaSQLiteError
+
+try:
+    db = NanaSQLite("mydata.db")
+    # ... operations ...
+except NanaSQLiteError as e:
+    print("Error occurred:")
+    print(traceback.format_exc())
+```
+
 ---
 
 ## Async Error Handling
@@ -320,7 +466,7 @@ asyncio.run(main())
 
 ---
 
-## Frequently Asked Questions & Troubleshooting (FAQ)
+## FAQ
 
 ### Q: I frequently encounter "database is locked" errors
 
@@ -360,4 +506,3 @@ asyncio.run(main())
 - **Logging**: Track and diagnose errors
 
 Proper error handling enables you to build robust and reliable applications.
-

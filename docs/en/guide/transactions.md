@@ -12,6 +12,7 @@ NanaSQLite provides an easy-to-use API for SQLite transaction functionality. Thi
 6. [Performance Optimization](#performance-optimization)
 7. [Limitations and Notes](#limitations-and-notes)
 8. [Async Transactions](#async-transactions)
+9. [Practical Examples](#practical-examples)
 
 ---
 
@@ -142,6 +143,25 @@ except Exception as e:
 print(f"Product count: {db.count('products')}")  # 0
 ```
 
+### Nested Contexts (Not Supported)
+
+```python
+from nanasqlite import NanaSQLite
+
+db = NanaSQLite("mydata.db")
+
+# Outer transaction
+with db.transaction():
+    db["key1"] = "value1"
+    
+    # Inner transaction cannot be started (will error)
+    try:
+        with db.transaction():  # NanaSQLiteTransactionError
+            db["key2"] = "value2"
+    except Exception as e:
+        print(f"Nested transactions are not supported: {e}")
+```
+
 ---
 
 ## Transaction Behavior
@@ -224,6 +244,41 @@ except NanaSQLiteTransactionError as e:
     print(f"Error: {e}")
 ```
 
+### Safe Error Handling Pattern
+
+```python
+from nanasqlite import NanaSQLite, NanaSQLiteError
+
+db = NanaSQLite("mydata.db")
+db.create_table("logs", {
+    "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+    "message": "TEXT",
+    "timestamp": "TEXT"
+})
+
+def safe_transaction():
+    try:
+        with db.transaction():
+            db.sql_insert("logs", {"message": "Operation started"})
+            # Perform some logic
+            result = perform_operation()
+            db.sql_insert("logs", {"message": f"Operation completed: {result}"})
+            return result
+    except NanaSQLiteError as e:
+        # Transaction is automatically rolled back
+        print(f"Transaction error: {e}")
+        return None
+    except Exception as e:
+        # Other errors are also rolled back
+        print(f"Unexpected error: {e}")
+        return None
+
+def perform_operation():
+    return "success"
+
+result = safe_transaction()
+```
+
 ---
 
 ## Performance Optimization
@@ -278,6 +333,27 @@ data = {f"key_{i}": f"value_{i}" for i in range(10000)}
 db.batch_update(data)
 ```
 
+### Transaction Batch Batches
+
+For very large datasets, split transactions into batches.
+
+```python
+from nanasqlite import NanaSQLite
+
+db = NanaSQLite("large.db")
+db.create_table("data", {"id": "INTEGER", "value": "TEXT"})
+
+# Set batch size
+BATCH_SIZE = 10000
+total_records = 100000
+
+for batch_start in range(0, total_records, BATCH_SIZE):
+    with db.transaction():
+        for i in range(batch_start, min(batch_start + BATCH_SIZE, total_records)):
+            db.sql_insert("data", {"id": i, "value": f"data_{i}"})
+    print(f"Processed {min(batch_start + BATCH_SIZE, total_records)}/{total_records}")
+```
+
 ---
 
 ## Limitations and Notes
@@ -320,6 +396,43 @@ for batch in range(0, 1000000, BATCH_SIZE):
         for i in range(batch, batch + BATCH_SIZE):
             db.sql_insert("items", {"id": i, "value": f"item_{i}"})
 ```
+
+### 3. Cache Consistency
+
+If you modify the database directly via `execute()`, the cache may become inconsistent.
+
+```python
+db = NanaSQLite("mydata.db")
+db["key"] = "old_value"
+
+# Update with direct SQL
+with db.transaction():
+    db.execute("UPDATE data SET value = ? WHERE key = ?", ('"new_value"', "key"))
+
+# Refresh cache
+db.refresh("key")  # or db.get_fresh("key")
+print(db["key"])  # "new_value"
+```
+
+### 4. Deadlocks
+
+If multiple processes start transactions in different orders, deadlocks can occur.
+
+```python
+# Process 1
+with db1.transaction():
+    db1["key1"] = "value1"
+    time.sleep(1)
+    db1["key2"] = "value2"  # Process 2 might be holding lock
+
+# Process 2
+with db2.transaction():
+    db2["key2"] = "value2"
+    time.sleep(1)
+    db2["key1"] = "value1"  # Process 1 might be holding lock
+```
+
+**Solution**: Always acquire locks in the same order, or rely on WAL mode's concurrency handling (though `BEGIN IMMEDIATE` used by NanaSQLite reduces this risk, logic deadlocks are still possible).
 
 ---
 
@@ -386,6 +499,168 @@ async def main():
 asyncio.run(main())
 ```
 
+### Concurrency Pitfalls
+
+Even in async, you can only have one transaction per database connection.
+
+```python
+import asyncio
+from nanasqlite import AsyncNanaSQLite
+
+async def main():
+    async with AsyncNanaSQLite("mydata.db") as db:
+        # ❌ This can cause an error
+        async def task1():
+            async with db.transaction():
+                await db.aset("key1", "value1")
+                await asyncio.sleep(1)
+        
+        async def task2():
+            async with db.transaction():  # Might try to start transaction while task1 is running
+                await db.aset("key2", "value2")
+        
+        # Concurrent execution leads to error
+        try:
+            await asyncio.gather(task1(), task2())
+        except Exception as e:
+            print(f"Error: {e}")
+
+asyncio.run(main())
+```
+
+**Solution**: Use independent database connections for each task, or serialize transactions.
+
+---
+
+## Practical Examples
+
+### Example 1: Bank Transfer
+
+```python
+from nanasqlite import NanaSQLite, NanaSQLiteError
+
+db = NanaSQLite("bank.db")
+db.create_table("accounts", {
+    "id": "INTEGER PRIMARY KEY",
+    "name": "TEXT",
+    "balance": "REAL"
+})
+
+def transfer(from_id: int, to_id: int, amount: float):
+    """Reflects a money transfer between accounts"""
+    try:
+        with db.transaction():
+            # Get sender balance
+            from_account = db.query("accounts", where="id = ?", parameters=(from_id,))
+            if not from_account:
+                raise ValueError(f"Account {from_id} not found")
+            
+            from_balance = from_account[0]["balance"]
+            if from_balance < amount:
+                raise ValueError("Insufficient funds")
+            
+            # Withdraw from sender
+            db.sql_update("accounts", 
+                         {"balance": from_balance - amount}, 
+                         "id = ?", 
+                         (from_id,))
+            
+            # Get receiver balance
+            to_account = db.query("accounts", where="id = ?", parameters=(to_id,))
+            if not to_account:
+                raise ValueError(f"Account {to_id} not found")
+            
+            to_balance = to_account[0]["balance"]
+            
+            # Deposit to receiver
+            db.sql_update("accounts", 
+                         {"balance": to_balance + amount}, 
+                         "id = ?", 
+                         (to_id,))
+            
+        print(f"Transfer complete: {from_id} -> {to_id}, Amount: {amount}")
+        return True
+        
+    except NanaSQLiteError as e:
+        print(f"Database error: {e}")
+        return False
+    except ValueError as e:
+        print(f"Transfer error: {e}")
+        return False
+
+# Test
+db.sql_insert("accounts", {"id": 1, "name": "Alice", "balance": 1000.0})
+db.sql_insert("accounts", {"id": 2, "name": "Bob", "balance": 500.0})
+
+transfer(1, 2, 100.0)  # Success
+transfer(1, 2, 2000.0)  # Fail (insufficient funds)
+```
+
+### Example 2: Logging Decorator
+
+```python
+from nanasqlite import NanaSQLite
+from datetime import datetime
+
+db = NanaSQLite("logs.db")
+db.create_table("logs", {
+    "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+    "level": "TEXT",
+    "message": "TEXT",
+    "timestamp": "TEXT"
+})
+
+def log_operation(operation_name: str):
+    """Decorator to log operations"""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            start_time = datetime.now()
+            
+            try:
+                with db.transaction():
+                    # Start log
+                    db.sql_insert("logs", {
+                        "level": "INFO",
+                        "message": f"{operation_name} started",
+                        "timestamp": start_time.isoformat()
+                    })
+                    
+                    # Actual operation
+                    result = func(*args, **kwargs)
+                    
+                    # Completion log
+                    end_time = datetime.now()
+                    duration = (end_time - start_time).total_seconds()
+                    db.sql_insert("logs", {
+                        "level": "INFO",
+                        "message": f"{operation_name} completed in {duration:.2f}s",
+                        "timestamp": end_time.isoformat()
+                    })
+                    
+                return result
+                
+            except Exception as e:
+                # Error log
+                error_time = datetime.now()
+                db.sql_insert("logs", {
+                    "level": "ERROR",
+                    "message": f"{operation_name} failed: {e}",
+                    "timestamp": error_time.isoformat()
+                })
+                raise
+        
+        return wrapper
+    return decorator
+
+@log_operation("DataProcessing")
+def process_data():
+    import time
+    time.sleep(1)
+    return "success"
+
+process_data()
+```
+
 ---
 
 ## Summary
@@ -397,4 +672,3 @@ asyncio.run(main())
 - **Async support**: Same usage available with `AsyncNanaSQLite`
 
 Properly using transactions enables fast database operations while maintaining data integrity.
-

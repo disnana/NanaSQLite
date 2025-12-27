@@ -423,8 +423,8 @@ with NanaSQLite("sessions.db") as db:
 
 ## Next Steps
 
-- Read the [API Reference](reference.md) for complete method documentation
-- Explore [async_guide.md](async_guide.md) for async/await usage
+- Read the [API Reference](../api/nanasqlite.md) for complete method documentation
+- Explore [async.md](async.md) for async/await usage
 - Check [best_practices.md](best_practices.md) for production tips
 - See [examples/](../../examples/) for real-world code samples
 

@@ -423,8 +423,8 @@ with NanaSQLite("sessions.db") as db:
 
 ## 次のステップ
 
-- 完全なメソッドドキュメントは[APIリファレンス](reference.md)を参照
-- async/await の使用方法は[async_guide.md](async_guide.md)を探索
+- 完全なメソッドドキュメントは[APIリファレンス](../api/nanasqlite.md)を参照
+- async/await の使用方法は[async.md](async.md)を探索
 - 本番環境のヒントは[best_practices.md](best_practices.md)を確認
 - 実際のコードサンプルは[examples/](../../examples/)を参照
 

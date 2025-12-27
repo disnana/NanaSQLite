@@ -7,8 +7,16 @@ A dict-like SQLite wrapper with instant persistence and intelligent caching.
 - [Concept](#concept)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
-- [Usage Guide](#usage-guide)
-- [API Reference](reference.md)
+- [Guides](#guides)
+  - [Tutorial](guide/tutorial.md)
+  - [Async Support](guide/async.md)
+  - [Transactions](guide/transactions.md)
+  - [Error Handling](guide/error_handling.md)
+  - [Performance](guide/performance.md)
+  - [Best Practices](guide/best_practices.md)
+- [API Reference](#api-reference)
+  - [NanaSQLite (Sync)](api/nanasqlite.md)
+  - [AsyncNanaSQLite (Async)](api/async_nanasqlite.md)
 
 ---
 
@@ -124,192 +132,22 @@ for key in db.keys():
 
 ---
 
-## Usage Guide
+## Guides
 
-### Supported Data Types
+For more detailed information, please refer to the following guides:
 
-NanaSQLite supports all JSON-serializable types:
-
-```python
-db["string"] = "Hello, World!"
-db["integer"] = 42
-db["float"] = 3.14159
-db["boolean"] = True
-db["null"] = None
-db["list"] = [1, 2, 3, "four", 5.0]
-db["dict"] = {"nested": {"deep": {"value": 123}}}
-```
-
-### Nested Structures
-
-Deeply nested structures are fully supported (tested up to 30 levels):
-
-```python
-db["deep"] = {
-    "level1": {
-        "level2": {
-            "level3": {
-                "data": [1, 2, {"key": "value"}]
-            }
-        }
-    }
-}
-
-# Access nested data
-print(db["deep"]["level1"]["level2"]["level3"]["data"][2]["key"])  # 'value'
-```
-
-### Dict Methods
-
-All standard dict methods are available:
-
-```python
-# Keys, values, items
-print(db.keys())    # ['key1', 'key2', ...]
-print(db.values())  # [value1, value2, ...]
-print(db.items())   # [('key1', value1), ...]
-
-# Get with default
-value = db.get("missing", "default")
-
-# Pop (get and delete)
-value = db.pop("key")
-
-# Update multiple keys
-db.update({"a": 1, "b": 2, "c": 3})
-
-# Set default
-db.setdefault("new_key", "default_value")
-
-# Clear all
-db.clear()
-
-# Convert to regular dict
-regular_dict = db.to_dict()
-```
-
-### Batch Operations
-
-For bulk writes, use batch methods for 10-100x speedup:
-
-```python
-# Batch update (uses transactions)
-db.batch_update({
-    f"key_{i}": {"data": i} for i in range(10000)
-})
-
-# Batch delete
-db.batch_delete(["key_0", "key_1", "key_2"])
-```
-
-### Cache Management
-
-```python
-# Check if a key is in memory cache
-if db.is_cached("key"):
-    print("Already in memory!")
-
-# Force reload from database
-db.refresh("key")  # Single key
-db.refresh()       # All keys
-
-# Load everything into memory
-db.load_all()
-```
-
-### Multiple Tables (v1.1.0dev1+)
-
-Work with multiple tables within the same database safely:
-
-```python
-# Method 1: Direct table specification
-users_db = NanaSQLite("app.db", table="users")
-config_db = NanaSQLite("app.db", table="config")
-
-users_db["alice"] = {"name": "Alice", "age": 30}
-config_db["theme"] = "dark"
-
-# Method 2: Use table() method to share connection (recommended)
-db = NanaSQLite("app.db", table="main")
-users_db = db.table("users")
-config_db = db.table("config")
-
-# Thread-safe and memory efficient by sharing connection and lock
-users_db["alice"] = {"name": "Alice", "age": 30}
-config_db["theme"] = "dark"
-
-# Each table has independent cache
-print(users_db["alice"])  # {"name": "Alice", "age": 30}
-print(config_db["theme"])  # "dark"
-```
-
-**Benefits of table() method:**
-- **Thread-safe**: Concurrent writes from multiple threads are safe
-- **Memory efficient**: Reuses SQLite connection to save resources
-- **Cache isolation**: Each table maintains independent in-memory cache
-
-**⚠️ Important Usage Notes:**
-
-1. **Do not create multiple instances for the same table:**
-   ```python
-   # ❌ Not recommended: Causes cache inconsistency
-   users1 = db.table("users")
-   users2 = db.table("users")  # Different cache, same DB table!
-   
-   # ✅ Recommended: Reuse the same instance
-   users_db = db.table("users")
-   # Use users_db throughout your code
-   ```
-   
-   Each instance has independent cache. Creating multiple instances for the same table can cause memory-level cache inconsistency (though database writes are correctly handled).
-
-2. **Use context managers to avoid issues after close:**
-   ```python
-   # ✅ Recommended: Proper cleanup with context manager
-   with NanaSQLite("app.db", table="main") as main_db:
-       sub_db = main_db.table("sub")
-       sub_db["key"] = "value"
-   # Automatically closed, no orphaned instances
-   
-   # ❌ Not recommended: Manual close may leave orphaned sub-instances
-   main_db = NanaSQLite("app.db")
-   sub_db = main_db.table("sub")
-   main_db.close()  # sub_db may still access cached data
-   ```
-
-3. **About chained table() calls:**
-   ```python
-   # ✅ Works: sub2 is created as a child of sub
-   sub = db.table("sub")
-   sub2 = sub.table("sub2")  # Creates sub2 table
-   
-   # ✅ More recommended: Get directly from parent
-   sub = db.table("sub")
-   sub2 = db.table("sub2")  # Clearer parent-child relationship
-   ```
-   
-   Chaining `table().table()` technically works, but note:
-   - All instances share the same connection, so it's safe
-   - `sub2` is tracked as a child of `sub`, but it's actually a different table
-   - For clearer code, getting tables directly from the root DB is recommended
-
-**Best Practices:**
-- Store table instances in variables and reuse them
-- Prefer context managers (`with` statement) for automatic resource management
-- Close the parent instance when done (child instances share the same connection)
-
-### Performance Tuning
-
-```python
-# Disable optimizations (not recommended)
-db = NanaSQLite("mydata.db", optimize=False)
-
-# Custom cache size (default: 64MB)
-db = NanaSQLite("mydata.db", cache_size_mb=128)
-```
+- **[Tutorial](guide/tutorial.md)**: Extended examples including multiple tables and advanced features.
+- **[Async Support](guide/async.md)**: How to use `AsyncNanaSQLite` for non-blocking operations.
+- **[Transactions](guide/transactions.md)**: ensuring data integrity and optimizing bulk writes.
+- **[Error Handling](guide/error_handling.md)**: Handling exceptions and troubleshooting.
+- **[Performance](guide/performance.md)**: Tuning NanaSQLite for maximum speed.
+- **[Best Practices](guide/best_practices.md)**: Recommended patterns for production use.
 
 ---
 
-## Next Steps
+## API Reference
 
-- [API Reference](reference.md) - Detailed method documentation
+Complete documentation for all classes and methods.
+
+- **[NanaSQLite (Sync)](api/nanasqlite.md)**
+- **[AsyncNanaSQLite (Async)](api/async_nanasqlite.md)**
