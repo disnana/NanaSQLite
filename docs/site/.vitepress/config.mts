@@ -3,7 +3,7 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
     title: "NanaSQLite",
     description: "Ultra-fast SQLite dict wrapper for Python",
-    base: '/NanaSQLite/',
+    base: '/',
     head: [
         ['link', { rel: 'icon', href: '/logo.svg' }]
     ],
