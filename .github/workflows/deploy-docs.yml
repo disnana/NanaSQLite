@@ -50,6 +50,19 @@ jobs:
         working-directory: docs/site
         run: npm run build
 
+      - name: Preserve Benchmark History
+        run: |
+          # Fetch existing gh-pages branch to pull benchmark data (stored in dev/bench)
+          git fetch origin gh-pages:gh-pages || echo "gh-pages branch not found, skipping preservation"
+          # Attempt to extract the dev directory from gh-pages branch
+          if git ls-tree -r gh-pages | grep -q 'dev/'; then
+            git checkout gh-pages -- dev
+            cp -r dev docs/site/.vitepress/dist/
+            echo "Successfully preserved benchmark history from gh-pages"
+          else
+            echo "No benchmark history found on gh-pages"
+          fi
+
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:

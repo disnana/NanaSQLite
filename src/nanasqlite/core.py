@@ -9,13 +9,13 @@ NanaSQLite: APSW SQLite-backed dict wrapper with memory caching.
 
 from __future__ import annotations
 
+from collections.abc import Iterator, MutableMapping
 import json
 import re
 import threading
+from typing import Any, Literal
 import warnings
 import weakref
-from collections.abc import Iterator, MutableMapping
-from typing import Any, Literal
 
 import apsw
 
@@ -26,7 +26,7 @@ from .exceptions import (
     NanaSQLiteTransactionError,
     NanaSQLiteValidationError,
 )
-from .sql_utils import sanitize_sql_for_function_scan, fast_validate_sql_chars
+from .sql_utils import fast_validate_sql_chars, sanitize_sql_for_function_scan
 
 # 識別子バリデーション用の正規表現パターン（英数字とアンダースコアのみ、数字で開始しない）
 IDENTIFIER_PATTERN = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')

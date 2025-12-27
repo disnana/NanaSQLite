@@ -173,7 +173,7 @@ def fast_validate_sql_chars(expr: str) -> bool:
         "abcdefghijklmnopqrstuvwxyz"
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         "0123456789"
-        "_ ,.()'=<>!+-*/\"?:@$"
+        "_ ,.()'=<>!+-*/\"|?:@$"
     )
 
     return all(c in safe_chars for c in expr)
