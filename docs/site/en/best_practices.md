@@ -1,6 +1,6 @@
 # NanaSQLite Best Practices
 
-A comprehensive guide for effectively using NanaSQLite in production environments.
+A comprehensive guide to using NanaSQLite effectively in production environments.
 
 ## Table of Contents
 
@@ -15,23 +15,23 @@ A comprehensive guide for effectively using NanaSQLite in production environment
 
 ## Performance Optimization
 
-### Choosing the Right Cache Strategy
+### Choose the Right Cache Strategy
 
 **Lazy Loading (Default)**
 ```python
-# Optimal: Large database, sparse access pattern
+# Best for: Large databases, sparse access patterns
 db = NanaSQLite("large.db")
-# Load data only on access
-user = db["user_123"]  # First access: Load from DB
-user = db["user_123"]  # Second access: From memory
+# Only loads data when accessed
+user = db["user_123"]  # First access: loads from DB
+user = db["user_123"]  # Second access: from memory
 ```
 
 **Bulk Loading**
 ```python
-# Optimal: Small database (<100MB), frequent access to most keys
+# Best for: Small databases (<100MB), frequent access to most keys
 db = NanaSQLite("small.db", bulk_load=True)
-# Load all data at startup
-# Subsequent reads are all from memory (ultra-fast)
+# All data loaded at startup
+# All subsequent reads from memory (ultra-fast)
 ```
 
 **Decision Matrix:**
@@ -39,20 +39,20 @@ db = NanaSQLite("small.db", bulk_load=True)
 | Database Size | Access Pattern | Recommendation |
 |--------------|----------------|----------------|
 | < 10MB | Read-heavy | `bulk_load=True` |
-| 10-100MB | Access to most keys | `bulk_load=True` |
-| 100MB-1GB | Access to some keys | `bulk_load=False` (Default)|
-| > 1GB | Any pattern | `bulk_load=False` (Default)|
+| 10-100MB | Most keys accessed | `bulk_load=True` |
+| 100MB-1GB | Some keys accessed | `bulk_load=False` (default) |
+| > 1GB | Any pattern | `bulk_load=False` (default) |
 
-### Using Batch Operations
+### Use Batch Operations
 
-**❌ Anti-Pattern: Individual Writes**
+**❌ Anti-pattern: Individual writes**
 ```python
 # Slow: 1000 separate transactions
 for i in range(1000):
     db[f"user_{i}"] = {"name": f"User{i}"}
 ```
 
-**✅ Best Practice: Batch Writes**
+**✅ Best practice: Batch writes**
 ```python
 # Fast: Single transaction (10-100x faster)
 users = {f"user_{i}": {"name": f"User{i}"} for i in range(1000)}
@@ -67,18 +67,18 @@ db.batch_update(users)
 | 1000 writes | ~2000ms | ~15ms | 133x |
 | 10000 writes | ~20000ms | ~150ms | 133x |
 
-### Optimizing SQLite Cache Size
+### Optimize SQLite Cache Size
 
-The `cache_size_mb` parameter controls SQLite's internal page cache (PRAGMA cache_size), not NanaSQLite's dict cache. This affects the number of database pages SQLite keeps in memory, accelerating disk I/O.
+The `cache_size_mb` parameter controls SQLite's internal page cache (PRAGMA cache_size), not NanaSQLite's dictionary cache. This affects how many database pages SQLite keeps in memory for faster disk I/O.
 
 ```python
-# Default: 64MB SQLite page cache (appropriate for most cases)
+# Default: 64MB SQLite page cache (good for most cases)
 db = NanaSQLite("data.db")
 
-# Large dataset: Increase SQLite page cache
+# Large datasets: increase SQLite page cache
 db = NanaSQLite("large.db", cache_size_mb=256)
 
-# Memory constrained: Decrease SQLite page cache
+# Memory-constrained: reduce SQLite page cache
 db = NanaSQLite("data.db", cache_size_mb=32)
 ```
 
@@ -87,15 +87,15 @@ db = NanaSQLite("data.db", cache_size_mb=32)
 - **Medium DB (100MB-1GB)**: 128-256MB SQLite cache
 - **Large DB (>1GB)**: 256-512MB SQLite cache
 
-**Note:** This parameter does not affect the memory used by NanaSQLite's internal dictionary cache (`_data`). The dictionary cache stores loaded values in Python memory. To control this, use lazy loading with `bulk_load=False` (default).
+**Note:** This parameter does NOT affect the memory used by NanaSQLite's internal dictionary cache (`_data`), which stores loaded values in Python memory. To control that, use `bulk_load=False` (default) for lazy loading.
 
-### Context Manager for Auto Cleanup
+### Context Manager for Auto-Cleanup
 
 **✅ Always use context manager**
 ```python
 with NanaSQLite("data.db") as db:
     db["key"] = "value"
-# Automatically closed and resources released
+# Automatically closed and resources freed
 ```
 
 **❌ Avoid manual management**
@@ -109,11 +109,11 @@ db.close()  # Easy to forget!
 
 ## Security Guidelines
 
-### preventing SQL Injection
+### Prevent SQL Injection
 
-**✅ Use Parameter Binding**
+**✅ Use parameter binding**
 ```python
-# Safe: Parameter is properly escaped
+# Safe: parameters are properly escaped
 results = db.query(
     table_name="users",
     where="name = ?",
@@ -121,14 +121,14 @@ results = db.query(
 )
 ```
 
-**❌ Do not concatenate user input**
+**❌ Never concatenate user input**
 ```python
-# Dangerous: SQL Injection vulnerability
+# DANGEROUS: SQL injection vulnerability
 # Never do this!
 db.execute(f"SELECT * FROM users WHERE name = '{user_input}'")
 ```
 
-### File Path Validation
+### Validate File Paths
 
 ```python
 import os
@@ -148,17 +148,17 @@ db_path = safe_db_path(user_provided_name)
 db = NanaSQLite(db_path)
 ```
 
-### Protecting Sensitive Data
+### Protect Sensitive Data
 
 ```python
-# Do not store secrets in plaintext
-# ❌ Bad Example
+# Don't store plain-text secrets
+# ❌ Bad
 db["config"] = {
     "api_key": "sk-1234567890abcdef",
     "password": "mypassword123"
 }
 
-# ✅ Good Example: Encrypt sensitive values
+# ✅ Good: Encrypt sensitive values
 from cryptography.fernet import Fernet
 
 key = Fernet.generate_key()
@@ -168,7 +168,7 @@ encrypted_api_key = cipher.encrypt(b"sk-1234567890abcdef")
 db["config"] = {
     "api_key": encrypted_api_key.decode(),
     # Use bcrypt: import bcrypt; bcrypt.hashpw(password.encode(), bcrypt.gensalt())
-    "password_hash": hash_password("mypassword123")  # Replace with actual hashing function
+    "password_hash": hash_password("mypassword123")  # Replace with actual hashing
 }
 ```
 
@@ -182,7 +182,7 @@ import stat
 db = NanaSQLite("secure.db")
 db.close()
 
-# Set file permissions to owner read/write only
+# Set file permissions to owner-only read/write
 os.chmod("secure.db", stat.S_IRUSR | stat.S_IWUSR)
 ```
 
@@ -190,12 +190,12 @@ os.chmod("secure.db", stat.S_IRUSR | stat.S_IWUSR)
 
 ## Error Handling
 
-### Proper Handling of Missing Keys
+### Handle Missing Keys Gracefully
 
-**✅ Use get() with default value**
+**✅ Use get() with default**
 ```python
-# Recommended: No exception handling needed
-value = db.get("key", default="Default Value")
+# Preferred: No exception handling needed
+value = db.get("key", default="default_value")
 ```
 
 **✅ Use try/except for required keys**
@@ -205,10 +205,10 @@ try:
 except KeyError:
     logger.error("Required configuration missing")
     # Use ValueError or define your own ConfigurationError exception class
-    raise ValueError("required_key is missing")
+    raise ValueError("Missing required_key")
 ```
 
-### Handling Database Errors
+### Handle Database Errors
 
 ```python
 import apsw
@@ -228,7 +228,7 @@ except apsw.Error as e:
     # Handle appropriately (retry, fallback, etc.)
 ```
 
-### Data Validation Before Insertion
+### Validate Data Before Insertion
 
 ```python
 def save_user(db: NanaSQLite, user_data: dict) -> bool:
@@ -273,7 +273,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 async def get_db() -> AsyncNanaSQLite:
-    """Database dependency injection"""
+    """Dependency injection for database"""
     return app.state.db
 
 @app.get("/users/{user_id}")
@@ -284,7 +284,7 @@ async def get_user(user_id: str, db: AsyncNanaSQLite = Depends(get_db)):
 ### Memory Management
 
 ```python
-# In long-running processes, periodically clear unused cache
+# For long-running processes, periodically clear unused cache
 class CachedDB:
     def __init__(self, db_path: str):
         self.db = NanaSQLite(db_path)
@@ -293,7 +293,7 @@ class CachedDB:
     def get(self, key: str):
         self.access_count += 1
         
-        # Refresh cache every 10000 operations
+        # Every 10000 operations, refresh cache
         if self.access_count % 10000 == 0:
             self.db.refresh()  # Clear cache
             
@@ -428,7 +428,7 @@ def test_with_mock():
     mock_db = MagicMock(spec=NanaSQLite)
     mock_db.get.return_value = {"name": "Test User"}
     
-    # Function using database
+    # Your function that uses the database
     def get_user_name(db, user_id):
         user = db.get(f"user_{user_id}")
         return user["name"] if user else None
@@ -442,14 +442,14 @@ def test_with_mock():
 
 ## Summary
 
-**Key Points:**
+**Key Takeaways:**
 
 1. ✅ Use `bulk_load=True` for small, frequently accessed databases
 2. ✅ Always use batch operations for 100+ writes
-3. ✅ Use context managers (`with` statement) for auto cleanup
+3. ✅ Use context managers (`with` statement) for automatic cleanup
 4. ✅ Use parameter binding to prevent SQL injection
 5. ✅ Validate user input, especially file paths
-6. ✅ Handle errors appropriately with `get()` and try/except
+6. ✅ Handle errors gracefully with `get()` and try/except
 7. ✅ Separate concerns with different tables
 8. ✅ Test with temporary databases
 9. ✅ Monitor memory usage in long-running processes
@@ -459,13 +459,13 @@ def test_with_mock():
 
 1. ❌ Using `bulk_load=True` with large databases (>1GB)
 2. ❌ Individual writes instead of batch operations
-3. ❌ Forgetting to close the database (use `with` statement)
+3. ❌ Forgetting to close databases (use `with` statement)
 4. ❌ SQL injection via string concatenation
 5. ❌ Storing sensitive data without encryption
 6. ❌ Ignoring KeyError exceptions
 7. ❌ Not validating user input
 
-For more detailed examples, see:
-- [Tutorial](guide.md) - Step-by-step learning guide
-- [API Reference](reference.md) - Complete method documentation
-- [Async Guide](api_async.md) - How to use async/await
+For more examples, see:
+- [Tutorial](guide) - Step-by-step learning guide
+- [API Reference](./api_sync) - Complete method documentation
+- [Async Guide](async_guide) - Async/await usage

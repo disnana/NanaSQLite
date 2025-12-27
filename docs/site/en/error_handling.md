@@ -1,33 +1,33 @@
 # Error Handling Guide
 
-Since NanaSQLite v1.1.0, unified custom exception classes are provided to make error handling more predictable and easier to manage.
+NanaSQLite v1.1.0+ provides unified custom exception classes to make error handling more predictable and easier to manage.
 
 ## Table of Contents
 
 1. [Custom Exception Classes](#custom-exception-classes)
 2. [Exception Hierarchy](#exception-hierarchy)
-3. [General Error Scenarios](#general-error-scenarios)
-4. [Error Handling Best Practices](#error-handling-best-practices)
+3. [Common Error Scenarios](#common-error-scenarios)
+4. [Best Practices](#best-practices)
 5. [Debugging and Troubleshooting](#debugging-and-troubleshooting)
+6. [Async Error Handling](#async-error-handling)
+7. [FAQ](#faq)
 
 ---
 
 ## Custom Exception Classes
 
-NanaSQLite provides the following custom exception classes:
-
 ### Base Exception
 
 #### `NanaSQLiteError`
 
-The base class for all NanaSQLite-specific exceptions.
+Base class for all NanaSQLite-specific exceptions.
 
 ```python
 from nanasqlite import NanaSQLite, NanaSQLiteError
 
 try:
     db = NanaSQLite("mydata.db")
-    # Some operation
+    # Some operations
 except NanaSQLiteError as e:
     print(f"NanaSQLite error occurred: {e}")
 ```
@@ -36,9 +36,9 @@ except NanaSQLiteError as e:
 
 #### `NanaSQLiteValidationError`
 
-Occurs for invalid input values or parameters.
+Raised for invalid input values or parameters.
 
-**Cases**:
+**Common cases**:
 - Invalid table or column names
 - Invalid SQL identifiers
 - Parameter type errors
@@ -49,20 +49,19 @@ from nanasqlite import NanaSQLite, NanaSQLiteValidationError
 db = NanaSQLite("mydata.db")
 
 try:
-    # Invalid table name (starts with a number)
+    # Invalid table name (starts with number)
     db.create_table("123invalid", {"id": "INTEGER"})
 except NanaSQLiteValidationError as e:
     print(f"Validation error: {e}")
-    # Output: Invalid identifier '123invalid': must start with letter or underscore...
 ```
 
 #### `NanaSQLiteDatabaseError`
 
-Wraps errors occurring in SQLite/APSW database operations.
+Wraps SQLite/APSW database operation errors.
 
-**Cases**:
+**Common cases**:
 - Database locked
-- Disk full
+- Disk space exhausted
 - File permission errors
 - SQL syntax errors
 
@@ -85,10 +84,10 @@ except NanaSQLiteDatabaseError as e:
 
 Transaction-related errors.
 
-**Cases**:
-- Attempted nested transactions
-- Commit/Rollback outside of transaction
-- Connection closed during transaction
+**Common cases**:
+- Attempting nested transactions
+- Commit/rollback outside transaction
+- Closing connection during transaction
 
 ```python
 from nanasqlite import NanaSQLite, NanaSQLiteTransactionError
@@ -100,17 +99,16 @@ try:
     db.begin_transaction()  # Nesting not allowed
 except NanaSQLiteTransactionError as e:
     print(f"Transaction error: {e}")
-    # Output: Transaction already in progress...
 ```
 
 #### `NanaSQLiteConnectionError`
 
-Errors occurring during database connection creation or management.
+Connection creation or management errors.
 
-**Cases**:
-- Using a closed connection
+**Common cases**:
+- Using closed connection
 - Connection initialization failure
-- Using an orphaned child instance
+- Using orphaned child instance
 
 ```python
 from nanasqlite import NanaSQLite, NanaSQLiteConnectionError
@@ -122,24 +120,15 @@ try:
     db["key"] = "value"  # Using closed connection
 except NanaSQLiteConnectionError as e:
     print(f"Connection error: {e}")
-    # Output: Database connection is closed
 ```
 
 #### `NanaSQLiteLockError`
 
-Lock acquisition errors (for future feature expansion).
-
-**Cases**:
-- Lock acquisition timeout
-- Deadlock detection
+Reserved for future use regarding lock acquisition failures.
 
 #### `NanaSQLiteCacheError`
 
-Cache-related errors (for future feature expansion).
-
-**Cases**:
-- Cache size exceeded
-- Cache inconsistency
+Reserved for future use regarding cache inconsistencies.
 
 ---
 
@@ -147,7 +136,7 @@ Cache-related errors (for future feature expansion).
 
 ```
 Exception
-└── NanaSQLiteError (Base Class)
+└── NanaSQLiteError (base class)
     ├── NanaSQLiteValidationError
     ├── NanaSQLiteDatabaseError
     ├── NanaSQLiteTransactionError
@@ -156,7 +145,7 @@ Exception
     └── NanaSQLiteCacheError
 ```
 
-Since all NanaSQLite exceptions inherit from `NanaSQLiteError`, comprehensive error handling is possible:
+Since all NanaSQLite exceptions inherit from `NanaSQLiteError`, you can catch all of them:
 
 ```python
 from nanasqlite import NanaSQLite, NanaSQLiteError
@@ -168,17 +157,17 @@ try:
     db["key"] = "value"
     db.commit()
 except NanaSQLiteError as e:
-    # Catch all NanaSQLite exceptions
+    # Catches all NanaSQLite exceptions
     print(f"Error occurred: {e}")
 ```
 
 ---
 
-## General Error Scenarios
+## Common Error Scenarios
 
 ### 1. Database Locked
 
-**Problem**: Multiple processes or threads are trying to access the database simultaneously.
+**Problem**: Multiple processes or threads accessing the database simultaneously.
 
 ```python
 from nanasqlite import NanaSQLite, NanaSQLiteDatabaseError
@@ -193,7 +182,7 @@ except NanaSQLiteDatabaseError as e:
         # Retry logic
 ```
 
-**Solution**:
+**Solutions**:
 1. Enable WAL mode (enabled by default)
 2. Set `busy_timeout`
 3. Properly manage transactions
@@ -205,7 +194,7 @@ db.pragma("busy_timeout", 5000)  # Wait 5 seconds
 
 ### 2. Nested Transactions
 
-**Problem**: SQLite does not support nested transactions.
+**Problem**: SQLite doesn't support nested transactions.
 
 ```python
 from nanasqlite import NanaSQLite, NanaSQLiteTransactionError
@@ -229,12 +218,12 @@ if not db.in_transaction():
 # Or use context manager
 with db.transaction():
     db["key"] = "value"
-    # Automatically commit/rollback
+    # Auto commit/rollback
 ```
 
-### 3. Using Closed Connection
+### 3. Closed Connection
 
-**Problem**: Attempting operations after closing connection.
+**Problem**: Attempting operations after closing the connection.
 
 ```python
 from nanasqlite import NanaSQLite, NanaSQLiteConnectionError
@@ -256,13 +245,11 @@ with NanaSQLite("mydata.db") as db:
     # Automatically closed
 ```
 
-### 4. Orphaned Child Instance
+### 4. Orphaned Child Instances
 
-**Problem**: Trying to use a child instance after closing the parent instance.
+**Problem**: Trying to use a child instance (`.table()`) after the parent connection has been closed.
 
 ```python
-from nanasqlite import NanaSQLite, NanaSQLiteConnectionError
-
 main_db = NanaSQLite("app.db")
 sub_db = main_db.table("users")
 
@@ -271,50 +258,39 @@ main_db.close()  # Close parent
 try:
     sub_db["key"] = "value"  # Error!
 except NanaSQLiteConnectionError as e:
-    print(f"Parent connection is closed: {e}")
+    print(f"Parent connection closed: {e}")
 ```
 
-**Solution**: Manage parent and child with context manager
+**Solution**: Manage parent and child scope together.
 
 ```python
 with NanaSQLite("app.db") as main_db:
     sub_db = main_db.table("users")
     sub_db["key"] = "value"
-    # Child is valid until parent closes
 ```
 
-### 5. Invalid Identifier
+### 5. Invalid Identifiers
 
-**Problem**: Identifiers are strictly validated as a countermeasure against SQL injection.
+**Problem**: Identifiers are strictly validated to prevent SQL injection.
 
 ```python
-from nanasqlite import NanaSQLite, NanaSQLiteValidationError
-
-db = NanaSQLite("mydata.db")
-
 try:
-    # Identifier with spaces or special characters
-    db.create_table("my table", {"id": "INTEGER"})
+    db.create_table("my table", {"id": "INTEGER"}) # contains space
 except NanaSQLiteValidationError as e:
     print(f"Invalid identifier: {e}")
 ```
 
-**Solution**: Use valid identifiers
+**Solution**: Use valid alphanumeric characters and underscores.
 
 ```python
-# Valid: Alphanumeric and underscore only, cannot start with a number
 db.create_table("my_table", {"id": "INTEGER"})
-db.create_table("table123", {"id": "INTEGER"})
-db.create_table("_private_table", {"id": "INTEGER"})
 ```
 
 ---
 
-## Error Handling Best Practices
+## Best Practices
 
 ### 1. Catch Specific Exceptions
-
-Catch specific exceptions to handle errors appropriately.
 
 ```python
 from nanasqlite import (
@@ -330,7 +306,7 @@ try:
     db.create_table("users", {"id": "INTEGER", "name": "TEXT"})
     db.sql_insert("users", {"id": 1, "name": "Alice"})
 except NanaSQLiteValidationError as e:
-    print(f"Invalid input data: {e}")
+    print(f"Invalid input: {e}")
 except NanaSQLiteDatabaseError as e:
     print(f"Database error: {e}")
     if e.original_error:
@@ -341,51 +317,40 @@ except NanaSQLiteConnectionError as e:
 
 ### 2. Use Context Managers
 
-Use context managers for automatic resource management.
-
 ```python
 # ✅ Recommended
 with NanaSQLite("mydata.db") as db:
     db["key"] = "value"
-    # Automatically closed even if exception occurs
+    # Auto-closed even if exception occurs
 
-# ❌ Not Recommended
+# ❌ Not recommended
 db = NanaSQLite("mydata.db")
 try:
     db["key"] = "value"
 finally:
-    db.close()  # Needs manual close
+    db.close()  # Manual close required
 ```
 
-### 3. Maintain Consistency with Transactions
-
-Use transactions to execute multiple operations atomically.
+### 3. Use Transactions for Consistency
 
 ```python
 from nanasqlite import NanaSQLite, NanaSQLiteError
 
 db = NanaSQLite("mydata.db")
-db.create_table("accounts", {
-    "id": "INTEGER PRIMARY KEY",
-    "name": "TEXT",
-    "balance": "REAL"
-})
 
 try:
     with db.transaction():
-        # Withdraw from Account A
+        # Withdraw from account A
         db.sql_update("accounts", {"balance": 900.0}, "id = ?", (1,))
-        # Deposit to Account B
+        # Deposit to account B
         db.sql_update("accounts", {"balance": 1100.0}, "id = ?", (2,))
-        # Auto commit if both succeed
+        # Auto commit on success
 except NanaSQLiteError as e:
-    # Auto rollback if exception occurs
+    # Auto rollback on exception
     print(f"Transaction failed: {e}")
 ```
 
-### 4. Utilize Logging
-
-Use logging for error tracking and diagnosis.
+### 4. Use Logging
 
 ```python
 import logging
@@ -402,40 +367,13 @@ except NanaSQLiteError as e:
     logger.error(f"Error occurred: {e}", exc_info=True)
 ```
 
-### 5. Convey Appropriate Error Messages to Users
-
-Hide technical details and provide user-friendly messages.
-
-```python
-from nanasqlite import NanaSQLite, NanaSQLiteValidationError, NanaSQLiteDatabaseError
-
-def save_user_data(user_data):
-    try:
-        db = NanaSQLite("users.db")
-        db.create_table("users", {
-            "id": "INTEGER PRIMARY KEY",
-            "name": "TEXT",
-            "email": "TEXT UNIQUE"
-        })
-        db.sql_insert("users", user_data)
-        return {"success": True, "message": "User registered"}
-    except NanaSQLiteValidationError as e:
-        return {"success": False, "message": "Invalid input data"}
-    except NanaSQLiteDatabaseError as e:
-        if "unique" in str(e).lower():
-            return {"success": False, "message": "This email is already registered"}
-        return {"success": False, "message": "Database error occurred"}
-    except Exception as e:
-        return {"success": False, "message": "Unexpected error occurred"}
-```
-
 ---
 
 ## Debugging and Troubleshooting
 
-### Getting Error Information
+### Retrieving Error Information
 
-`NanaSQLiteDatabaseError` holds the original APSW error:
+`NanaSQLiteDatabaseError` holds the original APSW error.
 
 ```python
 from nanasqlite import NanaSQLite, NanaSQLiteDatabaseError
@@ -444,10 +382,10 @@ try:
     db = NanaSQLite("mydata.db")
     db.execute("INVALID SQL")
 except NanaSQLiteDatabaseError as e:
-    print(f"Error message: {e}")
+    print(f"Message: {e}")
     if e.original_error:
-        print(f"Original APSW error: {e.original_error}")
-        print(f"Error type: {type(e.original_error)}")
+        print(f"Original APSW Error: {e.original_error}")
+        print(f"Error Type: {type(e.original_error)}")
 ```
 
 ### Checking Transaction State
@@ -468,20 +406,20 @@ print(f"In transaction: {db.in_transaction()}")  # False
 
 ```python
 db = NanaSQLite("mydata.db")
-print(f"Connection owner: {db._is_connection_owner}")
-print(f"Connection closed: {db._is_closed}")
+print(f"Is owner: {db._is_connection_owner}")
+print(f"Is closed: {db._is_closed}")
 
 sub_db = db.table("users")
-print(f"Child connection owner: {sub_db._is_connection_owner}")  # False
+print(f"Child is owner: {sub_db._is_connection_owner}")  # False
 print(f"Parent closed: {sub_db._parent_closed}")  # False
 
 db.close()
-print(f"Child after parent closed: {sub_db._parent_closed}")  # True
+print(f"Child check parent closed: {sub_db._parent_closed}")  # True
 ```
 
 ### Enabling Debug Mode
 
-Display debug info using Python's `-v` flag or `PYTHONVERBOSE` environment variable:
+You can use Python's `-v` flag or `PYTHONVERBOSE` environment variable to see module loading and some internal details.
 
 ```bash
 # Windows
@@ -510,7 +448,7 @@ except NanaSQLiteError as e:
 
 ## Async Error Handling
 
-Currently, `AsyncNanaSQLite` uses the same exception classes:
+The async version (`AsyncNanaSQLite`) uses the same exception classes:
 
 ```python
 import asyncio
@@ -528,43 +466,43 @@ asyncio.run(main())
 
 ---
 
-## FAQ and Troubleshooting
+## FAQ
 
-### Q: I frequently get "database is locked" error
+### Q: I frequently encounter "database is locked" errors
 
-**Cause**: Multiple processes or threads are trying to write simultaneously, or a long-running transaction is holding the connection.
+**Cause**: Multiple processes or threads are attempting to write simultaneously, or a long-running transaction is holding the connection.
 
-**Solution**:
-1.  **Check WAL Mode**: Enabled by default, check if `db.pragma("journal_mode")` is `wal`.
-2.  **Set Busy Timeout**: Set `db.pragma("busy_timeout", 5000)` to wait for the lock to be released.
-3.  **Shorten Transactions**: `commit()` immediately after write operations finish, or keep `with db.transaction():` blocks minimal.
-4.  **Antivirus Exclusion**: (Windows) Exclude DB files from scanning.
+**Solutions**:
+1.  **Check WAL Mode**: It's enabled by default, but verify that `db.pragma("journal_mode")` returns `wal`.
+2.  **Set Busy Timeout**: Use `db.pragma("busy_timeout", 5000)` to wait for the lock to be released.
+3.  **Shorten Transactions**: Commit as soon as write operations are done, or keep `with db.transaction():` blocks as small as possible.
+4.  **Exclude from Antivirus**: (Windows) Exclude your database files from real-time scans.
 
 ### Q: Memory usage keeps increasing
 
-**Cause**: Loading large amounts of data causes cache accumulation.
+**Cause**: The in-memory cache is accumulating data as you read more keys.
 
-**Solution**:
-1.  **Refresh Cache**: Periodically run `db.refresh()` to release memory.
-2.  **Use Lazy Loading**: Avoid `bulk_load=True` and load only when needed.
-3.  **Recreate Instance**: For long-running processes, periodically closing and reopening the connection is also effective.
+**Solutions**:
+1.  **Refresh Cache**: Periodically call `db.refresh()` to clear the memory and free up space.
+2.  **Use Lazy Loading**: Avoid `bulk_load=True` and only load data as needed.
+3.  **Recreate Instance**: For long-running processes, occasionally closing and reopening the connection can help.
 
-### Q: Updates to a specific key are not reflected
+### Q: Updates to specific keys aren't being reflected
 
-**Cause**: The memory cache and DB content diverged due to another inconsistent connection (e.g., direct manipulation via `execute()`).
+**Cause**: Inconsistent connections (e.g., direct manipulation via `execute()`) are causing a mismatch between the memory cache and the database content.
 
-**Solution**:
-1.  **Use `get_fresh(key)`**: Ignore cache and retrieve the latest data from DB.
-2.  **`refresh()` after `execute()`**: After rewriting data by executing SQL directly, always call `db.refresh(key)`.
+**Solutions**:
+1.  **Use `get_fresh(key)`**: Bypass the cache to get the latest data directly from the DB.
+2.  **Call `refresh()` after `execute()`**: If you modify data via raw SQL, always call `db.refresh(key)` to synchronize the cache.
 
 ---
 
 ## Summary
 
-- **Unified Exceptions**: All NanaSQLite exceptions inherit from `NanaSQLiteError`
-- **Specific Error Handling**: Catch specific exceptions and handle appropriately
-- **Context Manager**: Automated resource management
+- **Unified exceptions**: All NanaSQLite exceptions inherit from `NanaSQLiteError`
+- **Specific error handling**: Catch specific exceptions for appropriate handling
+- **Context managers**: Automatic resource management
 - **Transactions**: Maintain data consistency
-- **Logging**: Error tracking and diagnosis
+- **Logging**: Track and diagnose errors
 
-Proper error handling allows you to build robust and reliable applications.
+Proper error handling enables you to build robust and reliable applications.

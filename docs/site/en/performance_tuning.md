@@ -1,88 +1,88 @@
 # Performance Tuning Guide
 
-NanaSQLite is designed to run fast with standard configuration, but choosing appropriate development patterns and settings can boost performance by several times to tens of times.
+NanaSQLite is designed to be fast out of the box, but you can significantly boost its performance by choosing the right development patterns and configurations.
 
 ---
 
-## 🚀 Core Optimization: Utilizing Batch Operations
+## 🚀 The Core Optimization: Batch Operations
 
-The most expensive operation in SQLite is "starting and committing a transaction".
+The most expensive operation in SQLite is beginning and committing a transaction.
 
-### ❌ Anti-Pattern: Individual Writes in Loop
-The following code is very slow because disk I/O occurs for each loop iteration.
+### ❌ Anti-Pattern: Individual Writes in a Loop
+The following code is very slow because every iteration triggers a disk I/O operation.
 ```python
-# 1000 disk commits occur (can take seconds)
+# Triggers 1000 disk commits (can take seconds or even tens of seconds)
 for i in range(1000):
     db[f"key_{i}"] = i
 ```
 
 ### ✅ Recommended Pattern: `batch_update` / `batch_get`
-Using NanaSQLite's batch operation methods processes everything in a single transaction, resulting in dramatic speed improvements.
+Using NanaSQLite's batch methods allows many operations to be processed in a single transaction, making it dramatically faster.
 ```python
-# Completed in a single disk commit (finished in milliseconds)
+# Completes in a single disk commit (finished in milliseconds)
 data = {f"key_{i}": i for i in range(1000)}
 db.batch_update(data)
 ```
 
-**Benchmark Metric**: For large volume writes, expect a speedup of **10x to 100x** or more compared to individual updates.
+**Benchmark Indicator**: You can expect speedups of **10x to 100x or more** compared to individual updates for bulk operations.
 
 ---
 
-## ⚡ optimizing Database Settings
+## ⚡ Database Configuration Optimizations
 
 ### WAL (Write-Ahead Logging) Mode
-NanaSQLite enables **WAL mode** by default when `optimize=True` is set.
-- **Benefit**: Reads are not blocked during writes, improving concurrency.
-- **Note**: WAL mode may not work or be unstable on network drives (NFS/SMB).
+By default, NanaSQLite enables **WAL mode** when `optimize=True`.
+- **Pros**: Readers do not block writers, and writers do not block readers, greatly improving concurrency.
+- **Caveat**: WAL mode may be unstable on network drives (NFS/SMB).
 
-### Memory Mapped I/O (mmap)
-To improve read performance, SQLite's `mmap_size` is utilized. It defaults to 256MB.
+### Memory-Mapped I/O (mmap)
+NanaSQLite utilizes SQLite's `mmap_size` to improve read performance. It is set to 256MB by default.
 
 ---
 
-## 🧠 Cache Strategy
+## 🧠 Caching Strategy
 
-NanaSQLite is equipped with a "Lazy Loading" memory cache.
+NanaSQLite features a "Lazy Loading" in-memory cache.
 
-1.  **bulk_load=True (At Logic)**:
+1.  **bulk_load=True (at initialization)**:
     -   Loads all data into memory at startup.
-    -   **Use Case**: Data volume is around tens of thousands, and fast random access is needed immediately after startup.
-2.  **Default (Lazy Load)**:
-    -   Keeps only accessed data in memory.
-    -   **Use Case**: Data volume is huge and you want to suppress memory usage.
+    -   **Use Case**: When you have tens of thousands of items and need high-speed random access immediately.
+2.  **Default (Lazy Loading)**:
+    -   Only stores accessed data in memory.
+    -   **Use Case**: When the dataset is huge, and you want to conserve memory.
 
 > [!TIP]
-> If you want to refresh the cache, use `db.refresh()` or `db.get_fresh(key)`.
+> If you need to refresh the cache, use `db.refresh()` or `db.get_fresh(key)`.
 
 ---
 
-## 🔍 Faster Search with Indexing
+## 🔍 Fast Search via Indexing
 
-Indexing is essential when searching for data other than Key-Value pairs (such as specific fields in JSON) using `query()` or `query_with_pagination()`.
+When using `query()` or `query_with_pagination()` to search for data other than the primary key (e.g., searching within JSON fields), indexing is essential.
 
 ```python
-# Create an index on the search target JSON field
+# Create an index on a JSON field being searched
 db.create_index("idx_user_age", "data", ["age"])
 ```
 
-**Indications for Index Creation**:
-- When frequently searching with a `WHERE` clause on data exceeding several thousand records.
-- When search speed is prioritized over data insertion speed.
+**Indexing Guidelines**:
+- When frequently performing `WHERE` clause searches on datasets larger than a few thousand items.
+- When search speed is prioritized over insertion speed.
 
 ---
 
-## 💻 OS / Environment Specific Notes
+## 💻 OS and Environment Notes
 
-### Windows Environment
-- **Antivirus Software**: If virus scanning runs during SQLite file writing, `database is locked` is likely to occur. It is recommended to exclude DB files (.db, .db-wal, .db-shm) from scanning.
+### Windows
+- **Antivirus Software**: Real-time virus scanning during SQLite writes can lead to `database is locked` errors. We recommend excluding the database files (.db, .db-wal, .db-shm) from active scans.
 
 ### SSD vs HDD
-- SQLite is sensitive to disk "seeks". On HDD environments, extreme settings like `synchronous=OFF` (risk of data loss) might be necessary, but operation on **SSD** is recommended whenever possible.
+- SQLite is sensitive to disk seeking. While HDD environments might require extreme settings like `synchronous=OFF` (risking data loss), we strongly recommend using **SSDs** for production workloads.
 
 ---
 
 ## Checklist
 - [ ] Are you using `batch_update` for bulk processing?
-- [ ] Are you applying `create_index` for frequent searches?
-- [ ] Are you using `optimize=True` (default)?
-- [ ] Are you running on an SSD environment?
+- [ ] Have you applied `create_index` for frequent searches?
+- [ ] Are you using the default `optimize=True`?
+- [ ] Is the database running on an SSD?
