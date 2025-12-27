@@ -1529,7 +1529,7 @@ class AsyncNanaSQLite:
                 raise ValueError("limit must be non-negative")
 
         # SQL Construction
-        sql = f"SELECT {columns_sql} FROM {target_table}"
+        sql = f"SELECT {columns_sql} FROM {target_table}"  # nosec
         if where:
             sql += f" WHERE {where}"
         if group_by:

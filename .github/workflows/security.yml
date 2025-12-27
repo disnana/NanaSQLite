@@ -215,22 +215,19 @@ jobs:
         echo "## 🔍 Detailed Findings" >> security-report.md
         
         # Grype Findings
-        if [ -f artifacts/grype-results/results.json ]; then
+        if [ -f artifacts/grype-results/results.json ] && jq -e '.matches | length > 0' artifacts/grype-results/results.json > /dev/null; then
             echo "### 📦 Grype Scan Results" >> security-report.md
             # JSON解析してMarkdownに変換 (簡易的なjq処理)
             echo "\`\`\`json" >> security-report.md
-            jq -r '.matches[] | "Title: " + .vulnerability.id + "\nPackage: " + .artifact.name + " (" + .artifact.version + ")\nSeverity: " + .vulnerability.severity + "\nLink: " + .vulnerability.dataSource + "\n---"' artifacts/grype-results/results.json | head -n 50 >> security-report.md || echo "No matches found or parse error" >> security-report.md
+            jq -r '.matches[] | "Title: " + .vulnerability.id + "\nPackage: " + .artifact.name + " (" + .artifact.version + ")\nSeverity: " + .vulnerability.severity + "\nLink: " + .vulnerability.dataSource + "\n---"' artifacts/grype-results/results.json | head -n 50 >> security-report.md || echo "Parse error" >> security-report.md
             echo "\`\`\`" >> security-report.md
-        else
-            echo "### 📦 Grype Scan Results" >> security-report.md
-            echo "No report found." >> security-report.md
         fi
 
         # Bandit Findings
-        if [ -f artifacts/bandit-report/bandit-report.json ]; then
+        if [ -f artifacts/bandit-report/bandit-report.json ] && jq -e '.results | length > 0' artifacts/bandit-report/bandit-report.json > /dev/null; then
             echo "### 🐍 Bandit Scan Results" >> security-report.md
             echo "\`\`\`json" >> security-report.md
-            jq -r '.results[] | "Issue: " + .issue_text + "\nSeverity: " + .issue_severity + "\nFile: " + .filename + ":" + (.line_number|tostring) + "\n---"' artifacts/bandit-report/bandit-report.json | head -n 50 >> security-report.md || echo "No issues found" >> security-report.md
+            jq -r '.results[] | "Issue: " + .issue_text + "\nSeverity: " + .issue_severity + "\nFile: " + .filename + ":" + (.line_number|tostring) + "\n---"' artifacts/bandit-report/bandit-report.json | head -n 50 >> security-report.md || echo "Parse error" >> security-report.md
             echo "\`\`\`" >> security-report.md
         fi
 
