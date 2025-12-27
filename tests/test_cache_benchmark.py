@@ -3,9 +3,13 @@ Benchmark tests for cache strategies (v1.3.0).
 
 Run with: pytest tests/test_cache_benchmark.py -v --benchmark-only
 """
+import importlib.util
 import pytest
 
 from nanasqlite import CacheType, NanaSQLite
+
+# pytest-benchmarkがインストールされているか確認
+pytest_benchmark_available = importlib.util.find_spec("pytest_benchmark") is not None
 
 
 @pytest.fixture
@@ -22,6 +26,7 @@ def db_lru(tmp_path):
         yield db
 
 
+@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
 class TestCacheBenchmarks:
     """Benchmark cache performance."""
 
