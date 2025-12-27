@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "NanaSQLite"
   text: "高性能キャッシュ搭載 SQLiteベース・ディクトラッパー"
-  tagline: "高速、安全、スレッドセーフなPythonライブラリ。SQLiteを辞書感覚で。"
+  tagline: "SQLiteを辞書感覚で。<br>高速、安全、スレッドセーフなPythonライブラリ。"
   image:
     src: /logo.svg
     alt: NanaSQLite Logo
