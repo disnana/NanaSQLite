@@ -145,3 +145,14 @@ jobs:
         echo "| Bandit | ${{ needs.bandit.result == 'success' && '✅ Passed' || '⚠️ Check logs' }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Trivy | ${{ needs.trivy.result == 'success' && '✅ Passed' || '⚠️ Check logs' }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Bun Audit | ${{ needs.bun-audit.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+
+    - name: Verify all checks passed
+      if: always()
+      run: |
+        if [[ "${{ needs.codeql.result }}" != "success" ]] || \
+           [[ "${{ needs.safety.result }}" != "success" ]] || \
+           [[ "${{ needs.trivy.result }}" != "success" ]] || \
+           [[ "${{ needs.bun-audit.result }}" != "success" ]]; then
+          echo "One or more security checks failed. Please review the summary above."
+          exit 1
+        fi
