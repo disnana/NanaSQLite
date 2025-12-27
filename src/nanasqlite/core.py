@@ -1979,7 +1979,7 @@ class NanaSQLite(MutableMapping):
         新しいインスタンスを作成しますが、SQLite接続とロックは共有します。
         これにより、複数のテーブルインスタンスが同じ接続を使用して
         スレッドセーフに動作します。
-        
+
         Args:
             table_name: テーブル名
             cache_strategy: このテーブル用のキャッシュ戦略 (デフォルト: 親と同じ)

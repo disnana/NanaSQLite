@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 # Try to import C-optimized LRU (optional dependency)
 try:
-    from lru import LRU as FastLRU
+    from lru import LRU as FastLRU  # noqa: N811
     HAS_FAST_LRU = True
 except ImportError:
     HAS_FAST_LRU = False

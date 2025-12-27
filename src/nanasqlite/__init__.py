@@ -22,8 +22,8 @@ Async Example:
 """
 
 from .async_core import AsyncNanaSQLite
-from .core import NanaSQLite
 from .cache import CacheType
+from .core import NanaSQLite
 from .exceptions import (
     NanaSQLiteCacheError,
     NanaSQLiteClosedError,

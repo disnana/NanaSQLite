@@ -34,8 +34,8 @@ from typing import Any
 
 import apsw
 
-from .core import IDENTIFIER_PATTERN, NanaSQLite
 from .cache import CacheType
+from .core import IDENTIFIER_PATTERN, NanaSQLite
 from .exceptions import NanaSQLiteClosedError, NanaSQLiteDatabaseError
 
 
