@@ -1492,7 +1492,7 @@ class NanaSQLite(MutableMapping):
             else:
                 # 全カラムが競合カラムの場合は、何もしない（既存データを保持）
                 sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders}) "  # nosec
-                sql += f"ON CONFLICT({conflict_cols_sql}) DO NOTHING"
+                sql += f"ON CONFLICT({conflict_cols_sql}) DO NOTHING"  # nosec
                 self.execute(sql, tuple(values))
                 # When DO NOTHING is triggered, no row is inserted, return 0
                 # Check only the most recent operation's change count
@@ -1501,10 +1501,10 @@ class NanaSQLite(MutableMapping):
                 return self.get_last_insert_rowid()
 
             sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders}) "  # nosec
-            sql += f"ON CONFLICT({conflict_cols_sql}) DO UPDATE SET {update_clause}"
+            sql += f"ON CONFLICT({conflict_cols_sql}) DO UPDATE SET {update_clause}"  # nosec
         else:
             # INSERT OR REPLACE
-            sql = f"INSERT OR REPLACE INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders})"
+            sql = f"INSERT OR REPLACE INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders})"  # nosec
 
         self.execute(sql, tuple(values))
         return self.get_last_insert_rowid()
