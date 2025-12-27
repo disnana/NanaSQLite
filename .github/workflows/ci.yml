@@ -203,9 +203,9 @@ jobs:
         echo ""
         echo "📝 Job statuses:"
         echo "📝 should-run → run_ci=${{ needs.should-run.outputs.run_ci }}"
-        echo "📝 lint → ${{ needs.lint.result == 'success' && '✓ success' || '✗ ' }}${{ needs.lint.result }} [required]"
-        echo "📝 type → ${{ needs.type.result == 'success' && '✓ success' || '✗ ' }}${{ needs.type.result }} [required]"
-        echo "📝 test → ${{ needs.test.result == 'success' && '✓ success' || '✗ ' }}${{ needs.test.result }} [required]"
+        echo "📝 lint → ${{ needs.lint.result == 'success' && '✓ success' || format('✗ {0}', needs.lint.result) }} [required]"
+        echo "📝 type → ${{ needs.type.result == 'success' && '✓ success' || format('✗ {0}', needs.type.result) }} [required]"
+        echo "📝 test → ${{ needs.test.result == 'success' && '✓ success' || format('✗ {0}', needs.test.result) }} [required]"
         echo ""
         
         # If CI was skipped, all jobs will be 'skipped' - that's OK

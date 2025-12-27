@@ -152,12 +152,12 @@ jobs:
       run: |
         echo ""
         echo "📝 Job statuses:"
-        echo "📝 codeql → ${{ needs.codeql.result == 'success' && '✓ success' || '✗ ' }}${{ needs.codeql.result }} [required]"
-        echo "📝 safety → ${{ needs.safety.result == 'success' && '✓ success' || '✗ ' }}${{ needs.safety.result }} [required]"
-        echo "📝 bandit → ${{ needs.bandit.result == 'success' && '✓ success' || '✗ ' }}${{ needs.bandit.result }} [required]"
-        echo "📝 trivy → ${{ needs.trivy.result == 'success' && '✓ success' || '✗ ' }}${{ needs.trivy.result }} [required]"
-        echo "📝 bun-audit → ${{ needs.bun-audit.result == 'success' && '✓ success' || '✗ ' }}${{ needs.bun-audit.result }} [required]"
-        echo "📝 grype → ${{ needs.grype.result == 'success' && '✓ success' || '✗ ' }}${{ needs.grype.result }} [required]"
+        echo "📝 codeql → ${{ needs.codeql.result == 'success' && '✓ success' || format('✗ {0}', needs.codeql.result) }} [required]"
+        echo "📝 safety → ${{ needs.safety.result == 'success' && '✓ success' || format('✗ {0}', needs.safety.result) }} [required]"
+        echo "📝 bandit → ${{ needs.bandit.result == 'success' && '✓ success' || format('✗ {0}', needs.bandit.result) }} [required]"
+        echo "📝 trivy → ${{ needs.trivy.result == 'success' && '✓ success' || format('✗ {0}', needs.trivy.result) }} [required]"
+        echo "📝 bun-audit → ${{ needs.bun-audit.result == 'success' && '✓ success' || format('✗ {0}', needs.bun-audit.result) }} [required]"
+        echo "📝 grype → ${{ needs.grype.result == 'success' && '✓ success' || format('✗ {0}', needs.grype.result) }} [required]"
         echo ""
         
         # Check for failures
