@@ -378,20 +378,18 @@ class TestCacheBehavior:
 
     def test_refresh_single_key(self, db_path):
         """単一キーのリフレッシュ"""
-        db = NanaSQLite(db_path)
-        db["key1"] = "value1"
+        with NanaSQLite(db_path) as db:
+            db["key1"] = "value1"
 
-        # キャッシュ済み
-        assert db.is_cached("key1")
+            # キャッシュ済み
+            assert db.is_cached("key1")
 
-        # リフレッシュ
-        db.refresh("key1")
+            # リフレッシュ
+            db.refresh("key1")
 
-        # 再度アクセスでキャッシュ
-        _ = db["key1"]
-        assert db.is_cached("key1")
-
-        db.close()
+            # 再度アクセスでキャッシュ
+            _ = db["key1"]
+            assert db.is_cached("key1")
 
     def test_refresh_all(self, db_path):
         """全キャッシュのリフレッシュ"""

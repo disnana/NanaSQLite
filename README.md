@@ -74,6 +74,26 @@ with NanaSQLite("mydata.db") as db:
 - [Benchmark Trends 📊](https://nanasqlite.disnana.com/dev/bench/)
 - [Migration Guide (v1.1.x to v1.2.0)](MIGRATION_GUIDE.md)
 
+### ✨ v1.3.0 New Features
+
+**Flexible Cache Strategies:**
+
+```python
+from nanasqlite import NanaSQLite, CacheType
+
+# Default: Unbounded cache (same as before)
+db = NanaSQLite("app.db")
+
+# LRU cache: Keep only latest N items (memory-efficient)
+db = NanaSQLite("app.db", cache_strategy=CacheType.LRU, cache_size=1000)
+
+# Per-table settings
+logs = db.table("logs", cache_strategy=CacheType.LRU, cache_size=100)
+
+# Speed boost: Install optional C extension
+# pip install nanasqlite[speed]
+```
+
 ### ✨ v1.2.0 New Features
 
 **Security Enhancements & Strict Connection Management:**
@@ -219,6 +239,26 @@ with NanaSQLite("mydata.db") as db:
 - [APIリファレンス (非同期)](https://nanasqlite.disnana.com/api_async)
 - [ベンチマーク履歴 📊](https://nanasqlite.disnana.com/dev/bench/)
 - [移行ガイド (v1.1.x から v1.2.0)](MIGRATION_GUIDE.md)
+
+### ✨ v1.3.0 新機能
+
+**柔軟なキャッシュ戦略:**
+
+```python
+from nanasqlite import NanaSQLite, CacheType
+
+# デフォルト: 無制限キャッシュ（従来動作）
+db = NanaSQLite("app.db")
+
+# LRUキャッシュ: 最新N件のみ保持（省メモリ）
+db = NanaSQLite("app.db", cache_strategy=CacheType.LRU, cache_size=1000)
+
+# テーブル別設定
+logs = db.table("logs", cache_strategy=CacheType.LRU, cache_size=100)
+
+# 高速化: オプションのC拡張をインストール
+# pip install nanasqlite[speed]
+```
 
 ### ✨ v1.2.0 新機能
 

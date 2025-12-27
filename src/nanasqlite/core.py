@@ -19,6 +19,7 @@ from typing import Any, Literal
 
 import apsw
 
+from .cache import CacheStrategy, CacheType, create_cache
 from .exceptions import (
     NanaSQLiteClosedError,
     NanaSQLiteConnectionError,
@@ -57,6 +58,8 @@ class NanaSQLite(MutableMapping):
                  allowed_sql_functions: list[str] | None = None,
                  forbidden_sql_functions: list[str] | None = None,
                  max_clause_length: int | None = 1000,
+                 cache_strategy: CacheType | Literal['unbounded', 'lru'] = CacheType.UNBOUNDED,
+                 cache_size: int | None = None,
                  _shared_connection: apsw.Connection | None = None,
                  _shared_lock: threading.RLock | None = None):
         """
@@ -75,9 +78,12 @@ class NanaSQLite(MutableMapping):
         """
         self._db_path: str = db_path
         self._table: str = table
-        self._data: dict[str, Any] = {}  # 内部dict（メモリキャッシュ）
-        self._cached_keys: set[str] = set()  # キャッシュ済みキーの追跡
+        self._cache: CacheStrategy = create_cache(cache_strategy, cache_size)
         self._all_loaded: bool = False  # 全データ読み込み済みフラグ
+
+        # Public attribute but technically internal usage for compatibility if needed.
+        # Deprecated: _data and _cached_keys are no longer directly available.
+        # Use _cache.get_data() if absolutely necessary for debugging.
 
         # セキュリティ設定
         self.strict_sql_validation = strict_sql_validation
@@ -439,16 +445,21 @@ class NanaSQLite(MutableMapping):
         キーがキャッシュにない場合、DBから読み込む（遅延ロード）
         Returns: キーが存在するかどうか
         """
-        if key in self._cached_keys:
-            return key in self._data
+        if self._cache.is_cached(key):
+            return self._cache.contains(key)
 
         # DBから読み込み
         value = self._read_from_db(key)
-        self._cached_keys.add(key)
 
         if value is not None:
-            self._data[key] = value
+            self._cache.set(key, value)
             return True
+
+        # Value is None (not in DB)
+        # We mark it as "known missing" to avoid repeated DB hits
+        # Note: Standard LRU might evict this "missing" knowledge if implemented.
+        # UnboundedCache handles this via a separate set or None value.
+        self._cache.mark_cached(key)
         return False
 
     # ==================== Dict Interface ====================
@@ -456,15 +467,14 @@ class NanaSQLite(MutableMapping):
     def __getitem__(self, key: str) -> Any:
         """dict[key] - 遅延ロード後、メモリから取得"""
         if self._ensure_cached(key):
-            return self._data[key]
+            return self._cache.get(key)
         raise KeyError(key)
 
     def __setitem__(self, key: str, value: Any) -> None:
         """dict[key] = value - 即時書き込み + メモリ更新"""
         self._check_connection()
         # メモリ更新
-        self._data[key] = value
-        self._cached_keys.add(key)
+        self._cache.set(key, value)
         # 即時書き込み
         self._write_to_db(key, value)
 
@@ -473,8 +483,8 @@ class NanaSQLite(MutableMapping):
         if not self._ensure_cached(key):
             raise KeyError(key)
         # メモリから削除
-        del self._data[key]
-        self._cached_keys.add(key)  # 削除済みとしてマーク
+        self._cache.delete(key)
+        # DBから削除
         # DBから削除
         self._delete_from_db(key)
 
@@ -485,8 +495,8 @@ class NanaSQLite(MutableMapping):
         キャッシュにある場合はO(1)、ない場合は軽量なEXISTSクエリを使用。
         存在確認のみの場合、value全体を読み込まないため高速。
         """
-        if key in self._cached_keys:
-            return key in self._data
+        if key in self._cache.get_data() or self._cache.is_cached(key):
+            return self._cache.contains(key)
 
         # 軽量な存在確認クエリ（valueを読み込まない）
         with self._lock:
@@ -500,7 +510,7 @@ class NanaSQLite(MutableMapping):
             self._ensure_cached(key)
         else:
             # 存在しないこともキャッシュ（次回の高速化のため）
-            self._cached_keys.add(key)
+            self._cache.mark_cached(key)
 
         return exists
 
@@ -517,7 +527,7 @@ class NanaSQLite(MutableMapping):
         return iter(self.keys())
 
     def __repr__(self) -> str:
-        return f"NanaSQLite({self._db_path!r}, table={self._table!r}, cached={len(self._cached_keys)})"
+        return f"NanaSQLite({self._db_path!r}, table={self._table!r}, cached={self._cache.size})"
 
     # ==================== Dict Methods ====================
 
@@ -529,17 +539,17 @@ class NanaSQLite(MutableMapping):
         """全値を取得（一括ロードしてからメモリから）"""
         self._check_connection()
         self.load_all()
-        return list(self._data.values())
+        return list(self._cache.get_data().values())
 
     def items(self) -> list:
         """全アイテムを取得（一括ロードしてからメモリから）"""
         self.load_all()
-        return list(self._data.items())
+        return list(self._cache.get_data().items())
 
     def get(self, key: str, default: Any = None) -> Any:
         """dict.get(key, default)"""
         if self._ensure_cached(key):
-            return self._data[key]
+            return self._cache.get(key)
         return default
 
     def get_fresh(self, key: str, default: Any = None) -> Any:
@@ -568,13 +578,12 @@ class NanaSQLite(MutableMapping):
 
         if value is not None:
             # キャッシュを更新
-            self._data[key] = value
-            self._cached_keys.add(key)
+            self._cache.set(key, value)
             return value
         else:
             # 存在しない場合はキャッシュからも削除
-            self._data.pop(key, None)
-            self._cached_keys.add(key)  # 「存在しない」ことをキャッシュ
+            self._cache.delete(key)
+            self._cache.mark_cached(key)  # 「存在しない」ことをキャッシュ
             return default
 
     def batch_get(self, keys: list[str]) -> dict[str, Any]:
@@ -602,9 +611,10 @@ class NanaSQLite(MutableMapping):
 
         # 1. キャッシュから取得可能なものをチェック
         for key in keys:
-            if key in self._cached_keys:
-                if key in self._data:
-                    results[key] = self._data[key]
+            if self._cache.is_cached(key):
+                val = self._cache.get(key)
+                if val is not None:
+                    results[key] = val
             else:
                 missing_keys.append(key)
 
@@ -619,16 +629,14 @@ class NanaSQLite(MutableMapping):
             cursor = self._connection.execute(sql, tuple(missing_keys))
             for key, val_str in cursor:
                 value = self._deserialize(val_str)
-                self._data[key] = value
-                self._cached_keys.add(key)
+                self._cache.set(key, value)
                 results[key] = value
 
         # 3. DBにも存在しなかったキーを「存在しない」としてキャッシュ
-        # keys に含まれるが results に含まれない missing_keys が対象
         found_keys = set(results.keys())
         for key in missing_keys:
             if key not in found_keys:
-                self._cached_keys.add(key)
+                self._cache.mark_cached(key)
 
         return results
 
@@ -636,7 +644,8 @@ class NanaSQLite(MutableMapping):
         """dict.pop(key[, default])"""
         self._check_connection()
         if self._ensure_cached(key):
-            value = self._data.pop(key)
+            value = self._cache.get(key)
+            self._cache.delete(key)
             self._delete_from_db(key)
             return value
         if args:
@@ -653,8 +662,7 @@ class NanaSQLite(MutableMapping):
 
     def clear(self) -> None:
         """dict.clear() - 全削除"""
-        self._data.clear()
-        self._cached_keys.clear()
+        self._cache.clear()
         self._all_loaded = False
         with self._lock:
             self._connection.execute(f"DELETE FROM {self._table}")  # nosec
@@ -662,7 +670,7 @@ class NanaSQLite(MutableMapping):
     def setdefault(self, key: str, default: Any = None) -> Any:
         """dict.setdefault(key, default)"""
         if self._ensure_cached(key):
-            return self._data[key]
+            return self._cache.get(key)
         self[key] = default
         return default
 
@@ -680,10 +688,18 @@ class NanaSQLite(MutableMapping):
             rows = list(cursor)  # ロック内でフェッチ
 
         for key, value in rows:
-            self._data[key] = self._deserialize(value)
-            self._cached_keys.add(key)
+            self._cache.set(key, self._deserialize(value))
 
         self._all_loaded = True
+
+    def clear_cache(self) -> None:
+        """
+        キャッシュをクリア
+
+        メモリ上のキャッシュを全削除する。DBのデータは削除されない。
+        """
+        self._cache.clear()
+        self._all_loaded = False
 
     def refresh(self, key: str = None) -> None:
         """
@@ -693,18 +709,15 @@ class NanaSQLite(MutableMapping):
             key: 特定のキーのみ更新。Noneの場合は全キャッシュをクリアして再読み込み
         """
         if key is not None:
-            self._cached_keys.discard(key)
-            if key in self._data:
-                del self._data[key]
+            self._cache.invalidate(key)
             self._ensure_cached(key)
         else:
-            self._data.clear()
-            self._cached_keys.clear()
+            self._cache.clear()
             self._all_loaded = False
 
     def is_cached(self, key: str) -> bool:
         """キーがキャッシュ済みかどうか"""
-        return key in self._cached_keys
+        return self._cache.is_cached(key)
 
     def batch_update(self, mapping: dict[str, Any]) -> None:
         """
@@ -736,8 +749,7 @@ class NanaSQLite(MutableMapping):
             )
             # キャッシュ更新
             for key, value in mapping.items():
-                self._data[key] = value
-                self._cached_keys.add(key)
+                self._cache.set(key, value)
             cursor.execute("COMMIT")
         except Exception:
             cursor.execute("ROLLBACK")
@@ -770,8 +782,7 @@ class NanaSQLite(MutableMapping):
             )
             # キャッシュ更新
             for key in keys:
-                self._data.pop(key, None)
-                self._cached_keys.discard(key)
+                self._cache.delete(key)
             cursor.execute("COMMIT")
         except Exception:
             cursor.execute("ROLLBACK")
@@ -781,7 +792,7 @@ class NanaSQLite(MutableMapping):
         """全データをPython dictとして取得"""
         self._check_connection()
         self.load_all()
-        return dict(self._data)
+        return dict(self._cache.get_data())
 
     def copy(self) -> dict:
         """浅いコピーを作成（標準dictを返す）"""
@@ -1968,13 +1979,20 @@ class NanaSQLite(MutableMapping):
         """
         return _TransactionContext(self)
 
-    def table(self, table_name: str):
+    def table(self, table_name: str,
+              cache_strategy: CacheType | Literal['unbounded', 'lru'] | None = None,
+              cache_size: int | None = None):
         """
         サブテーブル用のNanaSQLiteインスタンスを取得
 
         新しいインスタンスを作成しますが、SQLite接続とロックは共有します。
         これにより、複数のテーブルインスタンスが同じ接続を使用して
         スレッドセーフに動作します。
+
+        Args:
+            table_name: テーブル名
+            cache_strategy: このテーブル用のキャッシュ戦略 (デフォルト: 親と同じ)
+            cache_size: このテーブル用のキャッシュサイズ (デフォルト: 親と同じ)
 
         ⚠️ 重要な注意事項:
         - 同じテーブルに対して複数のインスタンスを作成しないでください
@@ -2004,9 +2022,15 @@ class NanaSQLite(MutableMapping):
         """
         self._check_connection()
 
+        # 指定がなければデフォルト（UNBOUNDED）
+        strat = cache_strategy if cache_strategy is not None else CacheType.UNBOUNDED
+        size = cache_size
+
         child = NanaSQLite(
             self._db_path,
             table=table_name,
+            cache_strategy=strat,
+            cache_size=size,
             _shared_connection=self._connection,
             _shared_lock=self._lock
         )

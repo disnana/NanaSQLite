@@ -6,6 +6,18 @@
 
 ## 日本語
 
+### [1.3.0dev0] - 2025-12-27
+
+#### 新機能: 柔軟なキャッシュ戦略
+- **`CacheType` 列挙型の追加**: `UNBOUNDED` (無制限、従来動作) と `LRU` (追い出し型) を選択可能に。
+- **LRUキャッシュの実装**: `cache_strategy=CacheType.LRU, cache_size=N` でメモリ使用量を制限可能。
+- **テーブル別設定**: `db.table("logs", cache_strategy=CacheType.LRU, cache_size=100)` で個別設定。
+- **高速化オプション**: `pip install nanasqlite[speed]` で C拡張 `lru-dict` を導入し、最大2倍の速度向上。
+- **自動フォールバック**: `lru-dict` 未インストール時は標準ライブラリ `OrderedDict` を使用。
+
+#### 新規テスト
+- `tests/test_cache.py`: キャッシュ戦略の包括的テストスイート（追い出し、永続化、テーブル別設定）。
+
 ### [1.2.2b1] - 2025-12-27
 
 #### ドキュメントとブランドの刷新
