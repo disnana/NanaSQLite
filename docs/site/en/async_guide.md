@@ -30,7 +30,8 @@ user = db["user"]  # Blocks event loop!
 
 # ✅ Async version (non-blocking with thread pool)
 from nanasqlite import AsyncNanaSQLite
-async with AsyncNanaSQLite("app.db", max_workers=10) as db:
+# Use max_workers for write/heavy concurrency, read_pool_size for parallel reads
+async with AsyncNanaSQLite("app.db", max_workers=10, read_pool_size=4) as db:
     user = await db.aget("user")  # Does not block event loop
 ```
 
@@ -44,8 +45,9 @@ from nanasqlite import AsyncNanaSQLite
 
 async def main():
     # Use context manager (recommended)
-    # max_workers: adjust based on concurrency needs
-    async with AsyncNanaSQLite("mydata.db", max_workers=5) as db:
+    # max_workers: threads for general tasks
+    # read_pool_size: dedicated connections for parallel reads (v1.2.0+)
+    async with AsyncNanaSQLite("mydata.db", max_workers=5, read_pool_size=4) as db:
         # Database operations
         await db.aset("key", "value")
         value = await db.aget("key")
@@ -215,7 +217,31 @@ async with AsyncNanaSQLite("mydata.db", max_workers=20) as db:
 - **Production (medium)**: max_workers=10-15
 - **Production (large)**: max_workers=20-50
 
-### 2. Use Batch Operations
+### 2. Read-Only Connection Pool (v1.2.0+)
+
+By default, all operations share a single SQLite connection. If you have many concurrent reads, these reads might wait for each other. 
+
+By setting `read_pool_size`, you can create a pool of read-only connections that allow true parallel reads:
+
+```python
+# Enable parallel reads with 4 dedicated connections
+db = AsyncNanaSQLite("app.db", read_pool_size=4)
+
+# These reads will now run in parallel across multiple connections
+results = await asyncio.gather(
+    db.aget("key1"),
+    db.aget("key2"),
+    db.aget("key3"),
+    db.aget("key4")
+)
+```
+
+**When to use:**
+- High read traffic (e.g., public API endpoints)
+- Complex SQL queries that take time
+- Using WAL mode (enabled by default) where readers don't block writers
+
+### 3. Use Batch Operations
 
 ```python
 # ❌ Slow (1000 DB operations)

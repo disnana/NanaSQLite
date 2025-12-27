@@ -106,20 +106,27 @@ except NanaSQLiteTransactionError as e:
 Connection creation or management errors.
 
 **Common cases**:
-- Using closed connection
 - Connection initialization failure
 - Using orphaned child instance
 
+#### `NanaSQLiteClosedError` *(v1.2.0+)*
+
+Raised when attempting an operation on a closed instance or a child instance whose parent has been closed. It is a subclass of `NanaSQLiteConnectionError`.
+
+**Common cases**:
+- Operations after calling `close()`
+- Operations on a `table()` instance after its parent has been closed
+
 ```python
-from nanasqlite import NanaSQLite, NanaSQLiteConnectionError
+from nanasqlite import NanaSQLite, NanaSQLiteClosedError
 
 db = NanaSQLite("mydata.db")
 db.close()
 
 try:
-    db["key"] = "value"  # Using closed connection
-except NanaSQLiteConnectionError as e:
-    print(f"Connection error: {e}")
+    db["key"] = "value"
+except NanaSQLiteClosedError as e:
+    print(f"Closed error: {e}")
 ```
 
 #### `NanaSQLiteLockError`
@@ -141,6 +148,7 @@ Exception
     ├── NanaSQLiteDatabaseError
     ├── NanaSQLiteTransactionError
     ├── NanaSQLiteConnectionError
+    │   └── NanaSQLiteClosedError
     ├── NanaSQLiteLockError
     └── NanaSQLiteCacheError
 ```

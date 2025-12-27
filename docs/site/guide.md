@@ -303,20 +303,26 @@ with NanaSQLite("tutorial.db") as db:
 
 ## レッスン8: 複数テーブル
 
+ひとつのデータベースファイル内で、異なるデータタイプごとにテーブルを分けることができます。`.table()` メソッドを使用すると、同じ接続を共有しながら独立したテーブルを操作できます。
+
 ```python
-# 異なるデータタイプに異なるテーブルを使用
-users_db = NanaSQLite("app.db", table="users")
-config_db = NanaSQLite("app.db", table="config")
-cache_db = NanaSQLite("app.db", table="cache")
+from nanasqlite import NanaSQLite
+
+# メインインスタンスの作成
+db = NanaSQLite("app.db")
+
+# サブテーブル用インスタンスの取得（接続を共有するため効率的）
+users_db = db.table("users")
+config_db = db.table("config")
+cache_db = db.table("cache")
 
 # それぞれが独立して動作
 users_db["alice"] = {"name": "Alice", "role": "admin"}
 config_db["theme"] = "dark"
 cache_db["temp_data"] = {"expires": "2024-12-31"}
 
-users_db.close()
-config_db.close()
-cache_db.close()
+# 親を閉じればすべてクローズされます
+db.close()
 ```
 
 ## レッスン9: 非同期の使用（上級）
