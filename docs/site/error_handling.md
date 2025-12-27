@@ -9,6 +9,8 @@ NanaSQLite v1.1.0以降では、統一されたカスタム例外クラスを提
 3. [一般的なエラーシナリオ](#一般的なエラーシナリオ)
 4. [エラーハンドリングのベストプラクティス](#エラーハンドリングのベストプラクティス)
 5. [デバッグとトラブルシューティング](#デバッグとトラブルシューティング)
+6. [非同期版のエラーハンドリング](#非同期版のエラーハンドリング)
+7. [よくある質問とトラブルシューティング (FAQ)](#よくある質問とトラブルシューティング-(faq))
 
 ---
 
@@ -108,21 +110,27 @@ except NanaSQLiteTransactionError as e:
 データベース接続の作成や管理で発生するエラー。
 
 **発生するケース**:
-- 閉じられた接続の使用
 - 接続の初期化失敗
 - 孤立した子インスタンスの使用
 
+#### `NanaSQLiteClosedError` *(v1.2.0+)*
+
+閉じられた接続や、親が閉じられた子インスタンスに対して操作を試みた場合に発生します。`NanaSQLiteConnectionError` のサブクラスです。
+
+**発生するケース**:
+- `close()` 呼出し後の操作
+- 親インスタンスがクローズされた後の `table()` インスタンスの操作
+
 ```python
-from nanasqlite import NanaSQLite, NanaSQLiteConnectionError
+from nanasqlite import NanaSQLite, NanaSQLiteClosedError
 
 db = NanaSQLite("mydata.db")
 db.close()
 
 try:
-    db["key"] = "value"  # 閉じた接続を使用
-except NanaSQLiteConnectionError as e:
-    print(f"接続エラー: {e}")
-    # 出力: Database connection is closed
+    db["key"] = "value"
+except NanaSQLiteClosedError as e:
+    print(f"クローズ済みエラー: {e}")
 ```
 
 #### `NanaSQLiteLockError`
@@ -152,6 +160,7 @@ Exception
     ├── NanaSQLiteDatabaseError
     ├── NanaSQLiteTransactionError
     ├── NanaSQLiteConnectionError
+    │   └── NanaSQLiteClosedError
     ├── NanaSQLiteLockError
     └── NanaSQLiteCacheError
 ```

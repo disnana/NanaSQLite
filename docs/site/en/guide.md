@@ -303,20 +303,26 @@ with NanaSQLite("tutorial.db") as db:
 
 ## Lesson 8: Multiple Tables
 
+You can use different tables for different data types within a single database file. Using the `.table()` method allows you to operate on independent tables while sharing the same underlying connection.
+
 ```python
-# Use different tables for different data types
-users_db = NanaSQLite("app.db", table="users")
-config_db = NanaSQLite("app.db", table="config")
-cache_db = NanaSQLite("app.db", table="cache")
+from nanasqlite import NanaSQLite
+
+# Create the main instance
+db = NanaSQLite("app.db")
+
+# Get sub-table instances (efficient as they share the connection)
+users_db = db.table("users")
+config_db = db.table("config")
+cache_db = db.table("cache")
 
 # Each operates independently
 users_db["alice"] = {"name": "Alice", "role": "admin"}
 config_db["theme"] = "dark"
 cache_db["temp_data"] = {"expires": "2024-12-31"}
 
-users_db.close()
-config_db.close()
-cache_db.close()
+# Closing the main instance closes all related connections
+db.close()
 ```
 
 ## Lesson 9: Async Usage (Advanced)

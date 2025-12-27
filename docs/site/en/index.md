@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "NanaSQLite"
   text: "High-Performance SQLite Dict Wrapper with Caching"
-  tagline: "Fast, Safe, Thread-Safe Python Library. Use SQLite like a Dictionary."
+  tagline: "Use SQLite like a Dictionary.<br>Fast, Safe, Thread-Safe Python Library."
   image:
     src: /logo.svg
     alt: NanaSQLite Logo

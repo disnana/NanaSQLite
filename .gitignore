@@ -106,3 +106,4 @@ Thumbs.db
 開発用.py
 docs/site/node_modules/
 docs/site/.vitepress/cache/
+docs/site/.vitepress/.temp/

@@ -30,7 +30,8 @@ user = db["user"]  # イベントループをブロック！
 
 # ✅ 非同期版（ブロッキングなし、スレッドプール使用）
 from nanasqlite import AsyncNanaSQLite
-async with AsyncNanaSQLite("app.db", max_workers=10) as db:
+# 書き込み/重い処理には max_workers、並列読み込みには read_pool_size を調整
+async with AsyncNanaSQLite("app.db", max_workers=10, read_pool_size=4) as db:
     user = await db.aget("user")  # イベントループをブロックしない
 ```
 
@@ -44,8 +45,9 @@ from nanasqlite import AsyncNanaSQLite
 
 async def main():
     # コンテキストマネージャを使用（推奨）
-    # max_workers: 並行処理数に応じて調整
-    async with AsyncNanaSQLite("mydata.db", max_workers=5) as db:
+    # max_workers: 一般的なタスク用のスレッド数
+    # read_pool_size: 並列読み込み専用の接続数 (v1.2.0+)
+    async with AsyncNanaSQLite("mydata.db", max_workers=5, read_pool_size=4) as db:
         # データベース操作
         await db.aset("key", "value")
         value = await db.aget("key")
@@ -218,7 +220,31 @@ async with AsyncNanaSQLite("mydata.db", max_workers=20) as db:
 - **本番環境（中規模）**: max_workers=10-15
 - **本番環境（大規模）**: max_workers=20-50
 
-### 2. バッチ操作を使用
+### 2. 読み取り専用接続プール (v1.2.0+)
+
+デフォルトでは、すべての操作が単一の SQLite 接続を共有します。大量の並列読み取りが発生する場合、それらは順番待ちになることがあります。
+
+`read_pool_size` を設定することで、読み取り専用の接続プールを作成し、真の並列読み取りを可能にします。
+
+```python
+# 4つの専用接続で並列読み取りを有効化
+db = AsyncNanaSQLite("app.db", read_pool_size=4)
+
+# これらの読み取りは、複数の接続にまたがって並列に実行されます
+results = await asyncio.gather(
+    db.aget("key1"),
+    db.aget("key2"),
+    db.aget("key3"),
+    db.aget("key4")
+)
+```
+
+**いつ使うべきか:**
+- 読み取りトラフィックが多い場合（パブリックAPI等）
+- 実行に時間がかかる複雑なSQLクエリがある場合
+- WALモード（デフォルトで有効）で読み取りが書き込みをブロックしない利点を活かしたい場合
+
+### 3. バッチ操作を使用
 
 ```python
 # ❌ 遅い（1000回のDB操作）

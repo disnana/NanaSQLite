@@ -306,26 +306,29 @@ class CachedDB:
 
 ### Separation of Concerns
 
+It is recommended to separate different data types into different tables within a single database file. Using the `.table()` method allows you to logically separate data while sharing the same underlying database connection.
+
 ```python
 # Use different tables for different concerns
 class AppDatabase:
     def __init__(self, db_path: str):
-        self.users = NanaSQLite(db_path, table="users")
-        self.sessions = NanaSQLite(db_path, table="sessions")
-        self.cache = NanaSQLite(db_path, table="cache")
-        self.config = NanaSQLite(db_path, table="config")
+        # Main connection
+        self.db = NanaSQLite(db_path)
+        # Sub-tables (efficient as they share the connection)
+        self.users = self.db.table("users")
+        self.sessions = self.db.table("sessions")
+        self.cache = self.db.table("cache")
+        self.config = self.db.table("config")
     
-    def close_all(self):
-        self.users.close()
-        self.sessions.close()
-        self.cache.close()
-        self.config.close()
+    def close(self):
+        # Closing the main instance closes all related tables
+        self.db.close()
 
 # Usage
 app_db = AppDatabase("app.db")
 app_db.users["alice"] = {"role": "admin"}
 app_db.sessions["sess_123"] = {"user_id": "alice"}
-app_db.close_all()
+app_db.close()
 ```
 
 ### Repository Pattern

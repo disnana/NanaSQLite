@@ -1,6 +1,6 @@
-# API Reference
+# Quick Reference
 
-Complete API documentation for NanaSQLite.
+Complete API cheat sheet for NanaSQLite.
 
 ---
 
@@ -8,7 +8,11 @@ Complete API documentation for NanaSQLite.
 
 ```python
 class NanaSQLite(db_path: str, table: str = "data", bulk_load: bool = False,
-                 optimize: bool = True, cache_size_mb: int = 64)
+                 optimize: bool = True, cache_size_mb: int = 64,
+                 strict_sql_validation: bool = True,
+                 allowed_sql_functions: list[str] | None = None,
+                 forbidden_sql_functions: list[str] | None = None,
+                 max_clause_length: int | None = 1000)
 ```
 
 A wrapper class that provides SQLite persistence with a dict-like interface.
@@ -22,6 +26,10 @@ A wrapper class that provides SQLite persistence with a dict-like interface.
 | `bulk_load` | `bool` | `False` | Load all data into memory at initialization |
 | `optimize` | `bool` | `True` | Apply performance optimizations |
 | `cache_size_mb` | `int` | `64` | SQLite cache size (MB) |
+| `strict_sql_validation` | `bool` | `True` | Enable strict SQL validation (v1.2.0+) |
+| `allowed_sql_functions` | `list` | `None` | List of allowed SQL functions |
+| `forbidden_sql_functions` | `list` | `None` | List of forbidden SQL functions |
+| `max_clause_length` | `int` | `1000` | Maximum character length for SQL clauses |
 
 ### Usage Examples
 
