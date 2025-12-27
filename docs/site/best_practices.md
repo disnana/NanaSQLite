@@ -306,26 +306,29 @@ class CachedDB:
 
 ### 関心事の分離
 
+ひとつのデータベースファイル内で、異なるデータタイプごとにテーブルを分けることが推奨されます。`.table()` メソッドを使用することで、同じデータベース接続を共有しながら論理的にデータを分離できます。
+
 ```python
 # 異なる関心事に異なるテーブルを使用
 class AppDatabase:
     def __init__(self, db_path: str):
-        self.users = NanaSQLite(db_path, table="users")
-        self.sessions = NanaSQLite(db_path, table="sessions")
-        self.cache = NanaSQLite(db_path, table="cache")
-        self.config = NanaSQLite(db_path, table="config")
+        # メイン接続
+        self.db = NanaSQLite(db_path)
+        # サブテーブル（接続を共有するため効率的）
+        self.users = self.db.table("users")
+        self.sessions = self.db.table("sessions")
+        self.cache = self.db.table("cache")
+        self.config = self.db.table("config")
     
-    def close_all(self):
-        self.users.close()
-        self.sessions.close()
-        self.cache.close()
-        self.config.close()
+    def close(self):
+        # 親を閉じればすべてクローズされます
+        self.db.close()
 
 # 使用方法
 app_db = AppDatabase("app.db")
 app_db.users["alice"] = {"role": "admin"}
 app_db.sessions["sess_123"] = {"user_id": "alice"}
-app_db.close_all()
+app_db.close()
 ```
 
 ### リポジトリパターン
