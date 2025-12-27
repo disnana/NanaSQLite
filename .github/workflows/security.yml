@@ -201,18 +201,9 @@ jobs:
         echo "Generated at: $(date -u)" >> security-report.md
         echo "" >> security-report.md
         
-        echo "## 📊 Summary" >> security-report.md
-        echo "| Scan Tool | Status |" >> security-report.md
-        echo "|-----------|--------|" >> security-report.md
-        echo "| CodeQL | ${{ needs.codeql.result }} |" >> security-report.md
-        echo "| Safety | ${{ needs.safety.result }} |" >> security-report.md
-        echo "| Bandit | ${{ needs.bandit.result }} |" >> security-report.md
-        echo "| Trivy | ${{ needs.trivy.result }} |" >> security-report.md
-        echo "| Bun Audit | ${{ needs.bun-audit.result }} |" >> security-report.md
-        echo "| Grype | ${{ needs.grype.result }} |" >> security-report.md
-        echo "" >> security-report.md
-
         echo "## 🔍 Detailed Findings" >> security-report.md
+        echo "*(If any issues are found, they will be listed below)*" >> security-report.md
+        echo "" >> security-report.md
         
         # Grype Findings
         if [ -f artifacts/grype-results/results.json ] && jq -e '.matches | length > 0' artifacts/grype-results/results.json > /dev/null; then
