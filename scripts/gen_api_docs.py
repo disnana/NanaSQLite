@@ -6,7 +6,7 @@ from pathlib import Path
 # Add src to path so we can import nanasqlite
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-import nanasqlite
+import nanasqlite  # noqa: F401  # imported for side effects / inspection
 
 def extract_lang(text, lang='ja'):
     """
