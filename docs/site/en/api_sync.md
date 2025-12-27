@@ -1,20 +1,20 @@
 # Synchronous API Reference
 
-Reference for the synchronous NanaSQLite class.
+List of synchronous methods for the NanaSQLite class.
 
 ## NanaSQLite
 
-APSW SQLite-backed dict wrapper with Security and Connection Enhancements (v1.2.0).
+A dictionary-like wrapper backed by APSW SQLite with enhanced security and connection management (v1.2.0).
 
-Internally maintains a Python dict and synchronizes with SQLite during operations.
-In v1.2.0, enhanced dynamic SQL validation, ReDoS protection, and strict connection management are introduced.
+It holds an internal Python dict and synchronizes with SQLite during operations.
+v1.2.0 introduces enhanced dynamic SQL validation, ReDoS protection, and strict connection management.
 
-#### 📥 Arguments 
-- **db_path**: SQLiteデータベースファイルのパス
-- **table**: 使用するテーブル名
-- **bulk_load**: Trueの場合、初期化時に全データをメモリに読み込む
-- **strict_sql_validation**: Trueの場合、未許可の関数等を含むクエリを拒否
-- **max_clause_length**: SQL句の最大長（ReDoS対策、v1.2.0）
+#### 📥 Arguments
+- **db_path**: Path to the SQLite database file
+- **table**: Default: "data"
+- **bulk_load**: If True, loads all data into memory during initialization
+- **strict_sql_validation**: v1.2.0
+- **max_clause_length**: Maximum length of SQL clauses (ReDoS protection, v1.2.0)
 
 ---
 
@@ -26,18 +26,18 @@ In v1.2.0, enhanced dynamic SQL validation, ReDoS protection, and strict connect
 __init__(self, db_path: 'str', table: 'str' = 'data', bulk_load: 'bool' = False, optimize: 'bool' = True, cache_size_mb: 'int' = 64, strict_sql_validation: 'bool' = True, allowed_sql_functions: 'list[str] | None' = None, forbidden_sql_functions: 'list[str] | None' = None, max_clause_length: 'int | None' = 1000, _shared_connection: 'apsw.Connection | None' = None, _shared_lock: 'threading.RLock | None' = None)
 ```
 
-#### 📥 Arguments 
-- **db_path**: SQLiteデータベースファイルのパス
-- **table**: 使用するテーブル名
-- **bulk_load**: Trueの場合、初期化時に全データをメモリに読み込む
-- **optimize**: Trueの場合、WALモードなど高速化設定を適用
-- **cache_size_mb**: SQLiteキャッシュサイズ（MB）、デフォルト64MB
-- **strict_sql_validation**: Trueの場合、未許可の関数等を含むクエリを拒否
-- **allowed_sql_functions**: 追加で許可するSQL関数のリスト
-- **forbidden_sql_functions**: 明示的に禁止するSQL関数のリスト
-- **max_clause_length**: SQL句の最大長（ReDoS対策）。Noneで制限なし
-- **_shared_connection**: 内部用：共有する接続（table()メソッドで使用）
-- **_shared_lock**: 内部用：共有するロック（table()メソッドで使用）
+#### 📥 Arguments
+- **db_path**: Path to the SQLite database file
+- **table**: Default: "data"
+- **bulk_load**: If True, loads all data into memory during initialization
+- **optimize**: If True, applies performance settings like WAL mode
+- **cache_size_mb**: SQLite cache size (MB), default 64MB
+- **strict_sql_validation**: If True, rejects queries containing unauthorized functions
+- **allowed_sql_functions**: List of additional allowed SQL functions
+- **forbidden_sql_functions**: List of explicitly forbidden SQL functions
+- **max_clause_length**: Maximum length of SQL clauses (ReDoS protection). None for no limit
+- **_shared_connection**: Internal use: shared connection (used by table() method)
+- **_shared_lock**: Internal use: shared lock (used by table() method)
 
 ---
 
@@ -47,6 +47,8 @@ __init__(self, db_path: 'str', table: 'str' = 'data', bulk_load: 'bool' = False,
 keys(self) -> 'list'
 ```
 
+Get all keys (from DB).
+
 ---
 
 ### values
@@ -54,6 +56,8 @@ keys(self) -> 'list'
 ```python
 values(self) -> 'list'
 ```
+
+Get all values (triggers bulk load, then from memory).
 
 ---
 
@@ -63,6 +67,8 @@ values(self) -> 'list'
 items(self) -> 'list'
 ```
 
+Get all items (triggers bulk load, then from memory).
+
 ---
 
 ### get
@@ -71,7 +77,7 @@ items(self) -> 'list'
 get(self, key: 'str', default: 'Any' = None) -> 'Any'
 ```
 
-dict.get
+Get value by key, or default if not found.
 
 ---
 
@@ -81,21 +87,24 @@ dict.get
 get_fresh(self, key: 'str', default: 'Any' = None) -> 'Any'
 ```
 
-`execute()`でDBを直接変更した後などに使用。
+Read directly from DB, update cache, and return value.
 
-通常の`get()`よりオーバーヘッドがあるため、
+Bypasses cache to get the latest value from DB.
+Used after modifying DB directly with `execute()`.
 
-#### 📥 Arguments 
-- **key**: 取得するキー
-- **default**: キーが存在しない場合のデフォルト値
+Has more overhead than normal `get()`, so use only when cache inconsistency is expected.
 
-#### 📤 Returns 
+#### 📥 Arguments
+- **key**: Key to retrieve
+- **default**: Default value if key does not exist
 
-#### 💡 Example 
+#### 📤 Returns
+    Latest value retrieved from DB (or default if not found)
 
+#### 💡 Example
 ```python
     >>> db.execute("UPDATE data SET value = ? WHERE key = ?", ('"new"', "key"))
-    >>> value = db.get_fresh("key")  # DBから最新値を取得
+    >>> value = db.get_fresh("key")  # Get latest value from DB
 ```
 
 ---
@@ -106,15 +115,18 @@ get_fresh(self, key: 'str', default: 'Any' = None) -> 'Any'
 batch_get(self, keys: 'list[str]') -> 'dict[str, Any]'
 ```
 
-1回の `SELECT IN (...)` クエリで複数のキーをDBから取得する。
+Get multiple keys at once (efficient bulk load).
 
-#### 📥 Arguments 
-- **keys**: 取得するキーのリスト
+Retrieves multiple keys from DB in a single `SELECT IN (...)` query.
+Retrieved values are automatically saved to cache.
 
-#### 📤 Returns 
+#### 📥 Arguments
+- **keys**: List of keys to retrieve
 
-#### 💡 Example 
+#### 📤 Returns
+    Dictionary of successfully retrieved keys and values
 
+#### 💡 Example
 ```python
     >>> results = db.batch_get(["user1", "user2", "user3"])
     >>> print(results)  # {"user1": {...}, "user2": {...}}
@@ -128,7 +140,7 @@ batch_get(self, keys: 'list[str]') -> 'dict[str, Any]'
 pop(self, key: 'str', *args) -> 'Any'
 ```
 
-dict.pop
+Remove and return value by key.
 
 ---
 
@@ -138,6 +150,8 @@ dict.pop
 update(self, mapping: 'dict' = None, **kwargs) -> 'None'
 ```
 
+Update multiple keys.
+
 ---
 
 ### clear
@@ -145,6 +159,8 @@ update(self, mapping: 'dict' = None, **kwargs) -> 'None'
 ```python
 clear(self) -> 'None'
 ```
+
+Remove all items.
 
 ---
 
@@ -154,7 +170,7 @@ clear(self) -> 'None'
 setdefault(self, key: 'str', default: 'Any' = None) -> 'Any'
 ```
 
-dict.setdefault
+Get value, setting default if not exists.
 
 ---
 
@@ -164,7 +180,7 @@ dict.setdefault
 load_all(self) -> 'None'
 ```
 
-- **一括読み込み**: 全データをメモリに展開
+Load all data into memory.
 
 ---
 
@@ -174,8 +190,10 @@ load_all(self) -> 'None'
 refresh(self, key: 'str' = None) -> 'None'
 ```
 
-#### 📥 Arguments 
-- **key**: 特定のキーのみ更新。Noneの場合は全キャッシュをクリアして再読み込み
+Update cache (reload from DB).
+
+#### 📥 Arguments
+- **key**: Update only specific key. If None, clear entire cache and reload.
 
 ---
 
@@ -185,6 +203,8 @@ refresh(self, key: 'str' = None) -> 'None'
 is_cached(self, key: 'str') -> 'bool'
 ```
 
+Check if key is cached in memory.
+
 ---
 
 ### batch_update
@@ -193,15 +213,15 @@ is_cached(self, key: 'str') -> 'bool'
 batch_update(self, mapping: 'dict[str, Any]') -> 'None'
 ```
 
-#### 📥 Arguments 
-- **mapping**: 書き込むキーと値のdict
+Bulk write (Ultra-fast using transaction + executemany).
 
-#### 📤 Returns 
+10-100x faster than normal update when writing large amounts of data.
+Optimization with executemany added in v1.0.3rc5.
 
-    None
+#### 📥 Arguments
+- **mapping**: Dict of keys and values to write
 
-#### 💡 Example 
-
+#### 💡 Example
 ```python
     >>> db.batch_update({"key1": "value1", "key2": "value2", ...})
 ```
@@ -214,12 +234,12 @@ batch_update(self, mapping: 'dict[str, Any]') -> 'None'
 batch_delete(self, keys: 'list[str]') -> 'None'
 ```
 
-#### 📥 Arguments 
-- **keys**: 削除するキーのリスト
+Bulk delete (Fast using transaction + executemany).
 
-#### 📤 Returns 
+Optimization with executemany added in v1.0.3rc5.
 
-    None
+#### 📥 Arguments
+- **keys**: List of keys to delete
 
 ---
 
@@ -229,6 +249,8 @@ batch_delete(self, keys: 'list[str]') -> 'None'
 to_dict(self) -> 'dict'
 ```
 
+Get all data as a Python dict.
+
 ---
 
 ### copy
@@ -236,6 +258,8 @@ to_dict(self) -> 'dict'
 ```python
 copy(self) -> 'dict'
 ```
+
+Create a shallow copy (returns standard dict).
 
 ---
 
@@ -245,10 +269,12 @@ copy(self) -> 'dict'
 close(self) -> 'None'
 ```
 
-- **注意**: table()メソッドで作成されたインスタンスは接続を共有しているため、
+Close database connection.
 
-#### ⚠️ Raises 
-- **NanaSQLiteTransactionError**: トランザクション中にクローズを試みた場合
+- **Note**: Instances created by `table()` share the connection, so only the connection owner (the first created instance) closes the connection.
+
+#### ⚠️ Exceptions
+- **NanaSQLiteTransactionError**: If attempted to close during a transaction.
 
 ---
 
@@ -258,12 +284,16 @@ close(self) -> 'None'
 set_model(self, key: 'str', model: 'Any') -> 'None'
 ```
 
-#### 📥 Arguments 
-- **key**: 保存するキー
-- **model**: Pydanticモデルのインスタンス
+Save Pydantic model.
 
-#### 💡 Example 
+Serializes and saves a Pydantic model (class inheriting from BaseModel).
+Converts to dict using model_dump() and also saves model class info.
 
+#### 📥 Arguments
+- **key**: Key to save
+- **model**: An instance of Pydantic model
+
+#### 💡 Example
 ```python
     >>> from pydantic import BaseModel
     >>> class User(BaseModel):
@@ -281,14 +311,19 @@ set_model(self, key: 'str', model: 'Any') -> 'None'
 get_model(self, key: 'str', model_class: 'type' = None) -> 'Any'
 ```
 
-#### 📥 Arguments 
-- **key**: 取得するキー
-- **model_class**: Pydanticモデルのクラス（Noneの場合は自動検出を試みる）
+Get Pydantic model.
 
-#### 📤 Returns 
+Deserializes and restores a saved Pydantic model.
+If model_class is not specified, uses the saved class info.
 
-#### 💡 Example 
+#### 📥 Arguments
+- **key**: Key to retrieve
+- **model_class**: Pydantic model class (If None, attempts auto-detection)
 
+#### 📤 Returns
+    Instance of Pydantic model
+
+#### 💡 Example
 ```python
     >>> user = db.get_model("user", User)
     >>> print(user.name)  # "Nana"
@@ -302,30 +337,37 @@ get_model(self, key: 'str', model_class: 'type' = None) -> 'Any'
 execute(self, sql: 'str', parameters: 'tuple | None' = None) -> 'apsw.Cursor'
 ```
 
-.. warning::
-    キャッシュを更新するには `refresh()` を呼び出してください。
+Execute SQL directly.
 
-#### 📥 Arguments 
-- **sql**: 実行するSQL文
-- **parameters**: SQLのパラメータ（?プレースホルダー用）
+Can execute arbitrary SQL statements like SELECT, INSERT, UPDATE, DELETE.
+Supports parameter binding (SQL injection prevention).
 
-#### 📤 Returns 
+    If you modify the default table (data) directly with this method,
+    inconsistency with internal cache (_data) may occur.
+    Call `refresh()` to update the cache.
 
-#### ⚠️ Raises 
-- **NanaSQLiteConnectionError**: 接続が閉じられている場合
-- **NanaSQLiteDatabaseError**: SQL実行エラー
+#### 📥 Arguments
+- **sql**: SQL statement to execute
+- **parameters**: SQL parameters (for ? placeholders)
 
-#### 💡 Example 
+#### 📤 Returns
+    APSW Cursor object (used to fetch results)
 
+#### ⚠️ Exceptions
+- **NanaSQLiteConnectionError**: If connection is closed
+- **NanaSQLiteDatabaseError**: SQL execution error
+
+#### 💡 Example
 ```python
     >>> cursor = db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
     >>> for row in cursor:
     ...     print(row)
 ```
 
+    # If cache update is needed:
 ```python
     >>> db.execute("UPDATE data SET value = ? WHERE key = ?", ('"new"', "key"))
-    >>> db.refresh("key")  # キャッシュを更新
+    >>> db.refresh("key")  # Update cache
 ```
 
 ---
@@ -336,12 +378,16 @@ execute(self, sql: 'str', parameters: 'tuple | None' = None) -> 'apsw.Cursor'
 execute_many(self, sql: 'str', parameters_list: 'list[tuple]') -> 'None'
 ```
 
-#### 📥 Arguments 
-- **sql**: 実行するSQL文
-- **parameters_list**: パラメータのリスト
+Execute SQL repeatedly with parameters.
 
-#### 💡 Example 
+Executes the same SQL statement with multiple parameter sets (uses transaction).
+Can execute bulk INSERT or UPDATE rapidly.
 
+#### 📥 Arguments
+- **sql**: SQL statement to execute
+- **parameters_list**: List of parameters
+
+#### 💡 Example
 ```python
     >>> db.execute_many(
     ...     "INSERT OR REPLACE INTO custom (id, name) VALUES (?, ?)",
@@ -357,14 +403,16 @@ execute_many(self, sql: 'str', parameters_list: 'list[tuple]') -> 'None'
 fetch_one(self, sql: 'str', parameters: 'tuple' = None) -> 'tuple | None'
 ```
 
-#### 📥 Arguments 
-- **sql**: 実行するSQL文
-- **parameters**: SQLのパラメータ
+Execute SQL and fetch one row.
 
-#### 📤 Returns 
+#### 📥 Arguments
+- **sql**: SQL statement to execute
+- **parameters**: SQL parameters
 
-#### 💡 Example 
+#### 📤 Returns
+    One row result (tuple), or None if no result
 
+#### 💡 Example
 ```python
     >>> row = db.fetch_one("SELECT value FROM data WHERE key = ?", ("user",))
     >>> print(row[0])
@@ -378,14 +426,16 @@ fetch_one(self, sql: 'str', parameters: 'tuple' = None) -> 'tuple | None'
 fetch_all(self, sql: 'str', parameters: 'tuple' = None) -> 'list[tuple]'
 ```
 
-#### 📥 Arguments 
-- **sql**: 実行するSQL文
-- **parameters**: SQLのパラメータ
+Execute SQL and fetch all rows.
 
-#### 📤 Returns 
+#### 📥 Arguments
+- **sql**: SQL statement to execute
+- **parameters**: SQL parameters
 
-#### 💡 Example 
+#### 📤 Returns
+    All row results (list of tuples)
 
+#### 💡 Example
 ```python
     >>> rows = db.fetch_all("SELECT key, value FROM data WHERE key LIKE ?", ("user%",))
     >>> for key, value in rows:
@@ -400,14 +450,15 @@ fetch_all(self, sql: 'str', parameters: 'tuple' = None) -> 'list[tuple]'
 create_table(self, table_name: 'str', columns: 'dict', if_not_exists: 'bool' = True, primary_key: 'str' = None) -> 'None'
 ```
 
-#### 📥 Arguments 
-- **table_name**: テーブル名
-- **columns**: カラム定義のdict（カラム名: SQL型）
-- **if_not_exists**: Trueの場合、存在しない場合のみ作成
-- **primary_key**: プライマリキーのカラム名（Noneの場合は指定なし）
+Create a table.
 
-#### 💡 Example 
+#### 📥 Arguments
+- **table_name**: Table name
+- **columns**: Dict of column definitions (name: SQL type)
+- **if_not_exists**: If True, create only if not exists
+- **primary_key**: Column name of primary key (None if not specified)
 
+#### 💡 Example
 ```python
     >>> db.create_table("users", {
     ...     "id": "INTEGER PRIMARY KEY",
@@ -415,11 +466,6 @@ create_table(self, table_name: 'str', columns: 'dict', if_not_exists: 'bool' = T
     ...     "email": "TEXT UNIQUE",
     ...     "age": "INTEGER"
     ... })
-    >>> db.create_table("posts", {
-    ...     "id": "INTEGER",
-    ...     "title": "TEXT",
-    ...     "content": "TEXT"
-    ... }, primary_key="id")
 ```
 
 ---
@@ -430,18 +476,18 @@ create_table(self, table_name: 'str', columns: 'dict', if_not_exists: 'bool' = T
 create_index(self, index_name: 'str', table_name: 'str', columns: 'list[str]', unique: 'bool' = False, if_not_exists: 'bool' = True) -> 'None'
 ```
 
-#### 📥 Arguments 
-- **index_name**: インデックス名
-- **table_name**: テーブル名
-- **columns**: インデックスを作成するカラムのリスト
-- **unique**: Trueの場合、ユニークインデックスを作成
-- **if_not_exists**: Trueの場合、存在しない場合のみ作成
+Create an index.
 
-#### 💡 Example 
+#### 📥 Arguments
+- **index_name**: Index name
+- **table_name**: Table name
+- **columns**: List of columns to index
+- **unique**: If True, create unique index
+- **if_not_exists**: If True, create only if not exists
 
+#### 💡 Example
 ```python
     >>> db.create_index("idx_users_email", "users", ["email"], unique=True)
-    >>> db.create_index("idx_posts_user", "posts", ["user_id", "created_at"])
 ```
 
 ---
@@ -452,29 +498,31 @@ create_index(self, index_name: 'str', table_name: 'str', columns: 'list[str]', u
 query(self, table_name: 'str' = None, columns: 'list[str]' = None, where: 'str' = None, parameters: 'tuple' = None, order_by: 'str' = None, limit: 'int' = None, strict_sql_validation: 'bool' = None, allowed_sql_functions: 'list[str]' = None, forbidden_sql_functions: 'list[str]' = None, override_allowed: 'bool' = False) -> 'list[dict]'
 ```
 
-#### 📥 Arguments 
-- **table_name**: テーブル名（Noneの場合はデフォルトテーブル）
-- **columns**: 取得するカラムのリスト（Noneの場合は全カラム）
-- **where**: WHERE句の条件（パラメータバインディング使用推奨）
-- **parameters**: WHERE句のパラメータ
-- **order_by**: ORDER BY句
-- **limit**: LIMIT句
-- **strict_sql_validation**: Trueの場合、未許可の関数等を含むクエリを拒否
-- **allowed_sql_functions**: このクエリで一時的に許可するSQL関数のリスト
-- **forbidden_sql_functions**: このクエリで一時的に禁止するSQL関数のリスト
-- **override_allowed**: Trueの場合、インスタンス許可設定を無視
+Execute simple SELECT query.
 
-#### 📤 Returns 
+#### 📥 Arguments
+- **table_name**: Table name (Default table if None)
+- **columns**: List of columns to select (All columns if None)
+- **where**: WHERE clause condition (Parameter binding recommended)
+- **parameters**: WHERE clause parameters
+- **order_by**: ORDER BY clause
+- **limit**: LIMIT clause
+- **strict_sql_validation**: If True, reject queries with unauthorized functions
+- **allowed_sql_functions**: List of SQL functions allowed temporarily for this query
+- **forbidden_sql_functions**: List of SQL functions forbidden temporarily for this query
+- **override_allowed**: If True, ignore instance allow settings
 
-#### 💡 Example 
+#### 📤 Returns
+    List of results (each row is a dict)
 
+#### 💡 Example
 ```python
-    >>> # デフォルトテーブルから全データ取得
+    >>> # Get all data from default table
     >>> results = db.query()
 ```
 
 ```python
-    >>> # 条件付き検索
+    >>> # Search with condition
     >>> results = db.query(
     ...     table_name="users",
     ...     columns=["id", "name", "email"],
@@ -493,17 +541,13 @@ query(self, table_name: 'str' = None, columns: 'list[str]' = None, where: 'str' 
 table_exists(self, table_name: 'str') -> 'bool'
 ```
 
-#### 📥 Arguments 
-- **table_name**: テーブル名
+Check if table exists.
 
-#### 📤 Returns 
+#### 📥 Arguments
+- **table_name**: Table name
 
-#### 💡 Example 
-
-```python
-    >>> if db.table_exists("users"):
-    ...     print("users table exists")
-```
+#### 📤 Returns
+    True if exists, False otherwise
 
 ---
 
@@ -513,14 +557,10 @@ table_exists(self, table_name: 'str') -> 'bool'
 list_tables(self) -> 'list[str]'
 ```
 
-#### 📤 Returns 
+Get list of all tables in the database.
 
-#### 💡 Example 
-
-```python
-    >>> tables = db.list_tables()
-    >>> print(tables)  # ['data', 'users', 'posts']
-```
+#### 📤 Returns
+    List of table names
 
 ---
 
@@ -530,16 +570,11 @@ list_tables(self) -> 'list[str]'
 drop_table(self, table_name: 'str', if_exists: 'bool' = True) -> 'None'
 ```
 
-#### 📥 Arguments 
-- **table_name**: テーブル名
-- **if_exists**: Trueの場合、存在する場合のみ削除（エラーを防ぐ）
+Delete a table.
 
-#### 💡 Example 
-
-```python
-    >>> db.drop_table("old_table")
-    >>> db.drop_table("temp", if_exists=True)
-```
+#### 📥 Arguments
+- **table_name**: Table name
+- **if_exists**: If True, delete only if exists
 
 ---
 
@@ -549,15 +584,11 @@ drop_table(self, table_name: 'str', if_exists: 'bool' = True) -> 'None'
 drop_index(self, index_name: 'str', if_exists: 'bool' = True) -> 'None'
 ```
 
-#### 📥 Arguments 
-- **index_name**: インデックス名
-- **if_exists**: Trueの場合、存在する場合のみ削除
+Delete an index.
 
-#### 💡 Example 
-
-```python
-    >>> db.drop_index("idx_users_email")
-```
+#### 📥 Arguments
+- **index_name**: Index name
+- **if_exists**: If True, delete only if exists
 
 ---
 
@@ -567,18 +598,13 @@ drop_index(self, index_name: 'str', if_exists: 'bool' = True) -> 'None'
 alter_table_add_column(self, table_name: 'str', column_name: 'str', column_type: 'str', default: 'Any' = None) -> 'None'
 ```
 
-#### 📥 Arguments 
-- **table_name**: テーブル名
-- **column_name**: カラム名
-- **column_type**: カラムの型（SQL型）
-- **default**: デフォルト値（Noneの場合は指定なし）
+Add a column to an existing table.
 
-#### 💡 Example 
-
-```python
-    >>> db.alter_table_add_column("users", "phone", "TEXT")
-    >>> db.alter_table_add_column("users", "status", "TEXT", default="'active'")
-```
+#### 📥 Arguments
+- **table_name**: Table name
+- **column_name**: Column name
+- **column_type**: Column type (SQL type)
+- **default**: Default value (None for no default)
 
 ---
 
@@ -588,13 +614,15 @@ alter_table_add_column(self, table_name: 'str', column_name: 'str', column_type:
 get_table_schema(self, table_name: 'str') -> 'list[dict]'
 ```
 
-#### 📥 Arguments 
-- **table_name**: テーブル名
+Get table structure.
 
-#### 📤 Returns 
+#### 📥 Arguments
+- **table_name**: Table name
 
-#### 💡 Example 
+#### 📤 Returns
+    List of column info (each column is a dict)
 
+#### 💡 Example
 ```python
     >>> schema = db.get_table_schema("users")
     >>> for col in schema:
@@ -609,18 +637,13 @@ get_table_schema(self, table_name: 'str') -> 'list[dict]'
 list_indexes(self, table_name: 'str' = None) -> 'list[dict]'
 ```
 
-#### 📥 Arguments 
-- **table_name**: テーブル名（Noneの場合は全インデックス）
+Get list of indexes.
 
-#### 📤 Returns 
+#### 📥 Arguments
+- **table_name**: Table name (All indexes if None)
 
-#### 💡 Example 
-
-```python
-    >>> indexes = db.list_indexes("users")
-    >>> for idx in indexes:
-    ...     print(f"{idx['name']}: {idx['columns']}")
-```
+#### 📤 Returns
+    List of index info
 
 ---
 
@@ -630,14 +653,16 @@ list_indexes(self, table_name: 'str' = None) -> 'list[dict]'
 sql_insert(self, table_name: 'str', data: 'dict') -> 'int'
 ```
 
-#### 📥 Arguments 
-- **table_name**: テーブル名
-- **data**: カラム名と値のdict
+INSERT directly from dict.
 
-#### 📤 Returns 
+#### 📥 Arguments
+- **table_name**: Table name
+- **data**: Dict of column names and values
 
-#### 💡 Example 
+#### 📤 Returns
+    Inserted ROWID
 
+#### 💡 Example
 ```python
     >>> rowid = db.sql_insert("users", {
     ...     "name": "Alice",
@@ -654,23 +679,16 @@ sql_insert(self, table_name: 'str', data: 'dict') -> 'int'
 sql_update(self, table_name: 'str', data: 'dict', where: 'str', parameters: 'tuple' = None) -> 'int'
 ```
 
-#### 📥 Arguments 
-- **table_name**: テーブル名
-- **data**: 更新するカラム名と値のdict
-- **where**: WHERE句の条件
-- **parameters**: WHERE句のパラメータ
+UPDATE with dict and where condition.
 
-#### 📤 Returns 
+#### 📥 Arguments
+- **table_name**: Table name
+- **data**: Dict of column names and values to update
+- **where**: WHERE clause condition
+- **parameters**: WHERE clause parameters
 
-#### 💡 Example 
-
-```python
-    >>> count = db.sql_update("users",
-    ...     {"age": 26, "status": "active"},
-    ...     "name = ?",
-    ...     ("Alice",)
-    ... )
-```
+#### 📤 Returns
+    Number of updated rows
 
 ---
 
@@ -680,15 +698,17 @@ sql_update(self, table_name: 'str', data: 'dict', where: 'str', parameters: 'tup
 sql_delete(self, table_name: 'str', where: 'str', parameters: 'tuple' = None) -> 'int'
 ```
 
-#### 📥 Arguments 
-- **table_name**: テーブル名
-- **where**: WHERE句の条件
-- **parameters**: WHERE句のパラメータ
+DELETE with where condition.
 
-#### 📤 Returns 
+#### 📥 Arguments
+- **table_name**: Table name
+- **where**: WHERE clause condition
+- **parameters**: WHERE clause parameters
 
-#### 💡 Example 
+#### 📤 Returns
+    Number of deleted rows
 
+#### 💡 Example
 ```python
     >>> count = db.sql_delete("users", "age < ?", (18,))
 ```
@@ -701,22 +721,24 @@ sql_delete(self, table_name: 'str', where: 'str', parameters: 'tuple' = None) ->
 upsert(self, table_name: 'str', data: 'dict', conflict_columns: 'list[str]' = None) -> 'int'
 ```
 
-#### 📥 Arguments 
-- **table_name**: テーブル名
-- **data**: カラム名と値のdict
-- **conflict_columns**: 競合判定に使用するカラム（Noneの場合はINSERT OR REPLACE）
+Simplified INSERT OR REPLACE (upsert).
 
-#### 📤 Returns 
+#### 📥 Arguments
+- **table_name**: Table name
+- **data**: Dict of column names and values
+- **conflict_columns**: Columns used for conflict resolution (INSERT OR REPLACE if None)
 
-#### 💡 Example 
+#### 📤 Returns
+    Inserted/Updated ROWID
 
+#### 💡 Example
 ```python
-    >>> # 単純なINSERT OR REPLACE
+    >>> # Simple INSERT OR REPLACE
     >>> db.upsert("users", {"id": 1, "name": "Alice", "age": 25})
 ```
 
 ```python
-    >>> # ON CONFLICT句を使用
+    >>> # Using ON CONFLICT
     >>> db.upsert("users",
     ...     {"email": "alice@example.com", "name": "Alice", "age": 26},
     ...     conflict_columns=["email"]
@@ -731,17 +753,16 @@ upsert(self, table_name: 'str', data: 'dict', conflict_columns: 'list[str]' = No
 count(self, table_name: 'str' = None, where: 'str' = None, parameters: 'tuple' = None, strict_sql_validation: 'bool' = None, allowed_sql_functions: 'list[str]' = None, forbidden_sql_functions: 'list[str]' = None, override_allowed: 'bool' = False) -> 'int'
 ```
 
-#### 📥 Arguments 
-- **table_name**: テーブル名（Noneの場合はデフォルトテーブル）
-- **where**: WHERE句の条件（オプション）
-- **parameters**: WHERE句のパラメータ
-- **strict_sql_validation**: Trueの場合、未許可の関数等を含むクエリを拒否
-- **allowed_sql_functions**: このクエリで一時的に許可するSQL関数のリスト
-- **forbidden_sql_functions**: このクエリで一時的に禁止するSQL関数のリスト
-- **override_allowed**: Trueの場合、インスタンス許可設定を無視
+Get record count.
 
-#### 💡 Example 
+#### 📥 Arguments
+- **table_name**: Table name (Default table if None)
+- **where**: WHERE clause condition (optional)
+- **parameters**: WHERE clause parameters
+- **strict_sql_validation**: If True, reject queries with unauthorized functions
+- ... (other validation params)
 
+#### 💡 Example
 ```python
     >>> total = db.count("users")
     >>> adults = db.count("users", "age >= ?", (18,))
@@ -755,19 +776,15 @@ count(self, table_name: 'str' = None, where: 'str' = None, parameters: 'tuple' =
 exists(self, table_name: 'str', where: 'str', parameters: 'tuple' = None) -> 'bool'
 ```
 
-#### 📥 Arguments 
-- **table_name**: テーブル名
-- **where**: WHERE句の条件
-- **parameters**: WHERE句のパラメータ
+Check record existence.
 
-#### 📤 Returns 
+#### 📥 Arguments
+- **table_name**: Table name
+- **where**: WHERE clause condition
+- **parameters**: WHERE clause parameters
 
-#### 💡 Example 
-
-```python
-    >>> if db.exists("users", "email = ?", ("alice@example.com",)):
-    ...     print("User exists")
-```
+#### 📤 Returns
+    True if exists
 
 ---
 
@@ -777,32 +794,31 @@ exists(self, table_name: 'str', where: 'str', parameters: 'tuple' = None) -> 'bo
 query_with_pagination(self, table_name: 'str' = None, columns: 'list[str]' = None, where: 'str' = None, parameters: 'tuple' = None, order_by: 'str' = None, limit: 'int' = None, offset: 'int' = None, group_by: 'str' = None, strict_sql_validation: 'bool' = None, allowed_sql_functions: 'list[str]' = None, forbidden_sql_functions: 'list[str]' = None, override_allowed: 'bool' = False) -> 'list[dict]'
 ```
 
-#### 📥 Arguments 
-- **table_name**: テーブル名
-- **columns**: 取得するカラム
-- **where**: WHERE句
-- **parameters**: パラメータ
-- **order_by**: ORDER BY句
-- **limit**: LIMIT句
-- **offset**: OFFSET句（ページネーション用）
-- **group_by**: GROUP BY句
-- **strict_sql_validation**: Trueの場合、未許可の関数等を含むクエリを拒否
-- **allowed_sql_functions**: このクエリで一時的に許可するSQL関数のリスト
-- **forbidden_sql_functions**: このクエリで一時的に禁止するSQL関数のリスト
-- **override_allowed**: Trueの場合、インスタンス許可設定を無視
+Extended query (supports offset, group_by).
 
-#### 📤 Returns 
+#### 📥 Arguments
+- **table_name**: Table name
+- **columns**: Columns to Select
+- **where**: WHERE clause
+- **parameters**: Parameters
+- **order_by**: ORDER BY clause
+- **limit**: LIMIT clause
+- **offset**: OFFSET clause (for pagination)
+- **group_by**: GROUP BY clause
+- ... (validation params)
 
-#### 💡 Example 
+#### 📤 Returns
+    List of results
 
+#### 💡 Example
 ```python
-    >>> # ページネーション
+    >>> # Pagination
     >>> page2 = db.query_with_pagination("users",
     ...     limit=10, offset=10, order_by="id ASC")
 ```
 
 ```python
-    >>> # グループ集計
+    >>> # Group aggregation
     >>> stats = db.query_with_pagination("orders",
     ...     columns=["user_id", "COUNT(*) as order_count"],
     ...     group_by="user_id"
@@ -817,8 +833,11 @@ query_with_pagination(self, table_name: 'str' = None, columns: 'list[str]' = Non
 vacuum(self) -> 'None'
 ```
 
-#### 💡 Example 
+Optimize database (execute VACUUM).
 
+Reclaims storage from deleted records and optimizes the database file.
+
+#### 💡 Example
 ```python
     >>> db.vacuum()
 ```
@@ -831,10 +850,12 @@ vacuum(self) -> 'None'
 get_db_size(self) -> 'int'
 ```
 
-#### 📤 Returns 
+Get database file size (in bytes).
 
-#### 💡 Example 
+#### 📤 Returns
+    Database file size
 
+#### 💡 Example
 ```python
     >>> size = db.get_db_size()
     >>> print(f"DB size: {size / 1024 / 1024:.2f} MB")
@@ -848,16 +869,13 @@ get_db_size(self) -> 'int'
 export_table_to_dict(self, table_name: 'str') -> 'list[dict]'
 ```
 
-#### 📥 Arguments 
-- **table_name**: テーブル名
+Get entire table as a list of dicts.
 
-#### 📤 Returns 
+#### 📥 Arguments
+- **table_name**: Table name
 
-#### 💡 Example 
-
-```python
-    >>> all_users = db.export_table_to_dict("users")
-```
+#### 📤 Returns
+    List of all records
 
 ---
 
@@ -867,21 +885,14 @@ export_table_to_dict(self, table_name: 'str') -> 'list[dict]'
 import_from_dict_list(self, table_name: 'str', data_list: 'list[dict]') -> 'int'
 ```
 
-#### 📥 Arguments 
-- **table_name**: テーブル名
-- **data_list**: 挿入するデータのリスト
+Bulk insert from list of dicts.
 
-#### 📤 Returns 
+#### 📥 Arguments
+- **table_name**: Table name
+- **data_list**: List of data to insert
 
-#### 💡 Example 
-
-```python
-    >>> users = [
-    ...     {"name": "Alice", "age": 25},
-    ...     {"name": "Bob", "age": 30}
-    ... ]
-    >>> count = db.import_from_dict_list("users", users)
-```
+#### 📤 Returns
+    Number of inserted rows
 
 ---
 
@@ -891,14 +902,10 @@ import_from_dict_list(self, table_name: 'str', data_list: 'list[dict]') -> 'int'
 get_last_insert_rowid(self) -> 'int'
 ```
 
-#### 📤 Returns 
+Get ROWID of the last insertion.
 
-#### 💡 Example 
-
-```python
-    >>> db.sql_insert("users", {"name": "Alice"})
-    >>> rowid = db.get_last_insert_rowid()
-```
+#### 📤 Returns
+    Last inserted ROWID
 
 ---
 
@@ -908,21 +915,23 @@ get_last_insert_rowid(self) -> 'int'
 pragma(self, pragma_name: 'str', value: 'Any' = None) -> 'Any'
 ```
 
-#### 📥 Arguments 
-- **pragma_name**: PRAGMA名
-- **value**: 設定値（Noneの場合は取得のみ）
+Get/Set PRAGMA settings.
 
-#### 📤 Returns 
+#### 📥 Arguments
+- **pragma_name**: PRAGMA name
+- **value**: Setting value (Get only if None)
 
-#### 💡 Example 
+#### 📤 Returns
+    Current value if value is None, otherwise None
 
+#### 💡 Example
 ```python
-    >>> # 取得
+    >>> # Get
     >>> mode = db.pragma("journal_mode")
 ```
 
 ```python
-    >>> # 設定
+    >>> # Set
     >>> db.pragma("foreign_keys", 1)
 ```
 
@@ -934,24 +943,16 @@ pragma(self, pragma_name: 'str', value: 'Any' = None) -> 'Any'
 begin_transaction(self) -> 'None'
 ```
 
-- **Note**: 
+Start a transaction.
 
-#### ⚠️ Raises 
-- **NanaSQLiteTransactionError**: 既にトランザクション中の場合
-- **NanaSQLiteConnectionError**: 接続が閉じられている場合
-- **NanaSQLiteDatabaseError**: トランザクション開始に失敗した場合
+- **Note**:
+    SQLite does not support nested transactions.
+    If already in a transaction, NanaSQLiteTransactionError occurs.
 
-#### 💡 Example 
-
-```python
-    >>> db.begin_transaction()
-    >>> try:
-    ...     db.sql_insert("users", {"name": "Alice"})
-    ...     db.sql_insert("users", {"name": "Bob"})
-    ...     db.commit()
-    ... except:
-    ...     db.rollback()
-```
+#### ⚠️ Exceptions
+- **NanaSQLiteTransactionError**: If already in transaction
+- **NanaSQLiteConnectionError**: If connection is closed
+- **NanaSQLiteDatabaseError**: If transaction start fails
 
 ---
 
@@ -961,10 +962,10 @@ begin_transaction(self) -> 'None'
 commit(self) -> 'None'
 ```
 
-#### ⚠️ Raises 
-- **NanaSQLiteTransactionError**: トランザクション外でコミットを試みた場合
-- **NanaSQLiteConnectionError**: 接続が閉じられている場合
-- **NanaSQLiteDatabaseError**: コミットに失敗した場合
+Commit transaction.
+
+#### ⚠️ Exceptions
+- **NanaSQLiteTransactionError**: If attempted to commit outside transaction
 
 ---
 
@@ -974,10 +975,10 @@ commit(self) -> 'None'
 rollback(self) -> 'None'
 ```
 
-#### ⚠️ Raises 
-- **NanaSQLiteTransactionError**: トランザクション外でロールバックを試みた場合
-- **NanaSQLiteConnectionError**: 接続が閉じられている場合
-- **NanaSQLiteDatabaseError**: ロールバックに失敗した場合
+Rollback transaction.
+
+#### ⚠️ Exceptions
+- **NanaSQLiteTransactionError**: If attempted to rollback outside transaction
 
 ---
 
@@ -987,17 +988,10 @@ rollback(self) -> 'None'
 in_transaction(self) -> 'bool'
 ```
 
-#### 📤 Returns 
-- **bool**: トランザクション中の場合True
+Return whether currently in a transaction.
 
-#### 💡 Example 
-
-```python
-    >>> db.begin_transaction()
-    >>> print(db.in_transaction())  # True
-    >>> db.commit()
-    >>> print(db.in_transaction())  # False
-```
+#### 📤 Returns
+- **bool**: True if in transaction
 
 ---
 
@@ -1007,16 +1001,20 @@ in_transaction(self) -> 'bool'
 transaction(self)
 ```
 
-#### ⚠️ Raises 
-- **NanaSQLiteTransactionError**: 既にトランザクション中の場合
+Context manager for transactions.
 
-#### 💡 Example 
+Automatically commits if no exception occurs within the context,
+and automatically rolls back if an exception occurs.
 
+#### ⚠️ Exceptions
+- **NanaSQLiteTransactionError**: If already in transaction
+
+#### 💡 Example
 ```python
     >>> with db.transaction():
     ...     db.sql_insert("users", {"name": "Alice"})
     ...     db.sql_insert("users", {"name": "Bob"})
-    ...     # 自動的にコミット、例外時はロールバック
+    ...     # Auto commit, rollback on error
 ```
 
 ---
@@ -1027,37 +1025,27 @@ transaction(self)
 table(self, table_name: 'str')
 ```
 
-- **推奨**: テーブルインスタンスを変数に保存して再利用してください
+Get NanaSQLite instance for sub-table.
 
-- **非推奨**: 
-    sub1 = db.table
+Creates a new instance but shares SQLite connection and lock.
+This allows multiple table instances to work safely using the same connection.
 
-- **推奨**: 
-    users_db = db.table
+⚠️ Important Notes:
+- Do not create multiple instances for the same table
+  It causes cache inconsistency as each instance has independent cache
+- **Recommended**: Reuse table instances
 
-#### ⚠️ Raises 
-- **NanaSQLiteConnectionError**: 接続が閉じられている場合
+:param table_name: Table name
+:return NanaSQLite: New table instance
 
-#### 💡 Example 
+#### ⚠️ Exceptions
+- **NanaSQLiteConnectionError**: If connection is closed
 
+#### 💡 Example
 ```python
     >>> with NanaSQLite("app.db", table="main") as main_db:
     ...     users_db = main_db.table("users")
     ...     products_db = main_db.table("products")
-    ...     users_db["user1"] = {"name": "Alice"}
-    ...     products_db["prod1"] = {"name": "Laptop"}
 ```
 
 ---
-
-### popitem
-
-```python
-popitem(self)
-```
-
-D.popitem() -> (k, v), remove and return some (key, value) pair
-as a 2-tuple; but raise KeyError if D is empty.
-
----
-

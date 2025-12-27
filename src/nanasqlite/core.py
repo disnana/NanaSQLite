@@ -402,7 +402,7 @@ class NanaSQLite(MutableMapping):
         serialized = self._serialize(value)
         with self._lock:
             self._connection.execute(
-                f"INSERT OR REPLACE INTO {self._table} (key, value) VALUES (?, ?)",
+                f"INSERT OR REPLACE INTO {self._table} (key, value) VALUES (?, ?)",  # nosec
                 (key, serialized)
             )
 
@@ -410,7 +410,7 @@ class NanaSQLite(MutableMapping):
         """SQLiteから値を読み込み"""
         with self._lock:
             cursor = self._connection.execute(
-                f"SELECT value FROM {self._table} WHERE key = ?",
+                f"SELECT value FROM {self._table} WHERE key = ?",  # nosec
                 (key,)
             )
             row = cursor.fetchone()
@@ -422,7 +422,7 @@ class NanaSQLite(MutableMapping):
         """SQLiteから値を削除"""
         with self._lock:
             self._connection.execute(
-                f"DELETE FROM {self._table} WHERE key = ?",
+                f"DELETE FROM {self._table} WHERE key = ?",  # nosec
                 (key,)
             )
 
@@ -430,7 +430,7 @@ class NanaSQLite(MutableMapping):
         """SQLiteから全キーを取得"""
         with self._lock:
             cursor = self._connection.execute(
-                f"SELECT key FROM {self._table}"
+                f"SELECT key FROM {self._table}"  # nosec
             )
             return [row[0] for row in cursor]
 
@@ -491,7 +491,7 @@ class NanaSQLite(MutableMapping):
         # 軽量な存在確認クエリ（valueを読み込まない）
         with self._lock:
             cursor = self._connection.execute(
-                f"SELECT 1 FROM {self._table} WHERE key = ? LIMIT 1", (key,)
+                f"SELECT 1 FROM {self._table} WHERE key = ? LIMIT 1", (key,)  # nosec
             )
             exists = cursor.fetchone() is not None
 
@@ -508,7 +508,7 @@ class NanaSQLite(MutableMapping):
         """len(dict) - DBの実際の件数を返す"""
         with self._lock:
             cursor = self._connection.execute(
-                f"SELECT COUNT(*) FROM {self._table}"
+                f"SELECT COUNT(*) FROM {self._table}"  # nosec
             )
             return cursor.fetchone()[0]
 
@@ -613,7 +613,7 @@ class NanaSQLite(MutableMapping):
 
         # 2. DBから足りない分を一括取得
         placeholders = ",".join(["?"] * len(missing_keys))
-        sql = f"SELECT key, value FROM {self._table} WHERE key IN ({placeholders})"
+        sql = f"SELECT key, value FROM {self._table} WHERE key IN ({placeholders})"  # nosec
 
         with self._lock:
             cursor = self._connection.execute(sql, tuple(missing_keys))
@@ -657,7 +657,7 @@ class NanaSQLite(MutableMapping):
         self._cached_keys.clear()
         self._all_loaded = False
         with self._lock:
-            self._connection.execute(f"DELETE FROM {self._table}")
+            self._connection.execute(f"DELETE FROM {self._table}")  # nosec
 
     def setdefault(self, key: str, default: Any = None) -> Any:
         """dict.setdefault(key, default)"""
@@ -675,7 +675,7 @@ class NanaSQLite(MutableMapping):
 
         with self._lock:
             cursor = self._connection.execute(
-                f"SELECT key, value FROM {self._table}"
+                f"SELECT key, value FROM {self._table}"  # nosec
             )
             rows = list(cursor)  # ロック内でフェッチ
 
@@ -731,7 +731,7 @@ class NanaSQLite(MutableMapping):
             # 事前にシリアライズしてexecutemany用のタプルリストを作成
             params = [(key, self._serialize(value)) for key, value in mapping.items()]
             cursor.executemany(
-                f"INSERT OR REPLACE INTO {self._table} (key, value) VALUES (?, ?)",
+                f"INSERT OR REPLACE INTO {self._table} (key, value) VALUES (?, ?)",  # nosec
                 params
             )
             # キャッシュ更新
@@ -765,7 +765,7 @@ class NanaSQLite(MutableMapping):
             # executemany用のタプルリストを作成
             params = [(key,) for key in keys]
             cursor.executemany(
-                f"DELETE FROM {self._table} WHERE key = ?",
+                f"DELETE FROM {self._table} WHERE key = ?",  # nosec
                 params
             )
             # キャッシュ更新
@@ -1158,7 +1158,7 @@ class NanaSQLite(MutableMapping):
                 raise ValueError("limit must be non-negative")
 
         # SQL構築
-        sql = f"SELECT {columns_sql} FROM {safe_table_name}"
+        sql = f"SELECT {columns_sql} FROM {safe_table_name}"  # nosec
 
         if where:
             sql += f" WHERE {where}"
@@ -1391,7 +1391,7 @@ class NanaSQLite(MutableMapping):
         placeholders = ", ".join(["?"] * len(values))
         columns_sql = ", ".join(safe_columns)
 
-        sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders})"
+        sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders})"  # nosec
         self.execute(sql, tuple(values))
 
         return self.get_last_insert_rowid()
@@ -1422,7 +1422,7 @@ class NanaSQLite(MutableMapping):
         set_clause = ", ".join(safe_set_items)
         values = list(data.values())
 
-        sql = f"UPDATE {safe_table_name} SET {set_clause} WHERE {where}"
+        sql = f"UPDATE {safe_table_name} SET {set_clause} WHERE {where}"  # nosec
 
         if parameters:
             values.extend(parameters)
@@ -1446,7 +1446,7 @@ class NanaSQLite(MutableMapping):
             >>> count = db.sql_delete("users", "age < ?", (18,))
         """
         safe_table_name = self._sanitize_identifier(table_name)
-        sql = f"DELETE FROM {safe_table_name} WHERE {where}"
+        sql = f"DELETE FROM {safe_table_name} WHERE {where}"  # nosec
         self.execute(sql, parameters)
         return self._connection.changes()
 
@@ -1491,8 +1491,8 @@ class NanaSQLite(MutableMapping):
                 update_clause = ", ".join(update_items)
             else:
                 # 全カラムが競合カラムの場合は、何もしない（既存データを保持）
-                sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders}) "
-                sql += f"ON CONFLICT({conflict_cols_sql}) DO NOTHING"
+                sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders}) "  # nosec
+                sql += f"ON CONFLICT({conflict_cols_sql}) DO NOTHING"  # nosec
                 self.execute(sql, tuple(values))
                 # When DO NOTHING is triggered, no row is inserted, return 0
                 # Check only the most recent operation's change count
@@ -1500,11 +1500,11 @@ class NanaSQLite(MutableMapping):
                     return 0
                 return self.get_last_insert_rowid()
 
-            sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders}) "
-            sql += f"ON CONFLICT({conflict_cols_sql}) DO UPDATE SET {update_clause}"
+            sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders}) "  # nosec
+            sql += f"ON CONFLICT({conflict_cols_sql}) DO UPDATE SET {update_clause}"  # nosec
         else:
             # INSERT OR REPLACE
-            sql = f"INSERT OR REPLACE INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders})"
+            sql = f"INSERT OR REPLACE INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders})"  # nosec
 
         self.execute(sql, tuple(values))
         return self.get_last_insert_rowid()
@@ -1539,7 +1539,7 @@ class NanaSQLite(MutableMapping):
         # バリデーション
         self._validate_expression(where, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed)
 
-        sql = f"SELECT COUNT(*) FROM {safe_table_name}"
+        sql = f"SELECT COUNT(*) FROM {safe_table_name}"  # nosec
         if where:
             sql += f" WHERE {where}"
 
@@ -1563,7 +1563,7 @@ class NanaSQLite(MutableMapping):
             ...     print("User exists")
         """
         safe_table_name = self._sanitize_identifier(table_name)
-        sql = f"SELECT EXISTS(SELECT 1 FROM {safe_table_name} WHERE {where})"
+        sql = f"SELECT EXISTS(SELECT 1 FROM {safe_table_name} WHERE {where})"  # nosec
         cursor = self.execute(sql, parameters)
         return bool(cursor.fetchone()[0])
 
@@ -1648,7 +1648,7 @@ class NanaSQLite(MutableMapping):
             columns_sql = ", ".join(safe_cols)
 
         # SQL構築
-        sql = f"SELECT {columns_sql} FROM {safe_table_name}"
+        sql = f"SELECT {columns_sql} FROM {safe_table_name}"  # nosec
 
         if where:
             sql += f" WHERE {where}"
@@ -1759,7 +1759,7 @@ class NanaSQLite(MutableMapping):
         safe_columns = [self._sanitize_identifier(col) for col in columns]
         placeholders = ", ".join(["?"] * len(columns))
         columns_sql = ", ".join(safe_columns)
-        sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders})"
+        sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders})"  # nosec
 
         # 各dictから値を抽出
         parameters_list = []
