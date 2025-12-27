@@ -43,7 +43,13 @@ Support for deeply nested dictionaries and lists (up to 30+ levels).
 Strict SQL validation, ReDoS protection, and character-set verification are built-in for maximum stability.
 
 ### 3. Full Async Support
-Use `AsyncNanaSQLite` for non-blocking operations in frameworks like FastAPI or Discord.py.
+Use `AsyncNanaSQLite` for non-blocking operations in frameworks like FastAPI or Discord.py. Optimized thread pool management ensures maximum event loop performance.
+
+### 4. Transactions & Multi-table
+Safely operate on multiple tables within the same database while sharing a single connection. Robust transaction support with `with db.transaction()` ensures data integrity.
+
+### 5. Pydantic & Direct SQL
+Built-in support for Pydantic models and raw SQL execution (with parameter binding) for advanced use cases.
 
 ---
 
