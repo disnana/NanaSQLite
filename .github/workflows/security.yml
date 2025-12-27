@@ -109,10 +109,27 @@ jobs:
       with:
         sarif_file: 'trivy-results.sarif'
 
+  # Bun Audit - Node.js(Bun)依存関係の既知脆弱性チェック
+  bun-audit:
+    name: Bun Audit
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: latest
+        
+    - name: Run Bun Audit
+      working-directory: docs/site
+      run: bun audit
+
   # セキュリティサマリー
   summary:
     name: Security Summary
-    needs: [codeql, safety, bandit, trivy]
+    needs: [codeql, safety, bandit, trivy, bun-audit]
     runs-on: ubuntu-latest
     if: always()
     
@@ -127,3 +144,4 @@ jobs:
         echo "| Safety | ${{ needs.safety.result == 'success' && '✅ Passed' || '⚠️ Check logs' }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Bandit | ${{ needs.bandit.result == 'success' && '✅ Passed' || '⚠️ Check logs' }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Trivy | ${{ needs.trivy.result == 'success' && '✅ Passed' || '⚠️ Check logs' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Bun Audit | ${{ needs.bun-audit.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
