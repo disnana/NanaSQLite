@@ -6,6 +6,24 @@
 
 ## 日本語
 
+### [1.2.2b1] - 2025-12-27
+
+#### ドキュメントとブランドの刷新
+- **超モダンなドキュメントサイトの構築**:
+  - VitePress + Tailwind CSS を採用し、デザイン性とブラウジング体験を大幅に向上させた公式サイトを `docs/site` に構築。
+  - **公式SVGロゴの制作**: 辞書 `{ }` とデータスタックを融合させた独自シンボルを開発。100%透過、ダークモード自動対応（反転フィルタ）、無限解像度のベクター形式。
+  - **多言語APIリファレンスの真の分離**: docstringからターゲット言語（日・英）のみを抽出・整形するインテリジェントな生成エンジンを実装。
+- **自動化と公開**:
+  - GitHub Actions による docs 自動ビルド・公開ワークフロー (`deploy-docs.yml`) を導入。
+  - 公開時に `gh-pages` ブランチの過去のベンチマーク履歴を自動取得・マージし、履歴を保護するロジックを実装。
+
+#### セキュリティと安定性の向上
+- **SQL検証の適正化**:
+  - `||` (文字列連結) 演算子を高速検証の許可リストに追加し、複雑なエイリアスを含むクエリでの誤検知を解消。
+- **CI/CDの安定化**:
+  - `ruff` の最新ルールに基づき、`core.py` および `gen_api_docs.py` のインポート順序を厳密に整理。
+  - 依存関係の欠落を防ぐため、docsビルド時の依存管理を強化。
+
 ### [1.2.2a1] - 2025-12-26
 
 #### 開発ツール (ベンチマーク・CI/CD)
@@ -371,6 +389,24 @@
 ---
 
 ## English
+
+### [1.2.2b1] - 2025-12-27
+
+#### Documentation & Brand Overhaul
+- **Ultra-Modern Documentation Site**:
+  - Built a new high-end official site using VitePress + Tailwind CSS in `docs/site`, significantly improving design and UX.
+  - **Official SVG Identity**: Created an original 'Dict-Stack' symbol. Features 100% transparency, automatic dark mode support (via inverted filters), and infinite vector resolution.
+  - **Truly Isolated Bilingual API Docs**: Implemented an intelligent extraction engine to parse docstrings and generate purely localized references for both Japanese and English.
+- **Automation & Deployment**:
+  - Introduced automated deployment via GitHub Actions (`deploy-docs.yml`).
+  - Implemented smart history preservation that automatically merges previous benchmark data from `gh-pages` into the new documentation build.
+
+#### Security & CI Improvements
+- **SQL Validation Refinement**:
+  - Added the `||` (concatenation) operator to the fast-validation safe set, resolving false positives in complex SQL alias queries.
+- **CI/CD Stability**:
+  - Strict re-sorting of imports in `core.py` and `gen_api_docs.py` to comply with the latest `ruff` linting rules.
+  - Enhanced dependency management for documentation builds.
 
 ### [1.2.2a1] - 2025-12-26
 
