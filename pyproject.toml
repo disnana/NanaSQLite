@@ -55,7 +55,7 @@ dev = [
 
 [project.urls]
 Homepage = "https://github.com/disnana/nanasqlite"
-Documentation = "https://github.com/disnana/nanasqlite/tree/main/docs"
+Documentation = "https://nanasqlite.disnana.com/"
 Repository = "https://github.com/disnana/nanasqlite"
 Issues = "https://github.com/disnana/nanasqlite/issues"
 
