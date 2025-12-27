@@ -35,6 +35,7 @@ from typing import Any
 import apsw
 
 from .core import IDENTIFIER_PATTERN, NanaSQLite
+from .cache import CacheType
 from .exceptions import NanaSQLiteClosedError, NanaSQLiteDatabaseError
 
 
@@ -93,6 +94,8 @@ class AsyncNanaSQLite:
         forbidden_sql_functions: list[str] | None = None,
         max_clause_length: int | None = 1000,
         read_pool_size: int = 0,
+        cache_strategy: CacheType | str = CacheType.UNBOUNDED,
+        cache_size: int | None = None,
     ):
         """
         Args:
@@ -122,6 +125,8 @@ class AsyncNanaSQLite:
         self._allowed_sql_functions = allowed_sql_functions
         self._forbidden_sql_functions = forbidden_sql_functions
         self._max_clause_length = max_clause_length
+        self._cache_strategy = cache_strategy
+        self._cache_size = cache_size
         self._closed = False
         self._child_instances = weakref.WeakSet()  # WeakSetによる弱参照追跡（死んだ参照は自動的にクリーンアップ）
         self._is_connection_owner = True
@@ -157,7 +162,9 @@ class AsyncNanaSQLite:
                     strict_sql_validation=self._strict_sql_validation,
                     allowed_sql_functions=self._allowed_sql_functions,
                     forbidden_sql_functions=self._forbidden_sql_functions,
-                    max_clause_length=self._max_clause_length
+                    max_clause_length=self._max_clause_length,
+                    cache_strategy=self._cache_strategy,
+                    cache_size=self._cache_size,
                 )
             )
 
