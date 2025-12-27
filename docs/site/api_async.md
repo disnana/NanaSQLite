@@ -244,12 +244,12 @@ async with db.transaction():
 
 ### `query` (エイリアス: `aquery`)
 ```python
-async def query(self, ...) -> list[dict]
+async def query(self, table_name: str, columns: list[str] | None = None, where: str | None = None, parameters: tuple = None, order_by: str | None = None, limit: int | None = None) -> list[dict]
 ```
 
 ### `query_with_pagination` (エイリアス: `aquery_with_pagination`)
 ```python
-async def query_with_pagination(self, ...) -> list[dict]
+async def query_with_pagination(self, table_name: str, columns: list[str] | None = None, where: str | None = None, parameters: tuple = None, order_by: str | None = None, limit: int = 20, offset: int = 0, group_by: str | None = None) -> list[dict]
 ```
 
 ### `execute` (エイリアス: `aexecute`)
@@ -257,9 +257,19 @@ async def query_with_pagination(self, ...) -> list[dict]
 async def execute(self, sql: str, parameters: tuple | None = None) -> Any
 ```
 
+### `execute_many` (エイリアス: `aexecute_many`)
+```python
+async def execute_many(self, sql: str, parameters: list[tuple]) -> None
+```
+
 ### `fetch_all` (エイリアス: `afetch_all`)
 ```python
 async def fetch_all(self, sql: str, parameters: tuple = None) -> list[tuple]
+```
+
+### `fetch_one` (エイリアス: `afetch_one`)
+```python
+async def fetch_one(self, sql: str, parameters: tuple = None) -> tuple | None
 ```
 
 ### `sql_insert` (エイリアス: `asql_insert`)
@@ -267,7 +277,105 @@ async def fetch_all(self, sql: str, parameters: tuple = None) -> list[tuple]
 async def sql_insert(self, table_name: str, data: dict) -> int
 ```
 
-*（`sql_update`, `sql_delete`, `count`, `create_table`, `create_index` 等も同様）*
+### `sql_update` (エイリアス: `asql_update`)
+```python
+async def sql_update(self, table_name: str, data: dict, where: str, parameters: tuple = None) -> None
+```
+
+### `sql_delete` (エイリアス: `asql_delete`)
+```python
+async def sql_delete(self, table_name: str, where: str, parameters: tuple = None) -> None
+```
+
+### `upsert` (エイリアス: `aupsert`)
+```python
+async def upsert(self, table_name: str, data: dict, unique_keys: list[str]) -> None
+```
+
+### `count` (エイリアス: `acount`)
+```python
+async def count(self, table_name: str, where: str | None = None, parameters: tuple = None) -> int
+```
+
+### `exists` (エイリアス: `aexists`)
+```python
+async def exists(self, table_name: str, where: str, parameters: tuple = None) -> bool
+```
+
+### `create_table`
+```python
+async def create_table(self, table_name: str, schema: dict[str, str]) -> None
+```
+
+### `drop_table`
+```python
+async def drop_table(self, table_name: str) -> None
+```
+
+### `create_index`
+```python
+async def create_index(self, index_name: str, table_name: str, columns: list[str], unique: bool = False) -> None
+```
+
+### `drop_index`
+```python
+async def drop_index(self, index_name: str) -> None
+```
+
+### `alter_table_add_column`
+```python
+async def alter_table_add_column(self, table_name: str, column_name: str, column_type: str) -> None
+```
+
+### `get_table_schema`
+```python
+async def get_table_schema(self, table_name: str) -> list[dict]
+```
+
+### `list_tables`
+```python
+async def list_tables(self) -> list[str]
+```
+
+### `table_exists`
+```python
+async def table_exists(self, table_name: str) -> bool
+```
+
+### `list_indexes`
+```python
+async def list_indexes(self, table_name: str | None = None) -> list[dict]
+```
+
+### `vacuum`
+```python
+async def vacuum(self) -> None
+```
+
+### `get_db_size`
+```python
+async def get_db_size(self) -> int
+```
+
+### `export_table_to_dict`
+```python
+async def export_table_to_dict(self, table_name: str) -> dict[str, Any]
+```
+
+### `import_from_dict_list`
+```python
+async def import_from_dict_list(self, table_name: str, data: list[dict], unique_keys: list[str] = None) -> None
+```
+
+### `get_last_insert_rowid`
+```python
+async def get_last_insert_rowid(self) -> int
+```
+
+### `pragma`
+```python
+async def pragma(self, name: str, value: Any = None) -> Any
+```
 
 ---
 

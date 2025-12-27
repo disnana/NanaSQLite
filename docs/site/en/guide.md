@@ -424,9 +424,9 @@ with NanaSQLite("sessions.db") as db:
 ## Next Steps
 
 - Read the [API Reference](./api_sync) for complete method documentation
-- Explore [async.md](async_guide) for async/await usage
-- Check [best_practices.md](best_practices) for production tips
-- See [examples/](../../examples/) for real-world code samples
+- Explore [Async Guide](async_guide) for async/await usage
+- Check [Best Practices](best_practices) for production tips
+- See [examples/](https://github.com/disnana/nanasqlite/tree/main/examples/) for real-world code samples
 
 ## Troubleshooting
 

@@ -323,4 +323,4 @@ Method mapping table:
 - Ideal for async frameworks like FastAPI
 - Compatible with sync version
 
-See [async_demo.py](../../examples/async_demo.py) for detailed usage examples.
+See [async_demo.py](https://github.com/disnana/nanasqlite/blob/main/examples/async_demo.py) for detailed usage examples.

@@ -119,17 +119,17 @@ async with AsyncNanaSQLite("mydata.db") as db:
 ```python
 from fastapi import FastAPI
 from nanasqlite import AsyncNanaSQLite
+from contextlib import asynccontextmanager
 
-app = FastAPI()
-
-# アプリケーション起動時にデータベース初期化
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 起動時にデータベース接続を作成
     app.state.db = AsyncNanaSQLite("app.db")
-
-@app.on_event("shutdown")
-async def shutdown():
+    yield
+    # シャットダウン時にデータベースをクローズ
     await app.state.db.close()
+
+app = FastAPI(lifespan=lifespan)
 
 # エンドポイント
 @app.get("/users/{user_id}")
@@ -326,4 +326,4 @@ async with AsyncNanaSQLite("app.db") as db:
 - FastAPI等の非同期フレームワークに最適
 - 同期版との互換性を保ちながら使用可能
 
-詳細な使用例は[async_demo.py](../../examples/async_demo.py)を参照してください。
+詳細な使用例は[async_demo.py](https://github.com/disnana/nanasqlite/blob/main/examples/async_demo.py)を参照してください。

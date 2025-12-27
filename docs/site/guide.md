@@ -424,9 +424,9 @@ with NanaSQLite("sessions.db") as db:
 ## 次のステップ
 
 - 完全なメソッドドキュメントは[APIリファレンス](./api_sync)を参照
-- async/await の使用方法は[async.md](async_guide)を探索
-- 本番環境のヒントは[best_practices.md](best_practices)を確認
-- 実際のコードサンプルは[examples/](../../examples/)を参照
+- async/await の使用方法は[Async Guide](async_guide)を探索
+- 本番環境のヒントは[Best Practices](best_practices)を確認
+- 実際のコードサンプルは[examples/](https://github.com/disnana/nanasqlite/tree/main/examples/)を参照
 
 ## トラブルシューティング
 

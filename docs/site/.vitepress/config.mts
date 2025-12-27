@@ -30,7 +30,8 @@ export default defineConfig({
                 text: 'APIリファレンス',
                 items: [
                     { text: 'NanaSQLite (同期)', link: '/api_sync' },
-                    { text: 'AsyncNanaSQLite (非同期)', link: '/api_async' }
+                    { text: 'AsyncNanaSQLite (非同期)', link: '/api_async' },
+                    { text: 'クイックリファレンス', link: '/quick_reference' }
                 ]
             }
         ],
@@ -69,7 +70,8 @@ export default defineConfig({
                         text: 'API Reference',
                         items: [
                             { text: 'NanaSQLite (Sync)', link: '/en/api_sync' },
-                            { text: 'AsyncNanaSQLite (Async)', link: '/en/api_async' }
+                            { text: 'AsyncNanaSQLite (Async)', link: '/en/api_async' },
+                            { text: 'Quick Reference', link: '/en/quick_reference' }
                         ]
                     }
                 ]
