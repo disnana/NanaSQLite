@@ -1,8 +1,12 @@
 """
 NanaSQLite Async Wrapper: Non-blocking async interface for NanaSQLite.
+(NanaSQLite 非同期ラッパー: NanaSQLiteのための非ブロッキング非同期インターフェース)
 
 Provides async/await support for all NanaSQLite operations, preventing blocking
 in async applications by running database operations in a thread pool.
+
+データベース操作をスレッドプールで実行することにより、非同期アプリケーションでのブロッキングを防ぎ、
+すべてのNanaSQLite操作に対してasync/awaitサポートを提供します。
 
 Example:
     >>> import asyncio
@@ -37,13 +41,20 @@ from .exceptions import NanaSQLiteClosedError, NanaSQLiteDatabaseError
 class AsyncNanaSQLite:
     """
     Async wrapper for NanaSQLite with optimized thread pool executor.
+    (最適化されたスレッドプールを使用するNanaSQLiteの非同期ラッパー)
 
     All database operations are executed in a dedicated thread pool executor to prevent
     blocking the async event loop. This allows NanaSQLite to be used safely
     in async applications like FastAPI, aiohttp, etc.
 
+    データベース操作はすべて専用のスレッドプール内で実行され、非同期イベントループのブロックを防ぎます。
+    これにより、FastAPIやaiohttpなどの非同期アプリケーションで安全に使用できます。
+
     The implementation uses a configurable thread pool for optimal concurrency
     and performance in high-load scenarios.
+
+    高負荷なシナリオにおいて最適な並行性とパフォーマンスを実現するため、
+    カスタマイズ可能なスレッドプールを使用しています。
 
     Args:
         db_path: SQLiteデータベースファイルのパス

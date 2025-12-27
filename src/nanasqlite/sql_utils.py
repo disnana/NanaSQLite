@@ -141,3 +141,39 @@ def sanitize_sql_for_function_scan(sql: str) -> str:
         i += 1
 
     return "".join(result)
+
+
+def fast_validate_sql_chars(expr: str) -> bool:
+    """
+    Validate that a SQL expression contains only safe characters.
+    This is a ReDoS-resistant alternative to complex regex for basic validation.
+
+    Safe characters include:
+    - Alphanumeric characters
+    - Underscore (_)
+    - Space ( )
+    - Comma (,) -- for ORDER BY/GROUP BY
+    - Dot (.) -- for table.column
+    - Parentheses (()) -- for function calls
+    - Operators: =, <, >, !, +, -, *, /
+    - Quotes: ', " (handled carefully by other layers)
+
+    Args:
+        expr: The SQL expression to validate
+
+    Returns:
+        True if all characters are within the safe set, False otherwise.
+    """
+    if not expr:
+        return True
+
+    # Safe character set: Alphanumeric, underscores, spaces, and common SQL punctuation/operators
+    # Including ?, :, @, $ for parameter placeholders
+    safe_chars = set(
+        "abcdefghijklmnopqrstuvwxyz"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "0123456789"
+        "_ ,.()'=<>!+-*/\"|?:@$"
+    )
+
+    return all(c in safe_chars for c in expr)
