@@ -6,6 +6,7 @@ NanaSQLite 新機能テストスイート
 - SQLiteラッパー関数
 """
 
+import importlib.util
 import json
 import os
 import sys
@@ -18,13 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from nanasqlite import NanaSQLite
 
 # Pydanticが利用可能かチェック
-try:
-    import pydantic  # noqa: F401 - imported to check availability
-
-    PYDANTIC_AVAILABLE = True
-    del pydantic  # Remove from namespace to avoid unused import warning
-except ImportError:
-    PYDANTIC_AVAILABLE = False
+PYDANTIC_AVAILABLE = importlib.util.find_spec("pydantic") is not None
 
 
 # ==================== Fixtures ====================

@@ -5,6 +5,7 @@ pytest-benchmarkを使用した非同期操作のパフォーマンス計測
 """
 
 import asyncio
+import contextlib
 import importlib.util
 import os
 import tempfile
@@ -32,15 +33,13 @@ def async_db_instance(db_path):
     db = AsyncNanaSQLite(db_path)
     yield db
     # 完全にクリーンアップ
-    try:
+    with contextlib.suppress(Exception):
         loop = asyncio.get_event_loop()
         if loop.is_running():
             # 実行中のループがある場合はタスクとして追加
             loop.create_task(db.close())
         else:
             loop.run_until_complete(db.close())
-    except Exception:
-        pass
 
 
 @pytest.fixture
@@ -57,10 +56,8 @@ def async_db_with_data_instance(db_path):
     loop = asyncio.get_event_loop()
     db = loop.run_until_complete(setup())
     yield db
-    try:
+    with contextlib.suppress(Exception):
         loop.run_until_complete(db.close())
-    except Exception:
-        pass
 
 
 # ベンチマーク用の永続的イベントループ
