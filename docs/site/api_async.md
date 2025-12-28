@@ -32,6 +32,8 @@ def __init__(
     forbidden_sql_functions: list[str] | None = None,
     max_clause_length: int | None = 1000,
     read_pool_size: int = 0,
+    cache_strategy: CacheType = CacheType.UNBOUNDED,
+    cache_size: int = 0,
 )
 ```
 
@@ -45,6 +47,8 @@ AsyncNanaSQLiteインターフェースを初期化します。
   - 読み取り負荷が高い並行処理の場合、この値を増やします。
 - `read_pool_size` (int, 任意): 専用の読み取り専用接続プールのサイズ。デフォルトは `0`（無効）。
   - これを有効にする（例: `read_pool_size=4`）と、書き込みロックをバイパスして並列読み取りが可能になります。
+- `cache_strategy` (CacheType, 任意): `CacheType.UNBOUNDED` または `CacheType.LRU`。 v1.3.0以降。
+- `cache_size` (int, 任意): `LRU` 戦略時の最大項目数。
 - `strict_sql_validation` など: `NanaSQLite` と同じセキュリティパラメータ。
 
 ---
@@ -62,7 +66,8 @@ async def close(self) -> None
 ### `table`
 
 ```python
-async def table(self, table_name: str) -> AsyncNanaSQLite
+async def table(self, table_name: str, cache_strategy: CacheType = None,
+                cache_size: int = None) -> AsyncNanaSQLite
 ```
 
 サブテーブル用の新しい `AsyncNanaSQLite` インスタンスを非同期に作成します。

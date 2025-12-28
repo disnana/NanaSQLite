@@ -40,19 +40,46 @@ NanaSQLite utilizes SQLite's `mmap_size` to improve read performance. It is set 
 
 ---
 
-## 🧠 Caching Strategy
+## 🧠 Caching Strategy (v1.3.0+)
 
-NanaSQLite features a "Lazy Loading" in-memory cache.
+NanaSQLite provides multiple caching strategies to optimize the balance between memory usage and performance.
+
+### 1. Unbounded Cache (`CacheType.UNBOUNDED`)
+The **default behavior**. Once accessed, data is cached in memory indefinitely.
+- **Pros**: Fastest re-access for the same key.
+- **Caveat**: Can lead to Out-Of-Memory (OOM) errors if the dataset is extremely large.
+
+### 2. LRU Cache (`CacheType.LRU`)
+**Introduced in v1.3.0**. Set a limit on the number of items in the cache; the least recently used items are automatically evicted.
+- **Usage**: Specify `cache_strategy=CacheType.LRU, cache_size=1000`.
+- **Pros**: Keeps memory usage predictable and capped.
+
+### ⚡ Speedup Option: `lru-dict`
+When using the LRU strategy, installing the C-extension `lru-dict` can boost cache operation speed by up to 2x.
+```bash
+pip install nanasqlite[speed]
+```
+NanaSQLite automatically detects and uses it if available. Otherwise, it falls back to the standard library's `OrderedDict`.
+
+### 📌 Per-Table Configuration
+Useful when you want to restrict memory usage only for specific tables (e.g., massive log tables).
+```python
+# Main DB is unbounded, but logs table caches only the latest 100 entries.
+logs = db.table("logs", cache_strategy=CacheType.LRU, cache_size=100)
+```
+
+---
+
+## ⚡ Cache Loading Methods
 
 1.  **bulk_load=True (at initialization)**:
     -   Loads all data into memory at startup.
     -   **Use Case**: When you have tens of thousands of items and need high-speed random access immediately.
 2.  **Default (Lazy Loading)**:
     -   Only stores accessed data in memory.
-    -   **Use Case**: When the dataset is huge, and you want to conserve memory.
 
 > [!TIP]
-> If you need to refresh the cache, use `db.refresh()` or `db.get_fresh(key)`.
+> If you need to force a cache refresh, use `db.refresh(key)` or `db.get_fresh(key)` to fetch directly from the DB.
 
 ---
 

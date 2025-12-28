@@ -350,7 +350,29 @@ async def main():
 asyncio.run(main())
 ```
 
-See [async_guide](async_guide) for detailed async documentation.
+## Lesson 10: Cache Strategies (v1.3.0)
+
+To keep memory usage under control while maintaining high speed, you can choose an eviction strategy (LRU).
+
+### Using LRU Cache
+
+```python
+from nanasqlite import NanaSQLite, CacheType
+
+# Cache only the most recent 1000 items in memory
+with NanaSQLite("app.db", cache_strategy=CacheType.LRU, cache_size=1000) as db:
+    db["key"] = "value"
+```
+
+### Maximizing Performance
+
+If `lru-dict` is installed, NanaSQLite uses a C-extension for ultra-fast cache operations.
+
+```bash
+pip install nanasqlite[speed]
+```
+
+For more details, see the [Performance Tuning Guide](performance_tuning).
 
 ## Common Patterns
 
