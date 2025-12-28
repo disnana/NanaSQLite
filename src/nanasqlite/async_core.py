@@ -241,6 +241,24 @@ class AsyncNanaSQLite:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self._db.get, key, default)
 
+    async def aget_fresh(self, key: str, default: Any = None) -> Any:
+        """
+        非同期でキーのフレッシュな値をDBから直接取得（キャッシュも更新）
+
+        Args:
+            key: 取得するキー
+            default: キーが存在しない場合のデフォルト値
+
+        Returns:
+            キーの値（存在しない場合はdefault）
+
+        Example:
+            >>> user = await db.aget_fresh("user")
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self._db.get_fresh, key, default)
+
     async def aset(self, key: str, value: Any) -> None:
         """
         非同期でキーに値を設定
@@ -398,6 +416,21 @@ class AsyncNanaSQLite:
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(self._executor, self._db.clear)
+
+    async def aclear_cache(self) -> None:
+        """
+        非同期でキャッシュのみをクリア
+
+        Example:
+            >>> await db.aclear_cache()
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(self._executor, self._db.clear_cache)
+
+    async def clear_cache(self) -> None:
+        """aclear_cacheのエイリアス"""
+        await self.aclear_cache()
 
     async def asetdefault(self, key: str, default: Any = None) -> Any:
         """

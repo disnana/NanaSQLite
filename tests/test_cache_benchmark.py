@@ -28,6 +28,20 @@ def db_lru(tmp_path):
         yield db
 
 
+@pytest.fixture
+def db_fifo(tmp_path):
+    db_path = tmp_path / "bench_fifo.db"
+    with NanaSQLite(str(db_path), cache_strategy=CacheType.UNBOUNDED, cache_size=1000) as db:
+        yield db
+
+
+@pytest.fixture
+def db_ttl(tmp_path):
+    db_path = tmp_path / "bench_ttl.db"
+    with NanaSQLite(str(db_path), cache_strategy=CacheType.TTL, cache_ttl=3600) as db:
+        yield db
+
+
 @pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
 class TestCacheBenchmarks:
     """Benchmark cache performance."""
@@ -71,6 +85,30 @@ class TestCacheBenchmarks:
         def read():
             for i in range(100):
                 _ = db_lru[f"key_{i}"]
+
+        benchmark(read)
+
+    def test_fifo_read_cached(self, db_fifo, benchmark):
+        """Benchmark: Read cached items (FIFO - Unbounded with size)."""
+        # Setup
+        for i in range(100):
+            db_fifo[f"key_{i}"] = {"value": i}
+
+        def read():
+            for i in range(100):
+                _ = db_fifo[f"key_{i}"]
+
+        benchmark(read)
+
+    def test_ttl_read_cached(self, db_ttl, benchmark):
+        """Benchmark: Read cached items (TTL)."""
+        # Setup
+        for i in range(100):
+            db_ttl[f"key_{i}"] = {"value": i}
+
+        def read():
+            for i in range(100):
+                _ = db_ttl[f"key_{i}"]
 
         benchmark(read)
 
