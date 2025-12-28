@@ -352,6 +352,30 @@ asyncio.run(main())
 
 詳細な非同期ドキュメントは[async_guide](async_guide)を参照してください。
 
+## レッスン 10: キャッシュ戦略 (v1.3.0)
+
+メモリ使用量を抑えつつ高速に動作させるために、キャッシュの追い出し（LRU）戦略を選択できます。
+
+### LRU キャッシュの使用
+
+```python
+from nanasqlite import NanaSQLite, CacheType
+
+# 最新の 1000 件のみをメモリにキャッシュ
+with NanaSQLite("app.db", cache_strategy=CacheType.LRU, cache_size=1000) as db:
+    db["key"] = "value"
+```
+
+### パフォーマンスの最大化
+
+`lru-dict` がインストールされている場合、C拡張による超高速なキャッシュ操作が可能です。
+
+```bash
+pip install nanasqlite[speed]
+```
+
+詳細は[パフォーマンスチューニングガイド](performance_tuning)を参照してください。
+
 ## 一般的なパターン
 
 ### 設定の保存

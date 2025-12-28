@@ -20,6 +20,8 @@ SQLiteを使用した、dict互換のラッパーです。即時永続化とイ�
 ```python
 def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
              optimize: bool = True, cache_size_mb: int = 64,
+             cache_strategy: CacheType = CacheType.UNBOUNDED,
+             cache_size: int = 0,
              strict_sql_validation: bool = True,
              allowed_sql_functions: list[str] | None = None,
              forbidden_sql_functions: list[str] | None = None,
@@ -32,13 +34,15 @@ NanaSQLiteデータベース接続を初期化します。
 
 - `db_path` (str): SQLiteデータベースファイルのパス。
 - `table` (str, 任意): ストレージに使用するテーブル名。デフォルトは `"data"`。
-- `bulk_load` (bool, 任意): `True` の場合、初期化時に全データをメモリに読み込みます。高速な読み込みが必要な小規模データセット向け。デフォルトは `False`。
-- `optimize` (bool, 任意): `True` の場合、WALモードやメモリマップドI/Oなどの最適化を適用します。デフォルトは `True`。
+- `bulk_load` (bool, 任意): `True` の場合、初期化時に全データをメモリに読み込みます。デフォルトは `False`。
+- `optimize` (bool, 任意): `True` の場合、WALモードなどの最適化を適用します。デフォルトは `True`。
 - `cache_size_mb` (int, 任意): SQLiteキャッシュサイズ（MB）。デフォルトは `64`。
-- `strict_sql_validation` (bool, 任意): `True` の場合、未知のSQL関数を含むクエリを拒否し、インジェクションを防ぎます。デフォルトは `True` (v1.2.0以降)。
-- `allowed_sql_functions` (list[str], 任意): 追加で許可するSQL関数のリスト。
-- `forbidden_sql_functions` (list[str], 任意): 明示的に禁止するSQL関数のリスト。
-- `max_clause_length` (int, 任意): SQL句の最大長（ReDoS対策）。デフォルトは `1000`。
+- `cache_strategy` (CacheType, 任意): `CacheType.UNBOUNDED` または `CacheType.LRU`。 v1.3.0以降。
+- `cache_size` (int, 任意): `LRU` 戦略時の最大項目数。
+- `strict_sql_validation` (bool, 任意): SQLインジェクション防止。デフォルトは `True`。
+- `allowed_sql_functions` (list[str], 任意): 許可するSQL関数。
+- `forbidden_sql_functions` (list[str], 任意): 禁止するSQL関数。
+- `max_clause_length` (int, 任意): SQL句の最大長。デフォルトは `1000`。
 
 ---
 
@@ -60,7 +64,8 @@ def close(self) -> None
 ### `table`
 
 ```python
-def table(self, table_name: str) -> NanaSQLite
+def table(self, table_name: str, cache_strategy: CacheType = None,
+          cache_size: int = None) -> NanaSQLite
 ```
 
 指定したサブテーブル用の新しい `NanaSQLite` インスタンスを返します。
@@ -69,6 +74,8 @@ def table(self, table_name: str) -> NanaSQLite
 
 **パラメータ:**
 - `table_name` (str): サブテーブルの名前。
+- `cache_strategy` (CacheType, 任意): このテーブル専用のキャッシュ戦略。指定しない場合は親の設定を継承。
+- `cache_size` (int, 任意): このテーブル専用のキャッシュサイズ。
 
 **戻り値:**
 - `NanaSQLite`: 指定したテーブルを操作する新しいインスタンス。
@@ -138,6 +145,12 @@ def update(self, mapping: dict = None, **kwargs) -> None
 def clear(self) -> None
 ```
 データベースから全アイテムを削除（テーブルを空にする）し、メモリキャッシュもクリアします。
+
+### `clear_cache`
+```python
+def clear_cache(self) -> None
+```
+データベースには影響を与えず、メモリ上のキャッシュのみを完全にクリアします。
 
 ### `keys`
 ```python
