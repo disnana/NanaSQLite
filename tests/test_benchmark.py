@@ -918,7 +918,7 @@ class TestEncryptionBenchmarks:
 
     @pytest.fixture
     def enc_dbs(self, db_path):
-        import os
+
 
         from cryptography.fernet import Fernet
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305

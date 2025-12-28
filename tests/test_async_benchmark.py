@@ -1002,7 +1002,7 @@ class TestAsyncCacheStrategyBenchmarks:
 
         from nanasqlite import CacheType
 
-        dbs = {}
+
         base_dir = os.path.dirname(db_path)
         cache_dir = os.path.join(base_dir, "async_cache_bench")
         if os.path.exists(cache_dir):
