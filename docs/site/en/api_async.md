@@ -32,6 +32,12 @@ def __init__(
     forbidden_sql_functions: list[str] | None = None,
     max_clause_length: int | None = 1000,
     read_pool_size: int = 0,
+    cache_strategy: CacheType = CacheType.UNBOUNDED,
+    cache_size: int = 0,
+    cache_ttl: float | None = None,
+    cache_persistence_ttl: bool = False,
+    encryption_key: str | bytes | None = None,
+    encryption_mode: str = "aes-gcm",
 )
 ```
 
@@ -45,7 +51,13 @@ Initializes the AsyncNanaSQLite interface.
   - Increase this for high-concurrency read workloads.
 - `read_pool_size` (int, optional): Size of the dedicated read-only connection pool. Defaults to `0` (disabled).
   - Enable this (e.g., `read_pool_size=4`) to allow concurrent reads to bypass the write lock.
-- `strict_sql_validation`, `allowed_sql_functions`, etc.: Same security parameters as `NanaSQLite`.
+- `cache_strategy` (CacheType, optional): `CacheType.UNBOUNDED` / `LRU` / `TTL`. (v1.3.0+)
+- `cache_size` (int, optional): Max items for cache.
+- `cache_ttl` (float, optional): TTL in seconds.
+- `cache_persistence_ttl` (bool, optional): Automatic DB deletion on TTL expiry.
+- `encryption_key` (str | bytes, optional): Encryption key. (v1.3.1+)
+- `encryption_mode` (str, optional): `"aes-gcm"` (default), `"chacha20"`, `"fernet"`.
+- `strict_sql_validation` etc.: Same security parameters as `NanaSQLite`.
 
 ---
 

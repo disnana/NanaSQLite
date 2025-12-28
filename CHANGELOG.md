@@ -6,7 +6,7 @@
 
 ## 日本語
 
-### [1.3.1a1] - 2025-12-28
+### [1.3.1] - 2025-12-28
 
 #### 新機能: オプションのデータ暗号化
 - **マルチモード暗号化**: `cryptography` を使用した透過的な暗号化を実装。
@@ -425,7 +425,7 @@
 
 ## English
 
-### [1.3.1a1] - 2025-12-28
+### [1.3.1] - 2025-12-28
 
 #### New Features: Optional Data Encryption
 - **Multi-mode Encryption**: Transparent encryption using `cryptography`.

@@ -22,6 +22,10 @@ def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
              optimize: bool = True, cache_size_mb: int = 64,
              cache_strategy: CacheType = CacheType.UNBOUNDED,
              cache_size: int = 0,
+             cache_ttl: float | None = None,
+             cache_persistence_ttl: bool = False,
+             encryption_key: str | bytes | None = None,
+             encryption_mode: str = "aes-gcm",
              strict_sql_validation: bool = True,
              allowed_sql_functions: list[str] | None = None,
              forbidden_sql_functions: list[str] | None = None,
@@ -37,8 +41,12 @@ NanaSQLiteデータベース接続を初期化します。
 - `bulk_load` (bool, 任意): `True` の場合、初期化時に全データをメモリに読み込みます。デフォルトは `False`。
 - `optimize` (bool, 任意): `True` の場合、WALモードなどの最適化を適用します。デフォルトは `True`。
 - `cache_size_mb` (int, 任意): SQLiteキャッシュサイズ（MB）。デフォルトは `64`。
-- `cache_strategy` (CacheType, 任意): `CacheType.UNBOUNDED` または `CacheType.LRU`。 v1.3.0以降。
-- `cache_size` (int, 任意): `LRU` 戦略時の最大項目数。
+- `cache_strategy` (CacheType, 任意): `CacheType.UNBOUNDED` or `LRU` or `TTL`. v1.3.0以降。
+- `cache_size` (int, 任意): `LRU`/`FIFO` 戦略時の最大項目数。
+- `cache_ttl` (float, 任意): `TTL` 戦略時の有効期限（秒）。
+- `cache_persistence_ttl` (bool, 任意): `True` の場合、期限切れ時にDBからも削除。
+- `encryption_key` (str | bytes, 任意): 暗号化キー。 v1.3.1以降。
+- `encryption_mode` (str, 任意): `"aes-gcm"` (標準), `"chacha20"`, `"fernet"`。
 - `strict_sql_validation` (bool, 任意): SQLインジェクション防止。デフォルトは `True`。
 - `allowed_sql_functions` (list[str], 任意): 許可するSQL関数。
 - `forbidden_sql_functions` (list[str], 任意): 禁止するSQL関数。

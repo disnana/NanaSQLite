@@ -484,6 +484,38 @@ data = {f"key_{i}": value for i in range(10000)}
 db.batch_update(data)  # Much faster than individual writes
 ```
 
+## Lesson 11: Encryption (v1.3.1)
+
+Transparent encryption support for storing sensitive data securely.
+
+### Basic Encryption
+
+```python
+from nanasqlite import NanaSQLite
+
+# Provide a 32-byte key (AES-GCM is used by default)
+db = NanaSQLite("secure.db", encryption_key=b"your-32-byte-secure-key-here-!!!")
+
+db["secret"] = {"password": "top-secret-password"}
+print(db["secret"]) # Access as usual
+```
+
+### Choosing Encryption Mode
+
+Select the best mode for your environment:
+- `aes-gcm` (Default): High performance and secure.
+- `chacha20`: Fast software implementation (great for systems without AES-NI).
+- `fernet`: Classic compatibility.
+
+```python
+db = NanaSQLite("secure.db", 
+    encryption_key=key, 
+    encryption_mode="chacha20"
+)
+```
+
+**Hybrid Design**: Data is encrypted on disk (SQLite) but kept in plain-text within the memory cache, ensuring high performance for read operations without sacrificing security.
+
 ## Summary
 
 You've learned:
