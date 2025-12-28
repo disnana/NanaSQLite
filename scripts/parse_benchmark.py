@@ -156,11 +156,17 @@ def categorize_test(test_name):
     if 'write' in name_lower or 'insert' in name_lower or 'set' in name_lower:
         if 'encryption' in name_lower or 'aes' in name_lower or 'chacha' in name_lower or 'fernet' in name_lower:
             return "🔐 Encryption Operations"
+        if 'cache' in name_lower or 'lru' in name_lower or 'ttl' in name_lower:
+            return "⚡ Cache Operations"
         return "✍️ Write Operations"
     elif 'read' in name_lower or 'get' in name_lower or 'fetch' in name_lower or 'load' in name_lower:
         if 'encryption' in name_lower or 'aes' in name_lower or 'chacha' in name_lower or 'fernet' in name_lower:
             return "🔐 Encryption Operations"
+        if 'cache' in name_lower or 'lru' in name_lower or 'ttl' in name_lower:
+            return "⚡ Cache Operations"
         return "📖 Read Operations"
+    elif 'eviction' in name_lower or 'expiry' in name_lower:
+        return "⚡ Cache Operations"
     elif 'batch' in name_lower:
         return "📦 Batch Operations"
     elif 'concurrent' in name_lower or 'mixed' in name_lower:

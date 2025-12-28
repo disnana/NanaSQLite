@@ -992,24 +992,89 @@ class TestEncryptionBenchmarks:
 class TestCacheStrategyBenchmarks:
     """キャッシュ戦略のベンチマーク"""
 
-    def test_lru_overhead(self, benchmark, tmp_path):
-        """LRUキャッシュのオーバーヘッド（書き込み時）"""
+    @pytest.fixture
+    def cache_dbs(self, tmp_path):
+        from nanasqlite import NanaSQLite, CacheType
+        import os
+        
+        dbs = {}
+        base_dir = tmp_path / "cache_bench"
+        base_dir.mkdir()
+        
+        strategies = {
+            "unbounded": (CacheType.UNBOUNDED, None),
+            "lru": (CacheType.LRU, 1000),
+            "fifo": (CacheType.UNBOUNDED, 1000), # FIFO acts as unbounded with size limit in this lib? Check impl.
+            # wait, NanaSQLite CacheType has UNBOUNDED, LRU, TTL. 
+            # FIFO is implemented as UnboundedCache with a max_size? 
+            # Looking at previous file content (Step 1242): 
+            # db_fifo -> CacheType.UNBOUNDED, cache_size=1000
+            "ttl": (CacheType.TTL, 3600)
+        }
+        
+        for name, (strategy, size) in strategies.items():
+            kwargs = {}
+            if name == "ttl":
+                kwargs["cache_ttl"] = size
+            elif size:
+                kwargs["cache_size"] = size
+                
+            dbs[name] = NanaSQLite(str(base_dir / f"{name}.db"), cache_strategy=strategy, **kwargs)
+            
+        yield dbs
+        
+        for db in dbs.values():
+            db.close()
+
+    @pytest.mark.parametrize("strategy", ["unbounded", "lru", "fifo", "ttl"])
+    def test_cache_write_1000(self, benchmark, cache_dbs, strategy):
+        """キャッシュ戦略ごとの書き込み性能 (1000件)"""
+        db = cache_dbs[strategy]
+        
+        def write_op():
+            for i in range(100): # Reduced rounds for benchmark speed, pytest-benchmark runs many rounds
+                db[f"w_{i}"] = i
+        
+        benchmark(write_op)
+
+    @pytest.mark.parametrize("strategy", ["unbounded", "lru", "fifo", "ttl"])
+    def test_cache_read_hit(self, benchmark, cache_dbs, strategy):
+        """キャッシュ戦略ごとの読み込み性能 (キャッシュヒット)"""
+        db = cache_dbs[strategy]
+        # Setup
+        for i in range(100):
+            db[f"r_{i}"] = i
+            
+        def read_op():
+            for i in range(100):
+                _ = db[f"r_{i}"]
+        
+        benchmark(read_op)
+
+    def test_lru_eviction(self, benchmark, tmp_path):
+        """LRUキャッシュの退避（Eviction）オーバーヘッド"""
         from nanasqlite import NanaSQLite, CacheType
         
-        db_path = tmp_path / "lru_bench.db"
-        # Small size to force evictions
-        with NanaSQLite(str(db_path), cache_strategy=CacheType.LRU, cache_size=100) as db:
+        db_path = tmp_path / "lru_evict.db"
+        # Size 10
+        with NanaSQLite(str(db_path), cache_strategy=CacheType.LRU, cache_size=10) as db:
+            # Fill
+            for i in range(10):
+                db[f"init_{i}"] = i
+                
             counter = [0]
-            def write_op():
-                db[f"k_{counter[0]}"] = counter[0]
+            def eviction_op():
+                # Write new key -> causes eviction
+                db[f"new_{counter[0]}"] = counter[0]
                 counter[0] += 1
-            benchmark(write_op)
+            
+            benchmark(eviction_op)
 
     def test_ttl_expiry_check(self, benchmark, tmp_path):
         """TTL有効期限チェックのオーバーヘッド"""
         from nanasqlite import NanaSQLite, CacheType
         
-        db_path = tmp_path / "ttl_bench.db"
+        db_path = tmp_path / "ttl_check.db"
         with NanaSQLite(str(db_path), cache_strategy=CacheType.TTL, cache_ttl=60) as db:
             db["target"] = "value"
             
