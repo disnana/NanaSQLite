@@ -96,6 +96,8 @@ class AsyncNanaSQLite:
         read_pool_size: int = 0,
         cache_strategy: CacheType | str = CacheType.UNBOUNDED,
         cache_size: int | None = None,
+        cache_ttl: float | None = None,
+        cache_persistence_ttl: bool = False,
     ):
         """
         Args:
@@ -127,6 +129,8 @@ class AsyncNanaSQLite:
         self._max_clause_length = max_clause_length
         self._cache_strategy = cache_strategy
         self._cache_size = cache_size
+        self._cache_ttl = cache_ttl
+        self._cache_persistence_ttl = cache_persistence_ttl
         self._closed = False
         self._child_instances = weakref.WeakSet()  # WeakSetによる弱参照追跡（死んだ参照は自動的にクリーンアップ）
         self._is_connection_owner = True
@@ -162,6 +166,8 @@ class AsyncNanaSQLite:
                     max_clause_length=self._max_clause_length,
                     cache_strategy=self._cache_strategy,
                     cache_size=self._cache_size,
+                    cache_ttl=self._cache_ttl,
+                    cache_persistence_ttl=self._cache_persistence_ttl,
                 ),
             )
 
@@ -1112,6 +1118,21 @@ class AsyncNanaSQLite:
         """Async context manager exit"""
         await self.close()
         return False
+
+    async def aclear_cache(self) -> None:
+        """
+        メモリキャッシュをクリア (非同期)
+
+        DBのデータは削除せず、メモリ上のキャッシュのみ破棄します。
+        """
+        if self._db is None:
+            return
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(self._executor, self._db.clear_cache)
+
+    async def clear_cache(self) -> None:
+        """aclear_cache のエイリアス"""
+        await self.aclear_cache()
 
     async def close(self) -> None:
         """
