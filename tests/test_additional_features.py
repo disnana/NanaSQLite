@@ -20,6 +20,7 @@ from nanasqlite import NanaSQLite
 
 # ==================== Fixtures ====================
 
+
 @pytest.fixture
 def db_path():
     """一時DBパスを提供"""
@@ -36,6 +37,7 @@ def db(db_path):
 
 
 # ==================== スキーマ管理機能テスト ====================
+
 
 class TestSchemaManagement:
     """スキーマ管理機能のテスト"""
@@ -67,14 +69,14 @@ class TestSchemaManagement:
 
         # インデックスが存在することを確認
         indexes = db.list_indexes("users")
-        assert any(idx['name'] == "idx_test" for idx in indexes)
+        assert any(idx["name"] == "idx_test" for idx in indexes)
 
         # 削除
         db.drop_index("idx_test")
 
         # 削除されたことを確認
         indexes = db.list_indexes("users")
-        assert not any(idx['name'] == "idx_test" for idx in indexes)
+        assert not any(idx["name"] == "idx_test" for idx in indexes)
 
     def test_alter_table_add_column(self, db):
         """カラム追加"""
@@ -85,7 +87,7 @@ class TestSchemaManagement:
 
         # スキーマ確認
         schema = db.get_table_schema("users")
-        col_names = [col['name'] for col in schema]
+        col_names = [col["name"] for col in schema]
         assert "email" in col_names
 
     def test_alter_table_add_column_with_default(self, db):
@@ -98,24 +100,21 @@ class TestSchemaManagement:
 
         # デフォルト値が設定されていることを確認
         result = db.query_with_pagination("users", where="id = ?", parameters=(1,))
-        assert result[0]['status'] == 'active'
+        assert result[0]["status"] == "active"
 
     def test_get_table_schema(self, db):
         """テーブル構造取得"""
-        db.create_table("users", {
-            "id": "INTEGER PRIMARY KEY",
-            "name": "TEXT NOT NULL",
-            "email": "TEXT",
-            "age": "INTEGER"
-        })
+        db.create_table(
+            "users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT NOT NULL", "email": "TEXT", "age": "INTEGER"}
+        )
 
         schema = db.get_table_schema("users")
 
         assert len(schema) == 4
-        assert schema[0]['name'] == 'id'
-        assert schema[0]['pk'] is True
-        assert schema[1]['name'] == 'name'
-        assert schema[1]['notnull'] is True
+        assert schema[0]["name"] == "id"
+        assert schema[0]["pk"] is True
+        assert schema[1]["name"] == "name"
+        assert schema[1]["notnull"] is True
 
     def test_list_indexes(self, db):
         """インデックス一覧取得"""
@@ -126,7 +125,7 @@ class TestSchemaManagement:
         indexes = db.list_indexes("users")
 
         assert len(indexes) >= 2
-        index_names = [idx['name'] for idx in indexes]
+        index_names = [idx["name"] for idx in indexes]
         assert "idx_name" in index_names
         assert "idx_email" in index_names
 
@@ -140,31 +139,28 @@ class TestSchemaManagement:
         all_indexes = db.list_indexes()
 
         assert len(all_indexes) >= 2
-        tables = [idx['table'] for idx in all_indexes]
+        tables = [idx["table"] for idx in all_indexes]
         assert "users" in tables
         assert "posts" in tables
 
 
 # ==================== データ操作機能テスト ====================
 
+
 class TestDataOperations:
     """データ操作機能のテスト"""
 
     def test_insert(self, db):
         """INSERT操作"""
-        db.create_table("users", {
-            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
-            "name": "TEXT",
-            "age": "INTEGER"
-        })
+        db.create_table("users", {"id": "INTEGER PRIMARY KEY AUTOINCREMENT", "name": "TEXT", "age": "INTEGER"})
 
         rowid = db.sql_insert("users", {"name": "Alice", "age": 25})
 
         assert rowid > 0
         result = db.query_with_pagination("users", where="name = ?", parameters=("Alice",))
         assert len(result) == 1
-        assert result[0]['name'] == "Alice"
-        assert result[0]['age'] == 25
+        assert result[0]["name"] == "Alice"
+        assert result[0]["age"] == 25
 
     def test_update(self, db):
         """UPDATE操作"""
@@ -175,7 +171,7 @@ class TestDataOperations:
 
         assert count == 1
         result = db.query_with_pagination("users", where="id = ?", parameters=(1,))
-        assert result[0]['age'] == 26
+        assert result[0]["age"] == 26
 
     def test_delete(self, db):
         """DELETE操作"""
@@ -192,11 +188,7 @@ class TestDataOperations:
 
     def test_upsert_insert_or_replace(self, db):
         """UPSERT（INSERT OR REPLACE）"""
-        db.create_table("users", {
-            "id": "INTEGER PRIMARY KEY",
-            "name": "TEXT",
-            "age": "INTEGER"
-        })
+        db.create_table("users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT", "age": "INTEGER"})
 
         # 最初の挿入
         db.upsert("users", {"id": 1, "name": "Alice", "age": 25})
@@ -207,29 +199,27 @@ class TestDataOperations:
         assert db.count("users") == 1
 
         result = db.query_with_pagination("users", where="id = ?", parameters=(1,))
-        assert result[0]['name'] == "Alice Updated"
-        assert result[0]['age'] == 26
+        assert result[0]["name"] == "Alice Updated"
+        assert result[0]["age"] == 26
 
     def test_upsert_on_conflict(self, db):
         """UPSERT（ON CONFLICT）"""
-        db.create_table("users", {
-            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
-            "email": "TEXT UNIQUE",
-            "name": "TEXT",
-            "age": "INTEGER"
-        })
+        db.create_table(
+            "users",
+            {"id": "INTEGER PRIMARY KEY AUTOINCREMENT", "email": "TEXT UNIQUE", "name": "TEXT", "age": "INTEGER"},
+        )
 
         # 最初の挿入
-        db.upsert("users", {"email": "alice@example.com", "name": "Alice", "age": 25},
-                 conflict_columns=["email"])
+        db.upsert("users", {"email": "alice@example.com", "name": "Alice", "age": 25}, conflict_columns=["email"])
 
         # 同じemailで更新
-        db.upsert("users", {"email": "alice@example.com", "name": "Alice Updated", "age": 26},
-                 conflict_columns=["email"])
+        db.upsert(
+            "users", {"email": "alice@example.com", "name": "Alice Updated", "age": 26}, conflict_columns=["email"]
+        )
 
         assert db.count("users") == 1
         result = db.query_with_pagination("users", where="email = ?", parameters=("alice@example.com",))
-        assert result[0]['name'] == "Alice Updated"
+        assert result[0]["name"] == "Alice Updated"
 
     def test_count(self, db):
         """レコード数取得"""
@@ -264,6 +254,7 @@ class TestDataOperations:
 
 # ==================== クエリ拡張機能テスト ====================
 
+
 class TestQueryExtensions:
     """クエリ拡張機能のテスト"""
 
@@ -276,20 +267,18 @@ class TestQueryExtensions:
         # 1ページ目
         page1 = db.query_with_pagination("items", limit=5, offset=0, order_by="id ASC")
         assert len(page1) == 5
-        assert page1[0]['id'] == 0
+        assert page1[0]["id"] == 0
 
         # 2ページ目
         page2 = db.query_with_pagination("items", limit=5, offset=5, order_by="id ASC")
         assert len(page2) == 5
-        assert page2[0]['id'] == 5
+        assert page2[0]["id"] == 5
 
     def test_query_with_group_by(self, db):
         """GROUP BY付きクエリ"""
-        db.create_table("orders", {
-            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
-            "user_id": "INTEGER",
-            "amount": "INTEGER"
-        })
+        db.create_table(
+            "orders", {"id": "INTEGER PRIMARY KEY AUTOINCREMENT", "user_id": "INTEGER", "amount": "INTEGER"}
+        )
 
         # テストデータ挿入
         orders = [
@@ -297,7 +286,7 @@ class TestQueryExtensions:
             {"user_id": 1, "amount": 200},
             {"user_id": 2, "amount": 150},
             {"user_id": 2, "amount": 250},
-            {"user_id": 3, "amount": 300}
+            {"user_id": 3, "amount": 300},
         ]
         for order in orders:
             db.sql_insert("orders", order)
@@ -307,13 +296,13 @@ class TestQueryExtensions:
             "orders",
             columns=["user_id", "COUNT(*) as order_count", "SUM(amount) as total"],
             group_by="user_id",
-            order_by="user_id ASC"
+            order_by="user_id ASC",
         )
 
         assert len(results) == 3
-        assert results[0]['user_id'] == 1
-        assert results[0]['order_count'] == 2
-        assert results[0]['total'] == 300
+        assert results[0]["user_id"] == 1
+        assert results[0]["order_count"] == 2
+        assert results[0]["total"] == 300
 
     def test_query_combined_pagination_and_group(self, db):
         """ページネーションとグループ化の組み合わせ"""
@@ -325,19 +314,16 @@ class TestQueryExtensions:
             db.sql_insert("sales", {"category": "C", "amount": 300})
 
         results = db.query_with_pagination(
-            "sales",
-            columns=["category", "SUM(amount) as total"],
-            group_by="category",
-            order_by="total DESC",
-            limit=2
+            "sales", columns=["category", "SUM(amount) as total"], group_by="category", order_by="total DESC", limit=2
         )
 
         assert len(results) == 2
-        assert results[0]['category'] == 'C'
-        assert results[0]['total'] == 900
+        assert results[0]["category"] == "C"
+        assert results[0]["total"] == 900
 
 
 # ==================== ユーティリティ機能テスト ====================
+
 
 class TestUtilityFunctions:
     """ユーティリティ機能のテスト"""
@@ -378,20 +364,16 @@ class TestUtilityFunctions:
 
         assert len(exported) == 3
         assert all(isinstance(item, dict) for item in exported)
-        assert exported[0]['name'] == "Alice"
+        assert exported[0]["name"] == "Alice"
 
     def test_import_from_dict_list(self, db):
         """dictリストからインポート"""
-        db.create_table("products", {
-            "id": "INTEGER PRIMARY KEY",
-            "name": "TEXT",
-            "price": "REAL"
-        })
+        db.create_table("products", {"id": "INTEGER PRIMARY KEY", "name": "TEXT", "price": "REAL"})
 
         products = [
             {"id": 1, "name": "Product A", "price": 10.99},
             {"id": 2, "name": "Product B", "price": 20.99},
-            {"id": 3, "name": "Product C", "price": 15.99}
+            {"id": 3, "name": "Product C", "price": 15.99},
         ]
 
         count = db.import_from_dict_list("products", products)
@@ -431,6 +413,7 @@ class TestUtilityFunctions:
 
 
 # ==================== トランザクション制御テスト ====================
+
 
 class TestTransactionControl:
     """トランザクション制御のテスト"""
@@ -503,18 +486,22 @@ class TestTransactionControl:
 
 # ==================== 統合テスト ====================
 
+
 class TestIntegrationAdvanced:
     """高度な統合テスト"""
 
     def test_complete_crud_workflow(self, db):
         """完全なCRUDワークフロー"""
         # テーブル作成
-        db.create_table("users", {
-            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
-            "name": "TEXT NOT NULL",
-            "email": "TEXT UNIQUE",
-            "age": "INTEGER"
-        })
+        db.create_table(
+            "users",
+            {
+                "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+                "name": "TEXT NOT NULL",
+                "email": "TEXT UNIQUE",
+                "age": "INTEGER",
+            },
+        )
         db.create_index("idx_email", "users", ["email"], unique=True)
 
         # CREATE
@@ -530,7 +517,7 @@ class TestIntegrationAdvanced:
 
         # READ again
         alice = db.query_with_pagination("users", where="name = ?", parameters=("Alice",))
-        assert alice[0]['age'] == 26
+        assert alice[0]["age"] == 26
 
         # DELETE
         db.sql_delete("users", "name = ?", ("Bob",))
@@ -542,14 +529,11 @@ class TestIntegrationAdvanced:
 
     def test_bulk_operations_with_transaction(self, db):
         """トランザクション内での一括操作"""
-        db.create_table("logs", {
-            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
-            "message": "TEXT",
-            "timestamp": "INTEGER"
-        })
+        db.create_table("logs", {"id": "INTEGER PRIMARY KEY AUTOINCREMENT", "message": "TEXT", "timestamp": "INTEGER"})
 
         # 大量データを一括挿入
         import time
+
         logs = [{"message": f"Log {i}", "timestamp": int(time.time())} for i in range(1000)]
 
         # import_from_dict_listは内部でexecute_manyを使い、それがトランザクションを使用するため

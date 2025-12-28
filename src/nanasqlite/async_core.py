@@ -132,10 +132,7 @@ class AsyncNanaSQLite:
         self._is_connection_owner = True
 
         # 専用スレッドプールエグゼキューターを作成
-        self._executor = ThreadPoolExecutor(
-            max_workers=max_workers,
-            thread_name_prefix=thread_name_prefix
-        )
+        self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix=thread_name_prefix)
         self._db: NanaSQLite | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._owns_executor = True  # このインスタンスがエグゼキューターを所有
@@ -165,7 +162,7 @@ class AsyncNanaSQLite:
                     max_clause_length=self._max_clause_length,
                     cache_strategy=self._cache_strategy,
                     cache_size=self._cache_size,
-                )
+                ),
             )
 
             # Initialize Read-Only Pool if requested
@@ -186,7 +183,7 @@ class AsyncNanaSQLite:
                         c.execute("PRAGMA synchronous = NORMAL")
                         c.execute("PRAGMA mmap_size = 268435456")
                         # Smaller cache for pool connections (don't hog memory)
-                        c.execute("PRAGMA cache_size = -2000") # ~2MB
+                        c.execute("PRAGMA cache_size = -2000")  # ~2MB
                         c.execute("PRAGMA temp_store = MEMORY")
                         self._read_pool.put(conn)
 
@@ -236,12 +233,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._db.get,
-            key,
-            default
-        )
+        return await loop.run_in_executor(self._executor, self._db.get, key, default)
 
     async def aset(self, key: str, value: Any) -> None:
         """
@@ -256,12 +248,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor,
-            self._db.__setitem__,
-            key,
-            value
-        )
+        await loop.run_in_executor(self._executor, self._db.__setitem__, key, value)
 
     async def adelete(self, key: str) -> None:
         """
@@ -278,11 +265,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor,
-            self._db.__delitem__,
-            key
-        )
+        await loop.run_in_executor(self._executor, self._db.__delitem__, key)
 
     async def acontains(self, key: str) -> bool:
         """
@@ -301,11 +284,7 @@ class AsyncNanaSQLite:
         await self._ensure_initialized()
         assert self._db is not None
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._db.__contains__,
-            key
-        )
+        return await loop.run_in_executor(self._executor, self._db.__contains__, key)
 
     async def alen(self) -> int:
         """
@@ -319,10 +298,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._db.__len__
-        )
+        return await loop.run_in_executor(self._executor, self._db.__len__)
 
     async def akeys(self) -> list[str]:
         """
@@ -336,10 +312,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._db.keys
-        )
+        return await loop.run_in_executor(self._executor, self._db.keys)
 
     async def avalues(self) -> list[Any]:
         """
@@ -353,10 +326,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._db.values
-        )
+        return await loop.run_in_executor(self._executor, self._db.values)
 
     async def aitems(self) -> list[tuple[str, Any]]:
         """
@@ -370,10 +340,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._db.items
-        )
+        return await loop.run_in_executor(self._executor, self._db.items)
 
     async def apop(self, key: str, *args) -> Any:
         """
@@ -392,12 +359,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._db.pop,
-            key,
-            *args
-        )
+        return await loop.run_in_executor(self._executor, self._db.pop, key, *args)
 
     async def aupdate(self, mapping: dict = None, **kwargs) -> None:
         """
@@ -418,10 +380,7 @@ class AsyncNanaSQLite:
         def update_wrapper():
             self._db.update(mapping, **kwargs)
 
-        await loop.run_in_executor(
-            self._executor,
-            update_wrapper
-        )
+        await loop.run_in_executor(self._executor, update_wrapper)
 
     async def aclear(self) -> None:
         """
@@ -432,10 +391,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor,
-            self._db.clear
-        )
+        await loop.run_in_executor(self._executor, self._db.clear)
 
     async def asetdefault(self, key: str, default: Any = None) -> Any:
         """
@@ -453,12 +409,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._db.setdefault,
-            key,
-            default
-        )
+        return await loop.run_in_executor(self._executor, self._db.setdefault, key, default)
 
     # ==================== Async Special Methods ====================
 
@@ -471,10 +422,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor,
-            self._db.load_all
-        )
+        await loop.run_in_executor(self._executor, self._db.load_all)
 
     async def refresh(self, key: str = None) -> None:
         """
@@ -489,11 +437,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor,
-            self._db.refresh,
-            key
-        )
+        await loop.run_in_executor(self._executor, self._db.refresh, key)
 
     async def is_cached(self, key: str) -> bool:
         """
@@ -510,11 +454,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._db.is_cached,
-            key
-        )
+        return await loop.run_in_executor(self._executor, self._db.is_cached, key)
 
     async def batch_update(self, mapping: dict[str, Any]) -> None:
         """
@@ -532,11 +472,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor,
-            self._db.batch_update,
-            mapping
-        )
+        await loop.run_in_executor(self._executor, self._db.batch_update, mapping)
 
     async def batch_delete(self, keys: list[str]) -> None:
         """
@@ -550,11 +486,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor,
-            self._db.batch_delete,
-            keys
-        )
+        await loop.run_in_executor(self._executor, self._db.batch_delete, keys)
 
     async def to_dict(self) -> dict:
         """
@@ -568,10 +500,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._db.to_dict
-        )
+        return await loop.run_in_executor(self._executor, self._db.to_dict)
 
     async def copy(self) -> dict:
         """
@@ -585,10 +514,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._db.copy
-        )
+        return await loop.run_in_executor(self._executor, self._db.copy)
 
     async def get_fresh(self, key: str, default: Any = None) -> Any:
         """
@@ -606,12 +532,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._db.get_fresh,
-            key,
-            default
-        )
+        return await loop.run_in_executor(self._executor, self._db.get_fresh, key, default)
 
     async def abatch_get(self, keys: list[str]) -> dict[str, Any]:
         """
@@ -628,11 +549,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._db.batch_get,
-            keys
-        )
+        return await loop.run_in_executor(self._executor, self._db.batch_get, keys)
 
     # ==================== Async Pydantic Support ====================
 
@@ -654,12 +571,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor,
-            self._db.set_model,
-            key,
-            model
-        )
+        await loop.run_in_executor(self._executor, self._db.set_model, key, model)
 
     async def get_model(self, key: str, model_class: type = None) -> Any:
         """
@@ -677,14 +589,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._db.get_model,
-            key,
-            model_class
-        )
-
-
+        return await loop.run_in_executor(self._executor, self._db.get_model, key, model_class)
 
     # ==================== Async SQL Execution ====================
 
@@ -704,12 +609,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._db.execute,
-            sql,
-            parameters
-        )
+        return await loop.run_in_executor(self._executor, self._db.execute, sql, parameters)
 
     async def execute_many(self, sql: str, parameters_list: list[tuple]) -> None:
         """
@@ -727,12 +627,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor,
-            self._db.execute_many,
-            sql,
-            parameters_list
-        )
+        await loop.run_in_executor(self._executor, self._db.execute_many, sql, parameters_list)
 
     async def fetch_one(self, sql: str, parameters: tuple = None) -> tuple | None:
         """
@@ -756,10 +651,7 @@ class AsyncNanaSQLite:
                 return cursor.fetchone()
 
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            _fetch_one_impl
-        )
+        return await loop.run_in_executor(self._executor, _fetch_one_impl)
 
     async def fetch_all(self, sql: str, parameters: tuple = None) -> list[tuple]:
         """
@@ -783,19 +675,12 @@ class AsyncNanaSQLite:
                 return list(cursor)
 
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            _fetch_all_impl
-        )
+        return await loop.run_in_executor(self._executor, _fetch_all_impl)
 
     # ==================== Async SQLite Wrapper Functions ====================
 
     async def create_table(
-        self,
-        table_name: str,
-        columns: dict,
-        if_not_exists: bool = True,
-        primary_key: str = None
+        self, table_name: str, columns: dict, if_not_exists: bool = True, primary_key: str = None
     ) -> None:
         """
         非同期でテーブルを作成
@@ -816,21 +701,11 @@ class AsyncNanaSQLite:
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(
-            self._executor,
-            self._db.create_table,
-            table_name,
-            columns,
-            if_not_exists,
-            primary_key
+            self._executor, self._db.create_table, table_name, columns, if_not_exists, primary_key
         )
 
     async def create_index(
-        self,
-        index_name: str,
-        table_name: str,
-        columns: list[str],
-        unique: bool = False,
-        if_not_exists: bool = True
+        self, index_name: str, table_name: str, columns: list[str], unique: bool = False, if_not_exists: bool = True
     ) -> None:
         """
         非同期でインデックスを作成
@@ -848,13 +723,7 @@ class AsyncNanaSQLite:
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(
-            self._executor,
-            self._db.create_index,
-            index_name,
-            table_name,
-            columns,
-            unique,
-            if_not_exists
+            self._executor, self._db.create_index, index_name, table_name, columns, unique, if_not_exists
         )
 
     async def query(
@@ -868,7 +737,7 @@ class AsyncNanaSQLite:
         strict_sql_validation: bool = None,
         allowed_sql_functions: list[str] = None,
         forbidden_sql_functions: list[str] = None,
-        override_allowed: bool = False
+        override_allowed: bool = False,
     ) -> list[dict]:
         """
         非同期でSELECTクエリを実行
@@ -915,17 +784,24 @@ class AsyncNanaSQLite:
             strict_sql_validation,
             allowed_sql_functions,
             forbidden_sql_functions,
-            override_allowed
+            override_allowed,
         )
 
-    async def query_with_pagination(self, table_name: str = None, columns: list[str] = None,
-                                   where: str = None, parameters: tuple = None,
-                                   order_by: str = None, limit: int = None,
-                                   offset: int = None, group_by: str = None,
-                                   strict_sql_validation: bool = None,
-                                   allowed_sql_functions: list[str] = None,
-                                   forbidden_sql_functions: list[str] = None,
-                                   override_allowed: bool = False) -> list[dict]:
+    async def query_with_pagination(
+        self,
+        table_name: str = None,
+        columns: list[str] = None,
+        where: str = None,
+        parameters: tuple = None,
+        order_by: str = None,
+        limit: int = None,
+        offset: int = None,
+        group_by: str = None,
+        strict_sql_validation: bool = None,
+        allowed_sql_functions: list[str] = None,
+        forbidden_sql_functions: list[str] = None,
+        override_allowed: bool = False,
+    ) -> list[dict]:
         """
         非同期で拡張されたクエリを実行
 
@@ -975,7 +851,7 @@ class AsyncNanaSQLite:
             strict_sql_validation,
             allowed_sql_functions,
             forbidden_sql_functions,
-            override_allowed
+            override_allowed,
         )
 
     async def table_exists(self, table_name: str) -> bool:
@@ -993,11 +869,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._db.table_exists,
-            table_name
-        )
+        return await loop.run_in_executor(self._executor, self._db.table_exists, table_name)
 
     async def list_tables(self) -> list[str]:
         """
@@ -1011,10 +883,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._db.list_tables
-        )
+        return await loop.run_in_executor(self._executor, self._db.list_tables)
 
     async def drop_table(self, table_name: str, if_exists: bool = True) -> None:
         """
@@ -1029,12 +898,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor,
-            self._db.drop_table,
-            table_name,
-            if_exists
-        )
+        await loop.run_in_executor(self._executor, self._db.drop_table, table_name, if_exists)
 
     async def drop_index(self, index_name: str, if_exists: bool = True) -> None:
         """
@@ -1049,12 +913,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor,
-            self._db.drop_index,
-            index_name,
-            if_exists
-        )
+        await loop.run_in_executor(self._executor, self._db.drop_index, index_name, if_exists)
 
     async def sql_insert(self, table_name: str, data: dict) -> int:
         """
@@ -1076,20 +935,9 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._db.sql_insert,
-            table_name,
-            data
-        )
+        return await loop.run_in_executor(self._executor, self._db.sql_insert, table_name, data)
 
-    async def sql_update(
-        self,
-        table_name: str,
-        data: dict,
-        where: str,
-        parameters: tuple = None
-    ) -> int:
+    async def sql_update(self, table_name: str, data: dict, where: str, parameters: tuple = None) -> int:
         """
         非同期でdictとwhere条件でUPDATE
 
@@ -1111,14 +959,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._db.sql_update,
-            table_name,
-            data,
-            where,
-            parameters
-        )
+        return await loop.run_in_executor(self._executor, self._db.sql_update, table_name, data, where, parameters)
 
     async def sql_delete(self, table_name: str, where: str, parameters: tuple = None) -> int:
         """
@@ -1137,20 +978,18 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._db.sql_delete,
-            table_name,
-            where,
-            parameters
-        )
+        return await loop.run_in_executor(self._executor, self._db.sql_delete, table_name, where, parameters)
 
-    async def count(self, table_name: str = None, where: str = None,
-                   parameters: tuple = None,
-                   strict_sql_validation: bool = None,
-                   allowed_sql_functions: list[str] = None,
-                   forbidden_sql_functions: list[str] = None,
-                   override_allowed: bool = False) -> int:
+    async def count(
+        self,
+        table_name: str = None,
+        where: str = None,
+        parameters: tuple = None,
+        strict_sql_validation: bool = None,
+        allowed_sql_functions: list[str] = None,
+        forbidden_sql_functions: list[str] = None,
+        override_allowed: bool = False,
+    ) -> int:
         """
         非同期でレコード数を取得
 
@@ -1180,7 +1019,7 @@ class AsyncNanaSQLite:
             strict_sql_validation,
             allowed_sql_functions,
             forbidden_sql_functions,
-            override_allowed
+            override_allowed,
         )
 
     async def vacuum(self) -> None:
@@ -1192,10 +1031,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor,
-            self._db.vacuum
-        )
+        await loop.run_in_executor(self._executor, self._db.vacuum)
 
     # ==================== Transaction Control ====================
 
@@ -1214,10 +1050,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor,
-            self._db.begin_transaction
-        )
+        await loop.run_in_executor(self._executor, self._db.begin_transaction)
 
     async def commit(self) -> None:
         """
@@ -1228,10 +1061,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor,
-            self._db.commit
-        )
+        await loop.run_in_executor(self._executor, self._db.commit)
 
     async def rollback(self) -> None:
         """
@@ -1242,10 +1072,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor,
-            self._db.rollback
-        )
+        await loop.run_in_executor(self._executor, self._db.rollback)
 
     async def in_transaction(self) -> bool:
         """
@@ -1260,10 +1087,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._db.in_transaction
-        )
+        return await loop.run_in_executor(self._executor, self._db.in_transaction)
 
     def transaction(self):
         """
@@ -1303,10 +1127,7 @@ class AsyncNanaSQLite:
 
         if self._db is not None:
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                self._executor,
-                self._db.close
-            )
+            await loop.run_in_executor(self._executor, self._db.close)
             self._db = None
 
         self._closed = True
@@ -1418,11 +1239,7 @@ class AsyncNanaSQLite:
             await self._ensure_initialized()
 
         loop = asyncio.get_running_loop()
-        sub_db = await loop.run_in_executor(
-            self._executor,
-            self._db.table,
-            table_name
-        )
+        sub_db = await loop.run_in_executor(self._executor, self._db.table, table_name)
 
         # 新しいAsyncNanaSQLiteラッパーを作成（__init__をバイパス）
         async_sub_db = object.__new__(AsyncNanaSQLite)
@@ -1483,6 +1300,7 @@ class AsyncNanaSQLite:
     asql_delete = sql_delete
     acount = count
     avacuum = vacuum
+
     def _shared_query_impl(
         self,
         table_name: str,
@@ -1496,7 +1314,7 @@ class AsyncNanaSQLite:
         strict_sql_validation: bool = None,
         allowed_sql_functions: list[str] = None,
         forbidden_sql_functions: list[str] = None,
-        override_allowed: bool = False
+        override_allowed: bool = False,
     ) -> list[dict]:
         """Internal shared implementation for query execution"""
         target_table = self._db._sanitize_identifier(table_name) if table_name else self._db._table
@@ -1506,7 +1324,7 @@ class AsyncNanaSQLite:
             "strict": strict_sql_validation,
             "allowed": allowed_sql_functions,
             "forbidden": forbidden_sql_functions,
-            "override_allowed": override_allowed
+            "override_allowed": override_allowed,
         }
 
         # table_name is already validated via _sanitize_identifier above
@@ -1570,7 +1388,7 @@ class AsyncNanaSQLite:
                         # Extract aliases from provided columns list
                         col_names = []
                         for col in columns:
-                            parts = re.split(r'\s+as\s+', col, flags=re.IGNORECASE)
+                            parts = re.split(r"\s+as\s+", col, flags=re.IGNORECASE)
                             if len(parts) > 1:
                                 col_names.append(parts[-1].strip().strip('"').strip("'"))
                             else:
@@ -1586,6 +1404,7 @@ class AsyncNanaSQLite:
     keys = akeys
     values = avalues
     items = aitems
+
 
 class _AsyncTransactionContext:
     """非同期トランザクションのコンテキストマネージャ"""
@@ -1603,4 +1422,3 @@ class _AsyncTransactionContext:
         else:
             await self.db.rollback()
         return False
-

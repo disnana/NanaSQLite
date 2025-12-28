@@ -57,7 +57,7 @@ def sanitize_sql_for_function_scan(sql: str) -> str:
 
         # Inside line comment
         if in_line_comment:
-            if ch == '\n':
+            if ch == "\n":
                 in_line_comment = False
                 result.append(ch)
             else:
@@ -169,11 +169,6 @@ def fast_validate_sql_chars(expr: str) -> bool:
 
     # Safe character set: Alphanumeric, underscores, spaces, and common SQL punctuation/operators
     # Including ?, :, @, $ for parameter placeholders
-    safe_chars = set(
-        "abcdefghijklmnopqrstuvwxyz"
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        "0123456789"
-        "_ ,.()'=<>!+-*/\"|?:@$"
-    )
+    safe_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_ ,.()'=<>!+-*/\"|?:@$")
 
     return all(c in safe_chars for c in expr)

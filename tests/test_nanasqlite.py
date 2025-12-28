@@ -20,6 +20,7 @@ from nanasqlite import NanaSQLite
 
 # ==================== Fixtures ====================
 
+
 @pytest.fixture
 def db_path():
     """一時DBパスを提供"""
@@ -36,6 +37,7 @@ def db(db_path):
 
 
 # ==================== 基本操作テスト ====================
+
 
 class TestBasicOperations:
     """基本的な操作のテスト"""
@@ -150,6 +152,7 @@ class TestBasicOperations:
 
 # ==================== ネスト構造テスト ====================
 
+
 class TestNestedStructures:
     """ネストしたデータ構造のテスト（1〜30階層）"""
 
@@ -224,22 +227,14 @@ class TestNestedStructures:
                         "tags": ["admin", "active"],
                         "settings": {
                             "theme": "dark",
-                            "notifications": {
-                                "email": True,
-                                "push": False,
-                                "preferences": [1, 2, 3]
-                            }
-                        }
-                    }
+                            "notifications": {"email": True, "push": False, "preferences": [1, 2, 3]},
+                        },
+                    },
                 },
-                {
-                    "name": "Bob",
-                    "friends": [],
-                    "metadata": None
-                }
+                {"name": "Bob", "friends": [], "metadata": None},
             ],
             "count": 2,
-            "version": 1.5
+            "version": 1.5,
         }
 
         db["complex"] = original
@@ -265,6 +260,7 @@ class TestNestedStructures:
 
 
 # ==================== 永続化テスト ====================
+
 
 class TestPersistence:
     """永続化の詳細テスト"""
@@ -328,6 +324,7 @@ class TestPersistence:
 
 
 # ==================== キャッシュ動作テスト ====================
+
 
 class TestCacheBehavior:
     """キャッシュ動作の詳細テスト"""
@@ -470,6 +467,7 @@ class TestCacheBehavior:
 
 
 # ==================== dictメソッドテスト ====================
+
 
 class TestDictMethods:
     """dictメソッドの詳細テスト"""
@@ -648,6 +646,7 @@ class TestStandardCompatibility:
 
 # ==================== バッチ操作テスト ====================
 
+
 class TestBatchOperations:
     """バッチ操作のテスト"""
 
@@ -701,6 +700,7 @@ class TestBatchOperations:
 
 # ==================== パフォーマンステスト ====================
 
+
 class TestPerformance:
     """パフォーマンスのテスト"""
 
@@ -736,14 +736,15 @@ class TestPerformance:
         db_bulk.close()
 
         print(f"\n  [Performance] n={n}")
-        print(f"  Lazy: init={lazy_init*1000:.2f}ms, access={lazy_access*1000:.2f}ms")
-        print(f"  Bulk: init={bulk_init*1000:.2f}ms, access={bulk_access*1000:.2f}ms")
+        print(f"  Lazy: init={lazy_init * 1000:.2f}ms, access={lazy_access * 1000:.2f}ms")
+        print(f"  Bulk: init={bulk_init * 1000:.2f}ms, access={bulk_access * 1000:.2f}ms")
 
         # Bulk Loadのアクセスは高速であるべき
         assert bulk_access < lazy_access
 
 
 # ==================== エッジケーステスト ====================
+
 
 class TestEdgeCases:
     """エッジケースのテスト"""

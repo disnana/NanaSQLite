@@ -1,4 +1,3 @@
-
 import pytest
 
 from nanasqlite import AsyncNanaSQLite, NanaSQLiteValidationError
@@ -24,10 +23,12 @@ async def test_query_reserved_keyword_column(tmp_path):
     # 識別子が適切に引用符でエスケープされていることを検証
     # _sanitize_identifierの動作を間接的に確認
     from nanasqlite import NanaSQLite
+
     assert NanaSQLite._sanitize_identifier("group") == '"group"'
     assert NanaSQLite._sanitize_identifier("name") == '"name"'
 
     await db.close()
+
 
 @pytest.mark.asyncio
 async def test_query_per_query_validation(tmp_path):
@@ -51,6 +52,7 @@ async def test_query_per_query_validation(tmp_path):
     assert bytes.fromhex(hex_value).decode("utf-8") == "Alice"
     await db.close()
 
+
 @pytest.mark.asyncio
 async def test_groupby_validation_in_pagination(tmp_path):
     """
@@ -63,21 +65,15 @@ async def test_groupby_validation_in_pagination(tmp_path):
 
     # HEX を group_by に含めるとエラーになるはず
     with pytest.raises((NanaSQLiteValidationError, ValueError)):
-        await db.query_with_pagination(
-            table_name="test",
-            columns=["category", "SUM(val)"],
-            group_by="HEX(category)"
-        )
+        await db.query_with_pagination(table_name="test", columns=["category", "SUM(val)"], group_by="HEX(category)")
 
     # 許可すれば成功する
     results = await db.query_with_pagination(
-        table_name="test",
-        columns=["category", "SUM(val)"],
-        group_by="HEX(category)",
-        allowed_sql_functions=["HEX"]
+        table_name="test", columns=["category", "SUM(val)"], group_by="HEX(category)", allowed_sql_functions=["HEX"]
     )
     assert len(results) == 1
     await db.close()
+
 
 @pytest.mark.asyncio
 async def test_complex_column_aliases_metadata(tmp_path):
@@ -91,11 +87,7 @@ async def test_complex_column_aliases_metadata(tmp_path):
 
     # " as " を含む文字列リテラルや複雑なエイリアス
     # 以前の正規表現パースでは "Alice as Bob" の " as " で誤分割される可能性があった
-    sql_cols = [
-        "name as \"user_name\"",
-        "val + 100 as total",
-        "'prefix as ' || name as complex_label"
-    ]
+    sql_cols = ['name as "user_name"', "val + 100 as total", "'prefix as ' || name as complex_label"]
     results = await db.query(table_name="test", columns=sql_cols)
 
     assert len(results) == 1
@@ -103,6 +95,7 @@ async def test_complex_column_aliases_metadata(tmp_path):
     assert results[0]["total"] == 110
     assert results[0]["complex_label"] == "prefix as Alice as Bob"
     await db.close()
+
 
 def test_eq_when_closed(tmp_path):
     """
@@ -115,6 +108,7 @@ def test_eq_when_closed(tmp_path):
     db1["k"] = "v"
 
     db2 = {"k": "v"}
+
     def _compare_db1_db2():
         return db1 == db2
 

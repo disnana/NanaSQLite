@@ -34,16 +34,20 @@ class TestCacheBenchmarks:
 
     def test_unbounded_write_1000(self, db_unbounded, benchmark):
         """Benchmark: Write 1000 items with unbounded cache."""
+
         def write():
             for i in range(1000):
                 db_unbounded[f"key_{i}"] = {"value": i}
+
         benchmark(write)
 
     def test_lru_write_1000(self, db_lru, benchmark):
         """Benchmark: Write 1000 items with LRU cache (size=1000)."""
+
         def write():
             for i in range(1000):
                 db_lru[f"key_{i}"] = {"value": i}
+
         benchmark(write)
 
     def test_unbounded_read_cached(self, db_unbounded, benchmark):
@@ -55,6 +59,7 @@ class TestCacheBenchmarks:
         def read():
             for i in range(100):
                 _ = db_unbounded[f"key_{i}"]
+
         benchmark(read)
 
     def test_lru_read_cached(self, db_lru, benchmark):
@@ -66,6 +71,7 @@ class TestCacheBenchmarks:
         def read():
             for i in range(100):
                 _ = db_lru[f"key_{i}"]
+
         benchmark(read)
 
     def test_lru_eviction_overhead(self, tmp_path, benchmark):
@@ -80,4 +86,5 @@ class TestCacheBenchmarks:
             def eviction_writes():
                 for i in range(100):
                     db[f"new_{i}"] = i
+
             benchmark(eviction_writes)

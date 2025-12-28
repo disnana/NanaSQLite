@@ -30,7 +30,7 @@ from .exceptions import (
 from .sql_utils import fast_validate_sql_chars, sanitize_sql_for_function_scan
 
 # 識別子バリデーション用の正規表現パターン（英数字とアンダースコアのみ、数字で開始しない）
-IDENTIFIER_PATTERN = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
 class NanaSQLite(MutableMapping):
@@ -52,16 +52,22 @@ class NanaSQLite(MutableMapping):
         max_clause_length: SQL句の最大長（ReDoS対策、v1.2.0）
     """
 
-    def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
-                 optimize: bool = True, cache_size_mb: int = 64,
-                 strict_sql_validation: bool = True,
-                 allowed_sql_functions: list[str] | None = None,
-                 forbidden_sql_functions: list[str] | None = None,
-                 max_clause_length: int | None = 1000,
-                 cache_strategy: CacheType | Literal['unbounded', 'lru'] = CacheType.UNBOUNDED,
-                 cache_size: int | None = None,
-                 _shared_connection: apsw.Connection | None = None,
-                 _shared_lock: threading.RLock | None = None):
+    def __init__(
+        self,
+        db_path: str,
+        table: str = "data",
+        bulk_load: bool = False,
+        optimize: bool = True,
+        cache_size_mb: int = 64,
+        strict_sql_validation: bool = True,
+        allowed_sql_functions: list[str] | None = None,
+        forbidden_sql_functions: list[str] | None = None,
+        max_clause_length: int | None = 1000,
+        cache_strategy: CacheType | Literal["unbounded", "lru"] = CacheType.UNBOUNDED,
+        cache_size: int | None = None,
+        _shared_connection: apsw.Connection | None = None,
+        _shared_lock: threading.RLock | None = None,
+    ):
         """
         Args:
             db_path: SQLiteデータベースファイルのパス
@@ -79,11 +85,16 @@ class NanaSQLite(MutableMapping):
         self._db_path: str = db_path
         self._table: str = table
         self._cache: CacheStrategy = create_cache(cache_strategy, cache_size)
-        self._all_loaded: bool = False  # 全データ読み込み済みフラグ
+        self._data = self._cache.get_data()
+        self._lru_mode = (cache_strategy == CacheType.LRU) or (cache_strategy == "lru")
+        if not self._lru_mode:
+            # Type: ignore added to bypass mypy check for internal attribute access
+            self._cached_keys = self._cache._cached_keys  # type: ignore
+        else:
+            # In LRU mode, we use the storage object itself for caching knowledge
+            self._cached_keys = self._data  # type: ignore
 
-        # Public attribute but technically internal usage for compatibility if needed.
-        # Deprecated: _data and _cached_keys are no longer directly available.
-        # Use _cache.get_data() if absolutely necessary for debugging.
+        self._all_loaded: bool = False  # 全データ読み込み済みフラグ
 
         # セキュリティ設定
         self.strict_sql_validation = strict_sql_validation
@@ -93,9 +104,24 @@ class NanaSQLite(MutableMapping):
 
         # デフォルトで許可されるSQL関数
         self._default_allowed_functions = {
-            "COUNT", "SUM", "AVG", "MIN", "MAX", "ABS", "UPPER", "LOWER",
-            "LENGTH", "ROUND", "COALESCE", "IFNULL", "NULLIF", "STRFTIME",
-            "DATE", "TIME", "DATETIME", "JULIANDAY"
+            "COUNT",
+            "SUM",
+            "AVG",
+            "MIN",
+            "MAX",
+            "ABS",
+            "UPPER",
+            "LOWER",
+            "LENGTH",
+            "ROUND",
+            "COALESCE",
+            "IFNULL",
+            "NULLIF",
+            "STRFTIME",
+            "DATE",
+            "TIME",
+            "DATETIME",
+            "JULIANDAY",
         }
 
         # トランザクション状態管理
@@ -194,7 +220,7 @@ class NanaSQLite(MutableMapping):
             raise NanaSQLiteValidationError("Identifier cannot be empty")
 
         # 基本的な検証: 英数字とアンダースコアのみ許可
-        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', identifier):
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", identifier):
             raise NanaSQLiteValidationError(
                 f"Invalid identifier '{identifier}': must start with letter or underscore "
                 "and contain only alphanumeric characters and underscores"
@@ -245,9 +271,7 @@ class NanaSQLite(MutableMapping):
             NanaSQLiteClosedError: 接続が閉じられている、または親が閉じられている場合
         """
         if self._is_closed:
-            raise NanaSQLiteClosedError(
-                f"Database connection is closed (table: '{self._table}')."
-            )
+            raise NanaSQLiteClosedError(f"Database connection is closed (table: '{self._table}').")
         if self._parent_closed:
             raise NanaSQLiteClosedError(
                 f"Parent database connection is closed (table: '{self._table}'). "
@@ -262,7 +286,7 @@ class NanaSQLite(MutableMapping):
         allowed: list[str] | None = None,
         forbidden: list[str] | None = None,
         override_allowed: bool = False,
-        context: Literal["order_by", "group_by", "where", "column"] | None = None
+        context: Literal["order_by", "group_by", "where", "column"] | None = None,
     ) -> None:
         """
         SQL表現（ORDER BY, GROUP BY, 列名等）を検証。
@@ -304,10 +328,10 @@ class NanaSQLite(MutableMapping):
             full_msg = f"Invalid: {warning_text}"
 
         dangerous_patterns = [
-            (r';', full_msg),
-            (r'--', full_msg),
-            (r'/\*', full_msg),
-            (r'\b(DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER)\b', full_msg),
+            (r";", full_msg),
+            (r"--", full_msg),
+            (r"/\*", full_msg),
+            (r"\b(DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER)\b", full_msg),
         ]
 
         # 0.5. Fast character-set validation (ReDoS countermeasure)
@@ -364,7 +388,7 @@ class NanaSQLite(MutableMapping):
         # 文字列リテラルやコメントをマスクした上で関数呼び出しを検索
         # これにより、SELECT 'COUNT(' ... のようなパターンでの誤検知を防ぐ
         sanitized_expr = sanitize_sql_for_function_scan(expr)
-        matches = re.findall(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*\(', sanitized_expr)
+        matches = re.findall(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", sanitized_expr)
 
         for func in matches:
             func_upper = func.upper()
@@ -409,7 +433,7 @@ class NanaSQLite(MutableMapping):
         with self._lock:
             self._connection.execute(
                 f"INSERT OR REPLACE INTO {self._table} (key, value) VALUES (?, ?)",  # nosec
-                (key, serialized)
+                (key, serialized),
             )
 
     def _read_from_db(self, key: str) -> Any | None:
@@ -417,7 +441,7 @@ class NanaSQLite(MutableMapping):
         with self._lock:
             cursor = self._connection.execute(
                 f"SELECT value FROM {self._table} WHERE key = ?",  # nosec
-                (key,)
+                (key,),
             )
             row = cursor.fetchone()
             if row is None:
@@ -429,7 +453,7 @@ class NanaSQLite(MutableMapping):
         with self._lock:
             self._connection.execute(
                 f"DELETE FROM {self._table} WHERE key = ?",  # nosec
-                (key,)
+                (key,),
             )
 
     def _get_all_keys_from_db(self) -> list:
@@ -445,21 +469,26 @@ class NanaSQLite(MutableMapping):
         キーがキャッシュにない場合、DBから読み込む（遅延ロード）
         Returns: キーが存在するかどうか
         """
-        if self._cache.is_cached(key):
-            return self._cache.contains(key)
+        # FAST PATH for default Unbounded mode
+        if not self._lru_mode:
+            if key in self._cached_keys:
+                return key in self._data
+        else:
+            if key in self._data:
+                return True
 
         # DBから読み込み
         value = self._read_from_db(key)
 
         if value is not None:
-            self._cache.set(key, value)
+            self._data[key] = value
+            if not self._lru_mode:
+                self._cached_keys.add(key)
             return True
 
         # Value is None (not in DB)
-        # We mark it as "known missing" to avoid repeated DB hits
-        # Note: Standard LRU might evict this "missing" knowledge if implemented.
-        # UnboundedCache handles this via a separate set or None value.
-        self._cache.mark_cached(key)
+        if not self._lru_mode:
+            self._cached_keys.add(key)
         return False
 
     # ==================== Dict Interface ====================
@@ -467,14 +496,19 @@ class NanaSQLite(MutableMapping):
     def __getitem__(self, key: str) -> Any:
         """dict[key] - 遅延ロード後、メモリから取得"""
         if self._ensure_cached(key):
-            return self._cache.get(key)
+            # LRU updates order even on __getitem__
+            if self._lru_mode:
+                return self._cache.get(key)
+            return self._data[key]
         raise KeyError(key)
 
     def __setitem__(self, key: str, value: Any) -> None:
         """dict[key] = value - 即時書き込み + メモリ更新"""
         self._check_connection()
         # メモリ更新
-        self._cache.set(key, value)
+        self._data[key] = value
+        if not self._lru_mode:
+            self._cached_keys.add(key)
         # 即時書き込み
         self._write_to_db(key, value)
 
@@ -483,8 +517,12 @@ class NanaSQLite(MutableMapping):
         if not self._ensure_cached(key):
             raise KeyError(key)
         # メモリから削除
-        self._cache.delete(key)
-        # DBから削除
+        if self._lru_mode:
+            self._cache.delete(key)
+        else:
+            self._data.pop(key, None)
+            self._cached_keys.discard(key)
+
         # DBから削除
         self._delete_from_db(key)
 
@@ -495,13 +533,15 @@ class NanaSQLite(MutableMapping):
         キャッシュにある場合はO(1)、ない場合は軽量なEXISTSクエリを使用。
         存在確認のみの場合、value全体を読み込まないため高速。
         """
-        if key in self._cache.get_data() or self._cache.is_cached(key):
-            return self._cache.contains(key)
+        # FAST PATH
+        if key in self._cached_keys:
+            return key in self._data
 
         # 軽量な存在確認クエリ（valueを読み込まない）
         with self._lock:
             cursor = self._connection.execute(
-                f"SELECT 1 FROM {self._table} WHERE key = ? LIMIT 1", (key,)  # nosec
+                f"SELECT 1 FROM {self._table} WHERE key = ? LIMIT 1",
+                (key,),  # nosec
             )
             exists = cursor.fetchone() is not None
 
@@ -509,8 +549,9 @@ class NanaSQLite(MutableMapping):
             # 存在する場合のみキャッシュに読み込む（遅延ロード）
             self._ensure_cached(key)
         else:
-            # 存在しないこともキャッシュ（次回の高速化のため）
-            self._cache.mark_cached(key)
+            # 存在しないこともキャッシュ
+            if not self._lru_mode:
+                self._cached_keys.add(key)
 
         return exists
 
@@ -549,7 +590,9 @@ class NanaSQLite(MutableMapping):
     def get(self, key: str, default: Any = None) -> Any:
         """dict.get(key, default)"""
         if self._ensure_cached(key):
-            return self._cache.get(key)
+            if self._lru_mode:
+                return self._cache.get(key)
+            return self._data[key]
         return default
 
     def get_fresh(self, key: str, default: Any = None) -> Any:
@@ -573,17 +616,22 @@ class NanaSQLite(MutableMapping):
             >>> db.execute("UPDATE data SET value = ? WHERE key = ?", ('"new"', "key"))
             >>> value = db.get_fresh("key")  # DBから最新値を取得
         """
-        # DBから直接読み込み（_read_from_dbを使用してオーバーヘッド最小化）
+        # DBから直接読み込み
         value = self._read_from_db(key)
 
         if value is not None:
             # キャッシュを更新
-            self._cache.set(key, value)
+            self._data[key] = value
+            if not self._lru_mode:
+                self._cached_keys.add(key)
             return value
         else:
             # 存在しない場合はキャッシュからも削除
-            self._cache.delete(key)
-            self._cache.mark_cached(key)  # 「存在しない」ことをキャッシュ
+            if self._lru_mode:
+                self._cache.delete(key)
+            else:
+                self._data.pop(key, None)
+                self._cached_keys.add(key)  # 「存在しない」ことをマーク
             return default
 
     def batch_get(self, keys: list[str]) -> dict[str, Any]:
@@ -692,15 +740,6 @@ class NanaSQLite(MutableMapping):
 
         self._all_loaded = True
 
-    def clear_cache(self) -> None:
-        """
-        キャッシュをクリア
-
-        メモリ上のキャッシュを全削除する。DBのデータは削除されない。
-        """
-        self._cache.clear()
-        self._all_loaded = False
-
     def refresh(self, key: str = None) -> None:
         """
         キャッシュを更新（DBから再読み込み）
@@ -709,14 +748,21 @@ class NanaSQLite(MutableMapping):
             key: 特定のキーのみ更新。Noneの場合は全キャッシュをクリアして再読み込み
         """
         if key is not None:
-            self._cache.invalidate(key)
+            # FAST PATH for performance
+            if not self._lru_mode:
+                self._data.pop(key, None)
+                self._cached_keys.discard(key)
+            else:
+                self._cache.invalidate(key)
             self._ensure_cached(key)
         else:
-            self._cache.clear()
-            self._all_loaded = False
+            self.clear_cache()
 
     def is_cached(self, key: str) -> bool:
         """キーがキャッシュ済みかどうか"""
+        # FAST PATH for performance
+        if not self._lru_mode:
+            return key in self._cached_keys
         return self._cache.is_cached(key)
 
     def batch_update(self, mapping: dict[str, Any]) -> None:
@@ -745,11 +791,13 @@ class NanaSQLite(MutableMapping):
             params = [(key, self._serialize(value)) for key, value in mapping.items()]
             cursor.executemany(
                 f"INSERT OR REPLACE INTO {self._table} (key, value) VALUES (?, ?)",  # nosec
-                params
+                params,
             )
             # キャッシュ更新
             for key, value in mapping.items():
-                self._cache.set(key, value)
+                self._data[key] = value
+                if not self._lru_mode:
+                    self._cached_keys.add(key)
             cursor.execute("COMMIT")
         except Exception:
             cursor.execute("ROLLBACK")
@@ -778,11 +826,15 @@ class NanaSQLite(MutableMapping):
             params = [(key,) for key in keys]
             cursor.executemany(
                 f"DELETE FROM {self._table} WHERE key = ?",  # nosec
-                params
+                params,
             )
             # キャッシュ更新
             for key in keys:
-                self._cache.delete(key)
+                if self._lru_mode:
+                    self._cache.delete(key)
+                else:
+                    self._data.pop(key, None)
+                    self._cached_keys.discard(key)
             cursor.execute("COMMIT")
         except Exception:
             cursor.execute("ROLLBACK")
@@ -792,11 +844,20 @@ class NanaSQLite(MutableMapping):
         """全データをPython dictとして取得"""
         self._check_connection()
         self.load_all()
-        return dict(self._cache.get_data())
+        return dict(self._data)
 
     def copy(self) -> dict:
         """浅いコピーを作成（標準dictを返す）"""
         return self.to_dict()
+
+    def clear_cache(self) -> None:
+        """
+        メモリキャッシュをクリア
+
+        DBのデータは削除せず、メモリ上のキャッシュのみ破棄します。
+        """
+        self._cache.clear()
+        self._all_loaded = False
 
     def close(self) -> None:
         """
@@ -813,8 +874,7 @@ class NanaSQLite(MutableMapping):
 
         if self._in_transaction:
             raise NanaSQLiteTransactionError(
-                "Cannot close connection while transaction is in progress. "
-                "Please commit or rollback first."
+                "Cannot close connection while transaction is in progress. Please commit or rollback first."
             )
 
         # 子インスタンスに通知
@@ -830,6 +890,7 @@ class NanaSQLite(MutableMapping):
             except apsw.Error as e:
                 # 接続クローズの失敗は警告に留める
                 import warnings
+
                 warnings.warn(f"Failed to close database connection: {e}", stacklevel=2)
 
     def __enter__(self):
@@ -864,10 +925,10 @@ class NanaSQLite(MutableMapping):
         """
         try:
             # Pydanticモデルかチェック (model_dump メソッドの存在で判定)
-            if hasattr(model, 'model_dump'):
+            if hasattr(model, "model_dump"):
                 data = {
-                    '__pydantic_model__': f"{model.__class__.__module__}.{model.__class__.__qualname__}",
-                    '__pydantic_data__': model.model_dump()
+                    "__pydantic_model__": f"{model.__class__.__module__}.{model.__class__.__qualname__}",
+                    "__pydantic_data__": model.model_dump(),
                 }
                 self[key] = data
             else:
@@ -895,14 +956,14 @@ class NanaSQLite(MutableMapping):
         """
         data = self[key]
 
-        if isinstance(data, dict) and '__pydantic_model__' in data and '__pydantic_data__' in data:
+        if isinstance(data, dict) and "__pydantic_model__" in data and "__pydantic_data__" in data:
             if model_class is None:
                 # 自動検出は複雑なため、model_classを推奨
                 raise ValueError("model_class must be provided for get_model()")
 
             # Pydanticモデルとして復元
             try:
-                return model_class(**data['__pydantic_data__'])
+                return model_class(**data["__pydantic_data__"])
             except Exception as e:
                 raise ValueError(f"Failed to deserialize Pydantic model: {e}")
         elif model_class is not None:
@@ -1026,8 +1087,7 @@ class NanaSQLite(MutableMapping):
 
     # ==================== SQLite Wrapper Functions ====================
 
-    def create_table(self, table_name: str, columns: dict,
-                    if_not_exists: bool = True, primary_key: str = None) -> None:
+    def create_table(self, table_name: str, columns: dict, if_not_exists: bool = True, primary_key: str = None) -> None:
         """
         テーブルを作成
 
@@ -1060,8 +1120,7 @@ class NanaSQLite(MutableMapping):
 
         if primary_key:
             safe_pk = self._sanitize_identifier(primary_key)
-            if not any(primary_key.upper() in col.upper() and "PRIMARY KEY" in col.upper()
-                                       for col in column_defs):
+            if not any(primary_key.upper() in col.upper() and "PRIMARY KEY" in col.upper() for col in column_defs):
                 column_defs.append(f"PRIMARY KEY ({safe_pk})")
 
         columns_sql = ", ".join(column_defs)
@@ -1069,8 +1128,9 @@ class NanaSQLite(MutableMapping):
 
         self.execute(sql)
 
-    def create_index(self, index_name: str, table_name: str, columns: list[str],
-                    unique: bool = False, if_not_exists: bool = True) -> None:
+    def create_index(
+        self, index_name: str, table_name: str, columns: list[str], unique: bool = False, if_not_exists: bool = True
+    ) -> None:
         """
         インデックスを作成
 
@@ -1092,16 +1152,24 @@ class NanaSQLite(MutableMapping):
         safe_columns = [self._sanitize_identifier(col) for col in columns]
         columns_sql = ", ".join(safe_columns)
 
-        sql = f"CREATE {unique_clause}INDEX {if_not_exists_clause}{safe_index_name} ON {safe_table_name} ({columns_sql})"
+        sql = (
+            f"CREATE {unique_clause}INDEX {if_not_exists_clause}{safe_index_name} ON {safe_table_name} ({columns_sql})"
+        )
         self.execute(sql)
 
-    def query(self, table_name: str = None, columns: list[str] = None,
-             where: str = None, parameters: tuple = None,
-             order_by: str = None, limit: int = None,
-             strict_sql_validation: bool = None,
-             allowed_sql_functions: list[str] = None,
-             forbidden_sql_functions: list[str] = None,
-             override_allowed: bool = False) -> list[dict]:
+    def query(
+        self,
+        table_name: str = None,
+        columns: list[str] = None,
+        where: str = None,
+        parameters: tuple = None,
+        order_by: str = None,
+        limit: int = None,
+        strict_sql_validation: bool = None,
+        allowed_sql_functions: list[str] = None,
+        forbidden_sql_functions: list[str] = None,
+        override_allowed: bool = False,
+    ) -> list[dict]:
         """
         シンプルなSELECTクエリを実行
 
@@ -1140,12 +1208,33 @@ class NanaSQLite(MutableMapping):
         safe_table_name = self._sanitize_identifier(table_name)
 
         # バリデーション
-        self._validate_expression(where, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="where")
-        self._validate_expression(order_by, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="order_by")
+        self._validate_expression(
+            where,
+            strict_sql_validation,
+            allowed_sql_functions,
+            forbidden_sql_functions,
+            override_allowed,
+            context="where",
+        )
+        self._validate_expression(
+            order_by,
+            strict_sql_validation,
+            allowed_sql_functions,
+            forbidden_sql_functions,
+            override_allowed,
+            context="order_by",
+        )
         if columns:
             for col in columns:
                 # 関数使用の可能性を考慮して識別子サニタイズは行わないがバリデーションは行う
-                self._validate_expression(col, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="column")
+                self._validate_expression(
+                    col,
+                    strict_sql_validation,
+                    allowed_sql_functions,
+                    forbidden_sql_functions,
+                    override_allowed,
+                    context="column",
+                )
 
         # カラム指定
         if columns is None:
@@ -1192,7 +1281,7 @@ class NanaSQLite(MutableMapping):
             # Extract aliases from AS clauses, similar to query_with_pagination
             col_names = []
             for col in columns:
-                parts = re.split(r'\s+as\s+', col, flags=re.IGNORECASE)
+                parts = re.split(r"\s+as\s+", col, flags=re.IGNORECASE)
                 if len(parts) > 1:
                     # Use the alias (after AS)
                     col_names.append(parts[-1].strip().strip('"').strip("'"))
@@ -1221,10 +1310,7 @@ class NanaSQLite(MutableMapping):
             >>> if db.table_exists("users"):
             ...     print("users table exists")
         """
-        cursor = self.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-            (table_name,)
-        )
+        cursor = self.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
         return cursor.fetchone() is not None
 
     def list_tables(self) -> list[str]:
@@ -1238,9 +1324,7 @@ class NanaSQLite(MutableMapping):
             >>> tables = db.list_tables()
             >>> print(tables)  # ['data', 'users', 'posts']
         """
-        cursor = self.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-        )
+        cursor = self.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         return [row[0] for row in cursor]
 
     def drop_table(self, table_name: str, if_exists: bool = True) -> None:
@@ -1276,8 +1360,7 @@ class NanaSQLite(MutableMapping):
         sql = f"DROP INDEX {if_exists_clause}{safe_index_name}"
         self.execute(sql)
 
-    def alter_table_add_column(self, table_name: str, column_name: str,
-                               column_type: str, default: Any = None) -> None:
+    def alter_table_add_column(self, table_name: str, column_name: str, column_type: str, default: Any = None) -> None:
         """
         既存テーブルにカラムを追加
 
@@ -1331,14 +1414,16 @@ class NanaSQLite(MutableMapping):
         cursor = self.execute(f"PRAGMA table_info({safe_table_name})")
         columns = []
         for row in cursor:
-            columns.append({
-                'cid': row[0],
-                'name': row[1],
-                'type': row[2],
-                'notnull': bool(row[3]),
-                'default_value': row[4],
-                'pk': bool(row[5])
-            })
+            columns.append(
+                {
+                    "cid": row[0],
+                    "name": row[1],
+                    "type": row[2],
+                    "notnull": bool(row[3]),
+                    "default_value": row[4],
+                    "pk": bool(row[5]),
+                }
+            )
         return columns
 
     def list_indexes(self, table_name: str = None) -> list[dict]:
@@ -1359,21 +1444,15 @@ class NanaSQLite(MutableMapping):
         if table_name:
             cursor = self.execute(
                 "SELECT name, tbl_name, sql FROM sqlite_master WHERE type='index' AND tbl_name=? ORDER BY name",
-                (table_name,)
+                (table_name,),
             )
         else:
-            cursor = self.execute(
-                "SELECT name, tbl_name, sql FROM sqlite_master WHERE type='index' ORDER BY name"
-            )
+            cursor = self.execute("SELECT name, tbl_name, sql FROM sqlite_master WHERE type='index' ORDER BY name")
 
         indexes = []
         for row in cursor:
-            if row[0] and not row[0].startswith('sqlite_'):  # Skip auto-created indexes
-                indexes.append({
-                    'name': row[0],
-                    'table': row[1],
-                    'sql': row[2]
-                })
+            if row[0] and not row[0].startswith("sqlite_"):  # Skip auto-created indexes
+                indexes.append({"name": row[0], "table": row[1], "sql": row[2]})
         return indexes
 
     # ==================== Data Operation Wrappers ====================
@@ -1407,8 +1486,7 @@ class NanaSQLite(MutableMapping):
 
         return self.get_last_insert_rowid()
 
-    def sql_update(self, table_name: str, data: dict, where: str,
-              parameters: tuple = None) -> int:
+    def sql_update(self, table_name: str, data: dict, where: str, parameters: tuple = None) -> int:
         """
         dictとwhere条件でUPDATE
 
@@ -1461,8 +1539,7 @@ class NanaSQLite(MutableMapping):
         self.execute(sql, parameters)
         return self._connection.changes()
 
-    def upsert(self, table_name: str, data: dict,
-              conflict_columns: list[str] = None) -> int:
+    def upsert(self, table_name: str, data: dict, conflict_columns: list[str] = None) -> int:
         """
         INSERT OR REPLACE の簡易版（upsert）
 
@@ -1495,8 +1572,11 @@ class NanaSQLite(MutableMapping):
             safe_conflict_cols = [self._sanitize_identifier(col) for col in conflict_columns]
             conflict_cols_sql = ", ".join(safe_conflict_cols)
 
-            update_items = [f"{self._sanitize_identifier(col)} = excluded.{self._sanitize_identifier(col)}"
-                           for col in data.keys() if col not in conflict_columns]
+            update_items = [
+                f"{self._sanitize_identifier(col)} = excluded.{self._sanitize_identifier(col)}"
+                for col in data.keys()
+                if col not in conflict_columns
+            ]
 
             if update_items:
                 update_clause = ", ".join(update_items)
@@ -1520,12 +1600,16 @@ class NanaSQLite(MutableMapping):
         self.execute(sql, tuple(values))
         return self.get_last_insert_rowid()
 
-    def count(self, table_name: str = None, where: str = None,
-             parameters: tuple = None,
-             strict_sql_validation: bool = None,
-             allowed_sql_functions: list[str] = None,
-             forbidden_sql_functions: list[str] = None,
-             override_allowed: bool = False) -> int:
+    def count(
+        self,
+        table_name: str = None,
+        where: str = None,
+        parameters: tuple = None,
+        strict_sql_validation: bool = None,
+        allowed_sql_functions: list[str] = None,
+        forbidden_sql_functions: list[str] = None,
+        override_allowed: bool = False,
+    ) -> int:
         """
         レコード数を取得
 
@@ -1548,7 +1632,9 @@ class NanaSQLite(MutableMapping):
         safe_table_name = self._sanitize_identifier(table_name)
 
         # バリデーション
-        self._validate_expression(where, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed)
+        self._validate_expression(
+            where, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed
+        )
 
         sql = f"SELECT COUNT(*) FROM {safe_table_name}"  # nosec
         if where:
@@ -1580,14 +1666,21 @@ class NanaSQLite(MutableMapping):
 
     # ==================== Query Extensions ====================
 
-    def query_with_pagination(self, table_name: str = None, columns: list[str] = None,
-                             where: str = None, parameters: tuple = None,
-                             order_by: str = None, limit: int = None,
-                             offset: int = None, group_by: str = None,
-                             strict_sql_validation: bool = None,
-                             allowed_sql_functions: list[str] = None,
-                             forbidden_sql_functions: list[str] = None,
-                             override_allowed: bool = False) -> list[dict]:
+    def query_with_pagination(
+        self,
+        table_name: str = None,
+        columns: list[str] = None,
+        where: str = None,
+        parameters: tuple = None,
+        order_by: str = None,
+        limit: int = None,
+        offset: int = None,
+        group_by: str = None,
+        strict_sql_validation: bool = None,
+        allowed_sql_functions: list[str] = None,
+        forbidden_sql_functions: list[str] = None,
+        override_allowed: bool = False,
+    ) -> list[dict]:
         """
         拡張されたクエリ（offset、group_by対応）
 
@@ -1625,12 +1718,40 @@ class NanaSQLite(MutableMapping):
         safe_table_name = self._sanitize_identifier(table_name)
 
         # バリデーション
-        self._validate_expression(where, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="where")
-        self._validate_expression(order_by, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="order_by")
-        self._validate_expression(group_by, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="group_by")
+        self._validate_expression(
+            where,
+            strict_sql_validation,
+            allowed_sql_functions,
+            forbidden_sql_functions,
+            override_allowed,
+            context="where",
+        )
+        self._validate_expression(
+            order_by,
+            strict_sql_validation,
+            allowed_sql_functions,
+            forbidden_sql_functions,
+            override_allowed,
+            context="order_by",
+        )
+        self._validate_expression(
+            group_by,
+            strict_sql_validation,
+            allowed_sql_functions,
+            forbidden_sql_functions,
+            override_allowed,
+            context="group_by",
+        )
         if columns:
             for col in columns:
-                self._validate_expression(col, strict_sql_validation, allowed_sql_functions, forbidden_sql_functions, override_allowed, context="column")
+                self._validate_expression(
+                    col,
+                    strict_sql_validation,
+                    allowed_sql_functions,
+                    forbidden_sql_functions,
+                    override_allowed,
+                    context="column",
+                )
 
         # Validate limit and offset are non-negative integers if provided
         if limit is not None:
@@ -1687,7 +1808,7 @@ class NanaSQLite(MutableMapping):
             # カラム名からAS句を考慮（case-insensitive）
             col_names = []
             for col in columns:
-                parts = re.split(r'\s+as\s+', col, flags=re.IGNORECASE)
+                parts = re.split(r"\s+as\s+", col, flags=re.IGNORECASE)
                 if len(parts) > 1:
                     col_names.append(parts[-1].strip().strip('"').strip("'"))
                 else:
@@ -1725,6 +1846,7 @@ class NanaSQLite(MutableMapping):
             >>> print(f"DB size: {size / 1024 / 1024:.2f} MB")
         """
         import os
+
         return os.path.getsize(self._db_path)
 
     def export_table_to_dict(self, table_name: str) -> list[dict]:
@@ -1814,11 +1936,26 @@ class NanaSQLite(MutableMapping):
         """
         # Whitelist of allowed PRAGMA commands for security
         ALLOWED_PRAGMAS = {
-            'foreign_keys', 'journal_mode', 'synchronous', 'cache_size',
-            'temp_store', 'locking_mode', 'auto_vacuum', 'page_size',
-            'encoding', 'user_version', 'schema_version', 'wal_autocheckpoint',
-            'busy_timeout', 'query_only', 'recursive_triggers', 'secure_delete',
-            'table_info', 'index_list', 'index_info', 'database_list'
+            "foreign_keys",
+            "journal_mode",
+            "synchronous",
+            "cache_size",
+            "temp_store",
+            "locking_mode",
+            "auto_vacuum",
+            "page_size",
+            "encoding",
+            "user_version",
+            "schema_version",
+            "wal_autocheckpoint",
+            "busy_timeout",
+            "query_only",
+            "recursive_triggers",
+            "secure_delete",
+            "table_info",
+            "index_list",
+            "index_info",
+            "database_list",
         }
 
         if pragma_name not in ALLOWED_PRAGMAS:
@@ -1836,8 +1973,10 @@ class NanaSQLite(MutableMapping):
             # For string values, validate to prevent SQL injection
             if isinstance(value, str):
                 # Only allow alphanumeric, underscore, dash, and dots for string values
-                if not re.match(r'^[\w\-\.]+$', value):
-                    raise ValueError("PRAGMA string value must contain only alphanumeric, underscore, dash, or dot characters")
+                if not re.match(r"^[\w\-\.]+$", value):
+                    raise ValueError(
+                        "PRAGMA string value must contain only alphanumeric, underscore, dash, or dot characters"
+                    )
                 value_str = f"'{value}'"
             else:
                 value_str = str(value)
@@ -1884,8 +2023,7 @@ class NanaSQLite(MutableMapping):
             self._transaction_depth = 1
         except Exception as e:
             raise NanaSQLiteDatabaseError(
-                f"Failed to begin transaction: {e}",
-                original_error=e if isinstance(e, apsw.Error) else None
+                f"Failed to begin transaction: {e}", original_error=e if isinstance(e, apsw.Error) else None
             ) from e
 
     def commit(self) -> None:
@@ -1901,8 +2039,7 @@ class NanaSQLite(MutableMapping):
 
         if not self._in_transaction:
             raise NanaSQLiteTransactionError(
-                "No transaction in progress. "
-                "Call begin_transaction() first or use the transaction() context manager."
+                "No transaction in progress. Call begin_transaction() first or use the transaction() context manager."
             )
 
         try:
@@ -1912,8 +2049,7 @@ class NanaSQLite(MutableMapping):
         except Exception as e:
             # コミット失敗時は状態を維持（ロールバックが必要）
             raise NanaSQLiteDatabaseError(
-                f"Failed to commit transaction: {e}",
-                original_error=e if isinstance(e, apsw.Error) else None
+                f"Failed to commit transaction: {e}", original_error=e if isinstance(e, apsw.Error) else None
             ) from e
 
     def rollback(self) -> None:
@@ -1929,8 +2065,7 @@ class NanaSQLite(MutableMapping):
 
         if not self._in_transaction:
             raise NanaSQLiteTransactionError(
-                "No transaction in progress. "
-                "Call begin_transaction() first or use the transaction() context manager."
+                "No transaction in progress. Call begin_transaction() first or use the transaction() context manager."
             )
 
         try:
@@ -1942,8 +2077,7 @@ class NanaSQLite(MutableMapping):
             self._in_transaction = False
             self._transaction_depth = 0
             raise NanaSQLiteDatabaseError(
-                f"Failed to rollback transaction: {e}",
-                original_error=e if isinstance(e, apsw.Error) else None
+                f"Failed to rollback transaction: {e}", original_error=e if isinstance(e, apsw.Error) else None
             ) from e
 
     def in_transaction(self) -> bool:
@@ -1979,9 +2113,12 @@ class NanaSQLite(MutableMapping):
         """
         return _TransactionContext(self)
 
-    def table(self, table_name: str,
-              cache_strategy: CacheType | Literal['unbounded', 'lru'] | None = None,
-              cache_size: int | None = None):
+    def table(
+        self,
+        table_name: str,
+        cache_strategy: CacheType | Literal["unbounded", "lru"] | None = None,
+        cache_size: int | None = None,
+    ):
         """
         サブテーブル用のNanaSQLiteインスタンスを取得
 
@@ -2032,7 +2169,7 @@ class NanaSQLite(MutableMapping):
             cache_strategy=strat,
             cache_size=size,
             _shared_connection=self._connection,
-            _shared_lock=self._lock
+            _shared_lock=self._lock,
         )
 
         # If the parent is the connection owner, the child is not.

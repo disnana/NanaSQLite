@@ -4,8 +4,8 @@ from nanasqlite import AsyncNanaSQLite, NanaSQLite
 
 # ==================== Synchronous Edge Cases ====================
 
-class TestSyncEdgeCases:
 
+class TestSyncEdgeCases:
     @pytest.fixture
     def db(self, tmp_path):
         db_path = str(tmp_path / "edge_cases_sync.db")
@@ -28,7 +28,7 @@ class TestSyncEdgeCases:
         """Verify pagination edge cases."""
         # Setup data
         db.batch_update({f"k{i}": i for i in range(10)})
-        table = "data" # default table
+        table = "data"  # default table
 
         # limit=0 -> empty list
         results = db.query_with_pagination(table_name=table, limit=0)
@@ -53,8 +53,8 @@ class TestSyncEdgeCases:
 
 # ==================== Asynchronous Edge Cases ====================
 
-class TestAsyncEdgeCases:
 
+class TestAsyncEdgeCases:
     @pytest.fixture
     def db_path(self, tmp_path):
         return str(tmp_path / "edge_cases_async.db")
@@ -98,4 +98,4 @@ class TestAsyncEdgeCases:
             # Core implementation of `query` constructs SELECT specific columns or *
             results = await db.aquery()
             assert len(results) > 0
-            assert results[0]['key'] == 'key'
+            assert results[0]["key"] == "key"

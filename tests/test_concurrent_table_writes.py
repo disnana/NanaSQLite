@@ -2,6 +2,7 @@
 テーブル間の同時書き込みの徹底テスト
 メインテーブルとサブテーブルに同時に大量書き込みを行い、データ整合性を確認
 """
+
 import asyncio
 import os
 import tempfile
@@ -89,7 +90,7 @@ class TestConcurrentTableWrites:
                 value = {
                     "table": table_name,
                     "index": index,
-                    "large_data": "x" * 1000  # 1KB程度のデータ
+                    "large_data": "x" * 1000,  # 1KB程度のデータ
                 }
                 db[key] = value
                 return table_name, key
@@ -287,6 +288,7 @@ class TestAsyncConcurrentTableWrites:
         try:
             async with AsyncNanaSQLite(db_path, table="main") as main_db:
                 async with await main_db.table("sub") as sub_db:
+
                     async def write_to_main(index):
                         key = f"main_item_{index}"
                         value = {"table": "main", "index": index}
@@ -339,11 +341,7 @@ class TestAsyncConcurrentTableWrites:
 
                             async def write_to_table(table_name, db, index):
                                 key = f"{table_name}_item_{index}"
-                                value = {
-                                    "table": table_name,
-                                    "index": index,
-                                    "large_data": "x" * 1000
-                                }
+                                value = {"table": table_name, "index": index, "large_data": "x" * 1000}
                                 await db.aset(key, value)
 
                             # 各テーブルに500件ずつ同時書き込み
@@ -376,6 +374,7 @@ class TestAsyncConcurrentTableWrites:
         try:
             async with AsyncNanaSQLite(db_path, table="main") as main_db:
                 async with await main_db.table("sub") as sub_db:
+
                     async def write_same_key_to_main(index):
                         await main_db.aset("shared_key", {"source": "main", "write_num": index})
 
@@ -471,6 +470,7 @@ class TestAsyncConcurrentTableWrites:
         try:
             async with AsyncNanaSQLite(db_path, table="main", max_workers=10) as main_db:
                 async with await main_db.table("sub") as sub_db:
+
                     async def write_pair(index):
                         await main_db.aset(f"item_{index}", {"table": "main", "value": index})
                         await sub_db.aset(f"item_{index}", {"table": "sub", "value": index * 2})
@@ -637,4 +637,3 @@ class TestEdgeCases:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
-

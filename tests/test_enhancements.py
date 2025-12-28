@@ -329,4 +329,3 @@ class TestAsyncTransactions:
 
             await db.commit()
             assert not await db.in_transaction()
-

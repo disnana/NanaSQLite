@@ -24,6 +24,7 @@ def db_path():
 @pytest.fixture
 def db(db_path):
     from nanasqlite import NanaSQLite
+
     database = NanaSQLite(db_path)
     yield database
     database.close()
@@ -33,6 +34,7 @@ def db(db_path):
 def db_with_data(db_path):
     """1000件のデータが入ったDB"""
     from nanasqlite import NanaSQLite
+
     database = NanaSQLite(db_path)
     for i in range(1000):
         database[f"key_{i}"] = {"index": i, "data": "x" * 100}
@@ -42,6 +44,7 @@ def db_with_data(db_path):
 
 # ==================== Write Benchmarks ====================
 
+
 @pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
 class TestWriteBenchmarks:
     """書き込みパフォーマンスのベンチマーク"""
@@ -49,6 +52,7 @@ class TestWriteBenchmarks:
     def test_single_write(self, benchmark, db):
         """単一書き込み"""
         counter = [0]
+
         def write_single():
             db[f"key_{counter[0]}"] = {"data": "value", "number": counter[0]}
             counter[0] += 1
@@ -58,15 +62,8 @@ class TestWriteBenchmarks:
     def test_nested_write(self, benchmark, db):
         """ネストしたデータの書き込み"""
         counter = [0]
-        nested_data = {
-            "level1": {
-                "level2": {
-                    "level3": {
-                        "data": [1, 2, 3, {"nested": True}]
-                    }
-                }
-            }
-        }
+        nested_data = {"level1": {"level2": {"level3": {"data": [1, 2, 3, {"nested": True}]}}}}
+
         def write_nested():
             db[f"nested_{counter[0]}"] = nested_data
             counter[0] += 1
@@ -90,6 +87,7 @@ class TestWriteBenchmarks:
 
 
 # ==================== Read Benchmarks ====================
+
 
 @pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
 class TestReadBenchmarks:
@@ -116,6 +114,7 @@ class TestReadBenchmarks:
             db.batch_update({k: {"data": "value"} for k in keys})
 
             counter = [0]
+
             def read_uncached():
                 # キャッシュにないキーを順番に取得していく
                 key = keys[counter[0] % 1000]
@@ -147,6 +146,7 @@ class TestReadBenchmarks:
 
 # ==================== Dict Operations Benchmarks ====================
 
+
 @pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
 class TestDictOperationsBenchmarks:
     """dict操作のベンチマーク"""
@@ -157,6 +157,7 @@ class TestDictOperationsBenchmarks:
 
     def test_contains_check(self, benchmark, db_with_data):
         """存在確認（in演算子）"""
+
         def check_contains():
             return "key_500" in db_with_data
 
@@ -194,7 +195,7 @@ class TestDictOperationsBenchmarks:
         for _ in range(30):
             data = {"nested": data}
         db["deep"] = data
-        db.refresh() # キャッシュクリアしてDBから読ませる
+        db.refresh()  # キャッシュクリアしてDBから読ませる
 
         def read_deep():
             res = db["deep"]
@@ -210,6 +211,7 @@ class TestDictOperationsBenchmarks:
             data = {"nested": data}
 
         counter = [0]
+
         def write_deep():
             db[f"deep_{counter[0]}"] = data
             counter[0] += 1
@@ -218,6 +220,7 @@ class TestDictOperationsBenchmarks:
 
 
 # ==================== New Wrapper Functions Benchmarks ====================
+
 
 @pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
 class TestWrapperFunctionsBenchmarks:
@@ -228,13 +231,10 @@ class TestWrapperFunctionsBenchmarks:
         from nanasqlite import NanaSQLite
 
         db = NanaSQLite(db_path)
-        db.create_table("users", {
-            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
-            "name": "TEXT",
-            "age": "INTEGER"
-        })
+        db.create_table("users", {"id": "INTEGER PRIMARY KEY AUTOINCREMENT", "name": "TEXT", "age": "INTEGER"})
 
         counter = [0]
+
         def insert_single():
             db.sql_insert("users", {"name": f"User{counter[0]}", "age": 25})
             counter[0] += 1
@@ -254,6 +254,7 @@ class TestWrapperFunctionsBenchmarks:
             db.sql_insert("users", {"id": i, "name": f"User{i}", "age": 25})
 
         counter = [0]
+
         def update_single():
             db.sql_update("users", {"age": 26}, "id = ?", (counter[0] % 100,))
             counter[0] += 1
@@ -266,13 +267,10 @@ class TestWrapperFunctionsBenchmarks:
         from nanasqlite import NanaSQLite
 
         db = NanaSQLite(db_path)
-        db.create_table("users", {
-            "id": "INTEGER PRIMARY KEY",
-            "name": "TEXT",
-            "age": "INTEGER"
-        })
+        db.create_table("users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT", "age": "INTEGER"})
 
         counter = [0]
+
         def upsert_op():
             db.upsert("users", {"id": counter[0] % 50, "name": f"User{counter[0]}", "age": 25})
             counter[0] += 1
@@ -358,6 +356,7 @@ class TestWrapperFunctionsBenchmarks:
         db.create_table("logs", {"id": "INTEGER", "message": "TEXT"})
 
         counter = [0]
+
         def transaction_op():
             with db.transaction():
                 db.sql_insert("logs", {"id": counter[0], "message": f"Log{counter[0]}"})
@@ -368,6 +367,7 @@ class TestWrapperFunctionsBenchmarks:
 
 
 # ==================== DDL Operations Benchmarks ====================
+
 
 @pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
 class TestDDLOperationsBenchmarks:
@@ -451,6 +451,7 @@ class TestDDLOperationsBenchmarks:
             db.sql_insert("delete_test", {"id": i, "name": f"User{i}"})
 
         counter = [0]
+
         def delete_op():
             db.sql_delete("delete_test", "id = ?", (counter[0] % 10000,))
             # 削除したデータを再挿入して次のラウンドに備える
@@ -462,6 +463,7 @@ class TestDDLOperationsBenchmarks:
 
 
 # ==================== Query Operations Benchmarks ====================
+
 
 @pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
 class TestQueryOperationsBenchmarks:
@@ -519,6 +521,7 @@ class TestQueryOperationsBenchmarks:
 
 # ==================== Schema Operations Benchmarks ====================
 
+
 @pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
 class TestSchemaOperationsBenchmarks:
     """スキーマ操作のベンチマーク"""
@@ -556,13 +559,16 @@ class TestSchemaOperationsBenchmarks:
         from nanasqlite import NanaSQLite
 
         db = NanaSQLite(db_path)
-        db.create_table("schema_test", {
-            "id": "INTEGER PRIMARY KEY",
-            "name": "TEXT NOT NULL",
-            "email": "TEXT",
-            "age": "INTEGER",
-            "created_at": "TEXT"
-        })
+        db.create_table(
+            "schema_test",
+            {
+                "id": "INTEGER PRIMARY KEY",
+                "name": "TEXT NOT NULL",
+                "email": "TEXT",
+                "age": "INTEGER",
+                "created_at": "TEXT",
+            },
+        )
 
         def get_schema_op():
             return db.get_table_schema("schema_test")
@@ -588,6 +594,7 @@ class TestSchemaOperationsBenchmarks:
 
 
 # ==================== Utility Operations Benchmarks ====================
+
 
 @pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
 class TestUtilityOperationsBenchmarks:
@@ -636,6 +643,7 @@ class TestUtilityOperationsBenchmarks:
             del db[f"vac_key_{i}"]
 
         counter = [0]
+
         def vacuum_op():
             # 各ラウンドでデータを追加・削除して断片化を維持
             db[f"vac_extra_{counter[0]}"] = {"data": "y" * 100}
@@ -669,6 +677,7 @@ class TestUtilityOperationsBenchmarks:
         db.create_table("rowid_test", {"id": "INTEGER PRIMARY KEY AUTOINCREMENT", "name": "TEXT"})
 
         counter = [0]
+
         def get_rowid_op():
             db.sql_insert("rowid_test", {"name": f"User{counter[0]}"})
             rowid = db.get_last_insert_rowid()
@@ -698,6 +707,7 @@ class TestUtilityOperationsBenchmarks:
         db.create_table("exec_test", {"id": "INTEGER", "value": "TEXT"})
 
         counter = [0]
+
         def execute_op():
             db.execute("INSERT INTO exec_test (id, value) VALUES (?, ?)", (counter[0], f"val{counter[0]}"))
             counter[0] += 1
@@ -741,6 +751,7 @@ class TestUtilityOperationsBenchmarks:
 
 
 # ==================== Pydantic Operations Benchmarks ====================
+
 
 @pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
 class TestPydanticOperationsBenchmarks:
@@ -792,6 +803,7 @@ class TestPydanticOperationsBenchmarks:
             db.set_model(f"model_user_{i}", user)
 
         counter = [0]
+
         def get_model_op():
             result = db.get_model(f"model_user_{counter[0] % 100}", TestUser)
             counter[0] += 1
@@ -802,6 +814,7 @@ class TestPydanticOperationsBenchmarks:
 
 
 # ==================== Transaction Operations Benchmarks ====================
+
 
 @pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
 class TestTransactionOperationsBenchmarks:
@@ -815,6 +828,7 @@ class TestTransactionOperationsBenchmarks:
         db.create_table("tx_test", {"id": "INTEGER", "value": "TEXT"})
 
         counter = [0]
+
         def begin_commit_op():
             db.begin_transaction()
             db.sql_insert("tx_test", {"id": counter[0], "value": f"val{counter[0]}"})
@@ -832,6 +846,7 @@ class TestTransactionOperationsBenchmarks:
         db.create_table("tx_rollback_test", {"id": "INTEGER", "value": "TEXT"})
 
         counter = [0]
+
         def begin_rollback_op():
             db.begin_transaction()
             db.sql_insert("tx_rollback_test", {"id": counter[0], "value": f"val{counter[0]}"})
@@ -849,6 +864,7 @@ class TestTransactionOperationsBenchmarks:
         db.create_table("tx_ctx_test", {"id": "INTEGER", "value": "TEXT"})
 
         counter = [0]
+
         def ctx_tx_op():
             with db.transaction():
                 db.sql_insert("tx_ctx_test", {"id": counter[0], "value": f"val{counter[0]}"})
@@ -859,6 +875,7 @@ class TestTransactionOperationsBenchmarks:
 
 
 # ==================== Summary Test ====================
+
 
 def test_benchmark_summary(db_path, capsys):
     """ベンチマーク結果サマリー（pytest-benchmark無しでも実行可能）"""

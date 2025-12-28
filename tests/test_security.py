@@ -1,6 +1,7 @@
 """
 Security tests for SQL injection protection in NanaSQLite
 """
+
 import os
 import tempfile
 
@@ -86,6 +87,7 @@ class TestSQLInjectionProtection:
     def test_invalid_table_name(self, db):
         """Test that invalid table names are rejected."""
         from nanasqlite import NanaSQLiteValidationError
+
         # Attempt to use SQL injection in table name
         with pytest.raises(NanaSQLiteValidationError, match="Invalid identifier"):
             db.create_table("test; DROP TABLE users--", {"id": "INTEGER"})
@@ -93,6 +95,7 @@ class TestSQLInjectionProtection:
     def test_invalid_column_name(self, db):
         """Test that invalid column names are rejected."""
         from nanasqlite import NanaSQLiteValidationError
+
         # Attempt to use SQL injection in column name
         with pytest.raises(NanaSQLiteValidationError, match="Invalid identifier"):
             db.create_table("test", {"id; DROP TABLE": "INTEGER"})
@@ -100,6 +103,7 @@ class TestSQLInjectionProtection:
     def test_invalid_index_name(self, db):
         """Test that invalid index names are rejected."""
         from nanasqlite import NanaSQLiteValidationError
+
         db.create_table("test", {"id": "INTEGER"})
 
         # Attempt to use SQL injection in index name
@@ -131,10 +135,9 @@ class TestSQLInjectionProtection:
         db.sql_insert("test", {"id": 2, "value": 20})
 
         # These should all work fine
-        results = db.query_with_pagination("test",
-                                          columns=["COUNT(*) as count", "SUM(value) as total"],
-                                          group_by="id",
-                                          order_by="id DESC")
+        results = db.query_with_pagination(
+            "test", columns=["COUNT(*) as count", "SUM(value) as total"], group_by="id", order_by="id DESC"
+        )
         assert len(results) > 0
 
     def test_valid_order_by_patterns(self, db):

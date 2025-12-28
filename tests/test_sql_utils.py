@@ -34,7 +34,7 @@ class TestSanitizeSqlForFunctionScan:
         """Test double-quoted identifiers are replaced with spaces."""
         sql = 'SELECT "user_id" FROM table'
         result = sanitize_sql_for_function_scan(sql)
-        assert result == 'SELECT           FROM table'
+        assert result == "SELECT           FROM table"
         assert len(result) == len(sql)
 
     def test_escaped_single_quotes(self):
@@ -50,7 +50,7 @@ class TestSanitizeSqlForFunctionScan:
         """Test SQL-style escaped double quotes ("")."""
         sql = 'SELECT "column""name" FROM table'
         result = sanitize_sql_for_function_scan(sql)
-        assert result == 'SELECT                FROM table'
+        assert result == "SELECT                FROM table"
         assert len(result) == len(sql)
 
     def test_line_comment(self):
@@ -83,7 +83,7 @@ class TestSanitizeSqlForFunctionScan:
 
     def test_nested_quotes_in_string(self):
         """Test double quotes inside single-quoted string."""
-        sql = '''SELECT 'he said "hello"' FROM table'''
+        sql = """SELECT 'he said "hello"' FROM table"""
         result = sanitize_sql_for_function_scan(sql)
         assert '"hello"' not in result
         assert result == "SELECT                   FROM table"

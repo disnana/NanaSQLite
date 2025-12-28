@@ -1,4 +1,3 @@
-
 import apsw
 import pytest
 import pytest_asyncio
@@ -16,12 +15,14 @@ async def db(tmp_path):
         await _db.aset("user:3", {"name": "Charlie"})
         yield _db
 
+
 @pytest.mark.asyncio
 async def test_pool_fetch_all(db):
     """Test that fetch_all works via pool"""
     rows = await db.fetch_all("SELECT key, value FROM data ORDER BY key")
     assert len(rows) == 3
     assert rows[0][0] == "user:1"
+
 
 @pytest.mark.asyncio
 async def test_pool_readonly_safety(db):
@@ -31,6 +32,7 @@ async def test_pool_readonly_safety(db):
     # Verify data is still there
     assert await db.acontains("user:1")
 
+
 @pytest.mark.asyncio
 async def test_pool_mixed_workload(db):
     """Test mixed workload: writes (main) and reads (pool)"""
@@ -38,6 +40,7 @@ async def test_pool_mixed_workload(db):
     rows = await db.fetch_all("SELECT key FROM data WHERE key = ?", ("user:4",))
     assert len(rows) == 1
     assert rows[0][0] == "user:4"
+
 
 @pytest.mark.asyncio
 async def test_pool_default_disabled(tmp_path):
@@ -49,12 +52,9 @@ async def test_pool_default_disabled(tmp_path):
         rows = await db0.fetch_all("SELECT * FROM data")
         assert len(rows) == 1
 
+
 @pytest.mark.asyncio
 async def test_pool_query_with_pagination(db):
     """Test that query_with_pagination uses the pool"""
-    results = await db.query_with_pagination(
-        table_name="data",
-        columns=["key", "value"],
-        limit=1
-    )
+    results = await db.query_with_pagination(table_name="data", columns=["key", "value"], limit=1)
     assert len(results) == 1

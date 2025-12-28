@@ -131,6 +131,7 @@ def test_order_by_no_backtracking(db):
 
     # This should either pass validation or fail quickly (not hang)
     import time
+
     start = time.time()
     try:
         db.query("test", order_by=long_order)

@@ -14,6 +14,7 @@ from nanasqlite import (
 def db_path(tmp_path):
     return str(tmp_path / "test_security_async.db")
 
+
 @pytest.mark.asyncio
 async def test_async_sql_validation_strict_mode(db_path):
     db = AsyncNanaSQLite(db_path, strict_sql_validation=True)
@@ -26,6 +27,7 @@ async def test_async_sql_validation_strict_mode(db_path):
         await db.aquery(columns=["DANGEROUS_FUNC(*)"])
     assert "DANGEROUS_FUNC" in str(excinfo.value)
     await db.close()
+
 
 @pytest.mark.asyncio
 async def test_async_sql_validation_warning_mode(db_path):
@@ -43,6 +45,7 @@ async def test_async_sql_validation_warning_mode(db_path):
             pass
     await db.close()
 
+
 @pytest.mark.asyncio
 async def test_async_allowed_sql_functions_init(db_path):
     db = AsyncNanaSQLite(db_path, strict_sql_validation=True, allowed_sql_functions=["MY_CUSTOM_FUNC"])
@@ -53,6 +56,7 @@ async def test_async_allowed_sql_functions_init(db_path):
 
     assert "no such function" in str(excinfo.value).lower()
     await db.close()
+
 
 @pytest.mark.asyncio
 async def test_async_allowed_sql_functions_query(db_path):
@@ -69,6 +73,7 @@ async def test_async_allowed_sql_functions_query(db_path):
     assert "no such function" in str(excinfo.value).lower()
     await db.close()
 
+
 @pytest.mark.asyncio
 async def test_async_forbidden_sql_functions(db_path):
     db = AsyncNanaSQLite(db_path, strict_sql_validation=True, allowed_sql_functions=["SOME_FUNC"])
@@ -83,6 +88,7 @@ async def test_async_forbidden_sql_functions(db_path):
     with pytest.raises(NanaSQLiteValidationError):
         await db.aquery(columns=["SOME_FUNC(*)"], forbidden_sql_functions=["SOME_FUNC"])
     await db.close()
+
 
 @pytest.mark.asyncio
 async def test_async_override_allowed(db_path):
@@ -105,6 +111,7 @@ async def test_async_override_allowed(db_path):
     assert "no such function" in str(excinfo.value).lower()
     await db.close()
 
+
 @pytest.mark.asyncio
 async def test_async_redos_protection(db_path):
     db = AsyncNanaSQLite(db_path, max_clause_length=10, strict_sql_validation=True)
@@ -120,6 +127,7 @@ async def test_async_redos_protection(db_path):
         await db.aquery(where="key = " + "?" * 20)
     assert "exceeds maximum length" in str(excinfo.value)
     await db.close()
+
 
 @pytest.mark.asyncio
 async def test_async_connection_closed_error(tmp_path):

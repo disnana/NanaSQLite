@@ -22,6 +22,7 @@ from nanasqlite import AsyncNanaSQLite
 
 # ==================== Fixtures ====================
 
+
 @pytest.fixture
 def db_path():
     """一時DBパスを提供"""
@@ -38,6 +39,7 @@ async def async_db(db_path):
 
 
 # ==================== 基本的な非同期操作テスト ====================
+
 
 class TestAsyncBasicOperations:
     """基本的な非同期操作のテスト"""
@@ -129,6 +131,7 @@ class TestAsyncBasicOperations:
 
 
 # ==================== 非同期dict風メソッドテスト ====================
+
 
 class TestAsyncDictMethods:
     """非同期dict風メソッドのテスト"""
@@ -227,6 +230,7 @@ class TestAsyncDictMethods:
 
 # ==================== 非同期特殊メソッドテスト ====================
 
+
 class TestAsyncSpecialMethods:
     """非同期特殊メソッドのテスト"""
 
@@ -257,12 +261,7 @@ class TestAsyncSpecialMethods:
     async def test_async_batch_update(self, db_path):
         """非同期バッチ更新"""
         async with AsyncNanaSQLite(db_path) as db:
-            data = {
-                "key1": "value1",
-                "key2": "value2",
-                "key3": {"nested": "data"},
-                "key4": [1, 2, 3]
-            }
+            data = {"key1": "value1", "key2": "value2", "key3": {"nested": "data"}, "key4": [1, 2, 3]}
 
             await db.batch_update(data)
 
@@ -334,6 +333,7 @@ class TestAsyncSpecialMethods:
 
 # ==================== 非同期SQL実行テスト ====================
 
+
 class TestAsyncSQLExecution:
     """非同期SQL実行のテスト"""
 
@@ -354,11 +354,7 @@ class TestAsyncSQLExecution:
         async with AsyncNanaSQLite(db_path) as db:
             await db.create_table("users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT"})
 
-            users = [
-                (1, "Alice"),
-                (2, "Bob"),
-                (3, "Charlie")
-            ]
+            users = [(1, "Alice"), (2, "Bob"), (3, "Charlie")]
 
             await db.aexecute_many("INSERT INTO users (id, name) VALUES (?, ?)", users)
 
@@ -389,6 +385,7 @@ class TestAsyncSQLExecution:
 
 # ==================== 非同期SQLiteラッパー関数テスト ====================
 
+
 class TestAsyncSQLiteWrappers:
     """非同期SQLiteラッパー関数のテスト"""
 
@@ -396,11 +393,9 @@ class TestAsyncSQLiteWrappers:
     async def test_async_create_table(self, db_path):
         """非同期テーブル作成"""
         async with AsyncNanaSQLite(db_path) as db:
-            await db.create_table("users", {
-                "id": "INTEGER PRIMARY KEY",
-                "name": "TEXT NOT NULL",
-                "email": "TEXT UNIQUE"
-            })
+            await db.create_table(
+                "users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT NOT NULL", "email": "TEXT UNIQUE"}
+            )
 
             exists = await db.table_exists("users")
             assert exists is True
@@ -409,10 +404,7 @@ class TestAsyncSQLiteWrappers:
     async def test_async_create_index(self, db_path):
         """非同期インデックス作成"""
         async with AsyncNanaSQLite(db_path) as db:
-            await db.create_table("users", {
-                "id": "INTEGER PRIMARY KEY",
-                "email": "TEXT"
-            })
+            await db.create_table("users", {"id": "INTEGER PRIMARY KEY", "email": "TEXT"})
 
             await db.create_index("idx_users_email", "users", ["email"])
 
@@ -420,11 +412,7 @@ class TestAsyncSQLiteWrappers:
     async def test_async_query(self, db_path):
         """非同期クエリ"""
         async with AsyncNanaSQLite(db_path) as db:
-            await db.create_table("users", {
-                "id": "INTEGER PRIMARY KEY",
-                "name": "TEXT",
-                "age": "INTEGER"
-            })
+            await db.create_table("users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT", "age": "INTEGER"})
 
             await db.sql_insert("users", {"id": 1, "name": "Alice", "age": 25})
             await db.sql_insert("users", {"id": 2, "name": "Bob", "age": 30})
@@ -434,7 +422,7 @@ class TestAsyncSQLiteWrappers:
                 columns=["id", "name", "age"],
                 where="age > ?",
                 parameters=(20,),
-                order_by="name ASC"
+                order_by="name ASC",
             )
 
             assert len(results) == 2
@@ -466,16 +454,9 @@ class TestAsyncSQLiteWrappers:
     async def test_async_sql_insert(self, db_path):
         """非同期SQL INSERT"""
         async with AsyncNanaSQLite(db_path) as db:
-            await db.create_table("users", {
-                "id": "INTEGER PRIMARY KEY",
-                "name": "TEXT",
-                "age": "INTEGER"
-            })
+            await db.create_table("users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT", "age": "INTEGER"})
 
-            rowid = await db.sql_insert("users", {
-                "name": "Alice",
-                "age": 25
-            })
+            rowid = await db.sql_insert("users", {"name": "Alice", "age": 25})
 
             assert rowid > 0
 
@@ -483,11 +464,7 @@ class TestAsyncSQLiteWrappers:
     async def test_async_sql_update(self, db_path):
         """非同期SQL UPDATE"""
         async with AsyncNanaSQLite(db_path) as db:
-            await db.create_table("users", {
-                "id": "INTEGER PRIMARY KEY",
-                "name": "TEXT",
-                "age": "INTEGER"
-            })
+            await db.create_table("users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT", "age": "INTEGER"})
 
             await db.sql_insert("users", {"name": "Alice", "age": 25})
 
@@ -498,11 +475,7 @@ class TestAsyncSQLiteWrappers:
     async def test_async_sql_delete(self, db_path):
         """非同期SQL DELETE"""
         async with AsyncNanaSQLite(db_path) as db:
-            await db.create_table("users", {
-                "id": "INTEGER PRIMARY KEY",
-                "name": "TEXT",
-                "age": "INTEGER"
-            })
+            await db.create_table("users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT", "age": "INTEGER"})
 
             await db.sql_insert("users", {"name": "Alice", "age": 25})
             await db.sql_insert("users", {"name": "Bob", "age": 17})
@@ -522,6 +495,7 @@ class TestAsyncSQLiteWrappers:
 
 # ==================== 並行性テスト ====================
 
+
 class TestAsyncConcurrency:
     """非同期並行処理のテスト"""
 
@@ -534,11 +508,7 @@ class TestAsyncConcurrency:
             await db.aset("key3", "value3")
 
             # 並行読み込み
-            results = await asyncio.gather(
-                db.aget("key1"),
-                db.aget("key2"),
-                db.aget("key3")
-            )
+            results = await asyncio.gather(db.aget("key1"), db.aget("key2"), db.aget("key3"))
 
             assert results == ["value1", "value2", "value3"]
 
@@ -547,11 +517,7 @@ class TestAsyncConcurrency:
         """並行書き込み"""
         async with AsyncNanaSQLite(db_path) as db:
             # 並行書き込み
-            await asyncio.gather(
-                db.aset("key1", "value1"),
-                db.aset("key2", "value2"),
-                db.aset("key3", "value3")
-            )
+            await asyncio.gather(db.aset("key1", "value1"), db.aset("key2", "value2"), db.aset("key3", "value3"))
 
             assert await db.aget("key1") == "value1"
             assert await db.aget("key2") == "value2"
@@ -569,7 +535,7 @@ class TestAsyncConcurrency:
                 db.aget("initial"),
                 db.aset("key2", "value2"),
                 db.acontains("initial"),
-                db.aset("key3", "value3")
+                db.aset("key3", "value3"),
             )
 
             # 最後の書き込みが完了していることを確認
@@ -579,6 +545,7 @@ class TestAsyncConcurrency:
 
 
 # ==================== コンテキストマネージャテスト ====================
+
 
 class TestAsyncContextManager:
     """非同期コンテキストマネージャのテスト"""
@@ -597,6 +564,7 @@ class TestAsyncContextManager:
 
 
 # ==================== Pydanticサポートテスト ====================
+
 
 class TestAsyncPydanticSupport:
     """非同期Pydanticサポートのテスト"""
@@ -626,6 +594,7 @@ class TestAsyncPydanticSupport:
 
 
 # ==================== パフォーマンステスト ====================
+
 
 class TestAsyncPerformance:
     """非同期パフォーマンステスト"""
@@ -664,6 +633,7 @@ class TestAsyncPerformance:
 
 # ==================== エラーハンドリングテスト ====================
 
+
 class TestAsyncErrorHandling:
     """非同期エラーハンドリングのテスト"""
 
@@ -688,6 +658,7 @@ class TestAsyncErrorHandling:
 
 
 # ==================== データ型テスト ====================
+
 
 class TestAsyncDataTypes:
     """非同期データ型テスト"""
@@ -723,6 +694,7 @@ class TestAsyncDataTypes:
 
 
 # ==================== ネスト構造テスト ====================
+
 
 class TestAsyncNestedStructures:
     """非同期ネスト構造テスト"""
@@ -772,17 +744,11 @@ class TestAsyncNestedStructures:
                         "metadata": {
                             "created": "2024-01-01",
                             "tags": ["admin", "active"],
-                            "settings": {
-                                "theme": "dark",
-                                "notifications": {
-                                    "email": True,
-                                    "push": False
-                                }
-                            }
-                        }
+                            "settings": {"theme": "dark", "notifications": {"email": True, "push": False}},
+                        },
                     }
                 ],
-                "count": 1
+                "count": 1,
             }
 
             await db.aset("complex", original)
@@ -792,6 +758,7 @@ class TestAsyncNestedStructures:
 
 
 # ==================== 永続化テスト ====================
+
 
 class TestAsyncPersistence:
     """非同期永続化テスト"""
@@ -844,6 +811,7 @@ class TestAsyncPersistence:
 
 # ==================== スキーマ管理テスト ====================
 
+
 class TestAsyncSchemaManagement:
     """非同期スキーマ管理テスト"""
 
@@ -876,11 +844,7 @@ class TestAsyncSchemaManagement:
     async def test_async_get_table_schema(self, db_path):
         """非同期スキーマ取得"""
         async with AsyncNanaSQLite(db_path) as db:
-            await db.create_table("users", {
-                "id": "INTEGER PRIMARY KEY",
-                "name": "TEXT NOT NULL",
-                "email": "TEXT"
-            })
+            await db.create_table("users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT NOT NULL", "email": "TEXT"})
 
             schema = db.sync_db.get_table_schema("users")
             column_names = [col["name"] for col in schema]
@@ -902,6 +866,7 @@ class TestAsyncSchemaManagement:
 
 # ==================== データ操作テスト ====================
 
+
 class TestAsyncDataOperations:
     """非同期データ操作テスト"""
 
@@ -909,11 +874,7 @@ class TestAsyncDataOperations:
     async def test_async_upsert(self, db_path):
         """非同期UPSERT"""
         async with AsyncNanaSQLite(db_path) as db:
-            await db.create_table("users", {
-                "id": "INTEGER PRIMARY KEY",
-                "name": "TEXT",
-                "age": "INTEGER"
-            })
+            await db.create_table("users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT", "age": "INTEGER"})
 
             # Insert
             rowid1 = db.sync_db.upsert("users", {"id": 1, "name": "Alice", "age": 25})
@@ -931,11 +892,7 @@ class TestAsyncDataOperations:
     async def test_async_count(self, db_path):
         """非同期レコード数取得"""
         async with AsyncNanaSQLite(db_path) as db:
-            await db.create_table("users", {
-                "id": "INTEGER PRIMARY KEY",
-                "name": "TEXT",
-                "age": "INTEGER"
-            })
+            await db.create_table("users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT", "age": "INTEGER"})
 
             await db.sql_insert("users", {"name": "Alice", "age": 25})
             await db.sql_insert("users", {"name": "Bob", "age": 30})
@@ -953,10 +910,7 @@ class TestAsyncDataOperations:
     async def test_async_exists(self, db_path):
         """非同期レコード存在確認"""
         async with AsyncNanaSQLite(db_path) as db:
-            await db.create_table("users", {
-                "id": "INTEGER PRIMARY KEY",
-                "email": "TEXT UNIQUE"
-            })
+            await db.create_table("users", {"id": "INTEGER PRIMARY KEY", "email": "TEXT UNIQUE"})
 
             await db.sql_insert("users", {"email": "alice@example.com"})
 
@@ -967,21 +921,16 @@ class TestAsyncDataOperations:
     async def test_async_execute_many(self, db_path):
         """非同期一括SQL実行"""
         async with AsyncNanaSQLite(db_path) as db:
-            await db.create_table("users", {
-                "id": "INTEGER PRIMARY KEY",
-                "name": "TEXT"
-            })
+            await db.create_table("users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT"})
 
-            await db.execute_many(
-                "INSERT INTO users (name) VALUES (?)",
-                [("Alice",), ("Bob",), ("Charlie",)]
-            )
+            await db.execute_many("INSERT INTO users (name) VALUES (?)", [("Alice",), ("Bob",), ("Charlie",)])
 
             results = await db.query("users")
             assert len(results) == 3
 
 
 # ==================== クエリ拡張テスト ====================
+
 
 class TestAsyncQueryExtensions:
     """非同期クエリ拡張テスト"""
@@ -1013,6 +962,7 @@ class TestAsyncQueryExtensions:
 
 
 # ==================== ユーティリティテスト ====================
+
 
 class TestAsyncUtilities:
     """非同期ユーティリティテスト"""
@@ -1046,10 +996,7 @@ class TestAsyncUtilities:
         async with AsyncNanaSQLite(db_path) as db:
             await db.create_table("users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT", "age": "INTEGER"})
 
-            users = [
-                {"name": "Alice", "age": 25},
-                {"name": "Bob", "age": 30}
-            ]
+            users = [{"name": "Alice", "age": 25}, {"name": "Bob", "age": 30}]
 
             count = db.sync_db.import_from_dict_list("users", users)
             assert count == 2
@@ -1082,6 +1029,7 @@ class TestAsyncUtilities:
 
 
 # ==================== エッジケーステスト ====================
+
 
 class TestAsyncEdgeCases:
     """非同期エッジケーステスト"""
@@ -1139,6 +1087,7 @@ class TestAsyncEdgeCases:
 
 
 # ==================== Pydantic詳細テスト ====================
+
 
 class TestAsyncPydanticDetailed:
     """非同期Pydantic詳細テスト"""

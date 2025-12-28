@@ -10,16 +10,22 @@ from typing import Any, Protocol
 logger = logging.getLogger(__name__)
 
 # Try to import C-optimized LRU (optional dependency)
+_FAST_LRU: Any = None
 try:
-    from lru import LRU as FastLRU  # noqa: N811
+    from lru import LRU
+
+    _FAST_LRU = LRU
     HAS_FAST_LRU = True
 except ImportError:
     HAS_FAST_LRU = False
 
+
 class CacheType(str, Enum):
     """Available cache strategies"""
+
     UNBOUNDED = "unbounded"
     LRU = "lru"
+
 
 class CacheStrategy(Protocol):
     """Protocol defining the interface for all cache implementations"""
@@ -75,11 +81,13 @@ class CacheStrategy(Protocol):
         """Current number of items in cache."""
         ...
 
+
 class UnboundedCache(CacheStrategy):
     """
     Default behavior: Infinite growth, maximum speed.
     Equivalent to v1.2.x logic using standard user Dict + Set.
     """
+
     def __init__(self):
         self._data: dict[str, Any] = {}
         self._cached_keys: set[str] = set()
@@ -130,6 +138,7 @@ class StdLRUCache(CacheStrategy):
     Standard Library LRU implementation using OrderedDict.
     Safe fallback if C extensions are not available.
     """
+
     def __init__(self, max_size: int):
         self._max_size = max_size
         self._data: OrderedDict[str, Any] = OrderedDict()
@@ -139,14 +148,14 @@ class StdLRUCache(CacheStrategy):
     def get(self, key: str) -> Any | None:
         if key not in self._data:
             return None
-        self._data.move_to_end(key) # Mark used
+        self._data.move_to_end(key)  # Mark used
         return self._data[key]
 
     def set(self, key: str, value: Any) -> None:
         self._data[key] = value
         self._data.move_to_end(key)
         if len(self._data) > self._max_size:
-            self._data.popitem(last=False) # Evict oldest
+            self._data.popitem(last=False)  # Evict oldest
 
     def delete(self, key: str) -> None:
         if key in self._data:
@@ -184,10 +193,11 @@ class FastLRUCache(CacheStrategy):
     """
     High-performance LRU implementation using lru-dict (C extension).
     """
+
     def __init__(self, max_size: int):
-        if not HAS_FAST_LRU:
-             raise ImportError("lru-dict is not installed. Use 'fast_lru' extra or fallback to StdLRUCache.")
-        self._data = FastLRU(max_size)
+        if not HAS_FAST_LRU or _FAST_LRU is None:
+            raise ImportError("lru-dict is not installed. Use 'fast_lru' extra or fallback to StdLRUCache.")
+        self._data = _FAST_LRU(max_size)
 
     def get(self, key: str) -> Any | None:
         return self._data.get(key)
@@ -216,7 +226,7 @@ class FastLRUCache(CacheStrategy):
 
     def get_data(self) -> MutableMapping[str, Any]:
         # lru-dict behaves like a dict
-        return self._data # type: ignore
+        return self._data  # type: ignore
 
     @property
     def size(self) -> int:

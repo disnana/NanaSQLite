@@ -14,6 +14,7 @@ from nanasqlite import (
 def db_path(tmp_path):
     return str(tmp_path / "test_security.db")
 
+
 def test_sql_validation_strict_mode(db_path):
     db = NanaSQLite(db_path, strict_sql_validation=True)
 
@@ -25,6 +26,7 @@ def test_sql_validation_strict_mode(db_path):
         db.query(columns=["DANGEROUS_FUNC(*)"])
     assert "DANGEROUS_FUNC" in str(excinfo.value)
     db.close()
+
 
 def test_sql_validation_warning_mode(db_path):
     db = NanaSQLite(db_path, strict_sql_validation=False)
@@ -50,6 +52,7 @@ def test_sql_validation_warning_mode(db_path):
             pass
     db.close()
 
+
 def test_allowed_sql_functions_init(db_path):
     """
     インスタンス初期化時にallowed_sql_functionsで許可した関数が
@@ -70,6 +73,7 @@ def test_allowed_sql_functions_init(db_path):
 
     db.close()
 
+
 def test_allowed_sql_functions_query(db_path):
     """
     クエリレベルでallowed_sql_functionsを指定した場合の動作を検証。
@@ -87,6 +91,7 @@ def test_allowed_sql_functions_query(db_path):
     assert "no such function" in str(excinfo.value).lower()
     db.close()
 
+
 def test_forbidden_sql_functions(db_path):
     """
     forbidden_sql_functionsパラメータの動作を検証。
@@ -103,6 +108,7 @@ def test_forbidden_sql_functions(db_path):
     with pytest.raises(NanaSQLiteValidationError):
         db.query(columns=["SOME_FUNC(*)"], forbidden_sql_functions=["SOME_FUNC"])
     db.close()
+
 
 def test_override_allowed(db_path):
     """
@@ -127,6 +133,7 @@ def test_override_allowed(db_path):
     assert "no such function" in str(excinfo.value).lower()
     db.close()
 
+
 def test_redos_protection(db_path):
     db = NanaSQLite(db_path, max_clause_length=10, strict_sql_validation=True)
 
@@ -141,6 +148,7 @@ def test_redos_protection(db_path):
         db.query(where="key = " + "?" * 20)
     assert "exceeds maximum length" in str(excinfo.value)
     db.close()
+
 
 def test_connection_closed_error(tmp_path):
     db_path = str(tmp_path / "test_connection.db")

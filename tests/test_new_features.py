@@ -20,6 +20,7 @@ from nanasqlite import NanaSQLite
 # Pydanticが利用可能かチェック
 try:
     import pydantic  # noqa: F401 - imported to check availability
+
     PYDANTIC_AVAILABLE = True
     del pydantic  # Remove from namespace to avoid unused import warning
 except ImportError:
@@ -27,6 +28,7 @@ except ImportError:
 
 
 # ==================== Fixtures ====================
+
 
 @pytest.fixture
 def db_path():
@@ -44,6 +46,7 @@ def db(db_path):
 
 
 # ==================== Pydantic互換性テスト ====================
+
 
 @pytest.mark.skipif(not PYDANTIC_AVAILABLE, reason="Pydantic not installed")
 class TestPydanticSupport:
@@ -89,9 +92,7 @@ class TestPydanticSupport:
 
         # ネストしたモデル作成
         user = UserWithAddress(
-            name="Alice",
-            age=25,
-            address=Address(street="123 Main St", city="Tokyo", country="Japan")
+            name="Alice", age=25, address=Address(street="123 Main St", city="Tokyo", country="Japan")
         )
 
         # 保存
@@ -143,6 +144,7 @@ class TestPydanticSupport:
 
     def test_set_model_with_non_pydantic_raises_error(self, db):
         """Pydanticモデルでないオブジェクトでエラー"""
+
         class NotPydantic:
             pass
 
@@ -192,6 +194,7 @@ class TestPydanticSupport:
 
 # ==================== 直接SQL実行テスト ====================
 
+
 class TestDirectSQLExecution:
     """直接SQL実行機能のテスト"""
 
@@ -216,10 +219,7 @@ class TestDirectSQLExecution:
         db["post1"] = "Hello"
 
         # パラメータバインディング
-        cursor = db.execute(
-            f"SELECT key, value FROM {db._table} WHERE key LIKE ?",
-            ("user%",)
-        )
+        cursor = db.execute(f"SELECT key, value FROM {db._table} WHERE key LIKE ?", ("user%",))
         rows = cursor.fetchall()
 
         assert len(rows) == 2
@@ -252,10 +252,7 @@ class TestDirectSQLExecution:
         db["key"] = "original"
 
         # 直接UPDATE
-        db.execute(
-            f"UPDATE {db._table} SET value = ? WHERE key = ?",
-            ('"updated"', "key")
-        )
+        db.execute(f"UPDATE {db._table} SET value = ? WHERE key = ?", ('"updated"', "key"))
 
         # 直接SQLで確認（キャッシュをバイパス）
         cursor = db.execute(f"SELECT value FROM {db._table} WHERE key = ?", ("key",))
@@ -288,12 +285,7 @@ class TestDirectSQLExecution:
         """)
 
         # 一括INSERT
-        data = [
-            (1, "Alice", 25),
-            (2, "Bob", 30),
-            (3, "Charlie", 35),
-            (4, "Diana", 28)
-        ]
+        data = [(1, "Alice", 25), (2, "Bob", 30), (3, "Charlie", 35), (4, "Diana", 28)]
         db.execute_many("INSERT INTO users (id, name, age) VALUES (?, ?, ?)", data)
 
         # 確認
@@ -335,17 +327,15 @@ class TestDirectSQLExecution:
 
 # ==================== SQLiteラッパー関数テスト ====================
 
+
 class TestSQLiteWrapperFunctions:
     """SQLiteラッパー関数のテスト"""
 
     def test_create_table(self, db):
         """テーブル作成"""
-        db.create_table("users", {
-            "id": "INTEGER PRIMARY KEY",
-            "name": "TEXT NOT NULL",
-            "email": "TEXT",
-            "age": "INTEGER"
-        })
+        db.create_table(
+            "users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT NOT NULL", "email": "TEXT", "age": "INTEGER"}
+        )
 
         # テーブルが作成されたか確認
         cursor = db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
@@ -359,11 +349,7 @@ class TestSQLiteWrapperFunctions:
 
     def test_create_table_with_primary_key_parameter(self, db):
         """primary_keyパラメータでテーブル作成"""
-        db.create_table("posts", {
-            "id": "INTEGER",
-            "title": "TEXT",
-            "content": "TEXT"
-        }, primary_key="id")
+        db.create_table("posts", {"id": "INTEGER", "title": "TEXT", "content": "TEXT"}, primary_key="id")
 
         # テーブルが作成されたか確認
         cursor = db.execute("PRAGMA table_info(posts)")
@@ -387,11 +373,7 @@ class TestSQLiteWrapperFunctions:
     def test_create_index(self, db):
         """インデックス作成"""
         # テーブル作成
-        db.create_table("users", {
-            "id": "INTEGER PRIMARY KEY",
-            "name": "TEXT",
-            "email": "TEXT"
-        })
+        db.create_table("users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT", "email": "TEXT"})
 
         # インデックス作成
         db.create_index("idx_users_email", "users", ["email"])
@@ -402,10 +384,7 @@ class TestSQLiteWrapperFunctions:
 
     def test_create_unique_index(self, db):
         """ユニークインデックス作成"""
-        db.create_table("products", {
-            "id": "INTEGER PRIMARY KEY",
-            "sku": "TEXT"
-        })
+        db.create_table("products", {"id": "INTEGER PRIMARY KEY", "sku": "TEXT"})
 
         db.create_index("idx_products_sku", "products", ["sku"], unique=True)
 
@@ -418,12 +397,9 @@ class TestSQLiteWrapperFunctions:
 
     def test_create_composite_index(self, db):
         """複合インデックス作成"""
-        db.create_table("logs", {
-            "id": "INTEGER PRIMARY KEY",
-            "user_id": "INTEGER",
-            "timestamp": "INTEGER",
-            "action": "TEXT"
-        })
+        db.create_table(
+            "logs", {"id": "INTEGER PRIMARY KEY", "user_id": "INTEGER", "timestamp": "INTEGER", "action": "TEXT"}
+        )
 
         db.create_index("idx_logs_user_time", "logs", ["user_id", "timestamp"])
 
@@ -444,12 +420,7 @@ class TestSQLiteWrapperFunctions:
 
     def test_query_with_columns(self, db):
         """カラム指定クエリ"""
-        db.create_table("users", {
-            "id": "INTEGER PRIMARY KEY",
-            "name": "TEXT",
-            "email": "TEXT",
-            "age": "INTEGER"
-        })
+        db.create_table("users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT", "email": "TEXT", "age": "INTEGER"})
 
         db.execute("INSERT INTO users (name, email, age) VALUES (?, ?, ?)", ("Alice", "alice@example.com", 25))
         db.execute("INSERT INTO users (name, email, age) VALUES (?, ?, ?)", ("Bob", "bob@example.com", 30))
@@ -462,32 +433,20 @@ class TestSQLiteWrapperFunctions:
 
     def test_query_with_where(self, db):
         """WHERE条件付きクエリ"""
-        db.create_table("products", {
-            "id": "INTEGER PRIMARY KEY",
-            "name": "TEXT",
-            "price": "REAL"
-        })
+        db.create_table("products", {"id": "INTEGER PRIMARY KEY", "name": "TEXT", "price": "REAL"})
 
         db.execute("INSERT INTO products (name, price) VALUES (?, ?)", ("Item A", 10.0))
         db.execute("INSERT INTO products (name, price) VALUES (?, ?)", ("Item B", 20.0))
         db.execute("INSERT INTO products (name, price) VALUES (?, ?)", ("Item C", 15.0))
 
-        results = db.query(
-            table_name="products",
-            where="price > ?",
-            parameters=(12.0,)
-        )
+        results = db.query(table_name="products", where="price > ?", parameters=(12.0,))
 
         assert len(results) == 2
         assert all(r["price"] > 12.0 for r in results)
 
     def test_query_with_order_by(self, db):
         """ORDER BY付きクエリ"""
-        db.create_table("items", {
-            "id": "INTEGER PRIMARY KEY",
-            "name": "TEXT",
-            "value": "INTEGER"
-        })
+        db.create_table("items", {"id": "INTEGER PRIMARY KEY", "name": "TEXT", "value": "INTEGER"})
 
         db.execute("INSERT INTO items (name, value) VALUES (?, ?)", ("C", 3))
         db.execute("INSERT INTO items (name, value) VALUES (?, ?)", ("A", 1))
@@ -511,19 +470,9 @@ class TestSQLiteWrapperFunctions:
 
     def test_query_combined_conditions(self, db):
         """複合条件のクエリ"""
-        db.create_table("scores", {
-            "id": "INTEGER PRIMARY KEY",
-            "student": "TEXT",
-            "score": "INTEGER"
-        })
+        db.create_table("scores", {"id": "INTEGER PRIMARY KEY", "student": "TEXT", "score": "INTEGER"})
 
-        students = [
-            ("Alice", 85),
-            ("Bob", 92),
-            ("Charlie", 78),
-            ("Diana", 95),
-            ("Eve", 88)
-        ]
+        students = [("Alice", 85), ("Bob", 92), ("Charlie", 78), ("Diana", 95), ("Eve", 88)]
         db.execute_many("INSERT INTO scores (student, score) VALUES (?, ?)", students)
 
         results = db.query(
@@ -532,7 +481,7 @@ class TestSQLiteWrapperFunctions:
             where="score >= ?",
             parameters=(85,),
             order_by="score DESC",
-            limit=3
+            limit=3,
         )
 
         assert len(results) == 3
@@ -570,6 +519,7 @@ class TestSQLiteWrapperFunctions:
 
 # ==================== 統合テスト ====================
 
+
 class TestIntegration:
     """新機能と既存機能の統合テスト"""
 
@@ -601,26 +551,22 @@ class TestIntegration:
     def test_custom_table_with_wrapper_functions(self, db):
         """カスタムテーブルとラッパー関数"""
         # カスタムテーブル作成
-        db.create_table("articles", {
-            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
-            "title": "TEXT NOT NULL",
-            "content": "TEXT",
-            "views": "INTEGER DEFAULT 0"
-        })
+        db.create_table(
+            "articles",
+            {
+                "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+                "title": "TEXT NOT NULL",
+                "content": "TEXT",
+                "views": "INTEGER DEFAULT 0",
+            },
+        )
 
         # インデックス作成
         db.create_index("idx_articles_title", "articles", ["title"])
 
         # データ挿入（execute_many使用）
-        articles = [
-            ("Article 1", "Content 1", 100),
-            ("Article 2", "Content 2", 200),
-            ("Article 3", "Content 3", 150)
-        ]
-        db.execute_many(
-            "INSERT INTO articles (title, content, views) VALUES (?, ?, ?)",
-            articles
-        )
+        articles = [("Article 1", "Content 1", 100), ("Article 2", "Content 2", 200), ("Article 3", "Content 3", 150)]
+        db.execute_many("INSERT INTO articles (title, content, views) VALUES (?, ?, ?)", articles)
 
         # クエリで取得
         popular = db.query(
@@ -628,7 +574,7 @@ class TestIntegration:
             columns=["title", "views"],
             where="views > ?",
             parameters=(120,),
-            order_by="views DESC"
+            order_by="views DESC",
         )
 
         assert len(popular) == 2
@@ -638,12 +584,9 @@ class TestIntegration:
     def test_all_features_together(self, db):
         """全機能を組み合わせたテスト"""
         # 1. カスタムテーブル作成
-        db.create_table("projects", {
-            "id": "INTEGER PRIMARY KEY",
-            "name": "TEXT",
-            "status": "TEXT",
-            "priority": "INTEGER"
-        })
+        db.create_table(
+            "projects", {"id": "INTEGER PRIMARY KEY", "name": "TEXT", "status": "TEXT", "priority": "INTEGER"}
+        )
 
         # 2. インデックス作成
         db.create_index("idx_projects_status", "projects", ["status"])
@@ -653,19 +596,13 @@ class TestIntegration:
             (1, "Project A", "active", 1),
             (2, "Project B", "completed", 2),
             (3, "Project C", "active", 3),
-            (4, "Project D", "pending", 1)
+            (4, "Project D", "pending", 1),
         ]
-        db.execute_many(
-            "INSERT INTO projects (id, name, status, priority) VALUES (?, ?, ?, ?)",
-            projects
-        )
+        db.execute_many("INSERT INTO projects (id, name, status, priority) VALUES (?, ?, ?, ?)", projects)
 
         # 4. クエリで検索
         active_projects = db.query(
-            table_name="projects",
-            where="status = ?",
-            parameters=("active",),
-            order_by="priority ASC"
+            table_name="projects", where="status = ?", parameters=("active",), order_by="priority ASC"
         )
 
         assert len(active_projects) == 2

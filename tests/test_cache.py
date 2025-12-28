@@ -1,6 +1,7 @@
 """
 Tests for the cache strategy feature (v1.3.0).
 """
+
 import pytest
 
 from nanasqlite import CacheType, NanaSQLite
