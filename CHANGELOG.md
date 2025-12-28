@@ -6,6 +6,14 @@
 
 ## 日本語
 
+### [1.3.0dev1] - 2025-12-28
+
+#### 修正と最適化
+- **LRU追い出しロジックの修正**: `__setitem__` や遅延ロード時に `_cache.set()` をバイパスしていた箇所を修正し、キャッシュサイズ制限が厳密に機能するように。
+- **Unboundedモードの高速化**: デフォルト設定において抽象化レイヤーをバイパスする高速パスを再実装し、v1.2.xと同等のパフォーマンスを回復。
+- **CI/型チェックの修正**: `ruff` リントエラー、`mypy` 型不足、`pytest-benchmark` フィクスチャ不足などを全て解消。
+- **マージ同期**: v1.2.2 で導入されたドキュメント刷新やセキュリティ強化を `dev` ブランチに統合。
+
 ### [1.3.0dev0] - 2025-12-27
 
 #### 新機能: 柔軟なキャッシュ戦略
@@ -401,6 +409,26 @@
 ---
 
 ## English
+
+### [1.3.0dev1] - 2025-12-28
+
+#### Fixes and Optimizations
+- **Fixed LRU Eviction Logic**: Resolved issues where `__setitem__` and lazy loading bypassed `_cache.set()`, ensuring cache size limits are strictly enforced.
+- **Unbounded Mode Optimization**: Re-implemented fast paths for the default strategy to restore v1.2.x equivalent performance by bypassing the abstraction layer.
+- **CI & Type Hint Fixes**: Resolved all `ruff` lint errors, `mypy` type issues, and missing `pytest-benchmark` fixtures.
+- **Upstream Sync**: Integrated documentation overhaul and security enhancements from v1.2.2.
+
+### [1.3.0dev0] - 2025-12-27
+
+#### New Features: Flexible Cache Strategy
+- **Added `CacheType` Enum**: Choose between `UNBOUNDED` (infinite, legacy behavior) and `LRU` (eviction-based).
+- **LRU Cache Implementation**: Limit memory usage with `cache_strategy=CacheType.LRU, cache_size=N`.
+- **Per-Table Configuration**: Configure specific tables via `db.table("logs", cache_strategy=CacheType.LRU, cache_size=100)`.
+- **Performance Option**: Install `lru-dict` C-extension via `pip install nanasqlite[speed]` for up to 2x speedup.
+- **Automated Fallback**: Automatically falls back to standard library `OrderedDict` if `lru-dict` is not installed.
+
+#### New Tests
+- `tests/test_cache.py`: Comprehensive test suite for cache strategies (eviction, persistence, per-table configuration).
 
 ### [1.2.2b1] - 2025-12-27
 
