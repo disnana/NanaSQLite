@@ -6,12 +6,14 @@ This example demonstrates how to use AsyncNanaSQLite with FastAPI
 for a simple user management API.
 """
 
-from fastapi import FastAPI, HTTPException, Depends
-from pydantic import BaseModel, EmailStr
-from nanasqlite import AsyncNanaSQLite
-from contextlib import asynccontextmanager
-from typing import List, Optional
 import uuid
+from contextlib import asynccontextmanager
+from typing import Optional
+
+from fastapi import Depends, FastAPI, HTTPException
+from pydantic import BaseModel, EmailStr
+
+from nanasqlite import AsyncNanaSQLite
 
 
 # Pydantic models for request/response
@@ -75,7 +77,7 @@ async def create_user(
     """Create a new user"""
     # Generate unique ID
     user_id = str(uuid.uuid4())
-    
+
     # Check if email already exists
     # Note: This is O(n) and inefficient for large datasets.
     # For production, consider using an email index like:
@@ -89,7 +91,7 @@ async def create_user(
                     status_code=400,
                     detail="Email already registered"
                 )
-    
+
     # Save user
     user_data = {
         "name": user.name,
@@ -97,11 +99,11 @@ async def create_user(
         "age": user.age
     }
     await db.aset(f"user_{user_id}", user_data)
-    
+
     return UserResponse(id=user_id, **user_data)
 
 
-@app.get("/users", response_model=List[UserResponse])
+@app.get("/users", response_model=list[UserResponse])
 async def list_users(
     skip: int = 0,
     limit: int = 100,
@@ -111,14 +113,14 @@ async def list_users(
     users = []
     all_keys = await db.akeys()
     user_keys = [k for k in all_keys if k.startswith("user_")]
-    
+
     # Apply pagination
     for key in user_keys[skip:skip + limit]:
         user_id = key[5:]  # Remove "user_" prefix
         user_data = await db.aget(key)
         if user_data:
             users.append(UserResponse(id=user_id, **user_data))
-    
+
     return users
 
 
@@ -129,10 +131,10 @@ async def get_user(
 ):
     """Get a specific user by ID"""
     user_data = await db.aget(f"user_{user_id}")
-    
+
     if not user_data:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     return UserResponse(id=user_id, **user_data)
 
 
@@ -147,7 +149,7 @@ async def update_user(
     user_data = await db.aget(f"user_{user_id}")
     if not user_data:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     # Check email uniqueness if email is being updated
     if user_update.email is not None and user_update.email != user_data.get("email"):
         all_users = await db.akeys()
@@ -159,7 +161,7 @@ async def update_user(
                         status_code=400,
                         detail="Email already registered"
                     )
-    
+
     # Update fields
     if user_update.name is not None:
         user_data["name"] = user_update.name
@@ -167,10 +169,10 @@ async def update_user(
         user_data["email"] = user_update.email
     if user_update.age is not None:
         user_data["age"] = user_update.age
-    
+
     # Save updated user
     await db.aset(f"user_{user_id}", user_data)
-    
+
     return UserResponse(id=user_id, **user_data)
 
 
@@ -184,7 +186,7 @@ async def delete_user(
     user_data = await db.aget(f"user_{user_id}")
     if not user_data:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     # Delete user
     await db.adelete(f"user_{user_id}")
     return
@@ -202,10 +204,10 @@ async def get_stats(db: AsyncNanaSQLite = Depends(get_db)):
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     print("Starting FastAPI server...")
     print("API documentation: http://localhost:8000/docs")
-    
+
     uvicorn.run(
         app,
         host="0.0.0.0",

@@ -12,7 +12,7 @@ import threading
 import time
 from collections.abc import Iterator
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ class ExpiringDict(collections.abc.MutableMapping):
         self,
         expiration_time: float,
         mode: ExpirationMode = ExpirationMode.SCHEDULER,
-        on_expire: Optional[Callable[[str, Any], None]] = None,
+        on_expire: Callable[[str, Any], None] | None = None,
     ):
         """
         Args:
@@ -56,7 +56,7 @@ class ExpiringDict(collections.abc.MutableMapping):
         # Mode specific structures
         self._timers: dict[str, threading.Timer] = {}
         self._async_tasks: dict[str, asyncio.Task] = {}
-        self._scheduler_thread: Optional[threading.Thread] = None
+        self._scheduler_thread: threading.Thread | None = None
         self._scheduler_running = False
         self._lock = threading.RLock()
 

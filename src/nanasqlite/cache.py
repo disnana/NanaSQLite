@@ -5,7 +5,7 @@ from abc import abstractmethod
 from collections import OrderedDict
 from collections.abc import MutableMapping
 from enum import Enum
-from typing import Any, Callable, Optional, Protocol
+from typing import Any, Callable, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -249,7 +249,7 @@ class TTLCache(CacheStrategy):
         self,
         ttl: float,
         max_size: int | None = None,
-        on_expire: Optional[Callable[[str, Any], None]] = None,
+        on_expire: Callable[[str, Any], None] | None = None,
     ):
         """
         Args:
@@ -309,7 +309,7 @@ def create_cache(
     strategy: str | CacheType = CacheType.UNBOUNDED,
     size: int | None = None,
     ttl: float | None = None,
-    on_expire: Optional[Callable[[str, Any], None]] = None,
+    on_expire: Callable[[str, Any], None] | None = None,
 ) -> CacheStrategy:
     """Factory to create appropriate cache instance"""
     # Normalize strategy

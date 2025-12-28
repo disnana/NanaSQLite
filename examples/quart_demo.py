@@ -6,10 +6,12 @@ Clean Quart Todo App example (one-file)
 - Datetimes stored as ISO strings (UTC)
 - Minimal validation and error handling
 """
-from quart import Quart, request, render_template_string, redirect, url_for, jsonify
-from nanasqlite import AsyncNanaSQLite
-from datetime import datetime, timezone
 import uuid
+from datetime import datetime, timezone
+
+from quart import Quart, jsonify, redirect, render_template_string, request, url_for
+
+from nanasqlite import AsyncNanaSQLite
 
 app = Quart(__name__)
 DB_PATH = "quart_todo_clean.db"

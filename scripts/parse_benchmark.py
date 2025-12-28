@@ -37,20 +37,20 @@ def load_previous_benchmark():
         )
         if result.returncode != 0:
             return {}
-        
+
         # Parse the JS file (format: window.BENCHMARK_DATA = {...})
         content = result.stdout
         if 'window.BENCHMARK_DATA' not in content:
             return {}
-        
+
         # Extract JSON part
         json_start = content.find('{')
         json_end = content.rfind('}') + 1
         if json_start == -1 or json_end == 0:
             return {}
-        
+
         data = json.loads(content[json_start:json_end])
-        
+
         # Get the most recent benchmark entry
         previous = {}
         for entry_name, entries in data.get('entries', {}).items():
@@ -65,7 +65,7 @@ def load_previous_benchmark():
                         # Store ops/sec directly for comparison
                         iter_per_sec = bench.get('value', 0)
                         previous[name] = iter_per_sec  # Keep as ops/sec
-        
+
         return previous
     except Exception:
         return {}
@@ -99,25 +99,25 @@ def format_ops(ops):
 
 def format_diff_ops(current_ops, previous_ops):
     """Format performance difference based on ops/sec.
-    
+
     Higher ops/sec = better performance.
     Returns tuple of (formatted_string, improvement_percentage)
-    
+
     Display convention:
       +X% (+Y ops) = X% faster (improvement, more ops/sec)
       -X% (-Y ops) = X% slower (regression, fewer ops/sec)
     """
     if previous_ops is None or previous_ops <= 0:
         return "-", 0
-    
+
     if current_ops <= 0:
         return "🔴 N/A", -100
-    
+
     # Calculate percentage change in ops/sec
     # Positive = faster (more ops), Negative = slower (fewer ops)
     change_pct = ((current_ops / previous_ops) - 1) * 100
     ops_diff = current_ops - previous_ops
-    
+
     # Determine emoji based on performance change
     if change_pct >= 5:
         emoji = "🚀"  # Significant improvement (5%+ faster)
@@ -129,7 +129,7 @@ def format_diff_ops(current_ops, previous_ops):
         emoji = "⚠️"  # Minor regression
     else:
         emoji = "🔴"  # Significant regression (5%+ slower)
-    
+
     # Format ops difference with appropriate unit
     def format_ops_diff(ops):
         abs_ops = abs(ops)
@@ -139,20 +139,20 @@ def format_diff_ops(current_ops, previous_ops):
             return f"{ops/1000:+.1f}k"
         else:
             return f"{ops:+.0f}"
-    
+
     # Format: positive = faster (good), negative = slower (bad)
     if change_pct >= 0:
         sign = "+"
     else:
         sign = ""
-    
+
     return f"{emoji} {sign}{change_pct:.1f}% ({format_ops_diff(ops_diff)})", change_pct
 
 
 def categorize_test(test_name):
     """テスト名からカテゴリを判定"""
     name_lower = test_name.lower()
-    
+
     if 'write' in name_lower or 'insert' in name_lower or 'set' in name_lower:
         return "✍️ Write Operations"
     elif 'read' in name_lower or 'get' in name_lower or 'fetch' in name_lower or 'load' in name_lower:
@@ -193,13 +193,13 @@ def main():
     results_dir = sys.argv[1] if len(sys.argv) > 1 else '.'
     benchmark_type = sys.argv[2] if len(sys.argv) > 2 else 'sync'  # 'sync' or 'async'
     results_path = Path(results_dir)
-    
+
     # Load previous benchmark data for comparison
     previous_data = load_previous_benchmark()
-    
+
     # 全ベンチマーク結果を収集
     all_results = {}
-    
+
     # ベンチマーク結果ファイルのパターン
     if benchmark_type == 'async':
         dir_pattern = 'async-benchmark-results-'
@@ -207,7 +207,7 @@ def main():
     else:
         dir_pattern = 'benchmark-results-'
         file_name = 'benchmark.json'
-    
+
     # ディレクトリ内のベンチマーク結果を探す
     if results_path.is_dir():
         for subdir in results_path.iterdir():
@@ -219,15 +219,15 @@ def main():
                         all_results[platform] = parse_single_benchmark(benchmark_file)
                     except json.JSONDecodeError:
                         print(f"Warning: Failed to parse {benchmark_file}", file=sys.stderr)
-    
+
     if not all_results:
         print("No benchmark results found.")
         return
-    
+
     # 全テスト結果を集計
     test_data = defaultdict(lambda: {'by_os': defaultdict(list), 'all_means': []})
     os_set = set()
-    
+
     for platform, data in all_results.items():
         parts = platform.rsplit('-py', 1)
         if len(parts) == 2:
@@ -236,14 +236,14 @@ def main():
         else:
             os_name = platform
             py_version = 'unknown'
-        
+
         os_set.add(os_name)
-        
+
         for b in data.get('benchmarks', []):
             name = b['name'].split('::')[-1]
             mean = b['stats']['mean'] * 1000  # ms
             ops = b['stats'].get('ops', 0)    # raw ops/sec
-            
+
             test_data[name]['by_os'][os_name].append({
                 'py': py_version,
                 'mean': mean,
@@ -255,24 +255,24 @@ def main():
                 'mean': mean,
                 'ops': ops
             })
-    
+
     if not test_data:
         print("No benchmark data to display.")
         return
-    
+
     # OS名をソート
     sorted_os = sorted(os_set)
-    
+
     # ========== Top 10 Fastest / Slowest ==========
     # 各テストの平均時間を計算
     test_averages = []
     for test_name, data in test_data.items():
         means = [x['mean'] for x in data['all_means']]
         ops_list = [x['ops'] for x in data['all_means']]
-        
+
         avg = sum(means) / len(means) if means else 0
         avg_ops = sum(ops_list) / len(ops_list) if ops_list else 0
-        
+
         fastest = min(data['all_means'], key=lambda x: x['mean']) if data['all_means'] else None
         test_averages.append({
             'name': test_name,
@@ -280,28 +280,28 @@ def main():
             'ops': avg_ops,
             'fastest': fastest
         })
-    
+
     # Top 10 Fastest
     sorted_by_speed = sorted(test_averages, key=lambda x: x['avg'])
     print("#### 🏆 Top 10 Fastest Operations\n")
     print("| Rank | Test | Avg Time | Ops/sec | vs Prev | Fastest Platform |")
     print("|------|------|----------|---------|---------|------------------|")
-    
+
     for i, item in enumerate(sorted_by_speed[:10], 1):
         fastest_str = f"{item['fastest']['os']} py{item['fastest']['py']}" if item['fastest'] else "-"
         prev_ops = previous_data.get(item['name'])
         current_ops = item['ops']
         diff_str, _ = format_diff_ops(current_ops, prev_ops)
         print(f"| {i} | {item['name']} | {format_time(item['avg'])} | {format_ops(current_ops)} | {diff_str} | {fastest_str} |")
-    
+
     print()
-    
+
     # Top 10 Slowest
     sorted_by_slow = sorted(test_averages, key=lambda x: x['avg'], reverse=True)
     print("#### 🐢 Top 10 Slowest Operations\n")
     print("| Rank | Test | Avg Time | Ops/sec | vs Prev | Slowest Platform |")
     print("|------|------|----------|---------|---------|------------------|")
-    
+
     for i, item in enumerate(sorted_by_slow[:10], 1):
         slowest = max(test_data[item['name']]['all_means'], key=lambda x: x['mean']) if test_data[item['name']]['all_means'] else None
         slowest_str = f"{slowest['os']} py{slowest['py']}" if slowest else "-"
@@ -309,19 +309,19 @@ def main():
         current_ops = item['ops']
         diff_str, _ = format_diff_ops(current_ops, prev_ops)
         print(f"| {i} | {item['name']} | {format_time(item['avg'])} | {format_ops(current_ops)} | {diff_str} | {slowest_str} |")
-    
+
     print()
-    
+
     # ========== Category-based Grouping ==========
     categories = defaultdict(list)
     for test_name, data in test_data.items():
         category = categorize_test(test_name)
         means = [x['mean'] for x in data['all_means']]
         ops_list = [x['ops'] for x in data['all_means']]
-        
+
         avg = sum(means) / len(means) if means else 0
         avg_ops = sum(ops_list) / len(ops_list) if ops_list else 0
-        
+
         # OS別の統計を計算
         os_stats = {}
         for os_name in sorted_os:
@@ -332,28 +332,28 @@ def main():
                 os_stats[os_name] = {'mean': mean_avg, 'ops': ops_avg}
             else:
                 os_stats[os_name] = None
-        
+
         categories[category].append({
             'name': test_name,
             'avg': avg,
             'ops': avg_ops,
             'os_stats': os_stats
         })
-    
+
     print("#### 📋 Results by Category\n")
-    
+
     # カテゴリごとに出力
     for category in sorted(categories.keys()):
         tests = categories[category]
         tests_sorted = sorted(tests, key=lambda x: x['avg'])
-        
+
         # ヘッダー作成
         os_headers = " | ".join([f"{get_os_emoji(os)} {os.replace('-latest', '')}" for os in sorted_os])
-        
+
         print(f"<details><summary>{category} ({len(tests)} tests)</summary>\n")
         print(f"| Test | Avg | Ops/sec | vs Prev | {os_headers} |")
-        print(f"|------|-----|---------|---------|" + "|".join(["-----"] * len(sorted_os)) + "|")
-        
+        print("|------|-----|---------|---------|" + "|".join(["-----"] * len(sorted_os)) + "|")
+
         for test in tests_sorted:
             os_values = []
             for os_name in sorted_os:
@@ -362,15 +362,15 @@ def main():
                     os_values.append(f"{format_time(stats['mean'])}<br>({format_ops(stats['ops'])})")
                 else:
                     os_values.append("-")
-            
+
             os_cells = " | ".join(os_values)
             prev_ops = previous_data.get(test['name'])
             current_ops = test['ops']
             diff_str, _ = format_diff_ops(current_ops, prev_ops)
             print(f"| {test['name']} | {format_time(test['avg'])} | {format_ops(current_ops)} | {diff_str} | {os_cells} |")
-        
+
         print("\n</details>\n")
-    
+
     # ========== Summary Stats ==========
     has_significant_regression = False
     if test_averages:
@@ -379,16 +379,16 @@ def main():
         severe_regressions = 0  # >20% slower
         unchanged = 0
         no_data = 0
-        
+
         regression_threshold = float(os.environ.get('BENCHMARK_REGRESSION_THRESHOLD', '20'))
-        
+
         for item in test_averages:
             prev_ops = previous_data.get(item['name'])
             if prev_ops and prev_ops > 0 and item['avg'] > 0:
                 current_ops = item['ops']
                 # change_pct: positive = faster (improvement), negative = slower (regression)
                 change_pct = ((current_ops / prev_ops) - 1) * 100
-                
+
                 if change_pct >= 1:
                     improvements += 1
                 elif change_pct <= -regression_threshold:
@@ -400,7 +400,7 @@ def main():
                     unchanged += 1
             else:
                 no_data += 1
-        
+
         total_compared = improvements + regressions + unchanged
         if total_compared > 0:
             print("#### 📈 Performance Summary vs Previous\n")
@@ -413,7 +413,7 @@ def main():
             if no_data > 0:
                 print(f"- ❓ **No previous data**: {no_data} tests")
             print()
-    
+
     # Return exit code 2 if significant regression detected
     # (exit code 1 is reserved for errors)
     return 2 if has_significant_regression else 0

@@ -6,10 +6,12 @@ This example demonstrates how to use Pydantic models with NanaSQLite
 for data validation and type safety.
 """
 
-from pydantic import BaseModel, ValidationError, field_validator
-from nanasqlite import NanaSQLite
-from typing import Optional
 import uuid
+from typing import Optional
+
+from pydantic import BaseModel, ValidationError, field_validator
+
+from nanasqlite import NanaSQLite
 
 
 # Pydantic models
@@ -87,7 +89,7 @@ def main():
         # Try to create invalid user
         print("\nTrying to create invalid user...")
         try:
-            invalid_user = UserCreate(name="Invalid", email="invalid-email", age=-5)
+            UserCreate(name="Invalid", email="invalid-email", age=-5)
         except ValidationError as e:
             print(f"Caught validation error: {e}")
 
