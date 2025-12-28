@@ -10,6 +10,7 @@ NanaSQLite: APSW SQLite-backed dict wrapper with memory caching.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import threading
 import warnings
@@ -31,6 +32,8 @@ from .sql_utils import fast_validate_sql_chars, sanitize_sql_for_function_scan
 
 # 識別子バリデーション用の正規表現パターン（英数字とアンダースコアのみ、数字で開始しない）
 IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+logger = logging.getLogger(__name__)
 
 
 class NanaSQLite(MutableMapping):
@@ -63,8 +66,10 @@ class NanaSQLite(MutableMapping):
         allowed_sql_functions: list[str] | None = None,
         forbidden_sql_functions: list[str] | None = None,
         max_clause_length: int | None = 1000,
-        cache_strategy: CacheType | Literal["unbounded", "lru"] = CacheType.UNBOUNDED,
+        cache_strategy: CacheType | Literal["unbounded", "lru", "ttl"] = CacheType.UNBOUNDED,
         cache_size: int | None = None,
+        cache_ttl: float | None = None,
+        cache_persistence_ttl: bool = False,
         _shared_connection: apsw.Connection | None = None,
         _shared_lock: threading.RLock | None = None,
     ):
@@ -84,14 +89,34 @@ class NanaSQLite(MutableMapping):
         """
         self._db_path: str = db_path
         self._table: str = table
-        self._cache: CacheStrategy = create_cache(cache_strategy, cache_size)
+
+        # Setup Persistence TTL callback if enabled
+        on_expire = None
+        if (cache_strategy == CacheType.TTL or cache_strategy == "ttl") and cache_persistence_ttl:
+
+            def _expire_callback(key: str, value: Any) -> None:
+                try:
+                    # Use a new or shared connection to delete from DB
+                    # Implementation detail: we need to be careful with locks
+                    self._delete_from_db_on_expire(key)
+                except Exception as e:
+                    logger.error(f"Failed to delete expired key '{key}' from DB: {e}")
+
+            on_expire = _expire_callback
+
+        self._cache: CacheStrategy = create_cache(cache_strategy, cache_size, ttl=cache_ttl, on_expire=on_expire)
         self._data = self._cache.get_data()
-        self._lru_mode = (cache_strategy == CacheType.LRU) or (cache_strategy == "lru")
+        self._lru_mode = (
+            (cache_strategy == CacheType.LRU) or (cache_strategy == "lru") or
+            (cache_strategy == CacheType.TTL) or (cache_strategy == "ttl")
+        )
+
         if not self._lru_mode:
-            # Type: ignore added to bypass mypy check for internal attribute access
+            # Unbounded 以外のモードでは内部辞書の直接参照を使用しない場合があるが、
+            # 現状の設計では _cached_keys を通じて存在チェックを行っている
             self._cached_keys = self._cache._cached_keys  # type: ignore
         else:
-            # In LRU mode, we use the storage object itself for caching knowledge
+            # LRU/TTL モードでは、データ保持自体が存在の証
             self._cached_keys = self._data  # type: ignore
 
         self._all_loaded: bool = False  # 全データ読み込み済みフラグ
@@ -481,7 +506,7 @@ class NanaSQLite(MutableMapping):
         value = self._read_from_db(key)
 
         if value is not None:
-            if self._lru_mode:
+            if self._lru_mode or (hasattr(self._cache, "_max_size") and getattr(self._cache, "_max_size")):
                 self._cache.set(key, value)
             else:
                 self._data[key] = value
@@ -508,7 +533,7 @@ class NanaSQLite(MutableMapping):
         """dict[key] = value - 即時書き込み + メモリ更新"""
         self._check_connection()
         # メモリ更新
-        if self._lru_mode:
+        if self._lru_mode or (hasattr(self._cache, "_max_size") and getattr(self._cache, "_max_size")):
             self._cache.set(key, value)
         else:
             self._data[key] = value
@@ -866,6 +891,16 @@ class NanaSQLite(MutableMapping):
         """
         self._cache.clear()
         self._all_loaded = False
+
+    def _delete_from_db_on_expire(self, key: str) -> None:
+        """有効期限切れ時にDBからデータを削除 (内部用)"""
+        with self._lock:
+            if self._is_closed:
+                return
+            try:
+                self._connection.execute(f'DELETE FROM "{self._table}" WHERE key = ?', (key,))
+            except apsw.Error as e:
+                logger.error(f"SQL error during background expiration for key '{key}': {e}")
 
     def close(self) -> None:
         """

@@ -5,7 +5,7 @@ from abc import abstractmethod
 from collections import OrderedDict
 from collections.abc import MutableMapping
 from enum import Enum
-from typing import Any, Protocol
+from typing import Any, Callable, Optional, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,7 @@ class CacheType(str, Enum):
 
     UNBOUNDED = "unbounded"
     LRU = "lru"
+    TTL = "ttl"
 
 
 class CacheStrategy(Protocol):
@@ -86,9 +87,11 @@ class UnboundedCache(CacheStrategy):
     """
     Default behavior: Infinite growth, maximum speed.
     Equivalent to v1.2.x logic using standard user Dict + Set.
+    If max_size is set, uses FIFO eviction.
     """
 
-    def __init__(self):
+    def __init__(self, max_size: int | None = None):
+        self._max_size = max_size
         self._data: dict[str, Any] = {}
         self._cached_keys: set[str] = set()
 
@@ -96,15 +99,19 @@ class UnboundedCache(CacheStrategy):
         return self._data.get(key)
 
     def set(self, key: str, value: Any) -> None:
+        if self._max_size and self._max_size > 0:
+            if key not in self._data and len(self._data) >= self._max_size:
+                # FIFO:最初に追加された要素を削除 (Python 3.7+)
+                oldest_key = next(iter(self._data))
+                del self._data[oldest_key]
+                self._cached_keys.discard(oldest_key)
+
         self._data[key] = value
         self._cached_keys.add(key)
 
     def delete(self, key: str) -> None:
-        # We assume caller manages DB sync
         if key in self._data:
             del self._data[key]
-        # In v1.2.x logic, we usually keep the key in _cached_keys to know it's "deleted"
-        # provided functionality marks it as cached.
         self._cached_keys.add(key)
 
     def invalidate(self, key: str) -> None:
@@ -233,7 +240,77 @@ class FastLRUCache(CacheStrategy):
         return len(self._data)
 
 
-def create_cache(strategy: str | CacheType = CacheType.UNBOUNDED, size: int | None = None) -> CacheStrategy:
+class TTLCache(CacheStrategy):
+    """
+    有効期限付きキャッシュ (TTL)
+    """
+
+    def __init__(
+        self,
+        ttl: float,
+        max_size: int | None = None,
+        on_expire: Optional[Callable[[str, Any], None]] = None,
+    ):
+        """
+        Args:
+            ttl: 有効期限（秒）
+            max_size: 最大保持件数 (FIFO併用、None の場合は無制限)
+            on_expire: 有効期限切れ時のコールバック
+        """
+        from .utils import ExpiringDict
+
+        self._data = ExpiringDict(expiration_time=ttl, on_expire=on_expire)
+        self._max_size = max_size
+        self._cached_keys: set[str] = set()
+
+    def get(self, key: str) -> Any | None:
+        return self._data.get(key)
+
+    def set(self, key: str, value: Any) -> None:
+        if self._max_size and self._max_size > 0:
+            if key not in self._data and len(self._data) >= self._max_size:
+                oldest_key = next(iter(self._data))
+                del self._data[oldest_key]
+                self._cached_keys.discard(oldest_key)
+
+        self._data[key] = value
+        self._cached_keys.add(key)
+
+    def delete(self, key: str) -> None:
+        if key in self._data:
+            del self._data[key]
+        self._cached_keys.discard(key)
+
+    def clear(self) -> None:
+        self._data.clear()
+        self._cached_keys.clear()
+
+    def mark_cached(self, key: str) -> None:
+        self._cached_keys.add(key)
+
+    def is_cached(self, key: str) -> bool:
+        return key in self._data or key in self._cached_keys
+
+    def invalidate(self, key: str) -> None:
+        self.delete(key)
+
+    def contains(self, key: str) -> bool:
+        return key in self._data
+
+    @property
+    def size(self) -> int:
+        return len(self._data)
+
+    def get_data(self) -> MutableMapping[str, Any]:
+        return self._data
+
+
+def create_cache(
+    strategy: str | CacheType = CacheType.UNBOUNDED,
+    size: int | None = None,
+    ttl: float | None = None,
+    on_expire: Optional[Callable[[str, Any], None]] = None,
+) -> CacheStrategy:
     """Factory to create appropriate cache instance"""
     # Normalize strategy
     if isinstance(strategy, CacheType):
@@ -247,7 +324,12 @@ def create_cache(strategy: str | CacheType = CacheType.UNBOUNDED, size: int | No
             logger.info(f"Using FastLRUCache (lru-dict) with size {size}")
             return FastLRUCache(size)
         else:
-            logger.warning(f"lru-dict not found. Falling back to key-standard LRUCache (OrderedDict) with size {size}")
+            logger.warning(f"lru-dict not found. Falling back to standard LRUCache (OrderedDict) with size {size}")
             return StdLRUCache(size)
 
-    return UnboundedCache()
+    if strategy == CacheType.TTL:
+        if ttl is None or ttl <= 0:
+            raise ValueError("cache_ttl must be a positive value when using TTL strategy")
+        return TTLCache(ttl, max_size=size, on_expire=on_expire)
+
+    return UnboundedCache(max_size=size)
