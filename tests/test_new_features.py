@@ -6,8 +6,8 @@ NanaSQLite 新機能テストスイート
 - SQLiteラッパー関数
 """
 
-import json
 import importlib.util
+import json
 import os
 import sys
 import tempfile
