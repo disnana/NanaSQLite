@@ -6,13 +6,18 @@
 
 ## 日本語
 
-### [1.3.0dev1] - 2025-12-28
+### [1.3.1dev0] - 2025-12-28
 
-#### 修正と最適化
-- **LRU追い出しロジックの修正**: `__setitem__` や遅延ロード時に `_cache.set()` をバイパスしていた箇所を修正し、キャッシュサイズ制限が厳密に機能するように。
-- **Unboundedモードの高速化**: デフォルト設定において抽象化レイヤーをバイパスする高速パスを再実装し、v1.2.xと同等のパフォーマンスを回復。
-- **CI/型チェックの修正**: `ruff` リントエラー、`mypy` 型不足、`pytest-benchmark` フィクスチャ不足などを全て解消。
-- **マージ同期**: v1.2.2 で導入されたドキュメント刷新やセキュリティ強化を `dev` ブランチに統合。
+#### 新機能: 柔軟なキャッシュ戦略と TTL サポート
+- **TTL (Time-To-Live) キャッシュの導入**: `cache_strategy=CacheType.TTL, cache_ttl=seconds` でデータの有効期限を設定可能に。
+- **Persistence TTL (自動削除)**: `cache_persistence_ttl=True` を設定することで、有効期限切れ時に SQLite データベースからもデータを自動削除。セッション管理等に最適。
+- **FIFO 制限付き Unbounded キャッシュ**: `UNBOUNDED` モードでも `cache_size` を指定することで、FIFO (First-In-First-Out) 方式のメモリ制限が可能に。
+- **キャッシュクリア API**: `db.clear_cache()` および非同期版 `await db.aclear_cache()` / `await db.clear_cache()` を追加。
+
+#### 改良と修正
+- **最適化された `ExpiringDict`**: 低オーバーヘッドかつ高精度な有効期限管理ユーティリティを内部実装。
+- **後方互換性の維持**: デフォルトの `UNBOUNDED` モードでは従来通りの高速パスを維持しつつ、制限設定時のみインターセプトを適用。
+- **型安全性の向上**: `mypy` と `ruff` による厳格なチェックを通過し、型ヒントを強化。
 
 ### [1.3.0dev0] - 2025-12-27
 
@@ -410,13 +415,18 @@
 
 ## English
 
-### [1.3.0dev1] - 2025-12-28
+### [1.3.1dev0] - 2025-12-28
 
-#### Fixes and Optimizations
-- **Fixed LRU Eviction Logic**: Resolved issues where `__setitem__` and lazy loading bypassed `_cache.set()`, ensuring cache size limits are strictly enforced.
-- **Unbounded Mode Optimization**: Re-implemented fast paths for the default strategy to restore v1.2.x equivalent performance by bypassing the abstraction layer.
-- **CI & Type Hint Fixes**: Resolved all `ruff` lint errors, `mypy` type issues, and missing `pytest-benchmark` fixtures.
-- **Upstream Sync**: Integrated documentation overhaul and security enhancements from v1.2.2.
+#### New Features: Flexible Cache Strategy & TTL Support
+- **TTL (Time-To-Live) Cache**: Set expiration for cached data using `cache_strategy=CacheType.TTL, cache_ttl=seconds`.
+- **Persistence TTL**: Automatically delete expired data from the SQLite database with `cache_persistence_ttl=True`, ideal for session management.
+- **FIFO-limited Unbounded Cache**: Enable memory limits in `UNBOUNDED` mode using FIFO (First-In-First-Out) eviction by specifying `cache_size`.
+- **Cache Clearing API**: Added `db.clear_cache()` and async `await db.aclear_cache()` / `await db.clear_cache()`.
+
+#### Improvements & Fixes
+- **Optimized `ExpiringDict`**: Internal utility for high-precision, low-overhead expiration management.
+- **Maintained Performance**: Preserved the fast-path for the default `UNBOUNDED` mode while ensuring limits are strictly enforced when configured.
+- **Enhanced Type Safety**: Fully compliant with `mypy` and `ruff` strict checks.
 
 ### [1.3.0dev0] - 2025-12-27
 
