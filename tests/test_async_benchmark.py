@@ -612,83 +612,7 @@ class TestAsyncSQLOperationsBenchmarks:
 # ==================== Async Schema Operations Benchmarks ====================
 
 
-@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
-class TestAsyncSchemaOperationsBenchmarks:
-    """非同期スキーマ操作のベンチマーク"""
 
-    def test_async_table_exists(self, benchmark, db_path):
-        """非同期テーブル存在確認"""
-        from nanasqlite import AsyncNanaSQLite
-
-        async def setup():
-            async with AsyncNanaSQLite(db_path) as db:
-                await db.create_table("exists_test", {"id": "INTEGER"})
-
-        run_async(setup())
-
-        def table_exists():
-            async def _exists():
-                async with AsyncNanaSQLite(db_path) as db:
-                    return await db.table_exists("exists_test")
-
-            return run_async(_exists())
-
-        benchmark(table_exists)
-
-    def test_async_list_tables(self, benchmark, db_path):
-        """非同期テーブル一覧取得"""
-        from nanasqlite import AsyncNanaSQLite
-
-        async def setup():
-            async with AsyncNanaSQLite(db_path) as db:
-                for i in range(20):
-                    await db.create_table(f"list_test_{i}", {"id": "INTEGER"})
-
-        run_async(setup())
-
-        def list_tables():
-            async def _list():
-                async with AsyncNanaSQLite(db_path) as db:
-                    return await db.list_tables()
-
-            return run_async(_list())
-
-        benchmark(list_tables)
-
-    def test_async_create_index(self, benchmark, db_path):
-        """非同期インデックス作成"""
-        from nanasqlite import AsyncNanaSQLite
-
-        counter = [0]
-
-        def create_index():
-            async def _create():
-                async with AsyncNanaSQLite(db_path) as db:
-                    await db.create_table(f"idx_test_{counter[0]}", {"id": "INTEGER", "name": "TEXT"})
-                    await db.create_index(f"idx_{counter[0]}", f"idx_test_{counter[0]}", ["name"])
-                    counter[0] += 1
-
-            run_async(_create())
-
-        benchmark(create_index)
-
-    def test_async_drop_table(self, benchmark, db_path):
-        """非同期テーブル削除"""
-        from nanasqlite import AsyncNanaSQLite
-
-        counter = [0]
-
-        def drop_table():
-            async def _drop():
-                async with AsyncNanaSQLite(db_path) as db:
-                    table_name = f"drop_test_{counter[0]}"
-                    await db.create_table(table_name, {"id": "INTEGER"})
-                    await db.drop_table(table_name)
-                    counter[0] += 1
-
-            run_async(_drop())
-
-        benchmark(drop_table)
 
 
 # ==================== Async Batch Operations Benchmarks ====================
@@ -824,79 +748,7 @@ class TestAsyncPydanticOperationsBenchmarks:
 # ==================== Async Utility Operations Benchmarks ====================
 
 
-@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
-class TestAsyncUtilityOperationsBenchmarks:
-    """非同期ユーティリティ操作のベンチマーク"""
 
-    def test_async_vacuum(self, benchmark, async_db_instance):
-        """非同期vacuum()最適化"""
-
-        async def setup():
-            for i in range(100):
-                await async_db_instance.aset(f"vac_key_{i}", {"data": "x" * 100})
-            for i in range(100):
-                await async_db_instance.adelete(f"vac_key_{i}")
-
-        run_async(setup())
-
-        def vacuum_op():
-            async def _vacuum():
-                await async_db_instance.vacuum()
-
-            run_async(_vacuum())
-
-        benchmark(vacuum_op)
-
-    def test_async_refresh_all(self, benchmark, async_db_with_data_instance):
-        """非同期refresh()全件"""
-
-        def refresh_op():
-            async def _refresh():
-                await async_db_with_data_instance.arefresh()
-
-            run_async(_refresh())
-
-        benchmark(refresh_op)
-
-    def test_async_load_all(self, benchmark, async_db_instance):
-        """非同期load_all()一括ロード"""
-
-        async def setup():
-            await async_db_instance.abatch_update({f"load_key_{i}": {"index": i} for i in range(1000)})
-
-        run_async(setup())
-
-        def load_all():
-            async def _load():
-                await async_db_instance.aload_all()
-
-            run_async(_load())
-
-        benchmark(load_all)
-
-    def test_async_copy(self, benchmark, async_db_with_data_instance):
-        """非同期copy()浅いコピー"""
-
-        def copy_op():
-            async def _copy():
-                return await async_db_with_data_instance.copy()
-
-            return run_async(_copy())
-
-        benchmark(copy_op)
-
-    def test_async_is_cached(self, benchmark, async_db_with_data_instance):
-        """非同期is_cached()"""
-        # 初回アクセスしてキャッシュさせる
-        run_async(async_db_with_data_instance.aget("key_0"))
-
-        def is_cached_op():
-            async def _check():
-                return await async_db_with_data_instance.is_cached("key_0")
-
-            return run_async(_check())
-
-        benchmark(is_cached_op)
 
 
 if __name__ == "__main__":
@@ -1418,3 +1270,72 @@ class TestAsyncUtilityOperationsBenchmarks:
             return run_async(_count())
 
         benchmark(count_records)
+
+    def test_async_refresh_all(self, benchmark, db_path):
+        """非同期refresh()全件"""
+        from nanasqlite import AsyncNanaSQLite
+
+        async def setup():
+            async with AsyncNanaSQLite(db_path) as db:
+                await db.aset("key1", "value1")
+        run_async(setup())
+
+        def refresh_op():
+            async def _refresh():
+                async with AsyncNanaSQLite(db_path) as db:
+                    await db.arefresh()
+            run_async(_refresh())
+
+        benchmark(refresh_op)
+
+    def test_async_load_all(self, benchmark, db_path):
+        """非同期load_all()一括ロード"""
+        from nanasqlite import AsyncNanaSQLite
+
+        async def setup():
+            async with AsyncNanaSQLite(db_path) as db:
+                await db.abatch_update({f"load_key_{i}": {"index": i} for i in range(1000)})
+        run_async(setup())
+
+        def load_all():
+            async def _load():
+                async with AsyncNanaSQLite(db_path) as db:
+                    await db.aload_all()
+            run_async(_load())
+
+        benchmark(load_all)
+
+    def test_async_copy(self, benchmark, db_path):
+        """非同期copy()浅いコピー"""
+        from nanasqlite import AsyncNanaSQLite
+
+        async def setup():
+            async with AsyncNanaSQLite(db_path) as db:
+                 await db.aset("k", "v")
+        run_async(setup())
+
+        def copy_op():
+            async def _copy():
+                async with AsyncNanaSQLite(db_path) as db:
+                    return await db.copy()
+            return run_async(_copy())
+
+        benchmark(copy_op)
+
+    def test_async_is_cached(self, benchmark, db_path):
+        """非同期is_cached()"""
+        from nanasqlite import AsyncNanaSQLite
+
+        async def setup():
+            async with AsyncNanaSQLite(db_path) as db:
+                 await db.aset("key_0", "val")
+                 await db.aget("key_0") # Ensure cached
+        run_async(setup())
+
+        def is_cached_op():
+            async def _check():
+                 async with AsyncNanaSQLite(db_path) as db:
+                     return await db.is_cached("key_0")
+            return run_async(_check())
+
+        benchmark(is_cached_op)
