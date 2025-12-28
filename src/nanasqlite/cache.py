@@ -33,53 +33,53 @@ class CacheStrategy(Protocol):
     @abstractmethod
     def get(self, key: str) -> Any | None:
         """Get item from cache. Returns None if not found."""
-        ...
+        pass
 
     @abstractmethod
     def set(self, key: str, value: Any) -> None:
         """Set item in cache."""
-        ...
+        pass
 
     @abstractmethod
     def delete(self, key: str) -> None:
         """Remove item from cache."""
-        ...
+        pass
 
     @abstractmethod
     def invalidate(self, key: str) -> None:
         """Completely remove key from cache knowledge (forget it exists or not)."""
-        ...
+        pass
 
     @abstractmethod
     def contains(self, key: str) -> bool:
         """Check if key exists in cache."""
-        ...
+        pass
 
     @abstractmethod
     def mark_cached(self, key: str) -> None:
         """Mark a key as 'known' (cached) even if value is not loaded yet."""
-        ...
+        pass
 
     @abstractmethod
     def is_cached(self, key: str) -> bool:
         """Check if we have knowledge about this key (either value or existence)."""
-        ...
+        pass
 
     @abstractmethod
     def clear(self) -> None:
         """Clear entire cache."""
-        ...
+        pass
 
     @abstractmethod
     def get_data(self) -> MutableMapping[str, Any]:
         """Return reference to internal data storage (for legacy compatibility/inspection)."""
-        ...
+        pass
 
     @property
     @abstractmethod
     def size(self) -> int:
         """Current number of items in cache."""
-        ...
+        pass
 
 
 class UnboundedCache(CacheStrategy):
