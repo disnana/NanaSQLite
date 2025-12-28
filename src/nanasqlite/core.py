@@ -631,7 +631,7 @@ class NanaSQLite(MutableMapping):
         # 軽量な存在確認クエリ（valueを読み込まない）
         with self._lock:
             cursor = self._connection.execute(
-                f"SELECT 1 FROM {self._table} WHERE key = ? LIMIT 1",
+                f"SELECT 1 FROM {self._table} WHERE key = ? LIMIT 1",  # nosec
                 (key,),  # nosec
             )
             exists = cursor.fetchone() is not None
