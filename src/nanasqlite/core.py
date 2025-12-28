@@ -481,8 +481,10 @@ class NanaSQLite(MutableMapping):
         value = self._read_from_db(key)
 
         if value is not None:
-            self._data[key] = value
-            if not self._lru_mode:
+            if self._lru_mode:
+                self._cache.set(key, value)
+            else:
+                self._data[key] = value
                 self._cached_keys.add(key)
             return True
 
@@ -506,8 +508,10 @@ class NanaSQLite(MutableMapping):
         """dict[key] = value - 即時書き込み + メモリ更新"""
         self._check_connection()
         # メモリ更新
-        self._data[key] = value
-        if not self._lru_mode:
+        if self._lru_mode:
+            self._cache.set(key, value)
+        else:
+            self._data[key] = value
             self._cached_keys.add(key)
         # 即時書き込み
         self._write_to_db(key, value)
@@ -621,8 +625,10 @@ class NanaSQLite(MutableMapping):
 
         if value is not None:
             # キャッシュを更新
-            self._data[key] = value
-            if not self._lru_mode:
+            if self._lru_mode:
+                self._cache.set(key, value)
+            else:
+                self._data[key] = value
                 self._cached_keys.add(key)
             return value
         else:
@@ -795,8 +801,10 @@ class NanaSQLite(MutableMapping):
             )
             # キャッシュ更新
             for key, value in mapping.items():
-                self._data[key] = value
-                if not self._lru_mode:
+                if self._lru_mode:
+                    self._cache.set(key, value)
+                else:
+                    self._data[key] = value
                     self._cached_keys.add(key)
             cursor.execute("COMMIT")
         except Exception:
