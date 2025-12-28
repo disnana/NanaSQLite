@@ -984,3 +984,116 @@ class TestAsyncMixedBenchmarks:
             run_async(_writes())
             
         benchmark(concurrent_writes)
+
+
+# ==================== Async Cache Strategy Benchmarks ====================
+
+@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
+class TestAsyncCacheStrategyBenchmarks:
+    """非同期キャッシュ戦略ベンチマーク"""
+
+    @pytest.fixture
+    def async_cache_dbs(self, db_path):
+        from nanasqlite import AsyncNanaSQLite, CacheType
+        import os
+        import shutil
+        
+        dbs = {}
+        base_dir = os.path.dirname(db_path)
+        cache_dir = os.path.join(base_dir, "async_cache_bench")
+        if os.path.exists(cache_dir):
+            shutil.rmtree(cache_dir)
+        os.makedirs(cache_dir, exist_ok=True)
+        
+        strategies = {
+            "unbounded": (CacheType.UNBOUNDED, None),
+            "lru": (CacheType.LRU, 1000),
+            "ttl": (CacheType.TTL, 3600)
+        }
+        
+        yield (cache_dir, strategies)
+        
+        # Cleanup
+        if os.path.exists(cache_dir):
+            shutil.rmtree(cache_dir)
+
+    @pytest.mark.parametrize("strategy_name", ["unbounded", "lru", "ttl"])
+    def test_async_cache_write_100(self, benchmark, async_cache_dbs, strategy_name):
+        """非同期キャッシュ書き込み性能"""
+        cache_dir, strategies = async_cache_dbs
+        strategy, size = strategies[strategy_name]
+        
+        kw = {}
+        if strategy_name == "ttl":
+            kw["cache_ttl"] = size
+        elif size:
+            kw["cache_size"] = size
+            
+        db_path = os.path.join(cache_dir, f"{strategy_name}_write.db")
+        
+        from nanasqlite import AsyncNanaSQLite # import here to be safe
+        
+        def write_op():
+            async def _write():
+                async with AsyncNanaSQLite(db_path, cache_strategy=strategy, **kw) as db:
+                    for i in range(100):
+                        await db.aset(f"w_{i}", i)
+            run_async(_write())
+            
+        benchmark(write_op)
+
+    @pytest.mark.parametrize("strategy_name", ["unbounded", "lru", "ttl"])
+    def test_async_cache_read_hit(self, benchmark, async_cache_dbs, strategy_name):
+        """非同期キャッシュ読み込み性能（ヒット）"""
+        cache_dir, strategies = async_cache_dbs
+        strategy, size = strategies[strategy_name]
+        
+        kw = {}
+        if strategy_name == "ttl":
+            kw["cache_ttl"] = size
+        elif size:
+            kw["cache_size"] = size
+            
+        db_path = os.path.join(cache_dir, f"{strategy_name}_read.db")
+        
+        from nanasqlite import AsyncNanaSQLite
+        
+        # Pre-fill
+        async def setup():
+            async with AsyncNanaSQLite(db_path, cache_strategy=strategy, **kw) as db:
+                for i in range(100):
+                    await db.aset(f"r_{i}", i)
+        run_async(setup())
+        
+        def read_op():
+            async def _read():
+                 async with AsyncNanaSQLite(db_path, cache_strategy=strategy, **kw) as db:
+                    for i in range(100):
+                        await db.aget(f"r_{i}")
+            run_async(_read())
+        
+        benchmark(read_op)
+
+    def test_async_lru_eviction(self, benchmark, async_cache_dbs):
+        """非同期LRU退避コスト"""
+        cache_dir, _ = async_cache_dbs
+        db_path = os.path.join(cache_dir, "lru_evict.db")
+        
+        from nanasqlite import AsyncNanaSQLite, CacheType
+        
+        # Pre-fill 10 items (size 10)
+        async def setup():
+             async with AsyncNanaSQLite(db_path, cache_strategy=CacheType.LRU, cache_size=10) as db:
+                 for i in range(10):
+                     await db.aset(f"init_{i}", i)
+        run_async(setup())
+        
+        counter = [0]
+        def eviction_op():
+            async def _evict():
+                 async with AsyncNanaSQLite(db_path, cache_strategy=CacheType.LRU, cache_size=10) as db:
+                      await db.aset(f"new_{counter[0]}", counter[0])
+                      counter[0] += 1
+            run_async(_evict())
+            
+        benchmark(eviction_op)
