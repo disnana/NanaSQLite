@@ -960,7 +960,7 @@ class NanaSQLite(MutableMapping):
             if self._is_closed:
                 return
             try:
-                self._connection.execute(f'DELETE FROM "{self._table}" WHERE key = ?', (key,))
+                self._connection.execute(f'DELETE FROM "{self._table}" WHERE key = ?', (key,))  # nosec
             except apsw.Error as e:
                 logger.error(f"SQL error during background expiration for key '{key}': {e}")
 

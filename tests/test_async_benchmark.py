@@ -913,50 +913,52 @@ class TestAsyncEncryptionBenchmarks:
     def test_async_write_encryption(self, benchmark, db_path, mode):
         """非同期暗号化書き込み（スレッドプールオフロードのコスト含む）"""
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
+
         from nanasqlite import AsyncNanaSQLite
-        
+
         key = None
         enc_mode = "aes-gcm"
-        
+
         if mode == "aes-gcm":
             key = AESGCM.generate_key(bit_length=256)
         elif mode == "chacha20":
             key = ChaCha20Poly1305.generate_key()
             enc_mode = "chacha20"
-            
+
         data = {"v": "x" * 100}
         counter = [0]
-        
+
         def write_encryption():
             async def _write():
                 async with AsyncNanaSQLite(db_path, encryption_key=key, encryption_mode=enc_mode) as db:
                     await db.aset(f"k_{counter[0]}", data)
                     counter[0] += 1
             run_async(_write())
-            
+
         benchmark(write_encryption)
 
     def test_async_read_encryption_uncached(self, benchmark, db_path):
         """非同期暗号化読み込み（キャッシュミス）"""
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
         from nanasqlite import AsyncNanaSQLite
-        
+
         key = AESGCM.generate_key(bit_length=256)
         data = {"v": "x" * 1024}
-        
+
         # Pre-fill
         async def setup():
             async with AsyncNanaSQLite(db_path, encryption_key=key) as db:
                  await db.aset("uncached_target", data)
         run_async(setup())
-        
+
         def read_op():
             async def _read():
                  async with AsyncNanaSQLite(db_path, encryption_key=key) as db:
                       # New connection implies empty cache (persistence TTL aside)
                       return await db.aget("uncached_target")
             run_async(_read())
-            
+
         benchmark(read_op)
 
 
@@ -969,11 +971,12 @@ class TestAsyncMixedBenchmarks:
     def test_async_aes_concurrent_writes(self, benchmark, db_path):
         """AES暗号化有効時の並行書き込み"""
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
         from nanasqlite import AsyncNanaSQLite
-        
+
         key = AESGCM.generate_key(bit_length=256)
         counter = [0]
-        
+
         def concurrent_writes():
             async def _writes():
                  async with AsyncNanaSQLite(db_path, encryption_key=key) as db:
@@ -982,7 +985,7 @@ class TestAsyncMixedBenchmarks:
                       await asyncio.gather(*tasks)
                       counter[0] += 1
             run_async(_writes())
-            
+
         benchmark(concurrent_writes)
 
 
@@ -994,25 +997,26 @@ class TestAsyncCacheStrategyBenchmarks:
 
     @pytest.fixture
     def async_cache_dbs(self, db_path):
-        from nanasqlite import AsyncNanaSQLite, CacheType
         import os
         import shutil
-        
+
+        from nanasqlite import CacheType
+
         dbs = {}
         base_dir = os.path.dirname(db_path)
         cache_dir = os.path.join(base_dir, "async_cache_bench")
         if os.path.exists(cache_dir):
             shutil.rmtree(cache_dir)
         os.makedirs(cache_dir, exist_ok=True)
-        
+
         strategies = {
             "unbounded": (CacheType.UNBOUNDED, None),
             "lru": (CacheType.LRU, 1000),
             "ttl": (CacheType.TTL, 3600)
         }
-        
+
         yield (cache_dir, strategies)
-        
+
         # Cleanup
         if os.path.exists(cache_dir):
             shutil.rmtree(cache_dir)
@@ -1022,24 +1026,24 @@ class TestAsyncCacheStrategyBenchmarks:
         """非同期キャッシュ書き込み性能"""
         cache_dir, strategies = async_cache_dbs
         strategy, size = strategies[strategy_name]
-        
+
         kw = {}
         if strategy_name == "ttl":
             kw["cache_ttl"] = size
         elif size:
             kw["cache_size"] = size
-            
+
         db_path = os.path.join(cache_dir, f"{strategy_name}_write.db")
-        
-        from nanasqlite import AsyncNanaSQLite # import here to be safe
-        
+
+        from nanasqlite import AsyncNanaSQLite  # import here to be safe
+
         def write_op():
             async def _write():
                 async with AsyncNanaSQLite(db_path, cache_strategy=strategy, **kw) as db:
                     for i in range(100):
                         await db.aset(f"w_{i}", i)
             run_async(_write())
-            
+
         benchmark(write_op)
 
     @pytest.mark.parametrize("strategy_name", ["unbounded", "lru", "ttl"])
@@ -1047,47 +1051,47 @@ class TestAsyncCacheStrategyBenchmarks:
         """非同期キャッシュ読み込み性能（ヒット）"""
         cache_dir, strategies = async_cache_dbs
         strategy, size = strategies[strategy_name]
-        
+
         kw = {}
         if strategy_name == "ttl":
             kw["cache_ttl"] = size
         elif size:
             kw["cache_size"] = size
-            
+
         db_path = os.path.join(cache_dir, f"{strategy_name}_read.db")
-        
+
         from nanasqlite import AsyncNanaSQLite
-        
+
         # Pre-fill
         async def setup():
             async with AsyncNanaSQLite(db_path, cache_strategy=strategy, **kw) as db:
                 for i in range(100):
                     await db.aset(f"r_{i}", i)
         run_async(setup())
-        
+
         def read_op():
             async def _read():
                  async with AsyncNanaSQLite(db_path, cache_strategy=strategy, **kw) as db:
                     for i in range(100):
                         await db.aget(f"r_{i}")
             run_async(_read())
-        
+
         benchmark(read_op)
 
     def test_async_lru_eviction(self, benchmark, async_cache_dbs):
         """非同期LRU退避コスト"""
         cache_dir, _ = async_cache_dbs
         db_path = os.path.join(cache_dir, "lru_evict.db")
-        
+
         from nanasqlite import AsyncNanaSQLite, CacheType
-        
+
         # Pre-fill 10 items (size 10)
         async def setup():
              async with AsyncNanaSQLite(db_path, cache_strategy=CacheType.LRU, cache_size=10) as db:
                  for i in range(10):
                      await db.aset(f"init_{i}", i)
         run_async(setup())
-        
+
         counter = [0]
         def eviction_op():
             async def _evict():
@@ -1095,5 +1099,5 @@ class TestAsyncCacheStrategyBenchmarks:
                       await db.aset(f"new_{counter[0]}", counter[0])
                       counter[0] += 1
             run_async(_evict())
-            
+
         benchmark(eviction_op)
