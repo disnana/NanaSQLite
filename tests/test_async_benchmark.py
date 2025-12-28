@@ -1012,7 +1012,8 @@ class TestAsyncCacheStrategyBenchmarks:
         strategies = {
             "unbounded": (CacheType.UNBOUNDED, None),
             "lru": (CacheType.LRU, 1000),
-            "ttl": (CacheType.TTL, 3600)
+            "fifo": (CacheType.UNBOUNDED, 1000),
+            "ttl": (CacheType.TTL, 3600),
         }
 
         yield (cache_dir, strategies)
@@ -1021,7 +1022,7 @@ class TestAsyncCacheStrategyBenchmarks:
         if os.path.exists(cache_dir):
             shutil.rmtree(cache_dir)
 
-    @pytest.mark.parametrize("strategy_name", ["unbounded", "lru", "ttl"])
+    @pytest.mark.parametrize("strategy_name", ["unbounded", "lru", "fifo", "ttl"])
     def test_async_cache_write_100(self, benchmark, async_cache_dbs, strategy_name):
         """非同期キャッシュ書き込み性能"""
         cache_dir, strategies = async_cache_dbs
@@ -1046,7 +1047,7 @@ class TestAsyncCacheStrategyBenchmarks:
 
         benchmark(write_op)
 
-    @pytest.mark.parametrize("strategy_name", ["unbounded", "lru", "ttl"])
+    @pytest.mark.parametrize("strategy_name", ["unbounded", "lru", "fifo", "ttl"])
     def test_async_cache_read_hit(self, benchmark, async_cache_dbs, strategy_name):
         """非同期キャッシュ読み込み性能（ヒット）"""
         cache_dir, strategies = async_cache_dbs
@@ -1101,3 +1102,22 @@ class TestAsyncCacheStrategyBenchmarks:
             run_async(_evict())
 
         benchmark(eviction_op)
+
+    def test_async_ttl_expiry_check(self, benchmark, tmp_path):
+        """TTL有効期限チェックのオーバーヘッド（非同期）"""
+        from nanasqlite import AsyncNanaSQLite, CacheType
+
+        db_path = str(tmp_path / "async_ttl_check.db")
+
+        async def setup():
+             async with AsyncNanaSQLite(db_path, cache_strategy=CacheType.TTL, cache_ttl=60) as db:
+                 await db.aset("target", "value")
+        run_async(setup())
+
+        def read_op():
+            async def _read():
+                 async with AsyncNanaSQLite(db_path, cache_strategy=CacheType.TTL, cache_ttl=60) as db:
+                     return await db.aget("target")
+            return run_async(_read())
+
+        benchmark(read_op)
