@@ -901,3 +901,86 @@ class TestAsyncUtilityOperationsBenchmarks:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--benchmark-only"])
+
+
+# ==================== Async Encryption Benchmarks ====================
+
+@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
+class TestAsyncEncryptionBenchmarks:
+    """非同期暗号化パフォーマンスのベンチマーク"""
+
+    @pytest.mark.parametrize("mode", ["aes-gcm", "chacha20"])
+    def test_async_write_encryption(self, benchmark, db_path, mode):
+        """非同期暗号化書き込み（スレッドプールオフロードのコスト含む）"""
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
+        from nanasqlite import AsyncNanaSQLite
+        
+        key = None
+        enc_mode = "aes-gcm"
+        
+        if mode == "aes-gcm":
+            key = AESGCM.generate_key(bit_length=256)
+        elif mode == "chacha20":
+            key = ChaCha20Poly1305.generate_key()
+            enc_mode = "chacha20"
+            
+        data = {"v": "x" * 100}
+        counter = [0]
+        
+        def write_encryption():
+            async def _write():
+                async with AsyncNanaSQLite(db_path, encryption_key=key, encryption_mode=enc_mode) as db:
+                    await db.aset(f"k_{counter[0]}", data)
+                    counter[0] += 1
+            run_async(_write())
+            
+        benchmark(write_encryption)
+
+    def test_async_read_encryption_uncached(self, benchmark, db_path):
+        """非同期暗号化読み込み（キャッシュミス）"""
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        from nanasqlite import AsyncNanaSQLite
+        
+        key = AESGCM.generate_key(bit_length=256)
+        data = {"v": "x" * 1024}
+        
+        # Pre-fill
+        async def setup():
+            async with AsyncNanaSQLite(db_path, encryption_key=key) as db:
+                 await db.aset("uncached_target", data)
+        run_async(setup())
+        
+        def read_op():
+            async def _read():
+                 async with AsyncNanaSQLite(db_path, encryption_key=key) as db:
+                      # New connection implies empty cache (persistence TTL aside)
+                      return await db.aget("uncached_target")
+            run_async(_read())
+            
+        benchmark(read_op)
+
+
+# ==================== Async Mixed Benchmarks ====================
+
+@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
+class TestAsyncMixedBenchmarks:
+    """非同期 複合条件（暗号化＋キャッシュ＋並行）ベンチマーク"""
+
+    def test_async_aes_concurrent_writes(self, benchmark, db_path):
+        """AES暗号化有効時の並行書き込み"""
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        from nanasqlite import AsyncNanaSQLite
+        
+        key = AESGCM.generate_key(bit_length=256)
+        counter = [0]
+        
+        def concurrent_writes():
+            async def _writes():
+                 async with AsyncNanaSQLite(db_path, encryption_key=key) as db:
+                      base = counter[0] * 10
+                      tasks = [db.aset(f"cw_{base + i}", {"v": i}) for i in range(10)]
+                      await asyncio.gather(*tasks)
+                      counter[0] += 1
+            run_async(_writes())
+            
+        benchmark(concurrent_writes)
