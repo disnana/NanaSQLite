@@ -30,7 +30,7 @@ import re
 import weakref
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, Literal
 
 import apsw
 
@@ -423,21 +423,6 @@ class AsyncNanaSQLite:
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(self._executor, self._db.clear)
-
-    async def aclear_cache(self) -> None:
-        """
-        非同期でキャッシュのみをクリア
-
-        Example:
-            >>> await db.aclear_cache()
-        """
-        await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.clear_cache)
-
-    async def clear_cache(self) -> None:
-        """aclear_cacheのエイリアス"""
-        await self.aclear_cache()
 
     async def asetdefault(self, key: str, default: Any = None) -> Any:
         """
