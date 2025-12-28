@@ -154,8 +154,12 @@ def categorize_test(test_name):
     name_lower = test_name.lower()
 
     if 'write' in name_lower or 'insert' in name_lower or 'set' in name_lower:
+        if 'encryption' in name_lower or 'aes' in name_lower or 'chacha' in name_lower or 'fernet' in name_lower:
+            return "🔐 Encryption Operations"
         return "✍️ Write Operations"
     elif 'read' in name_lower or 'get' in name_lower or 'fetch' in name_lower or 'load' in name_lower:
+        if 'encryption' in name_lower or 'aes' in name_lower or 'chacha' in name_lower or 'fernet' in name_lower:
+            return "🔐 Encryption Operations"
         return "📖 Read Operations"
     elif 'batch' in name_lower:
         return "📦 Batch Operations"
@@ -204,6 +208,9 @@ def main():
     if benchmark_type == 'async':
         dir_pattern = 'async-benchmark-results-'
         file_name = 'async-benchmark.json'
+    elif benchmark_type == 'encryption':
+        dir_pattern = 'encryption-benchmark-results-'
+        file_name = 'encryption-benchmark.json'
     else:
         dir_pattern = 'benchmark-results-'
         file_name = 'benchmark.json'
