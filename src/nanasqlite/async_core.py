@@ -98,6 +98,8 @@ class AsyncNanaSQLite:
         cache_size: int | None = None,
         cache_ttl: float | None = None,
         cache_persistence_ttl: bool = False,
+        encryption_key: str | bytes | None = None,
+        encryption_mode: Literal["aes-gcm", "chacha20", "fernet"] = "aes-gcm",
     ):
         """
         Args:
@@ -113,6 +115,7 @@ class AsyncNanaSQLite:
             forbidden_sql_functions: 明示的に禁止するSQL関数のリスト (v1.2.0)
             max_clause_length: SQL句の最大長（ReDoS対策）。Noneで制限なし (v1.2.0)
             read_pool_size: 読み取り専用プールサイズ (デフォルト: 0 = 無効) (v1.1.0)
+            encryption_key: 暗号化キー (v1.3.1)
         """
         self._db_path = db_path
         self._table = table
@@ -131,6 +134,8 @@ class AsyncNanaSQLite:
         self._cache_size = cache_size
         self._cache_ttl = cache_ttl
         self._cache_persistence_ttl = cache_persistence_ttl
+        self._encryption_key = encryption_key
+        self._encryption_mode = encryption_mode
         self._closed = False
         self._child_instances = weakref.WeakSet()  # WeakSetによる弱参照追跡（死んだ参照は自動的にクリーンアップ）
         self._is_connection_owner = True
@@ -168,6 +173,8 @@ class AsyncNanaSQLite:
                     cache_size=self._cache_size,
                     cache_ttl=self._cache_ttl,
                     cache_persistence_ttl=self._cache_persistence_ttl,
+                    encryption_key=self._encryption_key,
+                    encryption_mode=self._encryption_mode,
                 ),
             )
 

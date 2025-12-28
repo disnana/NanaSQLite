@@ -157,6 +157,24 @@ products_db["prod1"] = {"name": "Laptop", "price": 999}
 orders_db["order1"] = {"user": "user1", "product": "prod1"}
 ```
 
+**Optional Data Encryption (v1.3.1a1+):**
+
+```python
+from nanasqlite import NanaSQLite
+
+# Install first: pip install nanasqlite[encryption]
+db = NanaSQLite("secure.db", encryption_key=b"your-32-byte-key") # AES-GCM by default
+
+# Or choose a specific mode
+db_chacha = NanaSQLite("secure_cc.db", 
+    encryption_key=b"your-32-byte-key", 
+    encryption_mode="chacha20"
+)
+
+# Data is encrypted in SQLite, but plain-text in memory (cache)
+db["secret"] = {"password": "123"} 
+```
+
 **Transaction Support & Error Handling (v1.1.0+):**
 
 ```python
@@ -327,6 +345,24 @@ orders_db = main_db.table("orders")
 # 各テーブルは独立したキャッシュと操作を持つ
 main_db["user1"] = {"name": "Alice"}
 products_db["prod1"] = {"name": "Laptop"}
+```
+
+**オプションのデータ暗号化 (v1.3.1a1+):**
+
+```python
+from nanasqlite import NanaSQLite
+
+# 事前にインストール: pip install nanasqlite[encryption]
+db = NanaSQLite("secure.db", encryption_key=b"your-32-byte-key") # デフォルトで AES-GCM
+
+# モードを明示的に指定する場合
+db_chacha = NanaSQLite("secure_cc.db", 
+    encryption_key=b"your-32-byte-key", 
+    encryption_mode="chacha20"
+)
+
+# SQLite内では暗号化されますが、メモリ上（キャッシュ）では平文で高速に扱えます
+db["secret"] = {"password": "123"}
 ```
 
 **トランザクションサポートとエラーハンドリング (v1.1.0+):**

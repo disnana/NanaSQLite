@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import threading
 import warnings
@@ -19,6 +20,12 @@ from collections.abc import Iterator, MutableMapping
 from typing import Any, Literal
 
 import apsw
+try:
+    from cryptography.fernet import Fernet
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
+    HAS_CRYPTOGRAPHY = True
+except ImportError:
+    HAS_CRYPTOGRAPHY = False
 
 from .cache import CacheStrategy, CacheType, create_cache
 from .exceptions import (
@@ -70,6 +77,8 @@ class NanaSQLite(MutableMapping):
         cache_size: int | None = None,
         cache_ttl: float | None = None,
         cache_persistence_ttl: bool = False,
+        encryption_key: str | bytes | None = None,
+        encryption_mode: Literal["aes-gcm", "chacha20", "fernet"] = "aes-gcm",
         _shared_connection: apsw.Connection | None = None,
         _shared_lock: threading.RLock | None = None,
     ):
@@ -89,6 +98,30 @@ class NanaSQLite(MutableMapping):
         """
         self._db_path: str = db_path
         self._table: str = table
+
+        # Encryption setup
+        self._encryption_key = encryption_key
+        self._encryption_mode = encryption_mode
+        self._fernet: Fernet | None = None
+        self._aead: AESGCM | ChaCha20Poly1305 | None = None
+
+        if encryption_key:
+            if not HAS_CRYPTOGRAPHY:
+                raise ImportError(
+                    "Encryption requires the 'cryptography' library. "
+                    "Install it with: pip install nanasqlite[encryption]"
+                )
+            # Support both str (base64) and bytes
+            key_bytes: bytes = encryption_key.encode("utf-8") if isinstance(encryption_key, str) else encryption_key
+
+            if encryption_mode == "fernet":
+                self._fernet = Fernet(key_bytes)
+            elif encryption_mode == "aes-gcm":
+                self._aead = AESGCM(key_bytes)
+            elif encryption_mode == "chacha20":
+                self._aead = ChaCha20Poly1305(key_bytes)
+            else:
+                raise ValueError(f"Unsupported encryption_mode: {encryption_mode}")
 
         # Setup Persistence TTL callback if enabled
         on_expire = None
@@ -444,12 +477,40 @@ class NanaSQLite(MutableMapping):
         """
         self._parent_closed = True
 
-    def _serialize(self, value: Any) -> str:
-        """値をJSON文字列にシリアライズ"""
-        return json.dumps(value, ensure_ascii=False)
+    def _serialize(self, value: Any) -> bytes | str:
+        """シリアライズ (JSON -> Encryption if enabled)"""
+        json_str = json.dumps(value, ensure_ascii=False)
+        data = json_str.encode("utf-8")
+        
+        if self._fernet:
+            return self._fernet.encrypt(data)
+        
+        if self._aead:
+            # Generate 12 bytes nonce
+            nonce = os.urandom(12)
+            ciphertext = self._aead.encrypt(nonce, data, None)
+            # Combine nonce + ciphertext
+            return nonce + ciphertext
+            
+        return json_str
 
-    def _deserialize(self, value: str) -> Any:
-        """JSON文字列を値にデシリアライズ"""
+    def _deserialize(self, value: bytes | str) -> Any:
+        """デシリアライズ (Decryption if enabled -> JSON)"""
+        if self._fernet:
+            decoded = self._fernet.decrypt(value).decode("utf-8")
+            return json.loads(decoded)
+        
+        if self._aead:
+            if not isinstance(value, bytes):
+                # Fallback or manual check if stored as string accidentally
+                return json.loads(value)
+            
+            # Split nonce (12B) and ciphertext
+            nonce = value[:12]
+            ciphertext = value[12:]
+            decoded = self._aead.decrypt(nonce, ciphertext, None).decode("utf-8")
+            return json.loads(decoded)
+            
         return json.loads(value)
 
     def _write_to_db(self, key: str, value: Any) -> None:

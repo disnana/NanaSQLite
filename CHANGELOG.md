@@ -6,13 +6,23 @@
 
 ## 日本語
 
-### [1.3.1dev0] - 2025-12-28
+### [1.3.1a1] - 2025-12-28
 
-#### 新機能: 柔軟なキャッシュ戦略と TTL サポート
-- **TTL (Time-To-Live) キャッシュの導入**: `cache_strategy=CacheType.TTL, cache_ttl=seconds` でデータの有効期限を設定可能に。
-- **Persistence TTL (自動削除)**: `cache_persistence_ttl=True` を設定することで、有効期限切れ時に SQLite データベースからもデータを自動削除。セッション管理等に最適。
-- **FIFO 制限付き Unbounded キャッシュ**: `UNBOUNDED` モードでも `cache_size` を指定することで、FIFO (First-In-First-Out) 方式のメモリ制限が可能に。
-- **キャッシュクリア API**: `db.clear_cache()` および非同期版 `await db.aclear_cache()` / `await db.clear_cache()` を追加。
+#### 新機能: オプションのデータ暗号化
+- **マルチモード暗号化**: `cryptography` を使用した透過的な暗号化を実装。
+    - **AES-GCM (デフォルト)**: 安全かつ高速。ハードウェア加速(AES-NI)対応環境で最適。
+    - **ChaCha20-Poly1305**: ハードウェア加速がない環境（ARM等）でも高速なソフトウェア実装。
+    - **Fernet**: 従来通りの使いやすさと互換性重視のオプション。
+    - `NanaSQLite` および `AsyncNanaSQLite` に `encryption_key` および `encryption_mode` 引数を追加。
+    - SQLite への保存前に暗号化し、取得時に自動復号。
+    - **ハイブリッド設計**: メモリキャッシュ内は平文で保持されるため、暗号化有効時も高速なリードパフォーマンスを維持。
+- **拡張インストール**: `pip install nanasqlite[encryption]` で必要な依存関係を含めてインストール可能に。
+
+#### 新機能: 柔軟なキャッシュ戦略と TTL サポート (v1.3.1-alpha.0)
+- **TTL (Time-To-Live) キャッシュ**: `cache_strategy=CacheType.TTL, cache_ttl=seconds` でデータの有効期限を設定可能に。
+- **Persistence TTL (自動削除)**: `cache_persistence_ttl=True` で失効時に SQLite からも自動削除。
+- **FIFO 制限付き Unbounded**: 無制限キャッシュでも `cache_size` 指定で FIFO 方式のメモリ制限が可能。
+- **キャッシュクリア API**: `db.clear_cache()` および非同期版 `aclear_cache()` を追加。
 
 #### 改良と修正
 - **最適化された `ExpiringDict`**: 低オーバーヘッドかつ高精度な有効期限管理ユーティリティを内部実装。
@@ -415,13 +425,21 @@
 
 ## English
 
-### [1.3.1dev0] - 2025-12-28
+### [1.3.1a1] - 2025-12-28
 
-#### New Features: Flexible Cache Strategy & TTL Support
+#### New Features: Optional Data Encryption
+- **Multi-mode Encryption**: Transparent encryption using `cryptography`.
+    - **AES-GCM (Default)**: Secure and fast, optimized for hardware acceleration (AES-NI).
+    - **ChaCha20-Poly1305**: High software-only performance, ideal for devices without AES-NI.
+    - **Fernet**: High-level API for compatibility and ease of use.
+    - Added `encryption_key` and `encryption_mode` parameters to `NanaSQLite` and `AsyncNanaSQLite`.
+- **Extra Installation**: `pip install nanasqlite[encryption]` to install required dependencies.
+
+#### New Features: Flexible Cache Strategy & TTL Support (v1.3.1-alpha.0)
 - **TTL (Time-To-Live) Cache**: Set expiration for cached data using `cache_strategy=CacheType.TTL, cache_ttl=seconds`.
-- **Persistence TTL**: Automatically delete expired data from the SQLite database with `cache_persistence_ttl=True`, ideal for session management.
-- **FIFO-limited Unbounded Cache**: Enable memory limits in `UNBOUNDED` mode using FIFO (First-In-First-Out) eviction by specifying `cache_size`.
-- **Cache Clearing API**: Added `db.clear_cache()` and async `await db.aclear_cache()` / `await db.clear_cache()`.
+- **Persistence TTL**: Automatically delete expired data from the SQLite database with `cache_persistence_ttl=True`.
+- **FIFO-limited Unbounded Cache**: Specify `cache_size` in `UNBOUNDED` mode for FIFO (First-In-First-Out) eviction.
+- **Cache Clearing API**: Added `db.clear_cache()` and async `aclear_cache()`.
 
 #### Improvements & Fixes
 - **Optimized `ExpiringDict`**: Internal utility for high-precision, low-overhead expiration management.
