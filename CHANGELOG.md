@@ -28,6 +28,8 @@
 - **最適化された `ExpiringDict`**: 低オーバーヘッドかつ高精度な有効期限管理ユーティリティを内部実装。
 - **後方互換性の維持**: デフォルトの `UNBOUNDED` モードでは従来通りの高速パスを維持しつつ、制限設定時のみインターセプトを適用。
 - **型安全性の向上**: `mypy` と `ruff` による厳格なチェックを通過し、型ヒントを強化。
+- **ベンチマークの統合**: `tests/test_benchmark.py` (Sync) と `tests/test_async_benchmark.py` (Async) に暗号化・キャッシュ戦略のベンチマークを集約し、可視性を向上。
+- **テストカバレッジ**: 非同期環境におけるキャッシュ挙動（LRU退避、TTL失効）の検証テスト `tests/test_async_cache.py` を追加。
 
 ### [1.3.0dev0] - 2025-12-27
 
@@ -445,6 +447,8 @@
 - **Optimized `ExpiringDict`**: Internal utility for high-precision, low-overhead expiration management.
 - **Maintained Performance**: Preserved the fast-path for the default `UNBOUNDED` mode while ensuring limits are strictly enforced when configured.
 - **Enhanced Type Safety**: Fully compliant with `mypy` and `ruff` strict checks.
+- **Unified Benchmarks**: Consolidated encryption and cache strategy benchmarks into `tests/test_benchmark.py` (Sync) and `tests/test_async_benchmark.py` (Async).
+- **Test Coverage**: Added `tests/test_async_cache.py` to verify async cache behaviors (LRU eviction, TTL expiration).
 
 ### [1.3.0dev0] - 2025-12-27
 
