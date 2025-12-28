@@ -6,11 +6,12 @@ This example demonstrates how to use NanaSQLite with Flask
 for a simple blog API.
 """
 
-from flask import Flask, request, jsonify, abort
-from nanasqlite import NanaSQLite
-from datetime import datetime, timezone
 import uuid
+from datetime import datetime, timezone
 
+from flask import Flask, abort, jsonify, request
+
+from nanasqlite import NanaSQLite
 
 app = Flask(__name__)
 
@@ -46,7 +47,7 @@ def list_posts():
     """List all blog posts"""
     db = get_db()
     posts = []
-    
+
     for key in db.keys():
         if key.startswith("post_"):
             post_id = key[5:]
@@ -56,10 +57,10 @@ def list_posts():
                     "id": post_id,
                     **post_data
                 })
-    
+
     # Sort by created_at (newest first)
     posts.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-    
+
     return jsonify(posts)
 
 
@@ -67,14 +68,14 @@ def list_posts():
 def create_post():
     """Create a new blog post"""
     data = request.get_json()
-    
+
     # Validate required fields
     if not data or 'title' not in data or 'content' not in data:
         abort(400, description="Title and content are required")
-    
+
     db = get_db()
     post_id = str(uuid.uuid4())
-    
+
     post_data = {
         "title": data['title'],
         "content": data['content'],
@@ -83,9 +84,9 @@ def create_post():
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
-    
+
     db[f"post_{post_id}"] = post_data
-    
+
     return jsonify({"id": post_id, **post_data}), 201
 
 
@@ -94,32 +95,32 @@ def search_posts():
     """Search posts by tag or keyword"""
     query = request.args.get('q', '').lower()
     tag = request.args.get('tag', '').lower()
-    
+
     if not query and not tag:
         abort(400, description="Query parameter 'q' or 'tag' required")
-    
+
     db = get_db()
     results = []
-    
+
     for key in db.keys():
         if key.startswith("post_"):
             post_id = key[5:]
             post = db.get(key)
             if not post:
                 continue
-            
+
             # Search by tag
             if tag and tag in [t.lower() for t in post.get('tags', [])]:
                 results.append({"id": post_id, **post})
                 continue
-            
+
             # Search by keyword in title or content
             if query:
                 title = post.get('title', '').lower()
                 content = post.get('content', '').lower()
                 if query in title or query in content:
                     results.append({"id": post_id, **post})
-    
+
     return jsonify(results)
 
 
@@ -135,10 +136,10 @@ def update_post(post_id):
     """Update a post"""
     post = get_post(post_id)
     data = request.get_json()
-    
+
     if not data:
         abort(400, description="No data provided")
-    
+
     # Update fields
     if 'title' in data:
         post['title'] = data['title']
@@ -148,12 +149,12 @@ def update_post(post_id):
         post['author'] = data['author']
     if 'tags' in data:
         post['tags'] = data['tags']
-    
+
     post['updated_at'] = datetime.now(timezone.utc).isoformat()
-    
+
     db = get_db()
     db[f"post_{post_id}"] = post
-    
+
     return jsonify({"id": post_id, **post})
 
 
@@ -161,10 +162,10 @@ def update_post(post_id):
 def delete_post(post_id):
     """Delete a post"""
     get_post(post_id)  # Verify post exists
-    
+
     db = get_db()
     del db[f"post_{post_id}"]
-    
+
     return '', 204
 
 
@@ -172,9 +173,9 @@ def delete_post(post_id):
 def get_stats():
     """Get blog statistics"""
     db = get_db()
-    
+
     post_count = sum(1 for key in db.keys() if key.startswith("post_"))
-    
+
     # Get all tags
     all_tags = set()
     for key in db.keys():
@@ -182,7 +183,7 @@ def get_stats():
             post = db.get(key)
             if post:
                 all_tags.update(post.get('tags', []))
-    
+
     return jsonify({
         "total_posts": post_count,
         "unique_tags": len(all_tags),
@@ -217,5 +218,5 @@ if __name__ == '__main__':
     print("  DELETE /posts/<id>     - Delete a post")
     print("  GET    /posts/search?q=keyword  - Search posts")
     print("  GET    /stats          - Get statistics")
-    
+
     app.run(debug=True, host='0.0.0.0', port=5000)

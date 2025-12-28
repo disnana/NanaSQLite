@@ -97,7 +97,7 @@ jobs:
 
     - name: Install dependencies
       run: |
-        uv pip install --system pytest pytest-benchmark pytest-asyncio apsw pydantic
+        uv pip install --system pytest pytest-benchmark pytest-asyncio apsw pydantic cryptography
         uv pip install --system -e .
     
     - name: Run sync benchmarks (Windows)
@@ -155,7 +155,7 @@ jobs:
 
     - name: Install dependencies
       run: |
-        uv pip install --system pytest pytest-benchmark pytest-asyncio apsw pydantic
+        uv pip install --system pytest pytest-benchmark pytest-asyncio apsw pydantic cryptography
         uv pip install --system -e .
     
     - name: Run async benchmarks (Windows)
@@ -177,6 +177,7 @@ jobs:
         name: async-benchmark-results-${{ matrix.os }}-py${{ matrix.python-version }}
         path: async-benchmark.json
         retention-days: 7
+
 
   benchmark-summary:
     needs: [should-run, benchmark, async-benchmark]
@@ -218,6 +219,7 @@ jobs:
       with:
         pattern: async-benchmark-results-*
         path: async-benchmark-results
+
     
     - name: Set up Python
       if: needs.should-run.outputs.run_benchmark == 'true'
@@ -244,6 +246,7 @@ jobs:
         
         python3 scripts/parse_benchmark.py async-benchmark-results async >> $GITHUB_STEP_SUMMARY || echo "Failed to parse async benchmark results" >> $GITHUB_STEP_SUMMARY
 
+
     # --- Performance Regression Detection (Only on main branch when benchmarks ran) ---
     - name: Merge all results for comparison
       if: github.ref == 'refs/heads/main' && needs.should-run.outputs.run_benchmark == 'true'
@@ -268,6 +271,7 @@ jobs:
                 data = json.load(open(p))
                 combined['benchmarks'].extend(data.get('benchmarks', []))
             except: pass
+
 
         # Use first found benchmark's machine info
         for p in Path('benchmark-results').rglob('benchmark.json'):

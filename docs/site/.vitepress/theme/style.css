@@ -36,3 +36,18 @@
   background-color: var(--vp-c-brand-soft);
   border-color: var(--vp-c-brand-1);
 }
+
+/* 
+  Mobile optimization for hero image 
+  Fixes user issue: image is too large on mobile
+*/
+@media (max-width: 639px) {
+  .VPHero .image-src {
+    display: none;
+  }
+
+  /* Reduce top padding to pull content up */
+  .VPHero {
+    padding-top: 2rem !important;
+  }
+}

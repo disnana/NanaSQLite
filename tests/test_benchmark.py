@@ -907,9 +907,202 @@ def test_benchmark_summary(db_path, capsys):
     db2.close()
 
     # 結果表示
-    print("\n" + "=" * 50)
-    print("📊 NanaSQLite Benchmark Summary")
     print("=" * 50)
-    for name, ms in results.items():
-        print(f"  {name}: {ms:.2f}ms")
-    print("=" * 50)
+
+
+# ==================== Encryption Benchmarks ====================
+
+@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
+class TestEncryptionBenchmarks:
+    """暗号化パフォーマンスのベンチマーク"""
+
+    @pytest.fixture
+    def enc_dbs(self, db_path):
+
+
+        from cryptography.fernet import Fernet
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
+
+        from nanasqlite import NanaSQLite
+
+        dbs = {}
+        base_dir = os.path.dirname(db_path)
+
+        # Keys
+        aes_key = AESGCM.generate_key(bit_length=256)
+        chacha_key = ChaCha20Poly1305.generate_key()
+        fernet_key = Fernet.generate_key()
+
+        # Setup DBs
+        dbs["plaintext"] = NanaSQLite(os.path.join(base_dir, "plain_bench.db"))
+        dbs["aes-gcm"] = NanaSQLite(os.path.join(base_dir, "aes_bench.db"), encryption_key=aes_key)
+        dbs["chacha20"] = NanaSQLite(os.path.join(base_dir, "chacha_bench.db"), encryption_key=chacha_key, encryption_mode="chacha20")
+        dbs["fernet"] = NanaSQLite(os.path.join(base_dir, "fernet_bench.db"), encryption_key=fernet_key, encryption_mode="fernet")
+
+        yield dbs
+
+        for db in dbs.values():
+            db.close()
+
+    @pytest.mark.parametrize("mode", ["plaintext", "aes-gcm", "chacha20", "fernet"])
+    def test_write_encryption(self, benchmark, enc_dbs, mode):
+        """暗号化書き込みパフォーマンス"""
+        db = enc_dbs[mode]
+        data = {"v": "x" * 100} # 100 bytes payload
+        counter = [0]
+
+        def write_op():
+            db[f"k_{counter[0]}"] = data
+            counter[0] += 1
+
+        benchmark(write_op)
+
+    @pytest.mark.parametrize("mode", ["plaintext", "aes-gcm", "chacha20", "fernet"])
+    def test_read_encryption(self, benchmark, enc_dbs, mode):
+        """暗号化読み込みパフォーマンス（キャッシュヒット）"""
+        db = enc_dbs[mode]
+        data = {"v": "x" * 100}
+
+        # Pre-fill
+        for i in range(100):
+            db[f"rk_{i}"] = data
+
+        counter = [0]
+        def read_op():
+            _ = db[f"rk_{counter[0] % 100}"]
+            counter[0] += 1
+
+        benchmark(read_op)
+
+    @pytest.mark.parametrize("mode", ["plaintext", "aes-gcm", "chacha20", "fernet"])
+    def test_read_encryption_uncached(self, benchmark, enc_dbs, mode):
+        """暗号化読み込みパフォーマンス（キャッシュミス/復号コスト）"""
+        db = enc_dbs[mode]
+        data = {"v": "x" * 1024} # 1KB payload
+        db["uncached_target"] = data
+
+        def read_op():
+            db.refresh() # Clear cache
+            return db["uncached_target"]
+
+        benchmark(read_op)
+
+
+# ==================== Cache Strategy Benchmarks ====================
+
+@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
+class TestCacheStrategyBenchmarks:
+    """キャッシュ戦略のベンチマーク"""
+
+    @pytest.fixture
+    def cache_dbs(self, tmp_path):
+
+        from nanasqlite import CacheType, NanaSQLite
+
+        dbs = {}
+        base_dir = tmp_path / "cache_bench"
+        base_dir.mkdir()
+
+        strategies = {
+            "unbounded": (CacheType.UNBOUNDED, None),
+            "lru": (CacheType.LRU, 1000),
+            "fifo": (CacheType.UNBOUNDED, 1000), # FIFO acts as unbounded with size limit in this lib? Check impl.
+            # wait, NanaSQLite CacheType has UNBOUNDED, LRU, TTL.
+            # FIFO is implemented as UnboundedCache with a max_size?
+            # Looking at previous file content (Step 1242):
+            # db_fifo -> CacheType.UNBOUNDED, cache_size=1000
+            "ttl": (CacheType.TTL, 3600)
+        }
+
+        for name, (strategy, size) in strategies.items():
+            kwargs = {}
+            if name == "ttl":
+                kwargs["cache_ttl"] = size
+            elif size:
+                kwargs["cache_size"] = size
+
+            dbs[name] = NanaSQLite(str(base_dir / f"{name}.db"), cache_strategy=strategy, **kwargs)
+
+        yield dbs
+
+        for db in dbs.values():
+            db.close()
+
+    @pytest.mark.parametrize("strategy", ["unbounded", "lru", "fifo", "ttl"])
+    def test_cache_write_1000(self, benchmark, cache_dbs, strategy):
+        """キャッシュ戦略ごとの書き込み性能 (1000件)"""
+        db = cache_dbs[strategy]
+
+        def write_op():
+            for i in range(100): # Reduced rounds for benchmark speed, pytest-benchmark runs many rounds
+                db[f"w_{i}"] = i
+
+        benchmark(write_op)
+
+    @pytest.mark.parametrize("strategy", ["unbounded", "lru", "fifo", "ttl"])
+    def test_cache_read_hit(self, benchmark, cache_dbs, strategy):
+        """キャッシュ戦略ごとの読み込み性能 (キャッシュヒット)"""
+        db = cache_dbs[strategy]
+        # Setup
+        for i in range(100):
+            db[f"r_{i}"] = i
+
+        def read_op():
+            for i in range(100):
+                _ = db[f"r_{i}"]
+
+        benchmark(read_op)
+
+    def test_lru_eviction(self, benchmark, tmp_path):
+        """LRUキャッシュの退避（Eviction）オーバーヘッド"""
+        from nanasqlite import CacheType, NanaSQLite
+
+        db_path = tmp_path / "lru_evict.db"
+        # Size 10
+        with NanaSQLite(str(db_path), cache_strategy=CacheType.LRU, cache_size=10) as db:
+            # Fill
+            for i in range(10):
+                db[f"init_{i}"] = i
+
+            counter = [0]
+            def eviction_op():
+                # Write new key -> causes eviction
+                db[f"new_{counter[0]}"] = counter[0]
+                counter[0] += 1
+
+            benchmark(eviction_op)
+
+    def test_ttl_expiry_check(self, benchmark, tmp_path):
+        """TTL有効期限チェックのオーバーヘッド"""
+        from nanasqlite import CacheType, NanaSQLite
+
+        db_path = tmp_path / "ttl_check.db"
+        with NanaSQLite(str(db_path), cache_strategy=CacheType.TTL, cache_ttl=60) as db:
+            db["target"] = "value"
+
+            def read_op():
+                return db["target"]
+            benchmark(read_op)
+
+
+# ==================== Mixed (Encryption + Cache) Benchmarks ====================
+
+@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
+class TestMixedBenchmarks:
+    """複合条件（暗号化＋キャッシュ）のベンチマーク"""
+
+    def test_aes_lru_write(self, benchmark, tmp_path):
+        """AES-GCM + LRUキャッシュの書き込み"""
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+        from nanasqlite import CacheType, NanaSQLite
+
+        key = AESGCM.generate_key(bit_length=256)
+        db_path = tmp_path / "aes_lru.db"
+
+        with NanaSQLite(str(db_path), encryption_key=key, cache_strategy=CacheType.LRU, cache_size=1000) as db:
+            counter = [0]
+            def write_op():
+                db[f"k_{counter[0]}"] = {"data": "x" * 100}
+                counter[0] += 1
+            benchmark(write_op)

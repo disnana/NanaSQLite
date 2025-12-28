@@ -74,37 +74,11 @@ with NanaSQLite("mydata.db") as db:
 - [Benchmark Trends 📊](https://nanasqlite.disnana.com/dev/bench/)
 - [Migration Guide (v1.1.x to v1.2.0)](MIGRATION_GUIDE.md)
 
-### ✨ v1.3.0 New Features
+### ✨ v1.3.x New Features
 
-**Flexible Cache Strategies & TTL Support:**
-
-```python
-from nanasqlite import NanaSQLite, CacheType
-
-# Default: Unbounded cache (same as before)
-db = NanaSQLite("app.db")
-
-# LRU cache: Keep only latest N items (memory-efficient)
-db = NanaSQLite("app.db", cache_strategy=CacheType.LRU, cache_size=1000)
-
-# Per-table settings
-logs = db.table("logs", cache_strategy=CacheType.LRU, cache_size=100)
-
-# TTL cache: Expire data after N seconds
-db = NanaSQLite("app.db", cache_strategy=CacheType.TTL, cache_ttl=3600)
-
-# Speed boost: Install optional C extension
-# pip install nanasqlite[speed]
-
-# Persistence TTL: Auto-delete from SQLite on expiration (Great for sessions!)
-db = NanaSQLite("sessions.db", cache_strategy=CacheType.TTL, cache_ttl=1800, cache_persistence_ttl=True)
-
-# FIFO limit for Unbounded: Memory limit without LRU overhead
-db = NanaSQLite("app.db", cache_strategy=CacheType.UNBOUNDED, cache_size=5000)
-
-# Manual cache clearing
-db.clear_cache()
-```
+- **Advanced Cache Strategies**: LRU and TTL support. [Learn more](https://nanasqlite.disnana.com/en/guide#lesson-10-cache-strategies)
+- **Data Encryption**: Secure storage with AES-GCM (default), ChaCha20, or Fernet. [Learn more](https://nanasqlite.disnana.com/en/guide#lesson-11-encryption)
+- **Persistence TTL**: Self-expiring data for sessions and temporary storage.
 
 ### ✨ v1.2.0 New Features
 
@@ -156,6 +130,7 @@ main_db["user1"] = {"name": "Alice", "email": "alice@example.com"}
 products_db["prod1"] = {"name": "Laptop", "price": 999}
 orders_db["order1"] = {"user": "user1", "product": "prod1"}
 ```
+
 
 **Transaction Support & Error Handling (v1.1.0+):**
 
@@ -252,37 +227,11 @@ with NanaSQLite("mydata.db") as db:
 - [ベンチマーク履歴 📊](https://nanasqlite.disnana.com/dev/bench/)
 - [移行ガイド (v1.1.x から v1.2.0)](MIGRATION_GUIDE.md)
 
-### ✨ v1.3.0 新機能
+### ✨ v1.3.x 新機能
 
-**柔軟なキャッシュ戦略と TTL サポート:**
-
-```python
-from nanasqlite import NanaSQLite, CacheType
-
-# デフォルト: 無制限キャッシュ（従来動作）
-db = NanaSQLite("app.db")
-
-# LRUキャッシュ: 最新N件のみ保持（省メモリ）
-db = NanaSQLite("app.db", cache_strategy=CacheType.LRU, cache_size=1000)
-
-# テーブル別設定
-logs = db.table("logs", cache_strategy=CacheType.LRU, cache_size=100)
-
-# TTLキャッシュ: N秒後にデータを失効
-db = NanaSQLite("app.db", cache_strategy=CacheType.TTL, cache_ttl=3600)
-
-# 高速化: オプションのC拡張をインストール
-# pip install nanasqlite[speed]
-
-# Persistence TTL: 有効期限切れ時にSQLiteからも自動削除（セッション管理等に）
-db = NanaSQLite("sessions.db", cache_strategy=CacheType.TTL, cache_ttl=1800, cache_persistence_ttl=True)
-
-# FIFO制限付きUnbounded: LRUのオーバーヘッドなしでメモリ使用量を制限
-db = NanaSQLite("app.db", cache_strategy=CacheType.UNBOUNDED, cache_size=5000)
-
-# 手動キャッシュクリア
-db.clear_cache()
-```
+- **キャッシュ戦略**: LRU / TTL サポート ([ドキュメント](https://nanasqlite.disnana.com/guide#lesson-10-キャッシュ戦略))
+- **データ暗号化**: AES-GCM / ChaCha20 / Fernet ([ドキュメント](https://nanasqlite.disnana.com/guide#lesson-11-暗号化))
+- **永続化 TTL**: SQLite上のデータの自動消去。
 
 ### ✨ v1.2.0 新機能
 
@@ -327,6 +276,24 @@ orders_db = main_db.table("orders")
 # 各テーブルは独立したキャッシュと操作を持つ
 main_db["user1"] = {"name": "Alice"}
 products_db["prod1"] = {"name": "Laptop"}
+```
+
+**オプションのデータ暗号化 (v1.3.1a1+):**
+
+```python
+from nanasqlite import NanaSQLite
+
+# 事前にインストール: pip install nanasqlite[encryption]
+db = NanaSQLite("secure.db", encryption_key=b"your-32-byte-key") # デフォルトで AES-GCM
+
+# モードを明示的に指定する場合
+db_chacha = NanaSQLite("secure_cc.db", 
+    encryption_key=b"your-32-byte-key", 
+    encryption_mode="chacha20"
+)
+
+# SQLite内では暗号化されますが、メモリ上（キャッシュ）では平文で高速に扱えます
+db["secret"] = {"password": "123"}
 ```
 
 **トランザクションサポートとエラーハンドリング (v1.1.0+):**

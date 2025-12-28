@@ -162,7 +162,7 @@ jobs:
 
     - name: Install dependencies
       run: |
-        uv pip install --system pytest pytest-asyncio pytest-xdist apsw pydantic
+        uv pip install --system pytest pytest-asyncio pytest-xdist apsw pydantic cryptography
         uv pip install --system -e .
 
     # Windows: TEMP optimization + fixed parallelism
@@ -172,13 +172,13 @@ jobs:
         TEMP: 'D:\temp'
         TMP: 'D:\temp'
       run: |
-        pytest tests/ -v --tb=short --junitxml=test-results.xml -n 4 --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py
+        pytest tests/ -v --tb=short --junitxml=test-results.xml -n 4 --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py --ignore=tests/test_cache_benchmark.py --ignore=tests/benchmark_encryption.py
 
     # Linux/macOS: auto parallelism
     - name: Run tests (Linux/macOS)
       if: runner.os != 'Windows'
       run: |
-        pytest tests/ -v --tb=short --junitxml=test-results.xml -n auto --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py
+        pytest tests/ -v --tb=short --junitxml=test-results.xml -n auto --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py --ignore=tests/test_cache_benchmark.py --ignore=tests/benchmark_encryption.py
 
     - name: Upload test results
       uses: actions/upload-artifact@v4

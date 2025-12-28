@@ -376,6 +376,38 @@ pip install nanasqlite[speed]
 
 詳細は[パフォーマンスチューニングガイド](performance_tuning)を参照してください。
 
+## レッスン 11: 暗号化 (v1.3.1)
+
+機密データを安全に保存するために、透過的な暗号化をサポートしています。
+
+### 基本的な暗号化
+
+```python
+from nanasqlite import NanaSQLite
+
+# 32バイトのキーを指定（AES-GCM がデフォルトで使用されます）
+db = NanaSQLite("secure.db", encryption_key=b"your-32-byte-secure-key-here-!!!")
+
+db["secret"] = {"password": "top-secret-password"}
+print(db["secret"]) # 通常通りアクセス可能
+```
+
+### 暗号化方式の選択
+
+環境に応じて最適なモードを選択できます：
+- `aes-gcm` (標準): 高速かつ省サイズ。
+- `chacha20`: ハードウェア加速がない環境で高速。
+- `fernet`: 従来の互換性重視。
+
+```python
+db = NanaSQLite("secure.db", 
+    encryption_key=key, 
+    encryption_mode="chacha20"
+)
+```
+
+**ハイブリッド設計**: データはSQLite上では暗号化されますが、メモリキャッシュ内は平文で保持されるため、読み取り速度を犠牲にすることなく安全性を確保できます。
+
 ## 一般的なパターン
 
 ### 設定の保存
