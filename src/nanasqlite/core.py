@@ -506,7 +506,7 @@ class NanaSQLite(MutableMapping):
         value = self._read_from_db(key)
 
         if value is not None:
-            if self._lru_mode:
+            if self._lru_mode or (hasattr(self._cache, "_max_size") and getattr(self._cache, "_max_size")):
                 self._cache.set(key, value)
             else:
                 self._data[key] = value
@@ -533,7 +533,7 @@ class NanaSQLite(MutableMapping):
         """dict[key] = value - 即時書き込み + メモリ更新"""
         self._check_connection()
         # メモリ更新
-        if self._lru_mode:
+        if self._lru_mode or (hasattr(self._cache, "_max_size") and getattr(self._cache, "_max_size")):
             self._cache.set(key, value)
         else:
             self._data[key] = value
