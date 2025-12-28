@@ -1317,7 +1317,7 @@ class TestAsyncUtilityOperationsBenchmarks:
         run_async(setup())
 
         counter = [0]
-        
+
         def vacuum_op():
             async def _vac():
                 async with AsyncNanaSQLite(db_path) as db:
@@ -1346,7 +1346,7 @@ class TestAsyncUtilityOperationsBenchmarks:
             async def _exec():
                 async with AsyncNanaSQLite(db_path) as db:
                     await db.execute(
-                        "INSERT INTO exec_test (id, value) VALUES (?, ?)", 
+                        "INSERT INTO exec_test (id, value) VALUES (?, ?)",
                         (counter[0], f"val{counter[0]}")
                     )
             run_async(_exec())
@@ -1362,7 +1362,7 @@ class TestAsyncUtilityOperationsBenchmarks:
             async with AsyncNanaSQLite(db_path) as db:
                 await db.create_table("exec_many_test", {"id": "INTEGER", "value": "TEXT"})
         run_async(setup())
-        
+
         counter = [0]
 
         def execute_many_op():
@@ -1371,7 +1371,7 @@ class TestAsyncUtilityOperationsBenchmarks:
                     base = counter[0] * 100
                     params = [(base + i, f"val{i}") for i in range(100)]
                     await db.execute_many(
-                        "INSERT INTO exec_many_test (id, value) VALUES (?, ?)", 
+                        "INSERT INTO exec_many_test (id, value) VALUES (?, ?)",
                         params
                     )
             run_async(_exec())

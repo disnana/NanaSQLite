@@ -82,3 +82,35 @@ class TestAsyncCacheStrategies:
 
             assert not await db.is_cached("k1")
             assert await db.aget("k1") == 1 # Still in DB
+
+    async def test_async_lru_db_persistence(self, tmp_path):
+        """Test that evicted items are still in DB (Async)."""
+        db_path = str(tmp_path / "async_lru_persist.db")
+        async with AsyncNanaSQLite(db_path, cache_strategy=CacheType.LRU, cache_size=2) as db:
+            await db.aset("a", 1)
+            await db.aset("b", 2)
+            await db.aset("c", 3)  # This evicts 'a' from cache
+
+            # 'a' is not in cache but should be in DB
+            assert not await db.is_cached("a")
+            # Accessing 'a' should reload from DB
+            assert await db.aget("a") == 1
+
+    async def test_async_lru_access_updates_order(self, tmp_path):
+        """Test that accessing an item moves it to end (most recently used) in Async."""
+        db_path = str(tmp_path / "async_lru_order.db")
+        async with AsyncNanaSQLite(db_path, cache_strategy=CacheType.LRU, cache_size=3) as db:
+            await db.aset("a", 1)
+            await db.aset("b", 2)
+            await db.aset("c", 3)
+            # Access 'a' to make it recently used
+            _ = await db.aget("a")
+            # Add new item, should evict 'b' (oldest)
+            await db.aset("d", 4)
+
+            # 'b' should be evicted, 'a' should be kept
+            assert not await db.is_cached("b")
+            assert await db.is_cached("a")
+            assert await db.is_cached("c")
+            assert await db.is_cached("d")
+

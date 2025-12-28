@@ -98,3 +98,32 @@ def test_encryption_unsupported_mode(tmp_path):
     """Verify that unsupported mode raises error."""
     with pytest.raises(ValueError):
         NanaSQLite(str(tmp_path / "err.db"), encryption_key=b"123", encryption_mode="invalid")
+
+@pytest.mark.asyncio
+async def test_async_encryption_cross_mode_failure(tmp_path):
+    """Verify that using the wrong mode for existing data fails (Async)."""
+    db_path = str(tmp_path / "async_cross.db")
+    key = os.urandom(32)
+
+    async with AsyncNanaSQLite(db_path, encryption_key=key, encryption_mode="aes-gcm") as db:
+        await db.aset("k", "v")
+
+    # Try reading with chacha
+    with pytest.raises(Exception): # Usually decrypt error or internal error
+        async with AsyncNanaSQLite(db_path, encryption_key=key, encryption_mode="chacha20") as db:
+            await db.aget("k")
+
+@pytest.mark.asyncio
+async def test_async_encryption_wrong_key(tmp_path):
+    """Verify that wrong key raises error (Async)."""
+    db_path = str(tmp_path / "async_wrong.db")
+    key1 = AESGCM.generate_key(bit_length=256)
+    key2 = AESGCM.generate_key(bit_length=256)
+
+    async with AsyncNanaSQLite(db_path, encryption_key=key1) as db:
+        await db.aset("k", "secure")
+
+    with pytest.raises(Exception):
+        async with AsyncNanaSQLite(db_path, encryption_key=key2) as db:
+            await db.aget("k")
+
