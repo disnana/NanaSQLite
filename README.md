@@ -76,7 +76,7 @@ with NanaSQLite("mydata.db") as db:
 
 ### ✨ v1.3.0 New Features
 
-**Flexible Cache Strategies:**
+**Flexible Cache Strategies & TTL Support:**
 
 ```python
 from nanasqlite import NanaSQLite, CacheType
@@ -90,8 +90,20 @@ db = NanaSQLite("app.db", cache_strategy=CacheType.LRU, cache_size=1000)
 # Per-table settings
 logs = db.table("logs", cache_strategy=CacheType.LRU, cache_size=100)
 
+# TTL cache: Expire data after N seconds
+db = NanaSQLite("app.db", cache_strategy=CacheType.TTL, cache_ttl=3600)
+
 # Speed boost: Install optional C extension
 # pip install nanasqlite[speed]
+
+# Persistence TTL: Auto-delete from SQLite on expiration (Great for sessions!)
+db = NanaSQLite("sessions.db", cache_strategy=CacheType.TTL, cache_ttl=1800, cache_persistence_ttl=True)
+
+# FIFO limit for Unbounded: Memory limit without LRU overhead
+db = NanaSQLite("app.db", cache_strategy=CacheType.UNBOUNDED, cache_size=5000)
+
+# Manual cache clearing
+db.clear_cache()
 ```
 
 ### ✨ v1.2.0 New Features
@@ -242,7 +254,7 @@ with NanaSQLite("mydata.db") as db:
 
 ### ✨ v1.3.0 新機能
 
-**柔軟なキャッシュ戦略:**
+**柔軟なキャッシュ戦略と TTL サポート:**
 
 ```python
 from nanasqlite import NanaSQLite, CacheType
@@ -256,8 +268,20 @@ db = NanaSQLite("app.db", cache_strategy=CacheType.LRU, cache_size=1000)
 # テーブル別設定
 logs = db.table("logs", cache_strategy=CacheType.LRU, cache_size=100)
 
+# TTLキャッシュ: N秒後にデータを失効
+db = NanaSQLite("app.db", cache_strategy=CacheType.TTL, cache_ttl=3600)
+
 # 高速化: オプションのC拡張をインストール
 # pip install nanasqlite[speed]
+
+# Persistence TTL: 有効期限切れ時にSQLiteからも自動削除（セッション管理等に）
+db = NanaSQLite("sessions.db", cache_strategy=CacheType.TTL, cache_ttl=1800, cache_persistence_ttl=True)
+
+# FIFO制限付きUnbounded: LRUのオーバーヘッドなしでメモリ使用量を制限
+db = NanaSQLite("app.db", cache_strategy=CacheType.UNBOUNDED, cache_size=5000)
+
+# 手動キャッシュクリア
+db.clear_cache()
 ```
 
 ### ✨ v1.2.0 新機能
