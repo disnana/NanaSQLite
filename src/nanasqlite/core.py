@@ -20,6 +20,7 @@ from collections.abc import Iterator, MutableMapping
 from typing import Any, Literal
 
 import apsw
+
 try:
     from cryptography.fernet import Fernet
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
@@ -481,17 +482,17 @@ class NanaSQLite(MutableMapping):
         """シリアライズ (JSON -> Encryption if enabled)"""
         json_str = json.dumps(value, ensure_ascii=False)
         data = json_str.encode("utf-8")
-        
+
         if self._fernet:
             return self._fernet.encrypt(data)
-        
+
         if self._aead:
             # Generate 12 bytes nonce
             nonce = os.urandom(12)
             ciphertext = self._aead.encrypt(nonce, data, None)
             # Combine nonce + ciphertext
             return nonce + ciphertext
-            
+
         return json_str
 
     def _deserialize(self, value: bytes | str) -> Any:
@@ -499,18 +500,18 @@ class NanaSQLite(MutableMapping):
         if self._fernet:
             decoded = self._fernet.decrypt(value).decode("utf-8")
             return json.loads(decoded)
-        
+
         if self._aead:
             if not isinstance(value, bytes):
                 # Fallback or manual check if stored as string accidentally
                 return json.loads(value)
-            
+
             # Split nonce (12B) and ciphertext
             nonce = value[:12]
             ciphertext = value[12:]
             decoded = self._aead.decrypt(nonce, ciphertext, None).decode("utf-8")
             return json.loads(decoded)
-            
+
         return json.loads(value)
 
     def _write_to_db(self, key: str, value: Any) -> None:
@@ -567,7 +568,7 @@ class NanaSQLite(MutableMapping):
         value = self._read_from_db(key)
 
         if value is not None:
-            if self._lru_mode or (hasattr(self._cache, "_max_size") and getattr(self._cache, "_max_size")):
+            if self._lru_mode or (hasattr(self._cache, "_max_size") and self._cache._max_size):
                 self._cache.set(key, value)
             else:
                 self._data[key] = value
@@ -594,7 +595,7 @@ class NanaSQLite(MutableMapping):
         """dict[key] = value - 即時書き込み + メモリ更新"""
         self._check_connection()
         # メモリ更新
-        if self._lru_mode or (hasattr(self._cache, "_max_size") and getattr(self._cache, "_max_size")):
+        if self._lru_mode or (hasattr(self._cache, "_max_size") and self._cache._max_size):
             self._cache.set(key, value)
         else:
             self._data[key] = value
