@@ -185,7 +185,7 @@ jobs:
     - uses: actions/checkout@v4
     
     - name: Scan for vulnerabilities
-      uses: anchore/scan-action@v5
+      uses: anchore/scan-action@v7
       with:
         path: "."
         fail-build: false # レポート集約のため、ここでは落とさない（後のステップで判定）
