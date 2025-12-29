@@ -210,14 +210,14 @@ jobs:
     
     - name: Download sync benchmark results
       if: needs.should-run.outputs.run_benchmark == 'true'
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         pattern: benchmark-results-*
         path: benchmark-results
     
     - name: Download async benchmark results
       if: needs.should-run.outputs.run_benchmark == 'true'
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         pattern: async-benchmark-results-*
         path: async-benchmark-results
