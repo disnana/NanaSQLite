@@ -25,6 +25,9 @@ def __init__(
     bulk_load: bool = False,
     optimize: bool = True,
     cache_size_mb: int = 64,
+    busy_timeout: int | None = None,
+    exclusive_lock: bool = False,
+    wal_autocheckpoint: int | None = None,
     max_workers: int = 5,
     thread_name_prefix: str = "AsyncNanaSQLite",
     strict_sql_validation: bool = True,
@@ -51,6 +54,7 @@ Initializes the AsyncNanaSQLite interface.
   - Increase this for high-concurrency read workloads.
 - `read_pool_size` (int, optional): Size of the dedicated read-only connection pool. Defaults to `0` (disabled).
   - Enable this (e.g., `read_pool_size=4`) to allow concurrent reads to bypass the write lock.
+- `busy_timeout`, `exclusive_lock`, `wal_autocheckpoint`: Same as synchronous `NanaSQLite`. Applied to main connection and read-only pool (where applicable).
 - `cache_strategy` (CacheType, optional): `CacheType.UNBOUNDED` / `LRU` / `TTL`. (v1.3.0+)
 - `cache_size` (int, optional): Max items for cache.
 - `cache_ttl` (float, optional): TTL in seconds.
@@ -388,6 +392,12 @@ async def get_last_insert_rowid(self) -> int
 ```python
 async def pragma(self, name: str, value: Any = None) -> Any
 ```
+
+### `acheckpoint`
+```python
+async def acheckpoint(self, mode: Literal["PASSIVE", "FULL", "RESTART", "TRUNCATE"] = "PASSIVE") -> tuple[int, int, int]
+```
+Runs a WAL checkpoint asynchronously. Returns `(busy, log, checkpointed)`.
 
 ---
 

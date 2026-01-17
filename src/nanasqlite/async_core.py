@@ -87,6 +87,9 @@ class AsyncNanaSQLite:
         bulk_load: bool = False,
         optimize: bool = True,
         cache_size_mb: int = 64,
+        busy_timeout: int | None = None,
+        exclusive_lock: bool = False,
+        wal_autocheckpoint: int | None = None,
         max_workers: int = 5,
         thread_name_prefix: str = "AsyncNanaSQLite",
         strict_sql_validation: bool = True,
@@ -136,6 +139,9 @@ class AsyncNanaSQLite:
         self._cache_persistence_ttl = cache_persistence_ttl
         self._encryption_key = encryption_key
         self._encryption_mode = encryption_mode
+        self._busy_timeout = busy_timeout
+        self._exclusive_lock = exclusive_lock
+        self._wal_autocheckpoint = wal_autocheckpoint
         self._closed = False
         self._child_instances = weakref.WeakSet()  # WeakSetによる弱参照追跡（死んだ参照は自動的にクリーンアップ）
         self._is_connection_owner = True
@@ -165,6 +171,9 @@ class AsyncNanaSQLite:
                     bulk_load=self._bulk_load,
                     optimize=self._optimize,
                     cache_size_mb=self._cache_size_mb,
+                    busy_timeout=self._busy_timeout,
+                    exclusive_lock=self._exclusive_lock,
+                    wal_autocheckpoint=self._wal_autocheckpoint,
                     strict_sql_validation=self._strict_sql_validation,
                     allowed_sql_functions=self._allowed_sql_functions,
                     forbidden_sql_functions=self._forbidden_sql_functions,
@@ -198,6 +207,16 @@ class AsyncNanaSQLite:
                         # Smaller cache for pool connections (don't hog memory)
                         c.execute("PRAGMA cache_size = -2000")  # ~2MB
                         c.execute("PRAGMA temp_store = MEMORY")
+                        if self._busy_timeout is not None:
+                            try:
+                                c.execute(f"PRAGMA busy_timeout = {int(self._busy_timeout)}")
+                            except Exception:
+                                pass
+                        if self._wal_autocheckpoint is not None:
+                            try:
+                                c.execute(f"PRAGMA wal_autocheckpoint = {int(self._wal_autocheckpoint)}")
+                            except Exception:
+                                pass
                         self._read_pool.put(conn)
 
                 await loop.run_in_executor(self._executor, _init_pool_connection)
@@ -226,6 +245,12 @@ class AsyncNanaSQLite:
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, func, *args)
+
+    async def acheckpoint(self, mode: Literal["PASSIVE", "FULL", "RESTART", "TRUNCATE"] = "PASSIVE") -> tuple[int, int, int]:
+        """非同期でWALチェックポイントを実行します。"""
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self._db.checkpoint, mode)  # type: ignore
 
     # ==================== Async Dict-like Interface ====================
 

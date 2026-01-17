@@ -18,18 +18,27 @@ Designed for use cases where you want the simplicity of a dictionary but the per
 ### `__init__`
 
 ```python
-def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
-             optimize: bool = True, cache_size_mb: int = 64,
-             cache_strategy: CacheType = CacheType.UNBOUNDED,
-             cache_size: int = 0,
-             cache_ttl: float | None = None,
-             cache_persistence_ttl: bool = False,
-             encryption_key: str | bytes | None = None,
-             encryption_mode: str = "aes-gcm",
-             strict_sql_validation: bool = True,
-             allowed_sql_functions: list[str] | None = None,
-             forbidden_sql_functions: list[str] | None = None,
-             max_clause_length: int | None = 1000)
+def __init__(
+    self,
+    db_path: str,
+    table: str = "data",
+    bulk_load: bool = False,
+    optimize: bool = True,
+    cache_size_mb: int = 64,
+    busy_timeout: int | None = None,
+    exclusive_lock: bool = False,
+    wal_autocheckpoint: int | None = None,
+    cache_strategy: CacheType = CacheType.UNBOUNDED,
+    cache_size: int = 0,
+    cache_ttl: float | None = None,
+    cache_persistence_ttl: bool = False,
+    encryption_key: str | bytes | None = None,
+    encryption_mode: str = "aes-gcm",
+    strict_sql_validation: bool = True,
+    allowed_sql_functions: list[str] | None = None,
+    forbidden_sql_functions: list[str] | None = None,
+    max_clause_length: int | None = 1000,
+)
 ```
 
 Initializes the NanaSQLite database connection.
@@ -40,6 +49,9 @@ Initializes the NanaSQLite database connection.
 - `table` (str, optional): Table name to use for storage. Defaults to `"data"`.
 - `bulk_load` (bool, optional): If `True`, loads all data into memory at initialization. Useful for smaller datasets requiring fast read access. Defaults to `False`.
 - `optimize` (bool, optional): If `True`, applies performance optimizations such as WAL mode and memory-mapped I/O. Defaults to `True`.
+- `busy_timeout` (int | None, optional): PRAGMA `busy_timeout` in milliseconds. Not applied if `None`.
+- `exclusive_lock` (bool, optional): If `True`, applies PRAGMA `locking_mode=EXCLUSIVE` (single-process only). Defaults to `False`.
+- `wal_autocheckpoint` (int | None, optional): PRAGMA `wal_autocheckpoint` page count. Not applied if `None`.
 - `cache_strategy` (CacheType, optional): `CacheType.UNBOUNDED` or `LRU` or `TTL`. (v1.3.0+)
 - `cache_size` (int, optional): Max items for `LRU`/`FIFO`.
 - `cache_ttl` (float, optional): Expiration time in seconds for `TTL`.
@@ -499,6 +511,13 @@ Returns the database file size in bytes.
 def pragma(self, pragma_name: str, value: Any = None) -> Any
 ```
 Gets or sets a SQLite PRAGMA value.
+
+### `checkpoint`
+
+```python
+def checkpoint(self, mode: Literal["PASSIVE", "FULL", "RESTART", "TRUNCATE"] = "PASSIVE") -> tuple[int, int, int]
+```
+Runs a WAL checkpoint. Returns `(busy, log, checkpointed)`.
 
 ### `get_last_insert_rowid`
 

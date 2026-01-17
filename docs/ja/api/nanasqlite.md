@@ -18,12 +18,21 @@ SQLiteを使用した、dict互換のラッパーです。即時永続化とイ�
 ### `__init__`
 
 ```python
-def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
-             optimize: bool = True, cache_size_mb: int = 64,
-             strict_sql_validation: bool = True,
-             allowed_sql_functions: list[str] | None = None,
-             forbidden_sql_functions: list[str] | None = None,
-             max_clause_length: int | None = 1000)
+def __init__(
+    self,
+    db_path: str,
+    table: str = "data",
+    bulk_load: bool = False,
+    optimize: bool = True,
+    cache_size_mb: int = 64,
+    busy_timeout: int | None = None,
+    exclusive_lock: bool = False,
+    wal_autocheckpoint: int | None = None,
+    strict_sql_validation: bool = True,
+    allowed_sql_functions: list[str] | None = None,
+    forbidden_sql_functions: list[str] | None = None,
+    max_clause_length: int | None = 1000,
+)
 ```
 
 NanaSQLiteデータベース接続を初期化します。
@@ -35,6 +44,9 @@ NanaSQLiteデータベース接続を初期化します。
 - `bulk_load` (bool, 任意): `True` の場合、初期化時に全データをメモリに読み込みます。高速な読み込みが必要な小規模データセット向け。デフォルトは `False`。
 - `optimize` (bool, 任意): `True` の場合、WALモードやメモリマップドI/Oなどの最適化を適用します。デフォルトは `True`。
 - `cache_size_mb` (int, 任意): SQLiteキャッシュサイズ（MB）。デフォルトは `64`。
+- `busy_timeout` (int | None, 任意): PRAGMA `busy_timeout`（ミリ秒）。軽いロック競合での待機によりスループットを改善します。`None` の場合は未適用。
+- `exclusive_lock` (bool, 任意): `True` の場合、PRAGMA `locking_mode=EXCLUSIVE` を適用します。単一プロセス運用でロック取得/解放のオーバーヘッドを削減。デフォルトは `False`。
+- `wal_autocheckpoint` (int | None, 任意): PRAGMA `wal_autocheckpoint` のページ数（例: `1000`）。チェックポイントのスパイクを平準化。`None` の場合は未適用。
 - `strict_sql_validation` (bool, 任意): `True` の場合、未知のSQL関数を含むクエリを拒否し、インジェクションを防ぎます。デフォルトは `True` (v1.2.0以降)。
 - `allowed_sql_functions` (list[str], 任意): 追加で許可するSQL関数のリスト。
 - `forbidden_sql_functions` (list[str], 任意): 明示的に禁止するSQL関数のリスト。
@@ -488,6 +500,14 @@ def get_db_size(self) -> int
 def pragma(self, pragma_name: str, value: Any = None) -> Any
 ```
 SQLiteのPRAGMA値を取得または設定します。
+
+### `checkpoint`
+
+```python
+def checkpoint(self, mode: Literal["PASSIVE", "FULL", "RESTART", "TRUNCATE"] = "PASSIVE") -> tuple[int, int, int]
+```
+WALチェックポイントを実行します。SQLiteの `PRAGMA wal_checkpoint` に準拠し、`(busy, log, checkpointed)` のタプルを返します。
+大量バッチ書き込み後などに呼ぶと、WAL/SHMのI/O挙動を制御できます。
 
 ### `get_last_insert_rowid`
 

@@ -78,6 +78,9 @@ class NanaSQLite(MutableMapping):
         bulk_load: bool = False,
         optimize: bool = True,
         cache_size_mb: int = 64,
+        busy_timeout: int | None = None,
+        exclusive_lock: bool = False,
+        wal_autocheckpoint: int | None = None,
         strict_sql_validation: bool = True,
         allowed_sql_functions: list[str] | None = None,
         forbidden_sql_functions: list[str] | None = None,
@@ -98,6 +101,9 @@ class NanaSQLite(MutableMapping):
             bulk_load: Trueの場合、初期化時に全データをメモリに読み込む
             optimize: Trueの場合、WALモードなど高速化設定を適用
             cache_size_mb: SQLiteキャッシュサイズ（MB）、デフォルト64MB
+            busy_timeout: ビジータイムアウト(ms)。指定時のみPRAGMA busy_timeoutを適用
+            exclusive_lock: Trueの場合、単一プロセス専用でPRAGMA locking_mode=EXCLUSIVEを適用
+            wal_autocheckpoint: WALの自動チェックポイントページ数（例: 1000）。指定時のみ適用
             strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否
             allowed_sql_functions: 追加で許可するSQL関数のリスト
             forbidden_sql_functions: 明示的に禁止するSQL関数のリスト
@@ -168,6 +174,11 @@ class NanaSQLite(MutableMapping):
         self.allowed_sql_functions = set(allowed_sql_functions or [])
         self.forbidden_sql_functions = set(forbidden_sql_functions or [])
         self.max_clause_length = max_clause_length
+
+        # Optional performance flags
+        self._busy_timeout: int | None = busy_timeout
+        self._exclusive_lock: bool = exclusive_lock
+        self._wal_autocheckpoint: int | None = wal_autocheckpoint
 
         # デフォルトで許可されるSQL関数
         self._default_allowed_functions = {
@@ -241,6 +252,9 @@ class NanaSQLite(MutableMapping):
         - mmap: メモリマップドI/Oで読み込み高速化
         - cache_size: SQLiteのメモリキャッシュ増加
         - temp_store=MEMORY: 一時テーブルをメモリに
+        - busy_timeout: ロック競合時の待機
+        - locking_mode=EXCLUSIVE: 単一プロセス運用時のオーバーヘッド削減（オプトイン）
+        - wal_autocheckpoint: WAL自動チェックポイントの平準化（オプトイン）
         """
         cursor = self._connection.cursor()
 
@@ -262,6 +276,27 @@ class NanaSQLite(MutableMapping):
 
         # ページサイズ最適化（新規DBのみ効果あり）
         cursor.execute("PRAGMA page_size = 4096")
+
+        # Optional: busy_timeout
+        if self._busy_timeout is not None:
+            try:
+                cursor.execute(f"PRAGMA busy_timeout = {int(self._busy_timeout)}")
+            except Exception as e:
+                warnings.warn(f"Failed to set busy_timeout: {e}")
+
+        # Optional: locking_mode=EXCLUSIVE (only meaningful for single process ownership)
+        if self._exclusive_lock:
+            try:
+                cursor.execute("PRAGMA locking_mode = EXCLUSIVE")
+            except Exception as e:
+                warnings.warn(f"Failed to set locking_mode=EXCLUSIVE: {e}")
+
+        # Optional: WAL autocheckpoint pages
+        if self._wal_autocheckpoint is not None:
+            try:
+                cursor.execute(f"PRAGMA wal_autocheckpoint = {int(self._wal_autocheckpoint)}")
+            except Exception as e:
+                warnings.warn(f"Failed to set wal_autocheckpoint: {e}")
 
     @staticmethod
     def _sanitize_identifier(identifier: str) -> str:
@@ -2118,6 +2153,31 @@ class NanaSQLite(MutableMapping):
 
             self.execute(f"PRAGMA {pragma_name} = {value_str}")
             return None
+
+    def checkpoint(self, mode: Literal["PASSIVE", "FULL", "RESTART", "TRUNCATE"] = "PASSIVE") -> tuple[int, int, int]:
+        """
+        WALチェックポイントを実行します。
+
+        Args:
+            mode: チェックポイントモード（"PASSIVE"|"FULL"|"RESTART"|"TRUNCATE"）。デフォルトは "PASSIVE"。
+
+        Returns:
+            (busy, log, checkpointed) の3要素タプル。SQLiteの PRAGMA wal_checkpoint の戻り値に準拠。
+
+        Note:
+            WALモード時に有効。大量書き込み後などに明示的に呼ぶことで、WALファイル肥大化や突発I/Oを抑制できます。
+        """
+        self._check_connection()
+        mode_u = mode.upper()
+        if mode_u not in {"PASSIVE", "FULL", "RESTART", "TRUNCATE"}:
+            raise ValueError("mode must be one of PASSIVE, FULL, RESTART, TRUNCATE")
+        with self._lock:
+            cur = self._connection.execute(f"PRAGMA wal_checkpoint({mode_u})")
+            row = cur.fetchone()
+            if row is None:
+                return (0, 0, 0)
+            # SQLite returns 3 columns: busy, log, checkpointed
+            return int(row[0]), int(row[1]), int(row[2])
 
     # ==================== Transaction Control ====================
 
