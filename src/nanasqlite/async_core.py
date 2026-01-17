@@ -210,13 +210,23 @@ class AsyncNanaSQLite:
                         if self._busy_timeout is not None:
                             try:
                                 c.execute(f"PRAGMA busy_timeout = {int(self._busy_timeout)}")
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                # Best-effort: some SQLite builds or read-only URIs may reject this PRAGMA
+                                logging.getLogger(__name__).warning(
+                                    "Failed to apply PRAGMA busy_timeout=%s on read-only pool connection: %s",
+                                    self._busy_timeout,
+                                    e,
+                                )
                         if self._wal_autocheckpoint is not None:
                             try:
                                 c.execute(f"PRAGMA wal_autocheckpoint = {int(self._wal_autocheckpoint)}")
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                # Best-effort: safely continue if PRAGMA is not supported in this context
+                                logging.getLogger(__name__).warning(
+                                    "Failed to apply PRAGMA wal_autocheckpoint=%s on read-only pool connection: %s",
+                                    self._wal_autocheckpoint,
+                                    e,
+                                )
                         self._read_pool.put(conn)
 
                 await loop.run_in_executor(self._executor, _init_pool_connection)

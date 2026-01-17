@@ -1,5 +1,3 @@
-import os
-
 import pytest
 
 from nanasqlite import AsyncNanaSQLite, NanaSQLite
