@@ -90,7 +90,7 @@ db.create_index("idx_user_age", "data", ["age"])
 - **Antivirus Software**: Real-time virus scanning during SQLite writes can lead to `database is locked` errors. We recommend excluding the database files (.db, .db-wal, .db-shm) from active scans.
 
 ### SSD vs HDD
-- SQLite is sensitive to disk seeking. While HDD environments might require extreme settings like `synchronous=OFF` (risking data loss), we strongly recommend using **SSDs** for production workloads.
+- SQLite relies heavily on fsync for every transaction, making it highly dependent on disk persistence latency. In HDD environments, this synchronization cost dominates performance, sometimes requiring settings that sacrifice fault tolerance, such as `synchronous=OFF`. We strongly recommend operating on SSDs with high fsync performance.
 
 ---
 
