@@ -11,7 +11,11 @@ A step-by-step guide to learning NanaSQLite from basics to advanced features.
 ## Installation
 
 ```bash
+# Basic installation
 pip install nanasqlite
+
+# Recommended: with performance boosters (quotes recommended for some shells)
+pip install "nanasqlite[speed]"
 ```
 
 ## Lesson 1: Your First Database
@@ -364,15 +368,83 @@ with NanaSQLite("app.db", cache_strategy=CacheType.LRU, cache_size=1000) as db:
     db["key"] = "value"
 ```
 
+### Using TTL Cache (v1.3.1)
+
+Useful for data with a limited lifespan (sessions, temporary caches).
+
+```python
+# Cache that expires in 1 hour (3600 seconds)
+# Setting cache_persistence_ttl=True will also delete the item from SQLite upon expiration
+with NanaSQLite("app.db", 
+    cache_strategy=CacheType.TTL, 
+    cache_ttl=3600,
+    cache_persistence_ttl=True
+) as db:
+    db["session_123"] = {"user_id": 42}
+```
+
 ### Maximizing Performance
 
-If `lru-dict` is installed, NanaSQLite uses a C-extension for ultra-fast cache operations.
+By installing `orjson` and `lru-dict`, you can significantly accelerate both JSON serialization and cache operations.
 
 ```bash
-pip install nanasqlite[speed]
+pip install "nanasqlite[speed]"
 ```
 
 For more details, see the [Performance Tuning Guide](performance_tuning).
+
+## Lesson 11: Encryption (v1.3.1)
+
+Transparent encryption support for storing sensitive data securely.
+
+### Basic Encryption
+
+```python
+from nanasqlite import NanaSQLite
+
+# Provide a 32-byte key (AES-GCM is used by default)
+db = NanaSQLite("secure.db", encryption_key=b"your-32-byte-secure-key-here-!!!")
+
+db["secret"] = {"password": "top-secret-password"}
+print(db["secret"]) # Access as usual
+```
+
+### Choosing Encryption Mode
+
+Select the best mode for your environment:
+- `aes-gcm` (Default): High performance and secure.
+- `chacha20`: Fast software implementation (great for systems without AES-NI).
+- `fernet`: Classic compatibility.
+
+```python
+db = NanaSQLite("secure.db", 
+    encryption_key=key, 
+    encryption_mode="chacha20" # Choose from "aes-gcm", "chacha20", "fernet"
+)
+```
+
+#### Choosing the Encryption Mode
+- **AES-GCM (Default)**: The standard and most secure mode recommended by `cryptography`. Highly optimized for environments with hardware acceleration (AES-NI), found in most modern PCs and servers.
+- **ChaCha20-Poly1305**: A software-based encryption that is very fast on systems without hardware acceleration (e.g., low-power ARM devices).
+- **Fernet**: Simple key management, ideal for basic use cases or maintaining legacy compatibility.
+
+**Hybrid Design**: Data is encrypted on disk (SQLite) but kept in plain-text within the memory cache, ensuring high performance for read operations without sacrificing security.
+
+## Lesson 12: Installation Options
+
+NanaSQLite provides "Extra" installation options so you can install only the dependencies you need.
+
+| Option | Includes | Primary Use Case |
+| :--- | :--- | :--- |
+| `[speed]` | `orjson`, `lru-dict` | Maximizing performance |
+| `[encryption]` | `cryptography` | Enabling data encryption features |
+| `[all]` | All of the above | Enabling all runtime features |
+| `[dev]` | `pytest`, `ruff`, `mypy`, etc. | Developing or testing NanaSQLite itself |
+
+```bash
+# Remember to use quotes to prevent shell interpretation of brackets
+pip install "nanasqlite[all]"
+```
 
 ## Common Patterns
 
@@ -483,38 +555,6 @@ db = NanaSQLite("large.db", bulk_load=False)
 data = {f"key_{i}": value for i in range(10000)}
 db.batch_update(data)  # Much faster than individual writes
 ```
-
-## Lesson 11: Encryption (v1.3.1)
-
-Transparent encryption support for storing sensitive data securely.
-
-### Basic Encryption
-
-```python
-from nanasqlite import NanaSQLite
-
-# Provide a 32-byte key (AES-GCM is used by default)
-db = NanaSQLite("secure.db", encryption_key=b"your-32-byte-secure-key-here-!!!")
-
-db["secret"] = {"password": "top-secret-password"}
-print(db["secret"]) # Access as usual
-```
-
-### Choosing Encryption Mode
-
-Select the best mode for your environment:
-- `aes-gcm` (Default): High performance and secure.
-- `chacha20`: Fast software implementation (great for systems without AES-NI).
-- `fernet`: Classic compatibility.
-
-```python
-db = NanaSQLite("secure.db", 
-    encryption_key=key, 
-    encryption_mode="chacha20"
-)
-```
-
-**Hybrid Design**: Data is encrypted on disk (SQLite) but kept in plain-text within the memory cache, ensuring high performance for read operations without sacrificing security.
 
 ## Summary
 

@@ -54,18 +54,38 @@ NanaSQLiteは、メモリ使用量と速度のバランスを最適化するた�
 - **使用方法**: `cache_strategy=CacheType.LRU, cache_size=1000` のように指定します。
 - **メリット**: メモリ使用量を一定に保つことができます。
 
-### ⚡ 高速化オプション: `lru-dict`
-LRUキャッシュを使用する場合、C拡張で実装された `lru-dict` を導入することで、キャッシュ操作を最大2倍高速化できます。
+### ⚡ 高速化オプション: `orjson` + `lru-dict`
+
+JSON のシリアライズ・デシリアライズを高速化するために **orjson** を活用します。
+
+- **orjson**: 標準 `json` モジュールと比較して **3~5倍高速** です。
+- **lru-dict**: C拡張で実装された超高速な LRU データ構造。
+
 ```bash
-pip install nanasqlite[speed]
+# クォート推奨（Zsh等のシェル対策）
+pip install "nanasqlite[speed]"
 ```
-インストールされている場合、NanaSQLiteは自動的にこれを検知して使用します。未インストールの場合は標準ライブラリの `OrderedDict` へフォールバックします。
+
+インストールされている場合、NanaSQLite は自動的にこれらを検知して使用します。未インストールの場合は標準ライブラリ（`json`, `OrderedDict`）へフォールバックします。
+
+### 3. TTLキャッシュ (`CacheType.TTL`)
+**v1.3.1で導入**されました。データの有効期限を設定し、古いデータを自動的に無効化します。
+
+- **使用方法**: `cache_strategy=CacheType.TTL, cache_ttl=3600` (1時間)
+- **Persistence TTL**: `cache_persistence_ttl=True` を設定すると、キャッシュ失効時に SQLite からも自動的に削除されます。セッション管理などに最適です。
 
 ### 📌 テーブルごとの個別設定
 特定のテーブル（巨大なログテーブルなど）だけメモリ使用を抑えたい場合に有効です。
 ```python
 # メインDBは無制限、logsテーブルだけ最新100件をキャッシュ
 logs = db.table("logs", cache_strategy=CacheType.LRU, cache_size=100)
+
+# セッションテーブルには 30分(1800s) の TTL を設定し、DBからも自動削除
+sessions = db.table("sessions", 
+    cache_strategy=CacheType.TTL, 
+    cache_ttl=1800, 
+    cache_persistence_ttl=True
+)
 ```
 
 ---
@@ -80,6 +100,7 @@ logs = db.table("logs", cache_strategy=CacheType.LRU, cache_size=100)
 
 > [!TIP]
 > キャッシュを強制的に最新状態にしたい場合は `db.refresh(key)` または最新値をDBから直接引く `db.get_fresh(key)` を使用してください。
+> メモリ内の全キャッシュをクリアしたい場合は `db.clear_cache()` を呼び出します。
 
 ---
 

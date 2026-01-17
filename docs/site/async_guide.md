@@ -342,7 +342,9 @@ async with AsyncNanaSQLite("app.db") as db:
 | `key in db` | `await db.acontains(key)` |
 | `len(db)` | `await db.alen()` |
 | `db.keys()` | `await db.akeys()` |
-| `db.batch_update(data)` | `await db.batch_update(data)` |
+| `db.batch_update(data)` | `await db.abatch_update(data)` |
+| `db.batch_delete(keys)` | `await db.abatch_delete(keys)` |
+| `db.to_dict()` | `await db.ato_dict()` |
 
 ## まとめ
 
