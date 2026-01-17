@@ -10,7 +10,8 @@ Whenever you switch branches or pull new changes, **always** run the following c
 ブランチを切り替えたり、新しい変更をプルしたときは、**必ず**以下のコマンドを実行して、ローカルのインストール状態をソースコードに同期させてください。
 
 ```bash
-pip install -e . -U
+# Install package in editable mode with dev tools (pytest, ruff, mypy, tox, etc.)
+pip install -e .[dev] -U
 ```
 
 > [!IMPORTANT]
@@ -29,6 +30,20 @@ pytest tests/ -v -n 4 --ignore=tests/test_benchmark.py --ignore=tests/test_async
 Linux/macOS環境では、以下のコマンドを推奨します。
 ```bash
 pytest tests/ -v -n auto --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py
+```
+
+You can also use tox (recommended CI parity):
+toxでも実行できます（CI相当の環境での実行を推奨）:
+
+```bash
+# Linting
+tox -e lint
+
+# Type checking
+tox -e type
+
+# Run tests
+tox -e test
 ```
 
 ## 🛠️ Coding Standards / コーディング規格

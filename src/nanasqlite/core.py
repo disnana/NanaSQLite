@@ -43,6 +43,14 @@ IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 logger = logging.getLogger(__name__)
 
+# Optional fast JSON (orjson)
+try:
+    import orjson  # type: ignore
+
+    HAS_ORJSON = True
+except Exception:
+    HAS_ORJSON = False
+
 
 class NanaSQLite(MutableMapping):
     """
@@ -480,8 +488,14 @@ class NanaSQLite(MutableMapping):
 
     def _serialize(self, value: Any) -> bytes | str:
         """シリアライズ (JSON -> Encryption if enabled)"""
-        json_str = json.dumps(value, ensure_ascii=False)
-        data = json_str.encode("utf-8")
+        # Use fastest available JSON serializer
+        if HAS_ORJSON:
+            # orjson returns bytes
+            data = orjson.dumps(value)
+            json_str = None
+        else:
+            json_str = json.dumps(value, ensure_ascii=False)
+            data = json_str.encode("utf-8")
 
         if self._fernet:
             return self._fernet.encrypt(data)
@@ -493,25 +507,38 @@ class NanaSQLite(MutableMapping):
             # Combine nonce + ciphertext
             return nonce + ciphertext
 
+        # No encryption: store as TEXT for compatibility/perf (str)
+        if HAS_ORJSON:
+            # Decode once to keep DB storage as TEXT
+            return data.decode("utf-8")
         return json_str
 
     def _deserialize(self, value: bytes | str) -> Any:
         """デシリアライズ (Decryption if enabled -> JSON)"""
         if self._fernet:
             decoded = self._fernet.decrypt(value).decode("utf-8")
+            if HAS_ORJSON:
+                return orjson.loads(decoded)
             return json.loads(decoded)
 
         if self._aead:
             if not isinstance(value, bytes):
                 # Fallback or manual check if stored as string accidentally
+                if HAS_ORJSON:
+                    return orjson.loads(value)
                 return json.loads(value)
 
             # Split nonce (12B) and ciphertext
             nonce = value[:12]
             ciphertext = value[12:]
             decoded = self._aead.decrypt(nonce, ciphertext, None).decode("utf-8")
+            if HAS_ORJSON:
+                return orjson.loads(decoded)
             return json.loads(decoded)
 
+        # No encryption path
+        if HAS_ORJSON:
+            return orjson.loads(value)
         return json.loads(value)
 
     def _write_to_db(self, key: str, value: Any) -> None:
@@ -637,14 +664,17 @@ class NanaSQLite(MutableMapping):
             exists = cursor.fetchone() is not None
 
         if exists:
-            # 存在する場合のみキャッシュに読み込む（遅延ロード）
-            self._ensure_cached(key)
+            # 存在をマークするが、値は読み込まない（次回アクセス時に遅延ロード）
+            if self._lru_mode:
+                self._cache.mark_cached(key)
+            else:
+                self._cached_keys.add(key)
+            return True
         else:
             # 存在しないこともキャッシュ
             if not self._lru_mode:
                 self._cached_keys.add(key)
-
-        return exists
+            return False
 
     def __len__(self) -> int:
         """len(dict) - DBの実際の件数を返す"""
