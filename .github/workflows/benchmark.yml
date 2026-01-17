@@ -99,7 +99,7 @@ jobs:
 
     - name: Install dependencies
       run: |
-        uv pip install --system pytest pytest-benchmark pytest-asyncio apsw pydantic cryptography
+        uv pip install --system pytest pytest-benchmark pytest-asyncio apsw pydantic cryptography orjson
         uv pip install --system -e .
     
     - name: Run sync benchmarks (Windows)
@@ -157,7 +157,7 @@ jobs:
 
     - name: Install dependencies
       run: |
-        uv pip install --system pytest pytest-benchmark pytest-asyncio apsw pydantic cryptography
+        uv pip install --system pytest pytest-benchmark pytest-asyncio apsw pydantic cryptography orjson
         uv pip install --system -e .
     
     - name: Run async benchmarks (Windows)
