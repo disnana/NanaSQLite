@@ -1,54 +1,3 @@
-# NanaSQLite
-
-[![PyPI version](https://img.shields.io/pypi/v/nanasqlite.svg)](https://pypi.org/project/nanasqlite/)
-[![Python versions](https://img.shields.io/pypi/pyversions/nanasqlite.svg)](https://pypi.org/project/nanasqlite/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Downloads](https://static.pepy.tech/badge/nanasqlite)](https://pepy.tech/project/nanasqlite)
-[![Tests](https://github.com/disnana/nanasqlite/actions/workflows/ci.yml/badge.svg)](https://github.com/disnana/nanasqlite/actions/workflows/ci.yml)
-
-**A dict-like SQLite wrapper with instant persistence and intelligent caching.**
-
-[English](#english) | [日本語](#日本語)
-
----
-
-## English
-
-### 🚀 Features
-
-- **Dict-like Interface**: Use familiar `db["key"] = value` syntax
-- **Instant Persistence**: All writes are immediately saved to SQLite
-- **Smart Caching**: Lazy load (on-access) or bulk load (all at once)
-- **Nested Structures**: Full support for nested dicts and lists (up to 30+ levels)
-- **High Performance**: WAL mode, mmap, and batch operations for maximum speed
-- **Security & Stability (v1.2.0)**: SQL validation, ReDoS protection, and strict connection management
-- **Zero Configuration**: Works out of the box with sensible defaults
-
-### 📦 Installation
-
-```bash
-pip install nanasqlite
-```
-
-### ⚡ Quick Start
-
-```python
-from nanasqlite import NanaSQLite
-
-# Create or open a database
-db = NanaSQLite("mydata.db")
-
-# Use it like a dict
-db["user"] = {"name": "Nana", "age": 20, "tags": ["admin", "active"]}
-print(db["user"])  # {'name': 'Nana', 'age': 20, 'tags': ['admin', 'active']}
-
-# Data persists automatically
-db.close()
-
-# Reopen later - data is still there!
-db = NanaSQLite("mydata.db")
-print(db["user"]["name"])  # 'Nana'
-```
 
 ### 🔧 Advanced Usage
 
@@ -330,3 +279,31 @@ db.sql_insert("users", {"name": "Alice", "age": 25})
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
+
+### 🧪 Experimental: Unified Wrapper (NanaDB)
+
+NanaDB/AsyncNanaDB provides a future-proof facade to support multiple backends.
+For now, only SQLite is implemented and it delegates internally to NanaSQLite.
+
+```python
+from nanasqlite import NanaDB, AsyncNanaDB
+
+# Path or sqlite URL work for SQLite
+db = NanaDB("./mydata.db")
+db["user"] = {"name": "Nana"}
+print(db["user"])  # {'name': 'Nana'}
+db.close()
+
+# URL form
+db = NanaDB("sqlite:///./mydata.db")
+
+# Async
+import asyncio
+async def main():
+    async with AsyncNanaDB("./mydata.db") as adb:
+        await adb.aset("k", 1)
+        assert await adb.aget("k") == 1
+asyncio.run(main())
+```
+
+Note: If you pass a PostgreSQL DSN (e.g. postgresql://...), a NotImplementedError is raised.
