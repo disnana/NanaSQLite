@@ -30,6 +30,22 @@
 pip install nanasqlite
 ```
 
+Optional installation extras:
+
+```bash
+# Performance boosters (orjson + lru-dict)
+pip install "nanasqlite[speed]"
+
+# Enable encryption features (AES-GCM/ChaCha20/Fernet)
+pip install "nanasqlite[encryption]"
+
+# Install all optional runtime features
+pip install "nanasqlite[all]"
+
+# Development tools (pytest, ruff, mypy, tox, etc.)
+pip install -e ".[dev]"
+```
+
 ### ⚡ Quick Start
 
 ```python
@@ -181,6 +197,22 @@ db.sql_insert("users", {"name": "Alice", "age": 25})
 
 ```bash
 pip install nanasqlite
+```
+
+オプション機能付きのインストール:
+
+```bash
+# 高速化オプション（orjson + lru-dict）
+pip install "nanasqlite[speed]"
+
+# 暗号化機能（AES-GCM/ChaCha20/Fernet）
+pip install "nanasqlite[encryption]"
+
+# すべてのランタイム用オプションを一括インストール
+pip install "nanasqlite[all]"
+
+# 開発用ツール（pytest, ruff, mypy, tox等）
+pip install -e ".[dev]"
 ```
 
 ### ⚡ クイックスタート
