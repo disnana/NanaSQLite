@@ -54,18 +54,38 @@ The **default behavior**. Once accessed, data is cached in memory indefinitely.
 - **Usage**: Specify `cache_strategy=CacheType.LRU, cache_size=1000`.
 - **Pros**: Keeps memory usage predictable and capped.
 
-### ⚡ Speedup Option: `lru-dict`
-When using the LRU strategy, installing the C-extension `lru-dict` can boost cache operation speed by up to 2x.
+### ⚡ Speedup Options: `orjson` + `lru-dict`
+
+You can leverage **orjson** to significantly accelerate JSON serialization and deserialization.
+
+- **orjson**: Typically **3x to 5x faster** than the standard `json` module.
+- **lru-dict**: A high-performance LRU data structure implemented as a C-extension.
+
 ```bash
-pip install nanasqlite[speed]
+# Recommendation: Use quotes to prevent shell interpretation of brackets
+pip install "nanasqlite[speed]"
 ```
-NanaSQLite automatically detects and uses it if available. Otherwise, it falls back to the standard library's `OrderedDict`.
+
+NanaSQLite automatically detects and uses these if available. Otherwise, it falls back to standard library equivalents (`json`, `OrderedDict`).
+
+### 3. TTL Cache (`CacheType.TTL`)
+**Introduced in v1.3.1**. Set an expiration time for data to automatically invalidate old entries.
+
+- **Usage**: Set `cache_strategy=CacheType.TTL, cache_ttl=3600` (1 hour).
+- **Persistence TTL**: Enable `cache_persistence_ttl=True` to automatically delete expired items from the SQLite database as well. Ideal for session management.
 
 ### 📌 Per-Table Configuration
 Useful when you want to restrict memory usage only for specific tables (e.g., massive log tables).
 ```python
 # Main DB is unbounded, but logs table caches only the latest 100 entries.
 logs = db.table("logs", cache_strategy=CacheType.LRU, cache_size=100)
+
+# Session table using 30-minute (1800s) TTL with automatic deletion from DB.
+sessions = db.table("sessions", 
+    cache_strategy=CacheType.TTL, 
+    cache_ttl=1800, 
+    cache_persistence_ttl=True
+)
 ```
 
 ---
@@ -80,6 +100,7 @@ logs = db.table("logs", cache_strategy=CacheType.LRU, cache_size=100)
 
 > [!TIP]
 > If you need to force a cache refresh, use `db.refresh(key)` or `db.get_fresh(key)` to fetch directly from the DB.
+> To clear all in-memory cache, call `db.clear_cache()`.
 
 ---
 

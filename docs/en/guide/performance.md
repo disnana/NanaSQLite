@@ -39,20 +39,33 @@ By default, NanaSQLite enables **WAL mode** when `optimize=True`.
 NanaSQLite utilizes SQLite's `mmap_size` to improve read performance. It is set to 256MB by default.
 
 ---
+ 
+## 🧠 Caching Strategy (v1.3.0+)
+ 
+NanaSQLite provides several caching strategies to balance memory usage and speed.
 
-## 🧠 Caching Strategy
+### 1. Unbounded Cache (`CacheType.UNBOUNDED`)
+The **default behavior**. Data is cached in memory indefinitely once accessed.
 
-NanaSQLite features a "Lazy Loading" in-memory cache.
+### 2. LRU Cache (`CacheType.LRU`)
+**Introduced in v1.3.0**. Set a limit on the number of cached items; oldest are automatically evicted.
 
-1.  **bulk_load=True (at initialization)**:
-    -   Loads all data into memory at startup.
-    -   **Use Case**: When you have tens of thousands of items and need high-speed random access immediately.
-2.  **Default (Lazy Loading)**:
-    -   Only stores accessed data in memory.
-    -   **Use Case**: When the dataset is huge, and you want to conserve memory.
+### 3. TTL Cache (`CacheType.TTL`)
+**Introduced in v1.3.1**. Set an expiration time for data. `cache_persistence_ttl=True` enables automatic deletion from the DB.
+
+### ⚡ Speedup Options: `orjson` + `lru-dict`
+Accelerate JSON serialization (orjson) and cache operations (lru-dict).
+```bash
+pip install "nanasqlite[speed]"
+```
+
+### ⚡ Loading Methods
+1.  **bulk_load=True (at initialization)**: Loads all data into memory at startup.
+2.  **Default (Lazy Loading)**: Only stores accessed data in memory.
 
 > [!TIP]
-> If you need to refresh the cache, use `db.refresh()` or `db.get_fresh(key)`.
+> If you need to refresh the cache, use `db.refresh(key)` or `db.get_fresh(key)`.
+> To clear all in-memory cache, call `db.clear_cache()`.
 
 ---
 

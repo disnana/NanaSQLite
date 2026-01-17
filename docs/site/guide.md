@@ -11,7 +11,11 @@
 ## インストール
 
 ```bash
+# 基本インストール
 pip install nanasqlite
+
+# 推奨：高速化オプション付き（Zsh等のシェルではクォート推奨）
+pip install "nanasqlite[speed]"
 ```
 
 ## レッスン1: 最初のデータベース
@@ -366,12 +370,27 @@ with NanaSQLite("app.db", cache_strategy=CacheType.LRU, cache_size=1000) as db:
     db["key"] = "value"
 ```
 
+### TTL キャッシュの使用 (v1.3.1)
+
+有効期限のあるデータ（セッション、一時的なキャッシュなど）を扱う場合に便利です。
+
+```python
+# 1時間 (3600秒) で失効するキャッシュ
+# cache_persistence_ttl=True を設定すると、失効時に SQLite からも自動削除されます
+with NanaSQLite("app.db", 
+    cache_strategy=CacheType.TTL, 
+    cache_ttl=3600,
+    cache_persistence_ttl=True
+) as db:
+    db["session_123"] = {"user_id": 42}
+```
+
 ### パフォーマンスの最大化
 
-`lru-dict` がインストールされている場合、C拡張による超高速なキャッシュ操作が可能です。
+`orjson` と `lru-dict` を導入することで、シリアライズとキャッシュ操作の両方を劇的に高速化できます。
 
 ```bash
-pip install nanasqlite[speed]
+pip install "nanasqlite[speed]"
 ```
 
 詳細は[パフォーマンスチューニングガイド](performance_tuning)を参照してください。
@@ -402,11 +421,32 @@ print(db["secret"]) # 通常通りアクセス可能
 ```python
 db = NanaSQLite("secure.db", 
     encryption_key=key, 
-    encryption_mode="chacha20"
+    encryption_mode="chacha20" # "aes-gcm", "chacha20", "fernet" から選択
 )
 ```
 
+#### 暗号化モードの選び方
+- **AES-GCM (デフォルト)**: `cryptography` が推奨する最も安全で標準的な方式です。ハードウェア加速(AES-NI)がある環境（現代的なPCやサーバー）で非常に高速です。
+- **ChaCha20-Poly1305**: ハードウェア加速がない環境（低電力なARMデバイスなど）でも高速に動作するソフトウェア実装の暗号化です。
+- **Fernet**: 鍵管理が最もシンプルで、従来バージョンとの互換性や使いやすさを重視する場合に適しています。
+
 **ハイブリッド設計**: データはSQLite上では暗号化されますが、メモリキャッシュ内は平文で保持されるため、読み取り速度を犠牲にすることなく安全性を確保できます。
+
+## レッスン 12: インストールオプション
+
+NanaSQLite は、用途に合わせて必要な依存関係のみをインストールできるように「Extra」機能を提供しています。
+
+| オプション名 | 内容 | 主な用途 |
+| :--- | :--- | :--- |
+| `[speed]` | `orjson`, `lru-dict` | パフォーマンスを最大化したい場合 |
+| `[encryption]` | `cryptography` | 暗号化機能を使用したい場合 |
+| `[all]` | 上記すべて | すべての機能を利用したい場合 |
+| `[dev]` | `pytest`, `ruff`, `mypy` 等 | NanaSQLite自体の開発やテストを行う場合 |
+
+```bash
+# Zsh などのシェルでは角括弧を解釈させないためにクォートが必要です
+pip install "nanasqlite[all]"
+```
 
 ## 一般的なパターン
 
