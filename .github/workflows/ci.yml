@@ -438,7 +438,7 @@ jobs:
     - name: Download provenance
       uses: actions/download-artifact@v4
       with:
-        name: provenance
+        name: ${{ needs.provenance.outputs.provenance-name }}
         path: provenance-dir/
     
     - name: Create source zip
