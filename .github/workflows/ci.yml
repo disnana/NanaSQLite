@@ -428,7 +428,7 @@ jobs:
             slsa-verifier verify-artifact "$file" \
               --provenance-path "$PROVENANCE_FILE" \
               --source-uri "github.com/${{ github.repository }}" \
-              --source-tag "v${{ needs.check-version.outputs.local_version }}"
+              --source-branch "main"
           done
 
   # ============================================
