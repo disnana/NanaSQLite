@@ -394,11 +394,49 @@ jobs:
       upload-assets: true # Optional: Upload to a new release
 
   # ============================================
+  # Verify SLSA Provenance - Automated check before release
+  # ============================================
+  verify-provenance:
+    name: Verify SLSA Provenance
+    needs: [check-version, build, provenance]
+    if: needs.check-version.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Download provenance
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.provenance.outputs.provenance-name }}
+          path: provenance-dir/
+
+      - name: Install slsa-verifier
+        uses: slsa-framework/slsa-verifier/actions/installer@v2.7.0
+
+      - name: Verify provenance
+        run: |
+          PROVENANCE_FILE=$(ls provenance-dir/*.intoto.jsonl)
+          echo "Verifying artifacts against $PROVENANCE_FILE"
+          
+          # Verify each artifact in dist/
+          for file in dist/*; do
+            echo "Verifying $file..."
+            slsa-verifier verify-artifact "$file" \
+              --provenance-path "$PROVENANCE_FILE" \
+              --source-uri "github.com/${{ github.repository }}" \
+              --source-tag "v${{ needs.check-version.outputs.local_version }}"
+          done
+
+  # ============================================
   # Publish - Main branch only, new version only
   # ============================================
   publish:
     name: Publish to PyPI
-    needs: [check-version, build]
+    needs: [check-version, build, verify-provenance]
     if: needs.check-version.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
     environment: pypi
@@ -420,7 +458,7 @@ jobs:
   # ============================================
   release:
     name: GitHub Release
-    needs: [check-version, build, publish, provenance]
+    needs: [check-version, build, publish, provenance, verify-provenance]
     if: needs.check-version.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
     permissions:
