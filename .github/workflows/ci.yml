@@ -415,7 +415,7 @@ jobs:
           path: provenance-dir/
 
       - name: Install slsa-verifier
-        uses: slsa-framework/slsa-verifier/actions/installer@v2.7.0
+        uses: slsa-framework/slsa-verifier/actions/installer@v2.7.1
 
       - name: Verify provenance
         run: |
