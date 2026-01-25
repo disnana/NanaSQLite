@@ -3,44 +3,26 @@
   "extends": [
     "config:recommended",
     ":dependencyDashboard",
+    ":dependencyDashboardApproval",
     ":semanticCommits",
     ":timezone(Asia/Tokyo)"
   ],
   "schedule": [
-    "before 3am on monday"
+    "after 1am and before 5am every weekday"
   ],
-  "automergeStrategy": "squash",
-  "packageRules": [
-    {
-      "description": "Auto-merge minor/patch updates for dev dependencies",
-      "matchUpdateTypes": ["minor", "patch"],
-      "matchDepTypes": ["devDependencies"],
-      "automerge": true,
-      "minimumReleaseAge": "3 days"
-    },
-    {
-      "description": "Group all minor/patch updates together",
-      "matchUpdateTypes": ["minor", "patch"],
-      "groupName": "all non-major dependencies",
-      "groupSlug": "all-minor-patch"
-    },
-    {
-      "description": "Require manual approval for major updates",
-      "matchUpdateTypes": ["major"],
-      "dependencyDashboardApproval": true
-    },
-    {
-      "description": "Security updates are created immediately",
-      "matchPackagePatterns": ["*"],
-      "matchUpdateTypes": ["pin", "digest", "patch", "minor", "major"],
-      "enabled": true,
-      "schedule": []
-    }
-  ],
+  "prCreation": "not-pending",
+  "assignees": ["@harumaki4649"],
   "vulnerabilityAlerts": {
     "labels": ["security"],
-    "assignees": ["@harumaki4649"]
+    "assignees": ["@harumaki4649"],
+    "schedule": []
   },
-  "prConcurrentLimit": 5,
-  "prHourlyLimit": 2
+  "packageRules": [
+    {
+      "description": "Prevent automatic Python version updates",
+      "matchPackageNames": ["python"],
+      "matchManagers": ["github-actions"],
+      "enabled": false
+    }
+  ]
 }
