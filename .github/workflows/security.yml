@@ -45,7 +45,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
-        python-version: '3.11'
+        python-version: '3.14'
     
     - name: Install dependencies
       run: |
@@ -71,7 +71,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
-        python-version: '3.11'
+        python-version: '3.14'
     
     - name: Install Bandit
       run: pip install bandit[toml]
