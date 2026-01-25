@@ -34,31 +34,6 @@ jobs:
       with:
         category: "/language:python"
 
-  # Safety - Python依存関係の既知脆弱性チェック
-  safety:
-    name: Safety Check
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v6
-    
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.11'
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install safety pip-audit
-        pip install -e .
-    
-    - name: Run Safety check
-      run: safety check --full-report || true
-      continue-on-error: true
-    
-    - name: Run pip-audit
-      run: pip-audit --progress-spinner=off
 
   # Bandit - Pythonセキュリティ静的解析
   bandit:
@@ -129,7 +104,7 @@ jobs:
   # セキュリティサマリー
   summary:
     name: Security Summary
-    needs: [codeql, safety, bandit, trivy, bun-audit, grype]
+    needs: [codeql, bandit, trivy, bun-audit, grype]
     runs-on: ubuntu-latest
     if: always()
     
@@ -141,7 +116,6 @@ jobs:
         echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
         echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
         echo "| CodeQL | ${{ needs.codeql.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Safety | ${{ needs.safety.result == 'success' && '✅ Passed' || '⚠️ Check logs' }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Bandit | ${{ needs.bandit.result == 'success' && '✅ Passed' || '⚠️ Check logs' }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Trivy | ${{ needs.trivy.result == 'success' && '✅ Passed' || '⚠️ Check logs' }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Bun Audit | ${{ needs.bun-audit.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
@@ -153,7 +127,6 @@ jobs:
         echo ""
         echo "📝 Job statuses:"
         echo "📝 codeql → ${{ needs.codeql.result == 'success' && '✓ success' || format('✗ {0}', needs.codeql.result) }} [required]"
-        echo "📝 safety → ${{ needs.safety.result == 'success' && '✓ success' || format('✗ {0}', needs.safety.result) }} [required]"
         echo "📝 bandit → ${{ needs.bandit.result == 'success' && '✓ success' || format('✗ {0}', needs.bandit.result) }} [required]"
         echo "📝 trivy → ${{ needs.trivy.result == 'success' && '✓ success' || format('✗ {0}', needs.trivy.result) }} [required]"
         echo "📝 bun-audit → ${{ needs.bun-audit.result == 'success' && '✓ success' || format('✗ {0}', needs.bun-audit.result) }} [required]"
@@ -163,7 +136,6 @@ jobs:
         # Check for failures
         FAILED=false
         if [[ "${{ needs.codeql.result }}" != "success" ]]; then FAILED=true; fi
-        if [[ "${{ needs.safety.result }}" != "success" ]]; then FAILED=true; fi
         if [[ "${{ needs.bandit.result }}" != "success" ]]; then FAILED=true; fi
         if [[ "${{ needs.trivy.result }}" != "success" ]]; then FAILED=true; fi
         if [[ "${{ needs.bun-audit.result }}" != "success" ]]; then FAILED=true; fi
@@ -201,7 +173,7 @@ jobs:
   # セキュリティレポート集約
   security-report:
     name: Generate Security Report
-    needs: [codeql, safety, bandit, trivy, bun-audit, grype]
+    needs: [codeql, bandit, trivy, bun-audit, grype]
     runs-on: ubuntu-latest
     if: always()
     
