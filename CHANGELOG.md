@@ -6,6 +6,26 @@
 
 ## 日本語
 
+### [1.3.3] - 2026-03-02
+
+#### セキュリティ
+- **docs/site の依存関係脆弱性対応**:
+  - rollup の脆弱性（GHSA-mw96-cpmx-2vgc）に対応するため、`docs/site` 側で rollup を安全なバージョン（`>=4.59.0`）へ更新/固定。
+  - 関連PR: [#99](https://github.com/disnana/NanaSQLite/pull/99), [#102](https://github.com/disnana/NanaSQLite/pull/102)
+
+#### CI / 開発環境
+- **GitHub Actions の更新**:
+  - `actions/download-artifact` を v8 に更新。([#100](https://github.com/disnana/NanaSQLite/pull/100))
+  - `actions/upload-artifact` を v7 に更新。([#101](https://github.com/disnana/NanaSQLite/pull/101))
+  - `google/osv-scanner-action`（reusable / reusable-pr）を 2.3.3 に更新。([#97](https://github.com/disnana/NanaSQLite/pull/97), [#98](https://github.com/disnana/NanaSQLite/pull/98))
+
+#### 依存関係更新（メンテナンス）
+- **リリース自動化アクション更新**:
+  - `softprops/action-gh-release` を v2 に更新。([#96](https://github.com/disnana/NanaSQLite/pull/96))
+
+#### 備考
+- このリリースは主にメンテナンス（セキュリティ/CI/依存更新）を目的としたもので、ライブラリの公開API互換性に影響する変更は含みません。
+
 ### [1.3.2] - 2026-01-17
 
 #### パフォーマンス最適化
@@ -445,6 +465,26 @@
 ---
 
 ## English
+
+### [1.3.3] - 2026-03-02
+
+#### Security
+- **docs/site dependency vulnerability fixes**:
+  - Updated/pinned rollup to a safe version (`>=4.59.0`) to address the rollup vulnerability (GHSA-mw96-cpmx-2vgc).
+  - Related PRs: [#99](https://github.com/disnana/NanaSQLite/pull/99), [#102](https://github.com/disnana/NanaSQLite/pull/102)
+
+#### CI / Development Environment
+- **GitHub Actions updates**:
+  - Bumped `actions/download-artifact` to v8. ([#100](https://github.com/disnana/NanaSQLite/pull/100))
+  - Bumped `actions/upload-artifact` to v7. ([#101](https://github.com/disnana/NanaSQLite/pull/101))
+  - Bumped `google/osv-scanner-action` (reusable / reusable-pr) to 2.3.3. ([#97](https://github.com/disnana/NanaSQLite/pull/97), [#98](https://github.com/disnana/NanaSQLite/pull/98))
+
+#### Dependency Updates (Maintenance)
+- **Release automation action update**:
+  - Updated `softprops/action-gh-release` to v2. ([#96](https://github.com/disnana/NanaSQLite/pull/96))
+
+#### Notes
+- This release is primarily a maintenance update (security/CI/dependency bumps) and does not include breaking changes to the public API.
 
 ### [1.3.2] - 2026-01-17
 
