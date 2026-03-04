@@ -1067,6 +1067,7 @@ class NanaSQLite(MutableMapping):
         Raises:
             NanaSQLiteClosedError: 接続が閉じられている場合
             NanaSQLiteConnectionError: 接続を所有していない (table() で取得した) インスタンスから呼ばれた場合
+            NanaSQLiteTransactionError: トランザクション中に呼ばれた場合
             NanaSQLiteDatabaseError: リストア中にエラーが発生した場合
         """
         import shutil
@@ -1078,12 +1079,19 @@ class NanaSQLite(MutableMapping):
                 "Use the original NanaSQLite instance, not one obtained via table()."
             )
 
+        if self._in_transaction:
+            raise NanaSQLiteTransactionError(
+                "Cannot restore while a transaction is in progress. Please commit or rollback first."
+            )
+
         # コピー前にバックアップファイルの存在/可読性を検証する
         if not os.path.isfile(src_path) or not os.access(src_path, os.R_OK):
             raise NanaSQLiteDatabaseError(
                 f"Restore failed: backup file not found or not readable: {src_path}"
             )
 
+        # WeakSet をスナップショットしてイテレーション中の GC による RuntimeError を防ぐ
+        children = list(self._child_instances)
         with self._acquire_lock():
             try:
                 self._connection.close()
@@ -1092,7 +1100,7 @@ class NanaSQLite(MutableMapping):
                 if self._optimize:
                     self._apply_optimizations(self._cache_size_mb)
                 # 子インスタンスの _connection 参照を新しい接続へ更新する
-                for child in self._child_instances:
+                for child in children:
                     child._connection = self._connection
                 # 接続の差し替えとキャッシュクリアを同一ロック内で原子的に行う
                 self.clear_cache()
@@ -1100,12 +1108,12 @@ class NanaSQLite(MutableMapping):
                 # 失敗時に現在の DB へ再接続して一貫した状態を保つ
                 try:
                     self._connection = apsw.Connection(self._db_path)
-                    for child in self._child_instances:
+                    for child in children:
                         child._connection = self._connection
                 except apsw.Error:
                     # 再接続さえできない場合はクローズ状態として扱い、子インスタンスも無効化する
                     self._is_closed = True
-                    for child in self._child_instances:
+                    for child in children:
                         child._mark_parent_closed()
                     self._child_instances.clear()
                 raise NanaSQLiteDatabaseError(f"Restore failed: {e}", e) from e

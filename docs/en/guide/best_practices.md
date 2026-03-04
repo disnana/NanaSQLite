@@ -399,6 +399,10 @@ def daily_backup():
     print(f"Backup completed: {date.today()}")
 
 schedule.every().day.at("02:00").do(daily_backup)
+
+while True:
+    schedule.run_pending()
+    time.sleep(1)
 ```
 
 ### Pre-Upgrade Snapshot

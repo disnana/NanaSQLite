@@ -15,6 +15,8 @@ from nanasqlite.exceptions import (
     NanaSQLiteClosedError,
     NanaSQLiteConnectionError,
     NanaSQLiteDatabaseError,
+    NanaSQLiteTransactionError,
+    NanaSQLiteValidationError,
 )
 
 # ===========================================================
@@ -71,6 +73,21 @@ def test_lock_timeout_raises_on_deadlock(tmp_path):
 
     assert len(errors) == 1
     assert "0.2s" in str(errors[0])
+    db.close()
+
+
+def test_lock_timeout_negative_raises(tmp_path):
+    """lock_timeout に負値を渡した場合 NanaSQLiteValidationError が発生すること"""
+    with pytest.raises(NanaSQLiteValidationError):
+        NanaSQLite(str(tmp_path / "test.db"), lock_timeout=-1.0)
+
+
+def test_lock_timeout_zero_allowed(tmp_path):
+    """lock_timeout=0.0 は即時タイムアウトとして有効な値であること"""
+    db = NanaSQLite(str(tmp_path / "test.db"), lock_timeout=0.0)
+    # ロックが競合していない場合は RLock は即座に取得できる
+    db["key"] = "value"
+    assert db["key"] == "value"
     db.close()
 
 
@@ -182,5 +199,22 @@ def test_restore_invalid_path_raises(tmp_path):
 
     with pytest.raises(NanaSQLiteDatabaseError):
         db.restore(str(tmp_path / "nonexistent.db"))
+
+    db.close()
+
+
+def test_restore_during_transaction_raises(tmp_path):
+    """トランザクション中に restore() を呼ぶと NanaSQLiteTransactionError が発生すること"""
+    db_path = str(tmp_path / "main.db")
+    backup_path = str(tmp_path / "backup.db")
+
+    db = NanaSQLite(db_path)
+    db["key"] = "value"
+    db.backup(backup_path)
+
+    with pytest.raises(NanaSQLiteTransactionError):
+        with db.transaction():
+            db["key"] = "in-transaction"
+            db.restore(backup_path)  # トランザクション中なので例外が発生するはず
 
     db.close()
