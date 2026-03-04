@@ -1173,8 +1173,9 @@ class NanaSQLite(MutableMapping):
                 if tmp_path is not None:
                     try:
                         os.unlink(tmp_path)
-                    except OSError:
-                        pass
+                    except OSError as cleanup_err:
+                        # 一時ファイル削除に失敗しても処理自体には影響しないため、ログのみに留める
+                        logging.debug("Failed to remove temporary restore file %r: %s", tmp_path, cleanup_err)
                 # 失敗時に現在の DB へ再接続して一貫した状態を保つ
                 try:
                     self._connection = apsw.Connection(self._db_path)
