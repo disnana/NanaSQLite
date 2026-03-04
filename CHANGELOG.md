@@ -21,6 +21,11 @@
   - `NanaSQLite.restore(src_path)`: `src_path` のバックアップファイルから DB を復元し、接続を再確立してキャッシュをクリアします。
   - 両メソッドとも新規 public メソッドの追加のみ。後方互換性への影響はありません。
 
+#### スレッドセーフティ改善
+
+- **`table()` の子インスタンス生成をロック保護**:
+  - `table()` での子インスタンス生成〜`WeakSet` 追加を `_acquire_lock()` で保護。`restore()` の接続差し替えとの競合を防止し、子インスタンスが閉じた接続を参照するリスクを排除。
+
 ### [1.3.4b0] - 2026-03-04
 
 #### コード品質改善
@@ -510,6 +515,11 @@
   - `NanaSQLite.backup(dest_path)`: Backs up the current database to `dest_path` using APSW's SQLite online backup API.
   - `NanaSQLite.restore(src_path)`: Restores the database from a backup file, re-establishes the connection, and clears the in-memory cache.
   - Both are new public methods only; no backward-compatibility impact.
+
+#### Thread Safety Improvements
+
+- **Lock-protected child instance creation in `table()`**:
+  - Wrapped child instance creation and `WeakSet` registration in `table()` with `_acquire_lock()` to prevent race conditions with `restore()`'s connection replacement, eliminating the risk of child instances referencing a closed connection.
 
 ### [1.3.4b0] - 2026-03-04
 

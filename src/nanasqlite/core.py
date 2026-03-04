@@ -2499,23 +2499,26 @@ class NanaSQLite(MutableMapping):
         strat = cache_strategy if cache_strategy is not None else CacheType.UNBOUNDED
         size = cache_size
 
-        child = NanaSQLite(
-            self._db_path,
-            table=table_name,
-            cache_strategy=strat,
-            cache_size=size,
-            lock_timeout=self._lock_timeout,
-            _shared_connection=self._connection,
-            _shared_lock=self._lock,
-        )
+        # 子インスタンス生成〜WeakSet追加をロックで保護し、
+        # restore() の接続差し替えと競合しないようにする
+        with self._acquire_lock():
+            child = NanaSQLite(
+                self._db_path,
+                table=table_name,
+                cache_strategy=strat,
+                cache_size=size,
+                lock_timeout=self._lock_timeout,
+                _shared_connection=self._connection,
+                _shared_lock=self._lock,
+            )
 
-        # If the parent is the connection owner, the child is not.
-        # This ensures only one instance (the owner) attempts to close the connection.
-        if self._is_connection_owner:
-            child._is_connection_owner = False
+            # If the parent is the connection owner, the child is not.
+            # This ensures only one instance (the owner) attempts to close the connection.
+            if self._is_connection_owner:
+                child._is_connection_owner = False
 
-        # 子インスタンスを追跡 (WeakSetに直接オブジェクトを追加すると、WeakSetが弱参照を保持する)
-        self._child_instances.add(child)
+            # 子インスタンスを追跡 (WeakSetに直接オブジェクトを追加すると、WeakSetが弱参照を保持する)
+            self._child_instances.add(child)
 
         return child
 
