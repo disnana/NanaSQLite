@@ -874,6 +874,7 @@ class NanaSQLite(MutableMapping):
 
     def clear(self) -> None:
         """dict.clear() - 全削除"""
+        self._check_connection()
         # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
         with self._acquire_lock():
             self._connection.execute(f"DELETE FROM {self._table}")  # nosec
