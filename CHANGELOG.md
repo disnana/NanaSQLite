@@ -6,6 +6,30 @@
 
 ## 日本語
 
+### [1.3.4b2] - 2026-03-04
+
+#### 新機能
+
+- **`validator` パラメータの追加（オプション依存: validkit-py）**:
+  - `NanaSQLite.__init__` および `AsyncNanaSQLite.__init__` に `validator` パラメータを追加。
+  - validkit-py のスキーマ（辞書または `Schema` オブジェクト）を渡すと、値の書き込み時に自動バリデーションを実行します。
+  - スキーマ違反時は `NanaSQLiteValidationError` を送出。
+  - validkit-py をインストールせずに `validator` を指定した場合は `ImportError` を送出し、インストール手順を案内します。
+  - `pip install nanasqlite[validation]` でインストール可能。
+  - `HAS_VALIDKIT` フラグを `nanasqlite` パッケージ（および `core` モジュール）から公開。
+
+- **`table()` の `validator` 引数対応**:
+  - `NanaSQLite.table()` および `AsyncNanaSQLite.table()` に `validator` パラメータを追加。
+  - テーブルごとに異なるスキーマを適用可能。
+  - `validator` を省略した場合は親インスタンスのスキーマを自動継承。
+
+#### バグ修正
+
+- **`table()` で `validator` が子インスタンスに引き継がれない問題を修正**:
+  - b1 では `table()` で生成した子インスタンスに親の `_validator` が渡されておらず、
+    サブテーブルへの書き込み時にバリデーションが実行されませんでした。
+  - `AsyncNanaSQLite.table()` でも同様に `_validator` が `async_sub_db` に設定されていなかった問題を修正。
+
 ### [1.3.4b1] - 2026-03-04
 
 #### 新機能
@@ -505,6 +529,31 @@
 ---
 
 ## English
+
+### [1.3.4b2] - 2026-03-04
+
+#### New Features
+
+- **`validator` parameter (optional dependency: validkit-py)**:
+  - Added `validator` parameter to `NanaSQLite.__init__` and `AsyncNanaSQLite.__init__`.
+  - Accepts a validkit-py schema (plain dict or `Schema` object). When supplied, values are validated before every write.
+  - Raises `NanaSQLiteValidationError` on schema violation.
+  - Raises `ImportError` with an install hint when `validator` is supplied but `validkit-py` is not installed.
+  - Install via `pip install nanasqlite[validation]`.
+  - Exposes `HAS_VALIDKIT` flag from the `nanasqlite` package (and `core` module).
+
+- **Per-table `validator` support in `table()`**:
+  - Added `validator` parameter to `NanaSQLite.table()` and `AsyncNanaSQLite.table()`.
+  - Different schemas can now be applied per sub-table.
+  - When `validator` is omitted, the parent instance's schema is inherited automatically.
+
+#### Bug Fixes
+
+- **`table()` no longer drops the parent `validator` on child instances**:
+  - In b1, child instances created via `table()` did not inherit `_validator`, so writes to
+    sub-tables bypassed validation entirely.
+  - The same issue was present in `AsyncNanaSQLite.table()` where `_validator` was never
+    assigned to `async_sub_db`; this is now fixed.
 
 ### [1.3.4b1] - 2026-03-04
 

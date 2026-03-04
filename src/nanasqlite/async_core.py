@@ -35,7 +35,7 @@ from typing import Any, Literal
 import apsw
 
 from .cache import CacheType
-from .core import IDENTIFIER_PATTERN, NanaSQLite
+from .core import _UNSET, IDENTIFIER_PATTERN, NanaSQLite
 from .exceptions import NanaSQLiteClosedError, NanaSQLiteDatabaseError
 
 
@@ -100,6 +100,7 @@ class AsyncNanaSQLite:
         cache_persistence_ttl: bool = False,
         encryption_key: str | bytes | None = None,
         encryption_mode: Literal["aes-gcm", "chacha20", "fernet"] = "aes-gcm",
+        validator: Any | None = _UNSET,  # type: ignore[assignment]
     ):
         """
         Args:
@@ -116,6 +117,9 @@ class AsyncNanaSQLite:
             max_clause_length: SQL句の最大長（ReDoS対策）。Noneで制限なし (v1.2.0)
             read_pool_size: 読み取り専用プールサイズ (デフォルト: 0 = 無効) (v1.1.0)
             encryption_key: 暗号化キー (v1.3.1)
+            validator: validkit-py のスキーマ（辞書または Schema オブジェクト）。
+                       指定すると、値の書き込み時にバリデーションを実行する。
+                       ``pip install nanasqlite[validation]`` が必要。
         """
         self._db_path = db_path
         self._table = table
@@ -136,6 +140,8 @@ class AsyncNanaSQLite:
         self._cache_persistence_ttl = cache_persistence_ttl
         self._encryption_key = encryption_key
         self._encryption_mode = encryption_mode
+        # _UNSET は「省略」を意味するセンチネル。None は「バリデーションなし」として明示的に渡せる
+        self._validator = None if validator is _UNSET else validator
         self._closed = False
         self._child_instances = weakref.WeakSet()  # WeakSetによる弱参照追跡（死んだ参照は自動的にクリーンアップ）
         self._is_connection_owner = True
@@ -175,6 +181,7 @@ class AsyncNanaSQLite:
                     cache_persistence_ttl=self._cache_persistence_ttl,
                     encryption_key=self._encryption_key,
                     encryption_mode=self._encryption_mode,
+                    validator=self._validator,
                 ),
             )
 
@@ -1232,7 +1239,7 @@ class AsyncNanaSQLite:
         """
         return self._db
 
-    async def table(self, table_name: str) -> AsyncNanaSQLite:
+    async def table(self, table_name: str, validator: Any | None = _UNSET) -> AsyncNanaSQLite:  # type: ignore[assignment]
         """
         非同期でサブテーブルのAsyncNanaSQLiteインスタンスを取得
 
@@ -1254,6 +1261,9 @@ class AsyncNanaSQLite:
 
         Args:
             table_name: 取得するサブテーブル名
+            validator: このテーブル用の validkit-py スキーマ。
+                       指定しない場合は親インスタンスのスキーマを引き継ぐ。
+                       ``None`` を明示的に渡すとバリデーションなしで使用できる。
 
         Returns:
             指定したテーブルを操作するAsyncNanaSQLiteインスタンス
@@ -1269,8 +1279,14 @@ class AsyncNanaSQLite:
         if self._db is None:
             await self._ensure_initialized()
 
+        # validator が省略された場合は親のスキーマを継承する。None 明示指定は無効化とする
+        resolved_validator = self._validator if validator is _UNSET else validator
+
         loop = asyncio.get_running_loop()
-        sub_db = await loop.run_in_executor(self._executor, self._db.table, table_name)
+        sub_db = await loop.run_in_executor(
+            self._executor,
+            lambda: self._db.table(table_name, validator=resolved_validator),
+        )
 
         # 新しいAsyncNanaSQLiteラッパーを作成（__init__をバイパス）
         async_sub_db = object.__new__(AsyncNanaSQLite)
@@ -1292,6 +1308,8 @@ class AsyncNanaSQLite:
         async_sub_db._allowed_sql_functions = self._allowed_sql_functions
         async_sub_db._forbidden_sql_functions = self._forbidden_sql_functions
         async_sub_db._max_clause_length = self._max_clause_length
+        # バリデーションスキーマを引き継ぐ（resolved_validator を使用）
+        async_sub_db._validator = resolved_validator
         # 子インスタンス管理
         async_sub_db._child_instances = weakref.WeakSet()
         self._child_instances.add(async_sub_db)

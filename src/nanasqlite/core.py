@@ -65,6 +65,9 @@ try:
 except Exception:
     HAS_VALIDKIT = False
 
+# Sentinel used to distinguish "parameter not passed" from "explicitly None"
+_UNSET = object()
+
 
 class NanaSQLite(MutableMapping):
     """
@@ -104,7 +107,7 @@ class NanaSQLite(MutableMapping):
         encryption_key: str | bytes | None = None,
         encryption_mode: Literal["aes-gcm", "chacha20", "fernet"] = "aes-gcm",
         lock_timeout: float | None = None,
-        validator: dict | Any | None = None,
+        validator: dict | Any | None = _UNSET,  # type: ignore[assignment]
         _shared_connection: apsw.Connection | None = None,
         _shared_lock: threading.RLock | None = None,
     ):
@@ -164,14 +167,16 @@ class NanaSQLite(MutableMapping):
                 raise ValueError(f"Unsupported encryption_mode: {encryption_mode}")
 
         # Validkit バリデーション設定（オプション）
-        if validator is not None and not HAS_VALIDKIT:
+        # _UNSET は「省略」を意味するセンチネル。None は「バリデーションなし」として明示的に渡せる
+        resolved_init_validator = None if validator is _UNSET else validator
+        if resolved_init_validator is not None and not HAS_VALIDKIT:
             raise ImportError(
                 "The 'validkit-py' library is required for validation. "
                 "Install it with: pip install nanasqlite[validation]\n"
                 "バリデーション機能には 'validkit-py' ライブラリが必要です。"
                 " pip install nanasqlite[validation] でインストールしてください。"
             )
-        self._validator = validator  # validkit スキーマ（dict または Schema オブジェクト）
+        self._validator = resolved_init_validator  # validkit スキーマ（dict または Schema オブジェクト）
 
         # Setup Persistence TTL callback if enabled
         on_expire = None
@@ -2538,10 +2543,9 @@ class NanaSQLite(MutableMapping):
         table_name: str,
         cache_strategy: CacheType | Literal["unbounded", "lru"] | None = None,
         cache_size: int | None = None,
+        validator: dict | Any | None = _UNSET,  # type: ignore[assignment]
     ):
         """
-        サブテーブル用のNanaSQLiteインスタンスを取得
-
         新しいインスタンスを作成しますが、SQLite接続とロックは共有します。
         これにより、複数のテーブルインスタンスが同じ接続を使用して
         スレッドセーフに動作します。
@@ -2550,6 +2554,9 @@ class NanaSQLite(MutableMapping):
             table_name: テーブル名
             cache_strategy: このテーブル用のキャッシュ戦略 (デフォルト: 親と同じ)
             cache_size: このテーブル用のキャッシュサイズ (デフォルト: 親と同じ)
+            validator: このテーブル用の validkit-py スキーマ。
+                       指定しない場合は親インスタンスのスキーマを引き継ぐ。
+                       ``None`` を明示的に渡すとバリデーションなしで使用できる。
 
         ⚠️ 重要な注意事項:
         - 同じテーブルに対して複数のインスタンスを作成しないでください
@@ -2571,10 +2578,12 @@ class NanaSQLite(MutableMapping):
             NanaSQLiteConnectionError: 接続が閉じられている場合
 
         Example:
+            >>> from validkit import v
             >>> with NanaSQLite("app.db", table="main") as main_db:
-            ...     users_db = main_db.table("users")
+            ...     users_schema = {"name": v.str(), "age": v.int()}
+            ...     users_db = main_db.table("users", validator=users_schema)
             ...     products_db = main_db.table("products")
-            ...     users_db["user1"] = {"name": "Alice"}
+            ...     users_db["user1"] = {"name": "Alice", "age": 30}
             ...     products_db["prod1"] = {"name": "Laptop"}
         """
         self._check_connection()
@@ -2582,6 +2591,8 @@ class NanaSQLite(MutableMapping):
         # 指定がなければデフォルト（UNBOUNDED）
         strat = cache_strategy if cache_strategy is not None else CacheType.UNBOUNDED
         size = cache_size
+        # validator が省略された場合は親のスキーマを継承し、None 明示指定は無効化とする
+        resolved_validator = self._validator if validator is _UNSET else validator
 
         # 子インスタンス生成〜WeakSet追加をロックで保護し、
         # restore() の接続差し替えと競合しないようにする
@@ -2592,6 +2603,7 @@ class NanaSQLite(MutableMapping):
                 cache_strategy=strat,
                 cache_size=size,
                 lock_timeout=self._lock_timeout,
+                validator=resolved_validator,
                 _shared_connection=self._connection,
                 _shared_lock=self._lock,
             )
