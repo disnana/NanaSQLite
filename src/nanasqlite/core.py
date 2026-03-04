@@ -673,6 +673,7 @@ class NanaSQLite(MutableMapping):
 
     def __delitem__(self, key: str) -> None:
         """del dict[key] - 即時削除"""
+        self._check_connection()
         if not self._ensure_cached(key):
             raise KeyError(key)
         # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止

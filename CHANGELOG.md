@@ -26,6 +26,11 @@
 - **`table()` の子インスタンス生成をロック保護**:
   - `table()` での子インスタンス生成〜`WeakSet` 追加を `_acquire_lock()` で保護。`restore()` の接続差し替えとの競合を防止し、子インスタンスが閉じた接続を参照するリスクを排除。
 
+#### バグ修正
+
+- **`__delitem__` に `_check_connection()` を追加**:
+  - `del db[key]` でクローズ済み接続を使用した際に `NanaSQLiteClosedError` を送出するよう修正。`__setitem__`・`pop()`・`clear()` と例外挙動を統一。
+
 ### [1.3.4b0] - 2026-03-04
 
 #### コード品質改善
@@ -520,6 +525,11 @@
 
 - **Lock-protected child instance creation in `table()`**:
   - Wrapped child instance creation and `WeakSet` registration in `table()` with `_acquire_lock()` to prevent race conditions with `restore()`'s connection replacement, eliminating the risk of child instances referencing a closed connection.
+
+#### Bug Fixes
+
+- **Added `_check_connection()` to `__delitem__`**:
+  - `del db[key]` on a closed connection now raises `NanaSQLiteClosedError` consistently, matching the behaviour of `__setitem__`, `pop()`, and `clear()`.
 
 ### [1.3.4b0] - 2026-03-04
 

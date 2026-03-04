@@ -383,6 +383,61 @@ with NanaSQLite("app.db") as db:
 
 ---
 
+## データ保護: バックアップ & リストア (v1.3.4b1以降)
+
+### 定期バックアップ
+
+`backup()` を使用すると、アプリケーションを停止せずに定期スナップショットを作成できます：
+
+```python
+import schedule
+import time
+from nanasqlite import NanaSQLite
+
+db = NanaSQLite("production.db")
+
+def daily_backup():
+    from datetime import date
+    db.backup(f"backups/production_{date.today()}.db")
+    print(f"Backup completed: {date.today()}")
+
+schedule.every().day.at("02:00").do(daily_backup)
+
+while True:
+    schedule.run_pending()
+    time.sleep(1)
+```
+
+### アップグレード前のスナップショット
+
+スキーマ移行やデータ変換の前にスナップショットを取りましょう：
+
+```python
+with NanaSQLite("app.db") as db:
+    # リスキーな操作の前にスナップショットを取得
+    db.backup("pre_migration_snapshot.db")
+
+    # マイグレーションを実行
+    db.execute("ALTER TABLE data ADD COLUMN legacy TEXT")
+    # ... マイグレーションロジック ...
+```
+
+### エラー時のロールバック
+
+エラーが発生した場合に `restore()` で既知の正常な状態に戻します：
+
+```python
+with NanaSQLite("app.db") as db:
+    db.backup("pre_operation.db")
+    try:
+        perform_bulk_update(db)
+    except Exception as e:
+        print(f"Error: {e} – rolling back")
+        db.restore("pre_operation.db")
+```
+
+---
+
 ## テスト
 
 ### ユニットテスト
