@@ -307,6 +307,11 @@ class NanaSQLite(MutableMapping):
 
     # ==================== Private Methods ====================
 
+    @staticmethod
+    def _is_in_memory_path(path: str) -> bool:
+        """パスがインメモリDB文字列（':memory:' または 'file::memory:...'）かどうかを返す。"""
+        return path == ":memory:" or path.startswith("file::memory:")
+
     @contextmanager
     def _acquire_lock(self):
         """ロックを取得するコンテキストマネージャ。lock_timeout が設定されている場合はタイムアウト付きで取得する。"""
@@ -1040,10 +1045,16 @@ class NanaSQLite(MutableMapping):
 
         Raises:
             NanaSQLiteClosedError: 接続が閉じられている場合
-            NanaSQLiteValidationError: dest_path が現在のDBファイルと同一の場合（自己コピー防止）
+            NanaSQLiteValidationError: dest_path が現在のDBファイルと同一の場合（自己コピー防止）、または
+                dest_path がインメモリDB文字列（':memory:' など）の場合（永続化されないため）
             NanaSQLiteDatabaseError: バックアップ中にエラーが発生した場合
         """
         self._check_connection()
+        # dest_path がインメモリDB文字列の場合、バックアップが永続化されないため拒否する
+        if self._is_in_memory_path(dest_path):
+            raise NanaSQLiteValidationError(
+                "dest_path must be a file path, not an in-memory database string"
+            )
         # dest_path が DB ファイル自身と同一の場合は自己コピーになり破損する恐れがあるため拒否する
         try:
             if os.path.samefile(dest_path, self._db_path):
@@ -1081,10 +1092,16 @@ class NanaSQLite(MutableMapping):
         Raises:
             NanaSQLiteClosedError: 接続が閉じられている場合
             NanaSQLiteConnectionError: 接続を所有していない (table() で取得した) インスタンスから呼ばれた場合
+            NanaSQLiteValidationError: 現在のDBがインメモリDB（':memory:' など）の場合（ファイル置換が不可能なため）
             NanaSQLiteTransactionError: トランザクション中に呼ばれた場合
             NanaSQLiteDatabaseError: リストア中にエラーが発生した場合
         """
         self._check_connection()
+        # DB がインメモリの場合はファイル置換ができないため拒否する（早期失敗）
+        if self._is_in_memory_path(self._db_path):
+            raise NanaSQLiteValidationError(
+                "restore() cannot be used with an in-memory database"
+            )
         if not self._is_connection_owner:
             raise NanaSQLiteConnectionError(
                 "restore() can only be called on the primary (connection-owning) instance. "
