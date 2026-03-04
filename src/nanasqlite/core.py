@@ -114,6 +114,13 @@ class NanaSQLite(MutableMapping):
         """
         self._db_path: str = db_path
         self._table: str = table
+        # lock_timeout を __init__ で一度だけ検証・正規化する（_acquire_lock の高頻度パスでの検証を省く）
+        if lock_timeout is not None:
+            if isinstance(lock_timeout, bool) or not isinstance(lock_timeout, (int, float)) or lock_timeout < 0:
+                raise NanaSQLiteValidationError(
+                    f"Invalid lock_timeout '{lock_timeout}': must be None or a non-negative number"
+                )
+            lock_timeout = float(lock_timeout)
         self._lock_timeout: float | None = lock_timeout
         self._optimize: bool = optimize
         self._cache_size_mb: int = cache_size_mb
@@ -318,10 +325,6 @@ class NanaSQLite(MutableMapping):
         """ロックを取得するコンテキストマネージャ。lock_timeout が設定されている場合はタイムアウト付きで取得する。"""
         lock_timeout = self._lock_timeout
         if lock_timeout is not None:
-            if isinstance(lock_timeout, bool) or not isinstance(lock_timeout, (int, float)) or lock_timeout < 0:
-                raise NanaSQLiteValidationError(
-                    f"Invalid lock_timeout '{lock_timeout}': must be None or a non-negative number"
-                )
             acquired = self._lock.acquire(timeout=lock_timeout)
             if not acquired:
                 raise NanaSQLiteLockError(
@@ -1175,6 +1178,8 @@ class NanaSQLite(MutableMapping):
                 # 失敗時に現在の DB へ再接続して一貫した状態を保つ
                 try:
                     self._connection = apsw.Connection(self._db_path)
+                    if self._optimize:
+                        self._apply_optimizations(self._cache_size_mb)
                     for child in children:
                         child._connection = self._connection
                     self.clear_cache()
