@@ -1026,7 +1026,9 @@ class NanaSQLite(MutableMapping):
 
     def _delete_from_db_on_expire(self, key: str) -> None:
         """有効期限切れ時にDBからデータを削除 (内部用)"""
-        with self._acquire_lock():
+        # バックグラウンドの期限切れ削除はユーザー操作と異なり、ロック競合でタイムアウトしても
+        # データが残るだけなので、lock_timeout に関わらずブロッキング取得で確実に削除する
+        with self._lock:
             if self._is_closed:
                 return
             try:
@@ -1064,6 +1066,15 @@ class NanaSQLite(MutableMapping):
                 )
         except FileNotFoundError:
             pass  # dest_path がまだ存在しない場合は問題なし
+        except OSError as e:
+            # パスの同一性チェックに失敗した場合は、自己コピー防止チェックをスキップし、
+            # 実際のバックアップ処理側での失敗として扱う
+            logger.warning(
+                "Could not verify whether backup destination %r is the same as database file %r: %s",
+                dest_path,
+                self._db_path,
+                e,
+            )
         with self._acquire_lock():
             dest_conn = None
             try:
@@ -1109,12 +1120,6 @@ class NanaSQLite(MutableMapping):
                 "Use the original NanaSQLite instance, not one obtained via table()."
             )
 
-        # コピー前にバックアップファイルの存在/可読性を検証する
-        if not os.path.isfile(src_path) or not os.access(src_path, os.R_OK):
-            raise NanaSQLiteDatabaseError(
-                f"Restore failed: backup file not found or not readable: {src_path}"
-            )
-
         with self._acquire_lock():
             # ロック取得後にトランザクション中かを再チェック（ロック外チェックとの競合を防ぐ）
             if self._in_transaction:
@@ -1132,6 +1137,9 @@ class NanaSQLite(MutableMapping):
                     original_mode = None
                 self._connection.close()
                 # 一時ファイルへコピー→fsync→os.replace() で原子的に置き換える
+                # 事前の isfile/access チェックは TOCTOU になるため省略し、
+                # open()/コピー中の OSError は外側の except (apsw.Error, OSError) で捕捉して
+                # NanaSQLiteDatabaseError に変換する
                 db_dir = os.path.dirname(os.path.abspath(self._db_path))
                 fd, tmp_path = tempfile.mkstemp(dir=db_dir)
                 with os.fdopen(fd, "wb") as tmp_f:
