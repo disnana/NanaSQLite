@@ -57,6 +57,14 @@ try:
 except Exception:
     HAS_ORJSON = False
 
+# Optional value validation (validkit-py)
+try:
+    from validkit import validate as validkit_validate  # type: ignore
+
+    HAS_VALIDKIT = True
+except Exception:
+    HAS_VALIDKIT = False
+
 
 class NanaSQLite(MutableMapping):
     """
@@ -75,6 +83,7 @@ class NanaSQLite(MutableMapping):
         bulk_load: Trueの場合、初期化時に全データをメモリに読み込む
         strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否 (v1.2.0)
         max_clause_length: SQL句の最大長（ReDoS対策、v1.2.0）
+        validator: validkit-py のスキーマ。指定すると値の書き込み時にバリデーションを実行 (オプション)
     """
 
     def __init__(
@@ -95,6 +104,7 @@ class NanaSQLite(MutableMapping):
         encryption_key: str | bytes | None = None,
         encryption_mode: Literal["aes-gcm", "chacha20", "fernet"] = "aes-gcm",
         lock_timeout: float | None = None,
+        validator: dict | Any | None = None,
         _shared_connection: apsw.Connection | None = None,
         _shared_lock: threading.RLock | None = None,
     ):
@@ -110,6 +120,9 @@ class NanaSQLite(MutableMapping):
             forbidden_sql_functions: 明示的に禁止するSQL関数のリスト
             max_clause_length: SQL句の最大長（ReDoS対策）。Noneで制限なし
             lock_timeout: ロック取得のタイムアウト秒数。Noneで無制限待機
+            validator: validkit-py のスキーマ（辞書または Schema オブジェクト）。
+                       指定すると、値の書き込み時にバリデーションを実行する。
+                       ``pip install nanasqlite[validation]`` が必要。
             _shared_connection: 内部用：共有する接続（table()メソッドで使用）
             _shared_lock: 内部用：共有するロック（table()メソッドで使用）
         """
@@ -149,6 +162,16 @@ class NanaSQLite(MutableMapping):
                 self._aead = ChaCha20Poly1305(key_bytes)
             else:
                 raise ValueError(f"Unsupported encryption_mode: {encryption_mode}")
+
+        # Validkit バリデーション設定（オプション）
+        if validator is not None and not HAS_VALIDKIT:
+            raise ImportError(
+                "The 'validkit-py' library is required for validation. "
+                "Install it with: pip install nanasqlite[validation]\n"
+                "バリデーション機能には 'validkit-py' ライブラリが必要です。"
+                " pip install nanasqlite[validation] でインストールしてください。"
+            )
+        self._validator = validator  # validkit スキーマ（dict または Schema オブジェクト）
 
         # Setup Persistence TTL callback if enabled
         on_expire = None
@@ -662,6 +685,15 @@ class NanaSQLite(MutableMapping):
     def __setitem__(self, key: str, value: Any) -> None:
         """dict[key] = value - 即時書き込み + メモリ更新"""
         self._check_connection()
+        # validkit バリデーション（スキーマが設定されている場合のみ実行）
+        if self._validator is not None:
+            try:
+                validkit_validate(value, self._validator)
+            except Exception as exc:
+                raise NanaSQLiteValidationError(
+                    f"Value for key '{key}' failed schema validation: {exc} "
+                    f"/ キー '{key}' の値がスキーマに違反しています: {exc}"
+                ) from exc
         # DB書き込みを先に行い、ロックタイムアウト時のキャッシュ不整合を防止
         self._write_to_db(key, value)
         # DB書き込み成功後にメモリ更新
