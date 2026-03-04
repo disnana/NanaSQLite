@@ -581,13 +581,14 @@ except NanaSQLiteLockError as e:
 ### Backup
 
 `backup()` uses APSW's SQLite online backup API to copy the database to another file.
-It is safe to call while the database is being used:
+It is safe from a data-integrity perspective even while other SQLite connections are reading/writing.
+NanaSQLite's internal lock is **not** held during the actual backup, so other NanaSQLite operations in the same process can proceed concurrently without blocking:
 
 ```python
 db = NanaSQLite("app.db")
 db["user"] = {"name": "Nana", "role": "admin"}
 
-# Create a backup – safe during concurrent reads/writes
+# Create a backup – non-blocking: other NanaSQLite operations continue normally during backup
 db.backup("app_backup_2026-03-04.db")
 
 # The backup file is a fully independent SQLite database

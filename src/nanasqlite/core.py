@@ -1048,7 +1048,10 @@ class NanaSQLite(MutableMapping):
         データベースをファイルにバックアップする
 
         APSW の SQLite バックアップ API を使用して、現在の DB 全体を dest_path に書き出します。
-        読み書き中でもオンラインバックアップが可能です。
+        SQLite のトランザクション機構により、他の SQLite 接続が同時に読み書きしていても
+        データの整合性を保ったままバックアップできます。
+        NanaSQLite の内部ロックはバックアップ中に保持しないため、同一プロセス内の
+        他の NanaSQLite 操作をブロックしません。
 
         Args:
             dest_path: バックアップ先ファイルパス
@@ -1058,6 +1061,7 @@ class NanaSQLite(MutableMapping):
             NanaSQLiteValidationError: dest_path が現在のDBファイルと同一の場合（自己コピー防止）、または
                 dest_path がインメモリDB文字列（':memory:' など）の場合（永続化されないため）
             NanaSQLiteDatabaseError: バックアップ中にエラーが発生した場合
+            NanaSQLiteLockError: lock_timeout 設定によりロック取得に失敗した場合
         """
         self._check_connection()
         # dest_path がインメモリDB文字列の場合、バックアップが永続化されないため拒否する
@@ -1082,21 +1086,26 @@ class NanaSQLite(MutableMapping):
                 self._db_path,
                 e,
             )
+        # ロックは接続参照の取得のみに限定する。
+        # 実際のバックアップ処理は SQLite のオンラインバックアップ API に委ねるため
+        # NanaSQLite のロックを保持し続ける必要がない。
+        # これにより backup() 実行中も他の NanaSQLite 操作をブロックしない。
         with self._acquire_lock():
-            dest_conn = None
-            try:
-                dest_conn = apsw.Connection(dest_path)
-                with dest_conn.backup("main", self._connection, "main") as b:
-                    while not b.done:
-                        b.step(100)
-            except apsw.Error as e:
-                raise NanaSQLiteDatabaseError(f"Backup failed: {e}", e) from e
-            finally:
-                if dest_conn is not None:
-                    try:
-                        dest_conn.close()
-                    except apsw.Error as close_err:
-                        logger.error("Error closing destination connection after backup: %s", close_err)
+            conn_ref = self._connection
+        dest_conn = None
+        try:
+            dest_conn = apsw.Connection(dest_path)
+            with dest_conn.backup("main", conn_ref, "main") as b:
+                while not b.done:
+                    b.step(100)
+        except apsw.Error as e:
+            raise NanaSQLiteDatabaseError(f"Backup failed: {e}", e) from e
+        finally:
+            if dest_conn is not None:
+                try:
+                    dest_conn.close()
+                except apsw.Error as close_err:
+                    logger.error("Error closing destination connection after backup: %s", close_err)
 
     def restore(self, src_path: str) -> None:
         """
@@ -1174,52 +1183,54 @@ class NanaSQLite(MutableMapping):
                 # WAL モード使用時に残る可能性のあるサイドカーファイルを削除する。
                 # 古い -wal/-shm/-journal が残っていると、再接続時に SQLite が
                 # stale な WAL 内容を再生して不整合な状態になり得る。
-                for suffix in ("-wal", "-shm", "-journal"):
+                # WAL 整合性に直接影響する -wal/-shm は削除またはリネームで隔離する。
+                # 削除もリネームも失敗した場合は restore 失敗として扱う。
+                for suffix in ("-wal", "-shm"):
                     sidecar = self._db_path + suffix
                     try:
                         os.unlink(sidecar)
                     except FileNotFoundError:
-                        # サイドカーファイルが存在しない場合は問題ないため無視する
-                        pass
-                    except OSError as sidecar_err:
-                        logger.warning(
-                            "Could not remove stale sidecar file %r during restore: %s",
-                            sidecar,
-                            sidecar_err,
-                        )
-                self._connection = apsw.Connection(self._db_path)
-                if self._optimize:
-            )
-
-        # コピー前にバックアップファイルの存在/可読性を検証する
-        if not os.path.isfile(src_path) or not os.access(src_path, os.R_OK):
-            raise NanaSQLiteDatabaseError(
-                f"Restore failed: backup file not found or not readable: {src_path}"
-            )
-
-        with self._acquire_lock():
-            try:
-                # 既存接続を一時的にクローズしてからバックアップで置き換える
-                self._connection.close()
-                shutil.copy2(src_path, self._db_path)
+                        pass  # サイドカーファイルが存在しない場合は問題ないため無視する
+                    except OSError:
+                        # 削除できない場合はリネームで隔離を試みる
+                        renamed = sidecar + ".bak"
+                        try:
+                            os.rename(sidecar, renamed)
+                            logger.warning(
+                                "Could not remove stale sidecar %r; renamed to %r to prevent WAL replay",
+                                sidecar,
+                                renamed,
+                            )
+                        except OSError as rename_err:
+                            raise OSError(
+                                f"Could not remove or rename stale WAL sidecar file {sidecar!r}: {rename_err}"
+                            ) from rename_err
+                # -journal は整合性への影響が小さいため、削除失敗は警告のみに留める
+                sidecar = self._db_path + "-journal"
+                try:
+                    os.unlink(sidecar)
+                except FileNotFoundError:
+                    pass  # サイドカーファイルが存在しない場合は問題ないため無視する
+                except OSError as sidecar_err:
+                    logger.warning(
+                        "Could not remove stale sidecar file %r during restore: %s",
+                        sidecar,
+                        sidecar_err,
+                    )
                 self._connection = apsw.Connection(self._db_path)
                 if self._optimize:
                     self._apply_optimizations(self._cache_size_mb)
+                for child in children:
+                    child._connection = self._connection
+                self.clear_cache()
+                for child in children:
+                    child.clear_cache()
             except (apsw.Error, OSError) as e:
-                # 失敗時に元DBへの接続を復旧し、少なくとも一貫した状態に保つ
-                try:
-                    self._connection = apsw.Connection(self._db_path)
-                except apsw.Error:
-                    # 再接続さえできない場合は、このインスタンスをクローズ状態として扱う
-                    self._is_closed = True
-                # 残った一時ファイルを削除する
                 if tmp_path is not None:
                     try:
                         os.unlink(tmp_path)
                     except OSError as cleanup_err:
-                        # 一時ファイル削除に失敗しても処理自体には影響しないため、ログのみに留める
                         logger.debug("Failed to remove temporary restore file %r: %s", tmp_path, cleanup_err)
-                # 失敗時に現在の DB へ再接続して一貫した状態を保つ
                 try:
                     self._connection = apsw.Connection(self._db_path)
                     if self._optimize:
@@ -1230,7 +1241,6 @@ class NanaSQLite(MutableMapping):
                     for child in children:
                         child.clear_cache()
                 except apsw.Error:
-                    # 再接続さえできない場合はクローズ状態として扱い、子インスタンスも無効化する
                     self._is_closed = True
                     for child in children:
                         child._mark_parent_closed()

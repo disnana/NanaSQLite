@@ -520,7 +520,8 @@ def backup(self, dest_path: str) -> None
 ```
 
 Backs up the current database to a file using APSW's SQLite online backup API.
-The backup is performed page-by-page so it is safe even during concurrent reads/writes.
+The backup is performed page-by-page so it is safe even during concurrent reads/writes by other SQLite connections.
+NanaSQLite's internal lock is **not** held during the actual backup, so other NanaSQLite operations in the same process are not blocked.
 
 **Parameters:**
 - `dest_path` (str): Destination file path for the backup.
@@ -529,6 +530,7 @@ The backup is performed page-by-page so it is safe even during concurrent reads/
 - `NanaSQLiteClosedError`: If the connection is already closed.
 - `NanaSQLiteValidationError`: If `dest_path` is the same as the database file (self-copy prevention), or if `dest_path` is an in-memory database string (e.g., `':memory:'` or `'file::memory:...'`), which cannot be persisted.
 - `NanaSQLiteDatabaseError`: If an error occurs during the backup.
+- `NanaSQLiteLockError`: If `lock_timeout` is set and the internal lock cannot be acquired in time.
 
 **Example:**
 ```python
@@ -557,7 +559,8 @@ and then re-establishes the connection. The in-memory cache is cleared after res
 - `NanaSQLiteConnectionError`: If called on an instance obtained via `.table()` (not the connection owner).
 - `NanaSQLiteTransactionError`: If called while a transaction is in progress. Commit or rollback before calling `restore()`.
 - `NanaSQLiteValidationError`: If the current database is an in-memory database (e.g., `':memory:'` or `'file::memory:...'`), which cannot be replaced by a file-based restore.
-- `NanaSQLiteDatabaseError`: If an error occurs during the restore (e.g., file not found).
+- `NanaSQLiteDatabaseError`: If an error occurs during the restore (e.g., file not found, or stale WAL sidecar file cannot be removed).
+- `NanaSQLiteLockError`: If `lock_timeout` is set and the internal lock cannot be acquired in time.
 
 **Example:**
 ```python
