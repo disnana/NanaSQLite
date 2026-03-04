@@ -556,7 +556,7 @@ data = {f"key_{i}": value for i in range(10000)}
 db.batch_update(data)  # Much faster than individual writes
 ```
 
-## Lesson 10: Lock Timeout, Backup & Restore (v1.3.4b1+)
+## Lesson 13: Lock Timeout, Backup & Restore (v1.3.4b1+)
 
 ### Lock Timeout
 

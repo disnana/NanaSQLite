@@ -312,7 +312,7 @@ class NanaSQLite(MutableMapping):
         """ロックを取得するコンテキストマネージャ。lock_timeout が設定されている場合はタイムアウト付きで取得する。"""
         lock_timeout = self._lock_timeout
         if lock_timeout is not None:
-            if not isinstance(lock_timeout, (int, float)) or lock_timeout < 0:
+            if isinstance(lock_timeout, bool) or not isinstance(lock_timeout, (int, float)) or lock_timeout < 0:
                 raise NanaSQLiteValidationError(
                     f"Invalid lock_timeout '{lock_timeout}': must be None or a non-negative number"
                 )
@@ -1040,6 +1040,7 @@ class NanaSQLite(MutableMapping):
 
         Raises:
             NanaSQLiteClosedError: 接続が閉じられている場合
+            NanaSQLiteValidationError: dest_path が現在のDBファイルと同一の場合（自己コピー防止）
             NanaSQLiteDatabaseError: バックアップ中にエラーが発生した場合
         """
         self._check_connection()
@@ -1090,11 +1091,6 @@ class NanaSQLite(MutableMapping):
                 "Use the original NanaSQLite instance, not one obtained via table()."
             )
 
-        if self._in_transaction:
-            raise NanaSQLiteTransactionError(
-                "Cannot restore while a transaction is in progress. Please commit or rollback first."
-            )
-
         # コピー前にバックアップファイルの存在/可読性を検証する
         if not os.path.isfile(src_path) or not os.access(src_path, os.R_OK):
             raise NanaSQLiteDatabaseError(
@@ -1102,6 +1098,11 @@ class NanaSQLite(MutableMapping):
             )
 
         with self._acquire_lock():
+            # ロック取得後にトランザクション中かを再チェック（ロック外チェックとの競合を防ぐ）
+            if self._in_transaction:
+                raise NanaSQLiteTransactionError(
+                    "Cannot restore while a transaction is in progress. Please commit or rollback first."
+                )
             # ロック内でスナップショットを取得し、table() と競合しないようにする
             children = list(self._child_instances)
             tmp_path = None

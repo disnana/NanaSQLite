@@ -516,6 +516,7 @@ The backup is performed page-by-page so it is safe even during concurrent reads/
 
 **Raises:**
 - `NanaSQLiteClosedError`: If the connection is already closed.
+- `NanaSQLiteValidationError`: If `dest_path` is the same as the database file (self-copy prevention).
 - `NanaSQLiteDatabaseError`: If an error occurs during the backup.
 
 **Example:**
