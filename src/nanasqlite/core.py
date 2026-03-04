@@ -662,28 +662,27 @@ class NanaSQLite(MutableMapping):
     def __setitem__(self, key: str, value: Any) -> None:
         """dict[key] = value - 即時書き込み + メモリ更新"""
         self._check_connection()
-        # メモリ更新
+        # DB書き込みを先に行い、ロックタイムアウト時のキャッシュ不整合を防止
+        self._write_to_db(key, value)
+        # DB書き込み成功後にメモリ更新
         if self._lru_mode or (hasattr(self._cache, "_max_size") and self._cache._max_size):
             self._cache.set(key, value)
         else:
             self._data[key] = value
             self._cached_keys.add(key)
-        # 即時書き込み
-        self._write_to_db(key, value)
 
     def __delitem__(self, key: str) -> None:
         """del dict[key] - 即時削除"""
         if not self._ensure_cached(key):
             raise KeyError(key)
-        # メモリから削除
+        # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
+        self._delete_from_db(key)
+        # DB削除成功後にメモリから削除
         if self._lru_mode:
             self._cache.delete(key)
         else:
             self._data.pop(key, None)
             self._cached_keys.discard(key)
-
-        # DBから削除
-        self._delete_from_db(key)
 
     def __contains__(self, key: str) -> bool:
         """
@@ -857,8 +856,9 @@ class NanaSQLite(MutableMapping):
         self._check_connection()
         if self._ensure_cached(key):
             value = self._cache.get(key)
-            self._cache.delete(key)
+            # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
             self._delete_from_db(key)
+            self._cache.delete(key)
             return value
         if args:
             return args[0]
@@ -874,10 +874,11 @@ class NanaSQLite(MutableMapping):
 
     def clear(self) -> None:
         """dict.clear() - 全削除"""
-        self._cache.clear()
-        self._all_loaded = False
+        # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
         with self._acquire_lock():
             self._connection.execute(f"DELETE FROM {self._table}")  # nosec
+        self._cache.clear()
+        self._all_loaded = False
 
     def setdefault(self, key: str, default: Any = None) -> Any:
         """dict.setdefault(key, default)"""
