@@ -259,6 +259,10 @@ def test_restore_cleans_stale_wal_sidecar_files(tmp_path):
     db["key"] = "modified"
     db["extra"] = "should_be_gone"
 
+    # Windows では DB 接続が開いている間 SQLite が -shm ファイルをロックするため、
+    # サイドカーファイルを作成する前に接続を閉じる必要がある。
+    db.close()
+
     # stale なサイドカーファイルを手動で作成（restore 前に残っている想定）
     stale_marker = b"stale WAL data that should not be replayed"
     for suffix in ("-wal", "-shm", "-journal"):
@@ -266,6 +270,8 @@ def test_restore_cleans_stale_wal_sidecar_files(tmp_path):
         with open(sidecar, "wb") as f:
             f.write(stale_marker)
 
+    # 再接続してリストアを実行
+    db = NanaSQLite(db_path)
     db.restore(backup_path)
 
     # stale なサイドカー内容が再生されず、バックアップ時点のデータが正しく復元されること
