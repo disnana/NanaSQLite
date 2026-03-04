@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -116,9 +117,9 @@ class NanaSQLite(MutableMapping):
         self._table: str = table
         # lock_timeout を __init__ で一度だけ検証・正規化する（_acquire_lock の高頻度パスでの検証を省く）
         if lock_timeout is not None:
-            if isinstance(lock_timeout, bool) or not isinstance(lock_timeout, (int, float)) or lock_timeout < 0:
+            if isinstance(lock_timeout, bool) or not isinstance(lock_timeout, (int, float)) or lock_timeout < 0 or not math.isfinite(lock_timeout):
                 raise NanaSQLiteValidationError(
-                    f"Invalid lock_timeout '{lock_timeout}': must be None or a non-negative number"
+                    f"Invalid lock_timeout '{lock_timeout}': must be None or a non-negative finite number"
                 )
             lock_timeout = float(lock_timeout)
         self._lock_timeout: float | None = lock_timeout

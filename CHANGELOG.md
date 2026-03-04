@@ -504,7 +504,7 @@
   - Added `lock_timeout: float | None = None` parameter to `NanaSQLite.__init__`.
   - When set, raises `NanaSQLiteLockError` if the lock cannot be acquired within the specified seconds.
   - Default `None` preserves the existing unlimited-wait behaviour. Fully backward-compatible.
-  - Introduced `_acquire_lock()` context manager internally so all exclusive operations respect the timeout.
+  - Introduced `_acquire_lock()` context manager internally so user-facing exclusive operations respect the timeout (some internal operations such as TTL expiry deletion continue to use blocking acquisition).
 
 - **`backup()` / `restore()` methods** (P2-3):
   - `NanaSQLite.backup(dest_path)`: Backs up the current database to `dest_path` using APSW's SQLite online backup API.
