@@ -1146,18 +1146,17 @@ class NanaSQLite(MutableMapping):
                     original_mode = None
                 # 少なくとも src_path がオープン可能かどうかを、接続クローズ前に確認する
                 # 事前の isfile/access チェックは TOCTOU になるため行わず、open() の成否で判断する
-                src_f = open(src_path, "rb")
-                self._connection.close()
-                # 一時ファイルへコピー→fsync→os.replace() で原子的に置き換える
-                # open()/コピー中の OSError は外側の except (apsw.Error, OSError) で捕捉して
-                # NanaSQLiteDatabaseError に変換する
-                db_dir = os.path.dirname(os.path.abspath(self._db_path))
-                fd, tmp_path = tempfile.mkstemp(dir=db_dir)
-                with os.fdopen(fd, "wb") as tmp_f:
-                    with src_f:
+                with open(src_path, "rb") as src_f:
+                    self._connection.close()
+                    # 一時ファイルへコピー→fsync→os.replace() で原子的に置き換える
+                    # open()/コピー中の OSError は外側の except (apsw.Error, OSError) で捕捉して
+                    # NanaSQLiteDatabaseError に変換する
+                    db_dir = os.path.dirname(os.path.abspath(self._db_path))
+                    fd, tmp_path = tempfile.mkstemp(dir=db_dir)
+                    with os.fdopen(fd, "wb") as tmp_f:
                         shutil.copyfileobj(src_f, tmp_f)
-                    tmp_f.flush()
-                    os.fsync(tmp_f.fileno())
+                        tmp_f.flush()
+                        os.fsync(tmp_f.fileno())
                 # 元DBのパーミッションを一時ファイルに適用してから原子的に置き換える
                 if original_mode is not None:
                     try:
