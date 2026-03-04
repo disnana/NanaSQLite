@@ -302,3 +302,565 @@ def test_restore_on_memory_db_raises(tmp_path):
     with pytest.raises(NanaSQLiteValidationError):
         mem_db.restore(backup_path)
     mem_db.close()
+
+
+# ===========================================================
+# 追加テスト: lock_timeout 公開 API 経由での検証
+# ===========================================================
+
+
+def _hold_lock_and_signal(db, lock_held_event, release_event):
+    """内部ロックを保持してイベントで通知するヘルパー（スレッド用）"""
+    db._lock.acquire()
+    try:
+        lock_held_event.set()
+        release_event.wait()
+    finally:
+        db._lock.release()
+
+
+def test_lock_timeout_setitem_raises_lockerror(tmp_path):
+    """ロック保持中に __setitem__ を呼ぶと lock_timeout により NanaSQLiteLockError が発生すること"""
+    db = NanaSQLite(str(tmp_path / "test.db"), lock_timeout=0.2)
+    db["existing"] = "value"
+
+    lock_held = threading.Event()
+    release_lock = threading.Event()
+    t = threading.Thread(target=_hold_lock_and_signal, args=(db, lock_held, release_lock))
+    t.start()
+    lock_held.wait()
+    try:
+        with pytest.raises(NanaSQLiteLockError):
+            db["new_key"] = "new_value"
+    finally:
+        release_lock.set()
+        t.join(timeout=5.0)
+    # キャッシュが更新されていないことを確認（不整合防止）- ロック解放後に確認
+    assert "new_key" not in db
+    db.close()
+
+
+def test_lock_timeout_delitem_raises_lockerror(tmp_path):
+    """ロック保持中に __delitem__ を呼ぶと lock_timeout により NanaSQLiteLockError が発生すること"""
+    db = NanaSQLite(str(tmp_path / "test.db"), lock_timeout=0.2)
+    db["key_to_delete"] = "value"
+
+    lock_held = threading.Event()
+    release_lock = threading.Event()
+    t = threading.Thread(target=_hold_lock_and_signal, args=(db, lock_held, release_lock))
+    t.start()
+    lock_held.wait()
+    try:
+        with pytest.raises(NanaSQLiteLockError):
+            del db["key_to_delete"]
+        # キャッシュ・DBが更新されていないことを確認（不整合防止）
+        assert "key_to_delete" in db
+    finally:
+        release_lock.set()
+        t.join(timeout=5.0)
+    db.close()
+
+
+def test_lock_timeout_pop_raises_lockerror(tmp_path):
+    """ロック保持中に pop() を呼ぶと lock_timeout により NanaSQLiteLockError が発生すること"""
+    db = NanaSQLite(str(tmp_path / "test.db"), lock_timeout=0.2)
+    db["key_to_pop"] = "value"
+
+    lock_held = threading.Event()
+    release_lock = threading.Event()
+    t = threading.Thread(target=_hold_lock_and_signal, args=(db, lock_held, release_lock))
+    t.start()
+    lock_held.wait()
+    try:
+        with pytest.raises(NanaSQLiteLockError):
+            db.pop("key_to_pop")
+        # キーが残っていることを確認（不整合防止）
+        assert "key_to_pop" in db
+    finally:
+        release_lock.set()
+        t.join(timeout=5.0)
+    db.close()
+
+
+def test_lock_timeout_clear_raises_lockerror(tmp_path):
+    """ロック保持中に clear() を呼ぶと lock_timeout により NanaSQLiteLockError が発生すること"""
+    db = NanaSQLite(str(tmp_path / "test.db"), lock_timeout=0.2)
+    db["key1"] = "value1"
+    db["key2"] = "value2"
+
+    lock_held = threading.Event()
+    release_lock = threading.Event()
+    t = threading.Thread(target=_hold_lock_and_signal, args=(db, lock_held, release_lock))
+    t.start()
+    lock_held.wait()
+    try:
+        with pytest.raises(NanaSQLiteLockError):
+            db.clear()
+        # データが残っていることを確認（不整合防止）
+        assert "key1" in db
+        assert "key2" in db
+    finally:
+        release_lock.set()
+        t.join(timeout=5.0)
+    db.close()
+
+
+def test_lock_timeout_restore_raises_lockerror(tmp_path):
+    """ロック保持中に restore() を呼ぶと lock_timeout により NanaSQLiteLockError が発生すること"""
+    db_path = str(tmp_path / "test.db")
+    backup_path = str(tmp_path / "backup.db")
+
+    db = NanaSQLite(db_path, lock_timeout=0.2)
+    db["key"] = "original"
+    db.backup(backup_path)
+    db["key"] = "modified"
+
+    lock_held = threading.Event()
+    release_lock = threading.Event()
+    t = threading.Thread(target=_hold_lock_and_signal, args=(db, lock_held, release_lock))
+    t.start()
+    lock_held.wait()
+    try:
+        with pytest.raises(NanaSQLiteLockError):
+            db.restore(backup_path)
+        # restoreが失敗してもデータが変わっていないことを確認
+        assert db["key"] == "modified"
+    finally:
+        release_lock.set()
+        t.join(timeout=5.0)
+    db.close()
+
+
+def test_lock_timeout_error_message_contains_seconds(tmp_path):
+    """NanaSQLiteLockError のメッセージにタイムアウト秒数が含まれること"""
+    db = NanaSQLite(str(tmp_path / "test.db"), lock_timeout=1.5)
+    errors = []
+
+    lock_held = threading.Event()
+    release_lock = threading.Event()
+    t = threading.Thread(target=_hold_lock_and_signal, args=(db, lock_held, release_lock))
+    t.start()
+    lock_held.wait()
+    try:
+        try:
+            with db._acquire_lock():
+                pass
+        except NanaSQLiteLockError as e:
+            errors.append(e)
+    finally:
+        release_lock.set()
+        t.join(timeout=5.0)
+
+    assert len(errors) == 1
+    assert "1.5s" in str(errors[0])
+    db.close()
+
+
+# ===========================================================
+# 追加テスト: backup() 詳細テスト
+# ===========================================================
+
+
+def test_backup_overwrites_existing_file(tmp_path):
+    """backup() が既存のバックアップファイルを上書きすること"""
+    db_path = str(tmp_path / "src.db")
+    backup_path = str(tmp_path / "backup.db")
+
+    db = NanaSQLite(db_path)
+    db["key"] = "version1"
+    db.backup(backup_path)
+
+    # データを更新して再度バックアップ
+    db["key"] = "version2"
+    db.backup(backup_path)
+    db.close()
+
+    # 最新のバックアップが使われること
+    db_bak = NanaSQLite(backup_path)
+    assert db_bak["key"] == "version2"
+    db_bak.close()
+
+
+def test_backup_self_copy_raises(tmp_path):
+    """backup() の dest_path が現在の DB ファイルと同一の場合 NanaSQLiteValidationError が発生すること"""
+    db_path = str(tmp_path / "test.db")
+    db = NanaSQLite(db_path)
+    db["key"] = "value"
+
+    with pytest.raises(NanaSQLiteValidationError):
+        db.backup(db_path)
+
+    db.close()
+
+
+def test_backup_on_closed_db_raises_closed_error(tmp_path):
+    """閉じた DB で backup() を呼ぶと NanaSQLiteClosedError が発生すること"""
+    db = NanaSQLite(str(tmp_path / "test.db"))
+    db["key"] = "value"
+    db.close()
+
+    with pytest.raises(NanaSQLiteClosedError):
+        db.backup(str(tmp_path / "backup.db"))
+
+
+def test_backup_with_multiple_tables(tmp_path):
+    """複数テーブルを持つ DB のバックアップが正しく動作すること"""
+    db_path = str(tmp_path / "multi.db")
+    backup_path = str(tmp_path / "multi_backup.db")
+
+    db = NanaSQLite(db_path)
+    db["main_key"] = "main_value"
+
+    users = db.table("users")
+    users["alice"] = {"age": 30}
+    users["bob"] = {"age": 25}
+
+    db.backup(backup_path)
+    db.close()
+
+    # バックアップから両テーブルが読めること
+    db_bak = NanaSQLite(backup_path)
+    assert db_bak["main_key"] == "main_value"
+
+    users_bak = db_bak.table("users")
+    assert users_bak["alice"] == {"age": 30}
+    assert users_bak["bob"] == {"age": 25}
+    db_bak.close()
+
+
+def test_backup_non_blocking_allows_concurrent_write(tmp_path):
+    """backup() はノンブロッキングであり、実行中に他のスレッドが NanaSQLite に書き込めること"""
+    db_path = str(tmp_path / "test.db")
+    backup_path = str(tmp_path / "backup.db")
+
+    db = NanaSQLite(db_path, lock_timeout=5.0)
+    for i in range(100):
+        db[f"key{i}"] = i
+
+    write_errors = []
+    write_success = []
+
+    def concurrent_write():
+        """backup() 中にも書き込みできることを確認するスレッド"""
+        try:
+            db["concurrent_write"] = "written_during_backup"
+            write_success.append(True)
+        except Exception as e:
+            write_errors.append(e)
+
+    backup_started = threading.Event()
+    original_backup = db.backup
+
+    def backup_with_signal(dest):
+        backup_started.set()
+        original_backup(dest)
+
+    db.backup = backup_with_signal
+
+    backup_thread = threading.Thread(target=db.backup, args=(backup_path,))
+    backup_thread.start()
+    backup_started.wait()
+
+    write_thread = threading.Thread(target=concurrent_write)
+    write_thread.start()
+    write_thread.join(timeout=5.0)
+
+    backup_thread.join(timeout=10.0)
+
+    assert not write_errors, f"Concurrent write failed: {write_errors}"
+    assert write_success, "Concurrent write did not succeed"
+
+    # Restore original method
+    db.backup = original_backup
+    db.close()
+
+
+def test_backup_large_data(tmp_path):
+    """大量データを持つ DB の backup() が正しく完了すること"""
+    db_path = str(tmp_path / "large.db")
+    backup_path = str(tmp_path / "large_backup.db")
+
+    db = NanaSQLite(db_path)
+    # 500件のデータを書き込む
+    for i in range(500):
+        db[f"key_{i:04d}"] = {"index": i, "data": f"value_{i}" * 10}
+
+    db.backup(backup_path)
+    db.close()
+
+    assert os.path.exists(backup_path)
+    db_bak = NanaSQLite(backup_path)
+    assert db_bak["key_0000"] == {"index": 0, "data": "value_0" * 10}
+    assert db_bak["key_0499"] == {"index": 499, "data": "value_499" * 10}
+    assert len(db_bak) == 500
+    db_bak.close()
+
+
+# ===========================================================
+# 追加テスト: restore() 詳細テスト
+# ===========================================================
+
+
+def test_restore_updates_child_table_connection(tmp_path):
+    """restore() 後に table() で取得した子インスタンスも新しい接続を使うこと"""
+    db_path = str(tmp_path / "main.db")
+    backup_path = str(tmp_path / "backup.db")
+
+    db = NanaSQLite(db_path)
+    db["key"] = "original"
+    users = db.table("users")
+    users["alice"] = "user1"
+
+    db.backup(backup_path)
+
+    # バックアップ後に変更
+    db["key"] = "modified"
+    users["bob"] = "user2"
+
+    # リストア
+    db.restore(backup_path)
+
+    # 親インスタンスのデータが戻ること
+    assert db["key"] == "original"
+    # 子インスタンスも更新されること
+    assert "bob" not in users
+    assert users["alice"] == "user1"
+    db.close()
+
+
+def test_restore_on_closed_db_raises(tmp_path):
+    """閉じた DB で restore() を呼ぶと NanaSQLiteClosedError が発生すること"""
+    db_path = str(tmp_path / "test.db")
+    backup_path = str(tmp_path / "backup.db")
+
+    db = NanaSQLite(db_path)
+    db["key"] = "value"
+    db.backup(backup_path)
+    db.close()
+
+    with pytest.raises(NanaSQLiteClosedError):
+        db.restore(backup_path)
+
+
+def test_restore_allows_subsequent_operations(tmp_path):
+    """restore() 後も通常のCRUD操作が正しく動作すること"""
+    db_path = str(tmp_path / "main.db")
+    backup_path = str(tmp_path / "backup.db")
+
+    db = NanaSQLite(db_path)
+    db["key1"] = "value1"
+    db.backup(backup_path)
+
+    db["key1"] = "changed"
+    db["key2"] = "extra"
+    db.restore(backup_path)
+
+    # リストア後に CRUD が正常に動くこと
+    assert db["key1"] == "value1"
+    assert "key2" not in db
+    db["key3"] = "new_after_restore"
+    assert db["key3"] == "new_after_restore"
+    del db["key1"]
+    assert "key1" not in db
+    db.close()
+
+
+def test_restore_with_bulk_load_mode(tmp_path):
+    """bulk_load モードで restore() が正しくキャッシュをクリアすること"""
+    db_path = str(tmp_path / "main.db")
+    backup_path = str(tmp_path / "backup.db")
+
+    db = NanaSQLite(db_path, bulk_load=True)
+    db["a"] = 1
+    db["b"] = 2
+    db.load_all()  # キャッシュに全データをロード
+    assert db._all_loaded
+
+    db.backup(backup_path)
+
+    db["c"] = 3
+    db.restore(backup_path)
+
+    # キャッシュがクリアされること
+    assert not db._all_loaded
+    assert "c" not in db
+    assert db["a"] == 1
+    db.close()
+
+
+def test_restore_preserves_table_name(tmp_path):
+    """restore() 後もテーブル名設定が保持されること"""
+    db_path = str(tmp_path / "main.db")
+    backup_path = str(tmp_path / "backup.db")
+
+    db = NanaSQLite(db_path, table="my_table")
+    db["key"] = "value"
+    db.backup(backup_path)
+
+    db["key"] = "modified"
+    db.restore(backup_path)
+
+    assert db["key"] == "value"
+    assert db._table == "my_table"
+    db.close()
+
+
+def test_restore_file_memory_uri_raises(tmp_path):
+    """file::memory: URI の DB に対して restore() を呼ぶと NanaSQLiteValidationError が発生すること"""
+    backup_path = str(tmp_path / "backup.db")
+    src_db = NanaSQLite(str(tmp_path / "src.db"))
+    src_db["key"] = "value"
+    src_db.backup(backup_path)
+    src_db.close()
+
+    mem_db = NanaSQLite("file::memory:?cache=shared")
+    with pytest.raises(NanaSQLiteValidationError):
+        mem_db.restore(backup_path)
+    mem_db.close()
+
+
+# ===========================================================
+# 追加テスト: キャッシュ・DB 整合性テスト
+# ===========================================================
+
+
+def test_cache_consistency_after_setitem_lock_timeout(tmp_path):
+    """lock_timeout で __setitem__ が失敗した後もキャッシュと DB の整合性が保たれること"""
+    db = NanaSQLite(str(tmp_path / "test.db"), lock_timeout=0.1)
+    db["existing"] = "original_value"
+
+    lock_held = threading.Event()
+    release_lock = threading.Event()
+    t = threading.Thread(target=_hold_lock_and_signal, args=(db, lock_held, release_lock))
+    t.start()
+    lock_held.wait()
+    try:
+        with pytest.raises(NanaSQLiteLockError):
+            db["existing"] = "should_not_update"
+    finally:
+        release_lock.set()
+        t.join(timeout=5.0)
+
+    # キャッシュと DB が元の値のまま
+    assert db["existing"] == "original_value"
+    # 再接続して確認
+    db.close()
+    db2 = NanaSQLite(str(tmp_path / "test.db"))
+    assert db2["existing"] == "original_value"
+    db2.close()
+
+
+def test_cache_consistency_after_delitem_lock_timeout(tmp_path):
+    """lock_timeout で __delitem__ が失敗した後もキャッシュと DB の整合性が保たれること"""
+    db = NanaSQLite(str(tmp_path / "test.db"), lock_timeout=0.1)
+    db["key_to_keep"] = "important"
+
+    lock_held = threading.Event()
+    release_lock = threading.Event()
+    t = threading.Thread(target=_hold_lock_and_signal, args=(db, lock_held, release_lock))
+    t.start()
+    lock_held.wait()
+    try:
+        with pytest.raises(NanaSQLiteLockError):
+            del db["key_to_keep"]
+    finally:
+        release_lock.set()
+        t.join(timeout=5.0)
+
+    # キーが残っていること
+    assert "key_to_keep" in db
+    assert db["key_to_keep"] == "important"
+    db.close()
+    db2 = NanaSQLite(str(tmp_path / "test.db"))
+    assert db2["key_to_keep"] == "important"
+    db2.close()
+
+
+def test_sequential_operations_after_lock_timeout_recovery(tmp_path):
+    """lock_timeout 後のリカバリ: ロック解放後は通常操作が再開できること"""
+    db = NanaSQLite(str(tmp_path / "test.db"), lock_timeout=0.1)
+    db["key"] = "initial"
+
+    lock_held = threading.Event()
+    release_lock = threading.Event()
+    t = threading.Thread(target=_hold_lock_and_signal, args=(db, lock_held, release_lock))
+    t.start()
+    lock_held.wait()
+
+    # ロック保持中は失敗する
+    with pytest.raises(NanaSQLiteLockError):
+        db["key"] = "during_lock"
+
+    # ロック解放
+    release_lock.set()
+    t.join(timeout=5.0)
+
+    # ロック解放後は通常通り動作すること
+    db["key"] = "after_lock"
+    assert db["key"] == "after_lock"
+    db.close()
+
+
+# ===========================================================
+# 追加テスト: lock_timeout のエッジケース
+# ===========================================================
+
+
+def test_lock_timeout_integer_accepted(tmp_path):
+    """lock_timeout に整数値を渡した場合も正しく動作すること"""
+    db = NanaSQLite(str(tmp_path / "test.db"), lock_timeout=2)
+    db["key"] = "value"
+    assert db["key"] == "value"
+    db.close()
+
+
+def test_lock_timeout_very_small_value(tmp_path):
+    """lock_timeout に非常に小さい値（0.001秒）を設定してもエラーにならないこと"""
+    db = NanaSQLite(str(tmp_path / "test.db"), lock_timeout=0.001)
+    db["key"] = "value"
+    assert db["key"] == "value"
+    db.close()
+
+
+def test_lock_timeout_is_stored_on_instance(tmp_path):
+    """lock_timeout の値がインスタンスに正しく格納されること"""
+    db = NanaSQLite(str(tmp_path / "test.db"), lock_timeout=3.5)
+    assert db._lock_timeout == 3.5
+    db.close()
+
+
+def test_lock_timeout_none_stored_on_instance(tmp_path):
+    """lock_timeout=None（デフォルト）がインスタンスに正しく格納されること"""
+    db = NanaSQLite(str(tmp_path / "test.db"))
+    assert db._lock_timeout is None
+    db.close()
+
+
+# ===========================================================
+# 追加テスト: backup()/restore() の NanaSQLiteLockError 検証
+# （lock_timeout 設定時のロック取得タイムアウト）
+# ===========================================================
+
+
+def test_backup_raises_lockerror_when_lock_held(tmp_path):
+    """ロック保持中に backup() を呼ぶと lock_timeout により NanaSQLiteLockError が発生すること"""
+    db_path = str(tmp_path / "test.db")
+    backup_path = str(tmp_path / "backup.db")
+
+    db = NanaSQLite(db_path, lock_timeout=0.2)
+    db["key"] = "value"
+
+    lock_held = threading.Event()
+    release_lock = threading.Event()
+    t = threading.Thread(target=_hold_lock_and_signal, args=(db, lock_held, release_lock))
+    t.start()
+    lock_held.wait()
+    try:
+        with pytest.raises(NanaSQLiteLockError):
+            db.backup(backup_path)
+        # バックアップファイルが作成されていないこと
+        assert not os.path.exists(backup_path)
+    finally:
+        release_lock.set()
+        t.join(timeout=5.0)
+    db.close()

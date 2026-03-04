@@ -73,7 +73,8 @@ Closes the database connection.
 ### `table`
 
 ```python
-def table(self, table_name: str) -> NanaSQLite
+def table(self, table_name: str, cache_strategy: CacheType = None,
+          cache_size: int = None) -> NanaSQLite
 ```
 
 Returns a new `NanaSQLite` instance for a specific sub-table.
@@ -82,6 +83,8 @@ The new instance shares the same underlying connection and lock as the parent, e
 
 **Parameters:**
 - `table_name` (str): The name of the sub-table.
+- `cache_strategy` (CacheType, optional): Cache strategy for this table. Inherits from parent if not specified.
+- `cache_size` (int, optional): Cache size for this table. Inherits from parent if not specified.
 
 **Returns:**
 - `NanaSQLite`: A new instance targeting the specified table.
@@ -151,6 +154,12 @@ Updates the database with keys and values from `mapping` or keywords. For bulk u
 def clear(self) -> None
 ```
 Removes all items from the database (truncates the table) and clears the memory cache.
+
+### `clear_cache`
+```python
+def clear_cache(self) -> None
+```
+Clears only the in-memory cache without affecting the database.
 
 ### `keys`
 ```python
