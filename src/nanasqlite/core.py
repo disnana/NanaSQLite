@@ -17,6 +17,7 @@ import threading
 import warnings
 import weakref
 from collections.abc import Iterator, MutableMapping
+from contextlib import contextmanager
 from typing import Any, Literal
 
 import apsw
@@ -33,6 +34,7 @@ from .exceptions import (
     NanaSQLiteClosedError,
     NanaSQLiteConnectionError,
     NanaSQLiteDatabaseError,
+    NanaSQLiteLockError,
     NanaSQLiteTransactionError,
     NanaSQLiteValidationError,
 )
@@ -88,6 +90,7 @@ class NanaSQLite(MutableMapping):
         cache_persistence_ttl: bool = False,
         encryption_key: str | bytes | None = None,
         encryption_mode: Literal["aes-gcm", "chacha20", "fernet"] = "aes-gcm",
+        lock_timeout: float | None = None,
         _shared_connection: apsw.Connection | None = None,
         _shared_lock: threading.RLock | None = None,
     ):
@@ -102,11 +105,15 @@ class NanaSQLite(MutableMapping):
             allowed_sql_functions: 追加で許可するSQL関数のリスト
             forbidden_sql_functions: 明示的に禁止するSQL関数のリスト
             max_clause_length: SQL句の最大長（ReDoS対策）。Noneで制限なし
+            lock_timeout: ロック取得のタイムアウト秒数。Noneで無制限待機
             _shared_connection: 内部用：共有する接続（table()メソッドで使用）
             _shared_lock: 内部用：共有するロック（table()メソッドで使用）
         """
         self._db_path: str = db_path
         self._table: str = table
+        self._lock_timeout: float | None = lock_timeout
+        self._optimize: bool = optimize
+        self._cache_size_mb: int = cache_size_mb
 
         # Encryption setup
         self._encryption_key = encryption_key
@@ -220,7 +227,7 @@ class NanaSQLite(MutableMapping):
                 self._apply_optimizations(cache_size_mb)
 
         # テーブル作成
-        with self._lock:
+        with self._acquire_lock():
             self._connection.execute(f"""
                 CREATE TABLE IF NOT EXISTS {self._table} (
                     key TEXT PRIMARY KEY,
@@ -297,6 +304,23 @@ class NanaSQLite(MutableMapping):
         return f'"{identifier}"'
 
     # ==================== Private Methods ====================
+
+    @contextmanager
+    def _acquire_lock(self):
+        """ロックを取得するコンテキストマネージャ。lock_timeout が設定されている場合はタイムアウト付きで取得する。"""
+        if self._lock_timeout is not None:
+            acquired = self._lock.acquire(timeout=self._lock_timeout)
+            if not acquired:
+                raise NanaSQLiteLockError(
+                    f"Failed to acquire lock within {self._lock_timeout}s"
+                )
+            try:
+                yield
+            finally:
+                self._lock.release()
+        else:
+            with self._lock:
+                yield
 
     def __hash__(self):
         # MutableMapping inhibits hashing by default because it's mutable.
@@ -544,7 +568,7 @@ class NanaSQLite(MutableMapping):
     def _write_to_db(self, key: str, value: Any) -> None:
         """即時書き込み: SQLiteに値を保存"""
         serialized = self._serialize(value)
-        with self._lock:
+        with self._acquire_lock():
             self._connection.execute(
                 f"INSERT OR REPLACE INTO {self._table} (key, value) VALUES (?, ?)",  # nosec
                 (key, serialized),
@@ -552,7 +576,7 @@ class NanaSQLite(MutableMapping):
 
     def _read_from_db(self, key: str) -> Any | None:
         """SQLiteから値を読み込み"""
-        with self._lock:
+        with self._acquire_lock():
             cursor = self._connection.execute(
                 f"SELECT value FROM {self._table} WHERE key = ?",  # nosec
                 (key,),
@@ -564,7 +588,7 @@ class NanaSQLite(MutableMapping):
 
     def _delete_from_db(self, key: str) -> None:
         """SQLiteから値を削除"""
-        with self._lock:
+        with self._acquire_lock():
             self._connection.execute(
                 f"DELETE FROM {self._table} WHERE key = ?",  # nosec
                 (key,),
@@ -572,7 +596,7 @@ class NanaSQLite(MutableMapping):
 
     def _get_all_keys_from_db(self) -> list:
         """SQLiteから全キーを取得"""
-        with self._lock:
+        with self._acquire_lock():
             cursor = self._connection.execute(
                 f"SELECT key FROM {self._table}"  # nosec
             )
@@ -656,7 +680,7 @@ class NanaSQLite(MutableMapping):
             return key in self._data
 
         # 軽量な存在確認クエリ（valueを読み込まない）
-        with self._lock:
+        with self._acquire_lock():
             cursor = self._connection.execute(
                 f"SELECT 1 FROM {self._table} WHERE key = ? LIMIT 1",  # nosec
                 (key,),  # nosec
@@ -678,7 +702,7 @@ class NanaSQLite(MutableMapping):
 
     def __len__(self) -> int:
         """len(dict) - DBの実際の件数を返す"""
-        with self._lock:
+        with self._acquire_lock():
             cursor = self._connection.execute(
                 f"SELECT COUNT(*) FROM {self._table}"  # nosec
             )
@@ -796,7 +820,7 @@ class NanaSQLite(MutableMapping):
         placeholders = ",".join(["?"] * len(missing_keys))
         sql = f"SELECT key, value FROM {self._table} WHERE key IN ({placeholders})"  # nosec
 
-        with self._lock:
+        with self._acquire_lock():
             cursor = self._connection.execute(sql, tuple(missing_keys))
             for key, val_str in cursor:
                 value = self._deserialize(val_str)
@@ -835,7 +859,7 @@ class NanaSQLite(MutableMapping):
         """dict.clear() - 全削除"""
         self._cache.clear()
         self._all_loaded = False
-        with self._lock:
+        with self._acquire_lock():
             self._connection.execute(f"DELETE FROM {self._table}")  # nosec
 
     def setdefault(self, key: str, default: Any = None) -> Any:
@@ -852,7 +876,7 @@ class NanaSQLite(MutableMapping):
         if self._all_loaded:
             return
 
-        with self._lock:
+        with self._acquire_lock():
             cursor = self._connection.execute(
                 f"SELECT key, value FROM {self._table}"  # nosec
             )
@@ -986,13 +1010,73 @@ class NanaSQLite(MutableMapping):
 
     def _delete_from_db_on_expire(self, key: str) -> None:
         """有効期限切れ時にDBからデータを削除 (内部用)"""
-        with self._lock:
+        with self._acquire_lock():
             if self._is_closed:
                 return
             try:
                 self._connection.execute(f'DELETE FROM "{self._table}" WHERE key = ?', (key,))  # nosec
             except apsw.Error as e:
                 logger.error(f"SQL error during background expiration for key '{key}': {e}")
+
+    def backup(self, dest_path: str) -> None:
+        """
+        データベースをファイルにバックアップする
+
+        APSW の SQLite バックアップ API を使用して、現在の DB 全体を dest_path に書き出します。
+        読み書き中でもオンラインバックアップが可能です。
+
+        Args:
+            dest_path: バックアップ先ファイルパス
+
+        Raises:
+            NanaSQLiteClosedError: 接続が閉じられている場合
+            NanaSQLiteDatabaseError: バックアップ中にエラーが発生した場合
+        """
+        self._check_connection()
+        with self._acquire_lock():
+            dest_conn = apsw.Connection(dest_path)
+            try:
+                with dest_conn.backup("main", self._connection, "main") as b:
+                    while not b.done:
+                        b.step(100)
+            except apsw.Error as e:
+                raise NanaSQLiteDatabaseError(f"Backup failed: {e}", e) from e
+            finally:
+                dest_conn.close()
+
+    def restore(self, src_path: str) -> None:
+        """
+        バックアップファイルからデータベースをリストアする
+
+        現在の接続を一時的に閉じ、src_path のファイルを DB パスにコピーして再接続します。
+        リストア後はメモリキャッシュがクリアされ、DB の内容が反映されます。
+
+        Args:
+            src_path: リストア元バックアップファイルパス
+
+        Raises:
+            NanaSQLiteClosedError: 接続が閉じられている場合
+            NanaSQLiteConnectionError: 接続を所有していない (table() で取得した) インスタンスから呼ばれた場合
+            NanaSQLiteDatabaseError: リストア中にエラーが発生した場合
+        """
+        import shutil
+
+        self._check_connection()
+        if not self._is_connection_owner:
+            raise NanaSQLiteConnectionError(
+                "restore() can only be called on the primary (connection-owning) instance. "
+                "Use the original NanaSQLite instance, not one obtained via table()."
+            )
+        with self._acquire_lock():
+            try:
+                self._connection.close()
+                shutil.copy2(src_path, self._db_path)
+                self._connection = apsw.Connection(self._db_path)
+                if self._optimize:
+                    self._apply_optimizations(self._cache_size_mb)
+            except (apsw.Error, OSError) as e:
+                raise NanaSQLiteDatabaseError(f"Restore failed: {e}", e) from e
+        self.clear_cache()
 
     def close(self) -> None:
         """
@@ -1147,7 +1231,7 @@ class NanaSQLite(MutableMapping):
         self._check_connection()
 
         try:
-            with self._lock:
+            with self._acquire_lock():
                 if parameters is None:
                     return self._connection.execute(sql)
                 else:
@@ -1172,7 +1256,7 @@ class NanaSQLite(MutableMapping):
             ...     [(1, "Alice"), (2, "Bob"), (3, "Charlie")]
             ... )
         """
-        with self._lock:
+        with self._acquire_lock():
             cursor = self._connection.cursor()
             cursor.execute("BEGIN IMMEDIATE")
             try:

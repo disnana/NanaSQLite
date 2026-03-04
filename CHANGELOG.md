@@ -6,6 +6,21 @@
 
 ## 日本語
 
+### [1.3.4b1] - 2026-03-04
+
+#### 新機能
+
+- **`lock_timeout` パラメータの追加** (P2-1):
+  - `NanaSQLite.__init__` に `lock_timeout: float | None = None` パラメータを追加。
+  - 設定すると、ロック取得時に指定秒数以内に取得できない場合は `NanaSQLiteLockError` を送出。
+  - デフォルト `None` は従来通り無制限待機。後方互換性への影響はありません。
+  - 内部に `_acquire_lock()` コンテキストマネージャを新設し、全ての排他制御でロックタイムアウトが反映されます。
+
+- **`backup()` / `restore()` メソッドの追加** (P2-3):
+  - `NanaSQLite.backup(dest_path)`: APSW の SQLite オンラインバックアップ API を使用して、現在の DB を `dest_path` にバックアップします。
+  - `NanaSQLite.restore(src_path)`: `src_path` のバックアップファイルから DB を復元し、接続を再確立してキャッシュをクリアします。
+  - 両メソッドとも新規 public メソッドの追加のみ。後方互換性への影響はありません。
+
 ### [1.3.4b0] - 2026-03-04
 
 #### コード品質改善
@@ -480,6 +495,21 @@
 ---
 
 ## English
+
+### [1.3.4b1] - 2026-03-04
+
+#### New Features
+
+- **`lock_timeout` parameter** (P2-1):
+  - Added `lock_timeout: float | None = None` parameter to `NanaSQLite.__init__`.
+  - When set, raises `NanaSQLiteLockError` if the lock cannot be acquired within the specified seconds.
+  - Default `None` preserves the existing unlimited-wait behaviour. Fully backward-compatible.
+  - Introduced `_acquire_lock()` context manager internally so all exclusive operations respect the timeout.
+
+- **`backup()` / `restore()` methods** (P2-3):
+  - `NanaSQLite.backup(dest_path)`: Backs up the current database to `dest_path` using APSW's SQLite online backup API.
+  - `NanaSQLite.restore(src_path)`: Restores the database from a backup file, re-establishes the connection, and clears the in-memory cache.
+  - Both are new public methods only; no backward-compatibility impact.
 
 ### [1.3.4b0] - 2026-03-04
 
