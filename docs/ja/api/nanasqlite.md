@@ -25,7 +25,8 @@ def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
              forbidden_sql_functions: list[str] | None = None,
              max_clause_length: int | None = 1000,
              lock_timeout: float | None = None,
-             validator: dict | Any | None = None)
+             validator: dict | Any | None = None,
+             coerce: bool = False)
 ```
 
 NanaSQLiteデータベース接続を初期化します。
@@ -43,6 +44,7 @@ NanaSQLiteデータベース接続を初期化します。
 - `max_clause_length` (int, 任意): SQL句の最大長（ReDoS対策）。デフォルトは `1000`。
 - `lock_timeout` (float | None, 任意): 内部ロック取得の最大待機秒数。指定時間内にロックを取得できない場合は `NanaSQLiteLockError` を送出します。`None`（デフォルト）は無制限待機。(v1.3.4b1以降)
 - `validator` (dict | Schema | None, 任意): validkit-py のバリデーションスキーマ（辞書または `Schema` オブジェクト）。指定すると `__setitem__` （`db["key"] = value`）の実行時にスキーマ検証を実行します。スキーマ違反の場合は `NanaSQLiteValidationError` を送出します。使用には `pip install nanasqlite[validation]` が必要です。(v1.3.4b2以降)
+- `coerce` (bool, 任意): `True` の場合、validkit-py の自動変換（コアース）機能を有効にします。バリデーション後、変換済みの値（例: `"42"` → `42`）をDBに保存します。`validator` が設定されている場合のみ有効。デフォルトは `False`。(v1.3.4b2以降)
 
 ---
 
@@ -67,7 +69,8 @@ def close(self) -> None
 def table(self, table_name: str,
           cache_strategy: CacheType | str | None = None,
           cache_size: int | None = None,
-          validator: dict | Any | None = None) -> NanaSQLite
+          validator: dict | Any | None = None,
+          coerce: bool = False) -> NanaSQLite
 ```
 
 指定したサブテーブル用の新しい `NanaSQLite` インスタンスを返します。
@@ -79,6 +82,7 @@ def table(self, table_name: str,
 - `cache_strategy` (CacheType | str | None, 任意): このテーブル用のキャッシュ戦略。省略時は親と同じ設定を使用。
 - `cache_size` (int | None, 任意): このテーブル用のキャッシュサイズ。省略時は親と同じ設定を使用。
 - `validator` (dict | Schema | None, 任意): このサブテーブル用の validkit-py スキーマ。省略時は親インスタンスのスキーマを自動継承します。`None` を明示的に渡すとバリデーションを無効化できます。(v1.3.4b2以降)
+- `coerce` (bool, 任意): `True` の場合、このサブテーブルで validkit-py の自動変換を有効にします。省略時は親インスタンスの設定を引き継ぎます。(v1.3.4b2以降)
 
 **戻り値:**
 - `NanaSQLite`: 指定したテーブルを操作する新しいインスタンス。
@@ -100,6 +104,10 @@ scores_db["s1"] = {"score": 9.5}  # OK
 # validator=None → バリデーションを無効化
 cache_db = db.table("cache", validator=None)
 cache_db["k"] = {"anything": True}  # OK（スキーマ検証なし）
+
+# coerce=True → 自動変換を有効化
+coerce_db = db.table("users2", validator={"age": v.int().coerce()}, coerce=True)
+coerce_db["u1"] = {"age": "30"}  # {"age": 30} として保存
 ```
 
 ---
@@ -613,6 +621,21 @@ db["user"] = {"name": "Alice", "age": 30}        # OK
 db["user"] = {"name": "Bob", "age": "invalid"}   # → NanaSQLiteValidationError
 ```
 
+### 自動変換（coerce）
+
+`coerce=True` を指定すると、validkit-py が変換した値（例: `"42"` → `42`）がDBに保存されます。
+
+```python
+from validkit import v
+from nanasqlite import NanaSQLite
+
+schema = {"age": v.int().coerce(), "score": v.float().coerce()}
+db = NanaSQLite("mydata.db", validator=schema, coerce=True)
+
+db["user"] = {"age": "30", "score": "9.5"}
+print(db["user"])  # {"age": 30, "score": 9.5}  ← 変換済み
+```
+
 ### テーブルごとのバリデーション
 
 ```python
@@ -632,6 +655,29 @@ scores_db = db.table("scores", validator=score_schema)
 db2 = NanaSQLite("app2.db", validator=user_schema)
 child_db = db2.table("users2")         # 親のスキーマを自動継承
 free_db  = db2.table("cache", validator=None)  # バリデーション無効化
+
+# テーブルごとに coerce を設定
+coerce_db = db2.table("users3", coerce=True)  # このテーブルのみ自動変換を有効化
+```
+
+### batch_update のバリデーション
+
+`validator` を設定している場合、`batch_update()` はDBに触れる前に**全値を一括バリデーション**します。1件でも違反があれば何も書き込まれません（アトミックな失敗保証）。
+
+```python
+from validkit import v
+from nanasqlite import NanaSQLite, NanaSQLiteValidationError
+
+schema = {"name": v.str(), "age": v.int()}
+db = NanaSQLite("batch.db", validator=schema)
+
+try:
+    db.batch_update({
+        "u1": {"name": "Alice", "age": 30},
+        "u2": {"name": "Bob", "age": "bad"},  # スキーマ違反
+    })
+except NanaSQLiteValidationError:
+    print("u1" in db)  # False — 何も書き込まれていない
 ```
 
 ### 機能フラグの確認

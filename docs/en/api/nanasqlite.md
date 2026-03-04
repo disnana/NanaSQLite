@@ -25,7 +25,8 @@ def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
              forbidden_sql_functions: list[str] | None = None,
              max_clause_length: int | None = 1000,
              lock_timeout: float | None = None,
-             validator: dict | Any | None = None)
+             validator: dict | Any | None = None,
+             coerce: bool = False)
 ```
 
 Initializes the NanaSQLite database connection.
@@ -43,6 +44,7 @@ Initializes the NanaSQLite database connection.
 - `max_clause_length` (int | None, optional): Maximum length for SQL clauses (ReDoS protection). Defaults to `1000`.
 - `lock_timeout` (float | None, optional): Maximum seconds to wait for the internal lock. Raises `NanaSQLiteLockError` if the lock cannot be acquired in time. `None` (default) means wait indefinitely. (v1.3.4b1+)
 - `validator` (dict | Schema | None, optional): A validkit-py validation schema (plain dict or `Schema` object). When supplied, every `__setitem__` call (`db["key"] = value`) validates the value against the schema before writing. Raises `NanaSQLiteValidationError` on schema violations. Requires `pip install nanasqlite[validation]`. (v1.3.4b2+)
+- `coerce` (bool, optional): When `True`, the coerced/converted value returned by validkit-py is stored instead of the original. For example, if the schema uses `v.int().coerce()`, writing `"42"` will store `42`. Only has effect when `validator` is also set. Defaults to `False`. (v1.3.4b2+)
 
 ---
 
@@ -67,7 +69,8 @@ Closes the database connection.
 def table(self, table_name: str,
           cache_strategy: CacheType | str | None = None,
           cache_size: int | None = None,
-          validator: dict | Any | None = None) -> NanaSQLite
+          validator: dict | Any | None = None,
+          coerce: bool = False) -> NanaSQLite
 ```
 
 Returns a new `NanaSQLite` instance for a specific sub-table.
@@ -79,6 +82,7 @@ The new instance shares the same underlying connection and lock as the parent, e
 - `cache_strategy` (CacheType | str | None, optional): Cache strategy for this table. Defaults to the parent's strategy.
 - `cache_size` (int | None, optional): Cache size for this table. Defaults to the parent's size.
 - `validator` (dict | Schema | None, optional): A validkit-py schema for this sub-table. When omitted, the parent's schema is inherited automatically. Pass `None` explicitly to disable validation for this sub-table. (v1.3.4b2+)
+- `coerce` (bool, optional): When `True`, validkit-py's coercion/auto-conversion is enabled for this sub-table. When omitted, the parent's `coerce` setting is inherited automatically. (v1.3.4b2+)
 
 **Returns:**
 - `NanaSQLite`: A new instance targeting the specified table.
@@ -100,6 +104,10 @@ scores_db["s1"] = {"score": 9.5}  # OK
 # validator=None → disable validation for this table
 cache_db = db.table("cache", validator=None)
 cache_db["k"] = {"anything": True}  # OK (no schema check)
+
+# coerce=True → auto-convert values to the schema's expected types
+coerce_db = db.table("users2", validator={"age": v.int().coerce()}, coerce=True)
+coerce_db["u1"] = {"age": "30"}  # stored as {"age": 30}
 ```
 
 ---
@@ -613,6 +621,21 @@ db["user"] = {"name": "Alice", "age": 30}        # OK
 db["user"] = {"name": "Bob", "age": "invalid"}   # → NanaSQLiteValidationError
 ```
 
+### Auto-Conversion (coerce)
+
+When `coerce=True`, the value coerced/converted by validkit-py is stored instead of the original. This is useful for automatically casting types (e.g., `"42"` → `42`).
+
+```python
+from validkit import v
+from nanasqlite import NanaSQLite
+
+schema = {"age": v.int().coerce(), "score": v.float().coerce()}
+db = NanaSQLite("mydata.db", validator=schema, coerce=True)
+
+db["user"] = {"age": "30", "score": "9.5"}
+print(db["user"])  # {"age": 30, "score": 9.5}  ← converted
+```
+
 ### Per-Table Validators
 
 ```python
@@ -632,6 +655,29 @@ scores_db = db.table("scores", validator=score_schema)
 db2      = NanaSQLite("app2.db", validator=user_schema)
 child_db = db2.table("users2")              # inherits parent schema
 free_db  = db2.table("cache", validator=None)  # validation disabled
+
+# Per-table coerce override
+coerce_db = db2.table("users3", coerce=True)  # enables coerce for this table only
+```
+
+### batch_update Validation
+
+When a `validator` is set, `batch_update()` validates **all** values before touching the database. If any value fails, nothing is written (atomic failure guarantee).
+
+```python
+from validkit import v
+from nanasqlite import NanaSQLite, NanaSQLiteValidationError
+
+schema = {"name": v.str(), "age": v.int()}
+db = NanaSQLite("batch.db", validator=schema)
+
+try:
+    db.batch_update({
+        "u1": {"name": "Alice", "age": 30},
+        "u2": {"name": "Bob", "age": "bad"},  # violates schema
+    })
+except NanaSQLiteValidationError:
+    print("u1" in db)  # False — nothing was written
 ```
 
 ### Checking the Feature Flag

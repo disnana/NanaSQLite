@@ -266,3 +266,161 @@ async def test_async_no_validator_allows_any_value(tmp_path):
         await db.aset("misc", {"anything": [1, 2, 3], "flag": True})
         result = await db.aget("misc")
         assert result["flag"] is True
+
+
+# ========================== batch_update() validation tests ==========================
+
+
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
+def test_batch_update_validates_all_before_writing(tmp_path):
+    """batch_update() はすべての値をDB書き込み前に検証し、1件でも違反があれば何も書かない。"""
+    from validkit import v
+
+    schema = {"name": v.str(), "age": v.int()}
+    db = NanaSQLite(str(tmp_path / "batch.db"), validator=schema)
+
+    valid_mapping = {
+        "u1": {"name": "Alice", "age": 30},
+        "u2": {"name": "Bob", "age": "bad"},  # 不正な値
+    }
+
+    with pytest.raises(NanaSQLiteValidationError):
+        db.batch_update(valid_mapping)
+
+    # 1件でも失敗した場合、全件DBに書き込まれない（アトミックな失敗保証）
+    assert "u1" not in db
+    assert "u2" not in db
+
+
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
+def test_batch_update_all_valid_writes_all(tmp_path):
+    """batch_update() は全値がバリデーションを通過すれば全件書き込む。"""
+    from validkit import v
+
+    schema = {"name": v.str(), "age": v.int()}
+    db = NanaSQLite(str(tmp_path / "batch_valid.db"), validator=schema)
+
+    db.batch_update({
+        "u1": {"name": "Alice", "age": 30},
+        "u2": {"name": "Bob", "age": 25},
+    })
+
+    assert db["u1"] == {"name": "Alice", "age": 30}
+    assert db["u2"] == {"name": "Bob", "age": 25}
+
+
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.asyncio
+async def test_async_batch_update_validates_all_before_writing(tmp_path):
+    """AsyncNanaSQLite: batch_update() は1件でも違反があれば何も書かない。"""
+    from validkit import v
+
+    schema = {"name": v.str(), "age": v.int()}
+    async with AsyncNanaSQLite(str(tmp_path / "async_batch.db"), validator=schema) as db:
+        valid_mapping = {
+            "u1": {"name": "Alice", "age": 30},
+            "u2": {"name": "Bob", "age": "bad"},
+        }
+
+        with pytest.raises(NanaSQLiteValidationError):
+            await db.abatch_update(valid_mapping)
+
+        assert not await db.acontains("u1")
+        assert not await db.acontains("u2")
+
+
+# ========================== coerce mode tests ==========================
+
+
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
+def test_coerce_converts_value_on_setitem(tmp_path):
+    """coerce=True のとき、__setitem__ が変換済みの値を保存する。"""
+    from validkit import v
+
+    schema = {"age": v.int().coerce()}
+    db = NanaSQLite(str(tmp_path / "coerce.db"), validator=schema, coerce=True)
+
+    db["user"] = {"age": "42"}  # 文字列 → int に自動変換
+    assert db["user"] == {"age": 42}
+
+
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
+def test_no_coerce_keeps_original_value(tmp_path):
+    """coerce=False（デフォルト）のとき、バリデーションは通っても元の値がそのまま保存される。"""
+    from validkit import v
+
+    schema = {"age": v.int()}
+    db = NanaSQLite(str(tmp_path / "no_coerce.db"), validator=schema)
+
+    db["user"] = {"age": 42}
+    assert db["user"] == {"age": 42}
+
+
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
+def test_coerce_in_batch_update(tmp_path):
+    """coerce=True のとき、batch_update() も変換済みの値を保存する。"""
+    from validkit import v
+
+    schema = {"score": v.float().coerce()}
+    db = NanaSQLite(str(tmp_path / "batch_coerce.db"), validator=schema, coerce=True)
+
+    db.batch_update({
+        "a": {"score": "1.5"},
+        "b": {"score": "2.0"},
+    })
+
+    assert db["a"] == {"score": 1.5}
+    assert db["b"] == {"score": 2.0}
+
+
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
+def test_coerce_inherited_by_table(tmp_path):
+    """coerce=True は table() で子テーブルに引き継がれる。"""
+    from validkit import v
+
+    schema = {"age": v.int().coerce()}
+    db = NanaSQLite(str(tmp_path / "coerce_inherit.db"), validator=schema, coerce=True)
+    child_db = db.table("child")
+
+    child_db["c1"] = {"age": "7"}
+    assert child_db["c1"] == {"age": 7}
+
+
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
+def test_coerce_can_be_disabled_per_table(tmp_path):
+    """table(coerce=False) で子テーブルの自動変換を無効にできる。"""
+    from validkit import v
+
+    schema = {"age": v.int()}
+    db = NanaSQLite(str(tmp_path / "coerce_override.db"), validator=schema, coerce=True)
+    child_db = db.table("child", coerce=False)
+
+    # 子テーブルは coerce=False なので、変換なしで型が一致する値のみ受け付ける
+    child_db["c1"] = {"age": 5}
+    assert child_db["c1"] == {"age": 5}
+
+
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.asyncio
+async def test_async_coerce_converts_value(tmp_path):
+    """AsyncNanaSQLite: coerce=True のとき自動変換が有効になる。"""
+    from validkit import v
+
+    schema = {"age": v.int().coerce()}
+    async with AsyncNanaSQLite(str(tmp_path / "async_coerce.db"), validator=schema, coerce=True) as db:
+        await db.aset("user", {"age": "99"})
+        assert await db.aget("user") == {"age": 99}
+
+
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.asyncio
+async def test_async_coerce_inherited_by_table(tmp_path):
+    """AsyncNanaSQLite: coerce=True は table() で子テーブルに引き継がれる。"""
+    from validkit import v
+
+    schema = {"age": v.int().coerce()}
+    async with AsyncNanaSQLite(str(tmp_path / "async_coerce_inherit.db"), validator=schema, coerce=True) as db:
+        child_db = await db.table("child")
+        await child_db.aset("c1", {"age": "3"})
+        assert await child_db.aget("c1") == {"age": 3}
+

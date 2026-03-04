@@ -101,6 +101,7 @@ class AsyncNanaSQLite:
         encryption_key: str | bytes | None = None,
         encryption_mode: Literal["aes-gcm", "chacha20", "fernet"] = "aes-gcm",
         validator: Any | None = _UNSET,  # type: ignore[assignment]
+        coerce: bool = False,
     ):
         """
         Args:
@@ -120,6 +121,8 @@ class AsyncNanaSQLite:
             validator: validkit-py のスキーマ（辞書または Schema オブジェクト）。
                        指定すると、値の書き込み時にバリデーションを実行する。
                        ``pip install nanasqlite[validation]`` が必要。
+            coerce: ``True`` の場合、validkit-py の自動変換機能を有効にする。
+                    バリデーション後、変換済みの値をDBに書き込む。デフォルト: ``False``。
         """
         self._db_path = db_path
         self._table = table
@@ -142,6 +145,7 @@ class AsyncNanaSQLite:
         self._encryption_mode = encryption_mode
         # _UNSET は「省略」を意味するセンチネル。None は「バリデーションなし」として明示的に渡せる
         self._validator = None if validator is _UNSET else validator
+        self._coerce: bool = bool(coerce)
         self._closed = False
         self._child_instances = weakref.WeakSet()  # WeakSetによる弱参照追跡（死んだ参照は自動的にクリーンアップ）
         self._is_connection_owner = True
@@ -182,6 +186,7 @@ class AsyncNanaSQLite:
                     encryption_key=self._encryption_key,
                     encryption_mode=self._encryption_mode,
                     validator=self._validator,
+                    coerce=self._coerce,
                 ),
             )
 
@@ -1239,7 +1244,7 @@ class AsyncNanaSQLite:
         """
         return self._db
 
-    async def table(self, table_name: str, validator: Any | None = _UNSET) -> AsyncNanaSQLite:  # type: ignore[assignment]
+    async def table(self, table_name: str, validator: Any | None = _UNSET, coerce: bool | Any = _UNSET) -> AsyncNanaSQLite:  # type: ignore[assignment]
         """
         非同期でサブテーブルのAsyncNanaSQLiteインスタンスを取得
 
@@ -1264,6 +1269,8 @@ class AsyncNanaSQLite:
             validator: このテーブル用の validkit-py スキーマ。
                        指定しない場合は親インスタンスのスキーマを引き継ぐ。
                        ``None`` を明示的に渡すとバリデーションなしで使用できる。
+            coerce: ``True`` の場合、validkit-py の自動変換機能を有効にする。
+                    指定しない場合は親インスタンスの設定を引き継ぐ。
 
         Returns:
             指定したテーブルを操作するAsyncNanaSQLiteインスタンス
@@ -1281,11 +1288,13 @@ class AsyncNanaSQLite:
 
         # validator が省略された場合は親のスキーマを継承する。None 明示指定は無効化とする
         resolved_validator = self._validator if validator is _UNSET else validator
+        # coerce が省略された場合は親の設定を継承する
+        resolved_coerce = self._coerce if coerce is _UNSET else bool(coerce)
 
         loop = asyncio.get_running_loop()
         sub_db = await loop.run_in_executor(
             self._executor,
-            lambda: self._db.table(table_name, validator=resolved_validator),
+            lambda: self._db.table(table_name, validator=resolved_validator, coerce=resolved_coerce),
         )
 
         # 新しいAsyncNanaSQLiteラッパーを作成（__init__をバイパス）
@@ -1310,6 +1319,8 @@ class AsyncNanaSQLite:
         async_sub_db._max_clause_length = self._max_clause_length
         # バリデーションスキーマを引き継ぐ（resolved_validator を使用）
         async_sub_db._validator = resolved_validator
+        # coerce 設定を引き継ぐ
+        async_sub_db._coerce = resolved_coerce
         # 子インスタンス管理
         async_sub_db._child_instances = weakref.WeakSet()
         self._child_instances.add(async_sub_db)

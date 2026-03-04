@@ -108,6 +108,7 @@ class NanaSQLite(MutableMapping):
         encryption_mode: Literal["aes-gcm", "chacha20", "fernet"] = "aes-gcm",
         lock_timeout: float | None = None,
         validator: dict | Any | None = _UNSET,  # type: ignore[assignment]
+        coerce: bool = False,
         _shared_connection: apsw.Connection | None = None,
         _shared_lock: threading.RLock | None = None,
     ):
@@ -126,6 +127,9 @@ class NanaSQLite(MutableMapping):
             validator: validkit-py のスキーマ（辞書または Schema オブジェクト）。
                        指定すると、値の書き込み時にバリデーションを実行する。
                        ``pip install nanasqlite[validation]`` が必要。
+            coerce: ``True`` の場合、validkit-py の自動変換（コアース）機能を有効にする。
+                    バリデーション後、変換済みの値をDBに書き込む。
+                    ``validator`` が設定されている場合のみ有効。デフォルト: ``False``。
             _shared_connection: 内部用：共有する接続（table()メソッドで使用）
             _shared_lock: 内部用：共有するロック（table()メソッドで使用）
         """
@@ -177,6 +181,8 @@ class NanaSQLite(MutableMapping):
                 " pip install nanasqlite[validation] でインストールしてください。"
             )
         self._validator = resolved_init_validator  # validkit スキーマ（dict または Schema オブジェクト）
+        # coerce が省略された場合は False にフォールバック
+        self._coerce: bool = bool(coerce)
 
         # Setup Persistence TTL callback if enabled
         on_expire = None
@@ -693,7 +699,9 @@ class NanaSQLite(MutableMapping):
         # validkit バリデーション（スキーマが設定されている場合のみ実行）
         if self._validator is not None:
             try:
-                validkit_validate(value, self._validator)
+                coerced = validkit_validate(value, self._validator)
+                if self._coerce:
+                    value = coerced
             except Exception as exc:
                 raise NanaSQLiteValidationError(
                     f"Value for key '{key}' failed schema validation: {exc} "
@@ -975,6 +983,7 @@ class NanaSQLite(MutableMapping):
 
         大量のデータを一度に書き込む場合、通常のupdateより10-100倍高速。
         v1.0.3rc5でexecutemanyによる最適化を追加。
+        v1.3.4b2より、validkit バリデーター設定時は全値を事前に検証する。
 
         Args:
             mapping: 書き込むキーと値のdict
@@ -989,6 +998,21 @@ class NanaSQLite(MutableMapping):
             return  # 空の場合は何もしない
 
         self._check_connection()
+
+        # validkit 事前バリデーション: DB に触れる前に全値を検証し、1件でも失敗したら何も書かない
+        if self._validator is not None:
+            coerced_mapping: dict[str, Any] = {}
+            for key, value in mapping.items():
+                try:
+                    coerced = validkit_validate(value, self._validator)
+                    coerced_mapping[key] = coerced if self._coerce else value
+                except Exception as exc:
+                    raise NanaSQLiteValidationError(
+                        f"Value for key '{key}' failed schema validation: {exc} "
+                        f"/ キー '{key}' の値がスキーマに違反しています: {exc}"
+                    ) from exc
+            mapping = coerced_mapping
+
         with self._acquire_lock():
             cursor = self._connection.cursor()
             cursor.execute("BEGIN IMMEDIATE")
@@ -2544,6 +2568,7 @@ class NanaSQLite(MutableMapping):
         cache_strategy: CacheType | Literal["unbounded", "lru"] | None = None,
         cache_size: int | None = None,
         validator: dict | Any | None = _UNSET,  # type: ignore[assignment]
+        coerce: bool | Any = _UNSET,  # type: ignore[assignment]
     ):
         """
         新しいインスタンスを作成しますが、SQLite接続とロックは共有します。
@@ -2557,6 +2582,8 @@ class NanaSQLite(MutableMapping):
             validator: このテーブル用の validkit-py スキーマ。
                        指定しない場合は親インスタンスのスキーマを引き継ぐ。
                        ``None`` を明示的に渡すとバリデーションなしで使用できる。
+            coerce: ``True`` の場合、validkit-py の自動変換機能を有効にする。
+                    指定しない場合は親インスタンスの設定を引き継ぐ。
 
         ⚠️ 重要な注意事項:
         - 同じテーブルに対して複数のインスタンスを作成しないでください
@@ -2593,6 +2620,8 @@ class NanaSQLite(MutableMapping):
         size = cache_size
         # validator が省略された場合は親のスキーマを継承し、None 明示指定は無効化とする
         resolved_validator = self._validator if validator is _UNSET else validator
+        # coerce が省略された場合は親の設定を継承する
+        resolved_coerce = self._coerce if coerce is _UNSET else bool(coerce)
 
         # 子インスタンス生成〜WeakSet追加をロックで保護し、
         # restore() の接続差し替えと競合しないようにする
@@ -2604,6 +2633,7 @@ class NanaSQLite(MutableMapping):
                 cache_size=size,
                 lock_timeout=self._lock_timeout,
                 validator=resolved_validator,
+                coerce=resolved_coerce,
                 _shared_connection=self._connection,
                 _shared_lock=self._lock,
             )
