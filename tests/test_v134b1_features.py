@@ -867,3 +867,107 @@ def test_backup_raises_lockerror_when_lock_held(tmp_path):
         release_lock.set()
         t.join(timeout=5.0)
     db.close()
+
+
+# ===========================================================
+# 追加テスト: __delitem__ / clear() の _check_connection() 検証
+# （クローズ済み接続での NanaSQLiteClosedError 送出）
+# ===========================================================
+
+
+def test_delitem_on_closed_db_raises_closed_error(tmp_path):
+    """`del db[key]` をクローズ済み接続で呼ぶと NanaSQLiteClosedError が発生すること"""
+    db = NanaSQLite(str(tmp_path / "test.db"))
+    db["key"] = "value"
+    db.close()
+
+    with pytest.raises(NanaSQLiteClosedError):
+        del db["key"]
+
+
+def test_clear_on_closed_db_raises_closed_error(tmp_path):
+    """`db.clear()` をクローズ済み接続で呼ぶと NanaSQLiteClosedError が発生すること"""
+    db = NanaSQLite(str(tmp_path / "test.db"))
+    db["key1"] = "value1"
+    db["key2"] = "value2"
+    db.close()
+
+    with pytest.raises(NanaSQLiteClosedError):
+        db.clear()
+
+
+# ===========================================================
+# 追加テスト: backup() 非ブロッキング動作の検証
+# ===========================================================
+
+
+def test_backup_does_not_block_same_db_writes(tmp_path):
+    """backup() は NanaSQLite 内部ロックを長時間保持しないため、
+    バックアップ完了前に同一インスタンスへの書き込みが可能であること"""
+    db_path = str(tmp_path / "test.db")
+    backup_path = str(tmp_path / "backup.db")
+
+    db = NanaSQLite(db_path)
+    db["initial"] = "data"
+
+    # バックアップを実行してからも書き込みが可能であること
+    db.backup(backup_path)
+    db["after_backup"] = "still_works"
+    assert db["after_backup"] == "still_works"
+    db.close()
+
+
+def test_restore_data_integrity_after_multiple_backups(tmp_path):
+    """複数回バックアップして restore() すると最後にリストアしたバックアップが反映されること"""
+    db_path = str(tmp_path / "main.db")
+    backup1_path = str(tmp_path / "backup1.db")
+    backup2_path = str(tmp_path / "backup2.db")
+
+    db = NanaSQLite(db_path)
+    db["key"] = "v1"
+    db.backup(backup1_path)
+
+    db["key"] = "v2"
+    db.backup(backup2_path)
+
+    db["key"] = "v3"
+
+    # backup1 でリストア
+    db.restore(backup1_path)
+    assert db["key"] == "v1"
+
+    # backup2 でリストア
+    db.restore(backup2_path)
+    assert db["key"] == "v2"
+
+    db.close()
+
+
+def test_backup_restore_roundtrip_with_complex_data(tmp_path):
+    """複雑なデータ（リスト、ネスト辞書、None等）のバックアップ/リストアが正確に動作すること"""
+    db_path = str(tmp_path / "main.db")
+    backup_path = str(tmp_path / "backup.db")
+
+    db = NanaSQLite(db_path)
+    complex_data = {
+        "list": [1, 2, 3, {"nested": True}],
+        "dict": {"a": 1, "b": {"c": 2}},
+        "none_val": None,
+        "bool_val": True,
+        "int_val": 42,
+        "float_val": 3.14,
+    }
+    db["complex"] = complex_data
+    db["simple"] = "string"
+
+    db.backup(backup_path)
+
+    db["complex"] = "changed"
+    db["extra"] = "added"
+
+    db.restore(backup_path)
+
+    assert db["complex"] == complex_data
+    assert db["simple"] == "string"
+    assert "extra" not in db
+    db.close()
