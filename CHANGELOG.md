@@ -14,7 +14,7 @@
   - `NanaSQLite.__init__` に `lock_timeout: float | None = None` パラメータを追加。
   - 設定すると、ロック取得時に指定秒数以内に取得できない場合は `NanaSQLiteLockError` を送出。
   - デフォルト `None` は従来通り無制限待機。後方互換性への影響はありません。
-  - 内部に `_acquire_lock()` コンテキストマネージャを新設し、全ての排他制御でロックタイムアウトが反映されます。
+  - 内部に `_acquire_lock()` コンテキストマネージャを新設し、ユーザー操作に伴う排他制御ではロックタイムアウトが反映されます（一部の内部処理〈期限切れ削除など〉は従来通りブロッキング取得のままです）。
 
 - **`backup()` / `restore()` メソッドの追加** (P2-3):
   - `NanaSQLite.backup(dest_path)`: APSW の SQLite オンラインバックアップ API を使用して、現在の DB を `dest_path` にバックアップします。
