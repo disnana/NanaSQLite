@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import shutil
+import stat
 import tempfile
 import threading
 import warnings
@@ -1141,7 +1142,7 @@ class NanaSQLite(MutableMapping):
                 # 元DBのパーミッションを一時ファイルに適用してから原子的に置き換える
                 if original_mode is not None:
                     try:
-                        os.chmod(tmp_path, original_mode)
+                        os.chmod(tmp_path, stat.S_IMODE(original_mode))
                     except OSError:
                         pass
                 os.replace(tmp_path, self._db_path)

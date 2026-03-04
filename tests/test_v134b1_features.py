@@ -222,3 +222,42 @@ def test_restore_during_transaction_raises(tmp_path):
             db.restore(backup_path)  # トランザクション中なので例外が発生するはず
 
     db.close()
+
+
+def test_backup_to_memory_path_raises(tmp_path):
+    """backup() の dest_path が ':memory:' の場合 NanaSQLiteValidationError が発生すること"""
+    db = NanaSQLite(str(tmp_path / "test.db"))
+    db["key"] = "value"
+
+    with pytest.raises(NanaSQLiteValidationError):
+        db.backup(":memory:")
+
+    db.close()
+
+
+def test_backup_to_file_memory_uri_raises(tmp_path):
+    """backup() の dest_path が 'file::memory:' URI の場合 NanaSQLiteValidationError が発生すること"""
+    db = NanaSQLite(str(tmp_path / "test.db"))
+    db["key"] = "value"
+
+    with pytest.raises(NanaSQLiteValidationError):
+        db.backup("file::memory:?cache=shared")
+
+    db.close()
+
+
+def test_restore_on_memory_db_raises(tmp_path):
+    """インメモリDB（':memory:'）に対して restore() を呼ぶと NanaSQLiteValidationError が発生すること"""
+    # NanaSQLite のコンストラクタが ':memory:' を受け付けるか確認して使用
+    backup_path = str(tmp_path / "backup.db")
+    # まず通常の DB でバックアップを作成しておく
+    src_db = NanaSQLite(str(tmp_path / "src.db"))
+    src_db["key"] = "value"
+    src_db.backup(backup_path)
+    src_db.close()
+
+    # ':memory:' DB に restore() を試みると NanaSQLiteValidationError が発生すること
+    mem_db = NanaSQLite(":memory:")
+    with pytest.raises(NanaSQLiteValidationError):
+        mem_db.restore(backup_path)
+    mem_db.close()
