@@ -582,14 +582,16 @@ except NanaSQLiteLockError as e:
 
 ### バックアップ
 
-`backup()` は APSW の SQLite オンラインバックアップ API を使用してデータベースを別ファイルにコピーします。
-データベースの使用中でも安全に実行できます：
+`backup()` は APSW の SQLite オンラインバックアップ API を使用して、データベースを一貫性のある状態で別ファイルにコピーします。
+SQLite のトランザクション機構により「データベースが使用中」であっても壊れることなく安全に実行できますが、実装上は NanaSQLite の内部ロック（`_acquire_lock`）を保持したままバックアップ処理を行います。
+このため、**同一プロセス内で NanaSQLite 経由の read/write はバックアップ完了までブロック**（`lock_timeout` を設定している場合は `NanaSQLiteLockError` が送出）される点に注意してください：
 
 ```python
 db = NanaSQLite("app.db")
 db["user"] = {"name": "Nana", "role": "admin"}
 
-# バックアップを作成 — 並行した読み書き中でも安全
+# バックアップを作成 — データの一貫性を保って安全に取得できるが、
+# バックアップ中は同一プロセスの NanaSQLite 操作はブロックされる
 db.backup("app_backup_2026-03-04.db")
 
 # バックアップファイルは完全に独立した SQLite データベース
