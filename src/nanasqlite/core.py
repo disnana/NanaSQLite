@@ -1090,9 +1090,9 @@ class NanaSQLite(MutableMapping):
                 f"Restore failed: backup file not found or not readable: {src_path}"
             )
 
-        # WeakSet をスナップショットしてイテレーション中の GC による RuntimeError を防ぐ
-        children = list(self._child_instances)
         with self._acquire_lock():
+            # ロック内でスナップショットを取得し、table() と競合しないようにする
+            children = list(self._child_instances)
             try:
                 self._connection.close()
                 shutil.copy2(src_path, self._db_path)
@@ -1104,12 +1104,17 @@ class NanaSQLite(MutableMapping):
                     child._connection = self._connection
                 # 接続の差し替えとキャッシュクリアを同一ロック内で原子的に行う
                 self.clear_cache()
+                for child in children:
+                    child.clear_cache()
             except (apsw.Error, OSError) as e:
                 # 失敗時に現在の DB へ再接続して一貫した状態を保つ
                 try:
                     self._connection = apsw.Connection(self._db_path)
                     for child in children:
                         child._connection = self._connection
+                    self.clear_cache()
+                    for child in children:
+                        child.clear_cache()
                 except apsw.Error:
                     # 再接続さえできない場合はクローズ状態として扱い、子インスタンスも無効化する
                     self._is_closed = True

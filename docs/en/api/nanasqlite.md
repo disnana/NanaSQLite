@@ -542,6 +542,7 @@ and then re-establishes the connection. The in-memory cache is cleared after res
 **Raises:**
 - `NanaSQLiteClosedError`: If the connection is already closed.
 - `NanaSQLiteConnectionError`: If called on an instance obtained via `.table()` (not the connection owner).
+- `NanaSQLiteTransactionError`: If called while a transaction is in progress. Commit or rollback before calling `restore()`.
 - `NanaSQLiteDatabaseError`: If an error occurs during the restore (e.g., file not found).
 
 **Example:**

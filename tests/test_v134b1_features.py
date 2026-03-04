@@ -68,8 +68,10 @@ def test_lock_timeout_raises_on_deadlock(tmp_path):
     t2 = threading.Thread(target=try_acquire)
     t1.start()
     t2.start()
-    t2.join()
-    t1.join()
+    t2.join(timeout=5.0)
+    assert not t2.is_alive(), "try_acquire thread did not finish in time"
+    t1.join(timeout=5.0)
+    assert not t1.is_alive(), "hold_lock thread did not finish in time"
 
     assert len(errors) == 1
     assert "0.2s" in str(errors[0])

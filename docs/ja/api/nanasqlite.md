@@ -542,6 +542,7 @@ def restore(self, src_path: str) -> None
 **例外:**
 - `NanaSQLiteClosedError`: 接続が閉じられている場合。
 - `NanaSQLiteConnectionError`: `.table()` で取得した（接続を所有しない）インスタンスから呼び出した場合。
+- `NanaSQLiteTransactionError`: トランザクション中に呼び出した場合。`restore()` を呼ぶ前にコミットまたはロールバックしてください。
 - `NanaSQLiteDatabaseError`: リストア中にエラーが発生した場合（例：ファイルが存在しない）。
 
 **使用例:**
