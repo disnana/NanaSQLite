@@ -5,14 +5,17 @@ v1.3.4b1 新機能テスト
 - P2-3: backup / restore メソッド
 """
 
+import os
 import threading
-import time
 
 import pytest
 
 from nanasqlite import NanaSQLite, NanaSQLiteLockError
-from nanasqlite.exceptions import NanaSQLiteConnectionError, NanaSQLiteDatabaseError
-
+from nanasqlite.exceptions import (
+    NanaSQLiteClosedError,
+    NanaSQLiteConnectionError,
+    NanaSQLiteDatabaseError,
+)
 
 # ===========================================================
 # P2-1: lock_timeout パラメータ
@@ -40,26 +43,31 @@ def test_lock_timeout_raises_on_deadlock(tmp_path):
     db = NanaSQLite(str(tmp_path / "test.db"), lock_timeout=0.2)
     errors = []
 
+    lock_held = threading.Event()   # hold_lock がロックを取得したことを通知
+    can_release = threading.Event()  # try_acquire が完了したことを通知（リリース許可）
+
     def hold_lock():
-        # RLock を直接取得して保持
         db._lock.acquire()
-        time.sleep(0.5)
+        lock_held.set()           # ロック取得を通知
+        can_release.wait()        # try_acquire が終わるまで保持
         db._lock.release()
 
     def try_acquire():
-        time.sleep(0.05)  # hold_lock が先にロックを取るのを待つ
+        lock_held.wait()          # hold_lock がロックを取得するまで待つ
         try:
             with db._acquire_lock():
                 pass
         except NanaSQLiteLockError as e:
             errors.append(e)
+        finally:
+            can_release.set()     # hold_lock にリリースを許可
 
     t1 = threading.Thread(target=hold_lock)
     t2 = threading.Thread(target=try_acquire)
     t1.start()
     t2.start()
-    t1.join()
     t2.join()
+    t1.join()
 
     assert len(errors) == 1
     assert "0.2s" in str(errors[0])
@@ -81,7 +89,6 @@ def test_backup_creates_file(tmp_path):
     db["b"] = {"x": 2}
     db.backup(backup_path)
 
-    import os
     assert os.path.exists(backup_path)
     db.close()
 
@@ -160,8 +167,6 @@ def test_restore_on_child_instance_raises(tmp_path):
 
 def test_backup_on_closed_db_raises(tmp_path):
     """閉じた DB で backup() を呼ぶと例外が発生すること"""
-    from nanasqlite.exceptions import NanaSQLiteClosedError
-
     db = NanaSQLite(str(tmp_path / "test.db"))
     db["key"] = "value"
     db.close()

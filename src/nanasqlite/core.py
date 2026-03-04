@@ -308,11 +308,16 @@ class NanaSQLite(MutableMapping):
     @contextmanager
     def _acquire_lock(self):
         """ロックを取得するコンテキストマネージャ。lock_timeout が設定されている場合はタイムアウト付きで取得する。"""
-        if self._lock_timeout is not None:
-            acquired = self._lock.acquire(timeout=self._lock_timeout)
+        lock_timeout = self._lock_timeout
+        if lock_timeout is not None:
+            if not isinstance(lock_timeout, (int, float)) or lock_timeout < 0:
+                raise NanaSQLiteValidationError(
+                    f"Invalid lock_timeout '{lock_timeout}': must be None or a non-negative number"
+                )
+            acquired = self._lock.acquire(timeout=lock_timeout)
             if not acquired:
                 raise NanaSQLiteLockError(
-                    f"Failed to acquire lock within {self._lock_timeout}s"
+                    f"Failed to acquire lock within {lock_timeout}s"
                 )
             try:
                 yield
@@ -1034,15 +1039,20 @@ class NanaSQLite(MutableMapping):
         """
         self._check_connection()
         with self._acquire_lock():
-            dest_conn = apsw.Connection(dest_path)
+            dest_conn = None
             try:
+                dest_conn = apsw.Connection(dest_path)
                 with dest_conn.backup("main", self._connection, "main") as b:
                     while not b.done:
                         b.step(100)
             except apsw.Error as e:
                 raise NanaSQLiteDatabaseError(f"Backup failed: {e}", e) from e
             finally:
-                dest_conn.close()
+                if dest_conn is not None:
+                    try:
+                        dest_conn.close()
+                    except apsw.Error as close_err:
+                        logger.error("Error closing destination connection after backup: %s", close_err)
 
     def restore(self, src_path: str) -> None:
         """
@@ -1067,6 +1077,13 @@ class NanaSQLite(MutableMapping):
                 "restore() can only be called on the primary (connection-owning) instance. "
                 "Use the original NanaSQLite instance, not one obtained via table()."
             )
+
+        # コピー前にバックアップファイルの存在/可読性を検証する
+        if not os.path.isfile(src_path) or not os.access(src_path, os.R_OK):
+            raise NanaSQLiteDatabaseError(
+                f"Restore failed: backup file not found or not readable: {src_path}"
+            )
+
         with self._acquire_lock():
             try:
                 self._connection.close()
@@ -1074,9 +1091,24 @@ class NanaSQLite(MutableMapping):
                 self._connection = apsw.Connection(self._db_path)
                 if self._optimize:
                     self._apply_optimizations(self._cache_size_mb)
+                # 子インスタンスの _connection 参照を新しい接続へ更新する
+                for child in self._child_instances:
+                    child._connection = self._connection
+                # 接続の差し替えとキャッシュクリアを同一ロック内で原子的に行う
+                self.clear_cache()
             except (apsw.Error, OSError) as e:
+                # 失敗時に現在の DB へ再接続して一貫した状態を保つ
+                try:
+                    self._connection = apsw.Connection(self._db_path)
+                    for child in self._child_instances:
+                        child._connection = self._connection
+                except apsw.Error:
+                    # 再接続さえできない場合はクローズ状態として扱い、子インスタンスも無効化する
+                    self._is_closed = True
+                    for child in self._child_instances:
+                        child._mark_parent_closed()
+                    self._child_instances.clear()
                 raise NanaSQLiteDatabaseError(f"Restore failed: {e}", e) from e
-        self.clear_cache()
 
     def close(self) -> None:
         """
@@ -2387,6 +2419,7 @@ class NanaSQLite(MutableMapping):
             table=table_name,
             cache_strategy=strat,
             cache_size=size,
+            lock_timeout=self._lock_timeout,
             _shared_connection=self._connection,
             _shared_lock=self._lock,
         )
