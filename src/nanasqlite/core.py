@@ -1188,15 +1188,29 @@ class NanaSQLite(MutableMapping):
                         )
                 self._connection = apsw.Connection(self._db_path)
                 if self._optimize:
+            )
+
+        # コピー前にバックアップファイルの存在/可読性を検証する
+        if not os.path.isfile(src_path) or not os.access(src_path, os.R_OK):
+            raise NanaSQLiteDatabaseError(
+                f"Restore failed: backup file not found or not readable: {src_path}"
+            )
+
+        with self._acquire_lock():
+            try:
+                # 既存接続を一時的にクローズしてからバックアップで置き換える
+                self._connection.close()
+                shutil.copy2(src_path, self._db_path)
+                self._connection = apsw.Connection(self._db_path)
+                if self._optimize:
                     self._apply_optimizations(self._cache_size_mb)
-                # 子インスタンスの _connection 参照を新しい接続へ更新する
-                for child in children:
-                    child._connection = self._connection
-                # 接続の差し替えとキャッシュクリアを同一ロック内で原子的に行う
-                self.clear_cache()
-                for child in children:
-                    child.clear_cache()
             except (apsw.Error, OSError) as e:
+                # 失敗時に元DBへの接続を復旧し、少なくとも一貫した状態に保つ
+                try:
+                    self._connection = apsw.Connection(self._db_path)
+                except apsw.Error:
+                    # 再接続さえできない場合は、このインスタンスをクローズ状態として扱う
+                    self._is_closed = True
                 # 残った一時ファイルを削除する
                 if tmp_path is not None:
                     try:
