@@ -1137,7 +1137,6 @@ class NanaSQLite(MutableMapping):
             # ロック内でスナップショットを取得し、table() と競合しないようにする
             children = list(self._child_instances)
             tmp_path = None
-            src_f = None
             try:
                 # 元DBのパーミッションを先に取得しておく（接続クローズ後も stat は可能だがここで取る）
                 try:
