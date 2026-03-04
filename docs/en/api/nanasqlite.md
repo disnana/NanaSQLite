@@ -535,6 +535,7 @@ def restore(self, src_path: str) -> None
 
 Restores the database from a backup file.
 Closes the current connection, copies the backup file over the database file,
+removes any stale WAL/SHM/journal sidecar files (`-wal`/`-shm`/`-journal`),
 and then re-establishes the connection. The in-memory cache is cleared after restore.
 
 **Parameters:**

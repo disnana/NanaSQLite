@@ -18,7 +18,7 @@
 
 - **`backup()` / `restore()` メソッドの追加** (P2-3):
   - `NanaSQLite.backup(dest_path)`: APSW の SQLite オンラインバックアップ API を使用して、現在の DB を `dest_path` にバックアップします。
-  - `NanaSQLite.restore(src_path)`: `src_path` のバックアップファイルから DB を復元し、接続を再確立してキャッシュをクリアします。
+  - `NanaSQLite.restore(src_path)`: `src_path` のバックアップファイルから DB を復元し、接続を再確立してキャッシュをクリアします。リストア時に WAL/SHM/journal サイドカーファイル（`-wal`/`-shm`/`-journal`）を明示的に削除し、stale な WAL 内容の再生による不整合を防止します。
   - 両メソッドとも新規 public メソッドの追加のみ。後方互換性への影響はありません。
 
 #### スレッドセーフティ改善
@@ -513,7 +513,7 @@
 
 - **`backup()` / `restore()` methods** (P2-3):
   - `NanaSQLite.backup(dest_path)`: Backs up the current database to `dest_path` using APSW's SQLite online backup API.
-  - `NanaSQLite.restore(src_path)`: Restores the database from a backup file, re-establishes the connection, and clears the in-memory cache.
+  - `NanaSQLite.restore(src_path)`: Restores the database from a backup file, re-establishes the connection, and clears the in-memory cache. Explicitly removes WAL/SHM/journal sidecar files (`-wal`/`-shm`/`-journal`) before reopening to prevent stale WAL replay causing an inconsistent state.
   - Both are new public methods only; no backward-compatibility impact.
 
 #### Thread Safety Improvements

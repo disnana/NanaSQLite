@@ -246,6 +246,38 @@ def test_backup_to_file_memory_uri_raises(tmp_path):
     db.close()
 
 
+def test_restore_cleans_stale_wal_sidecar_files(tmp_path):
+    """restore() が stale な WAL/SHM/journal サイドカーファイルを削除して正常にリストアすること"""
+    db_path = str(tmp_path / "main.db")
+    backup_path = str(tmp_path / "backup.db")
+
+    db = NanaSQLite(db_path)
+    db["key"] = "original"
+    db.backup(backup_path)
+
+    # バックアップ後にデータを変更
+    db["key"] = "modified"
+    db["extra"] = "should_be_gone"
+
+    # stale なサイドカーファイルを手動で作成（restore 前に残っている想定）
+    stale_marker = b"stale WAL data that should not be replayed"
+    for suffix in ("-wal", "-shm", "-journal"):
+        sidecar = db_path + suffix
+        with open(sidecar, "wb") as f:
+            f.write(stale_marker)
+
+    db.restore(backup_path)
+
+    # stale なサイドカー内容が再生されず、バックアップ時点のデータが正しく復元されること
+    assert db["key"] == "original"
+    assert "extra" not in db
+
+    # -journal は WAL モードでは再生成されないため、削除されたままであること
+    assert not os.path.exists(db_path + "-journal")
+
+    db.close()
+
+
 def test_restore_on_memory_db_raises(tmp_path):
     """インメモリDB（':memory:'）に対して restore() を呼ぶと NanaSQLiteValidationError が発生すること"""
     # NanaSQLite のコンストラクタが ':memory:' を受け付けるか確認して使用

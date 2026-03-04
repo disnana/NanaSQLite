@@ -1099,7 +1099,9 @@ class NanaSQLite(MutableMapping):
         """
         バックアップファイルからデータベースをリストアする
 
-        現在の接続を一時的に閉じ、src_path のファイルを DB パスにコピーして再接続します。
+        現在の接続を一時的に閉じ、src_path のファイルを DB パスにコピーし、
+        stale な WAL/SHM/journal サイドカーファイル（-wal/-shm/-journal）を
+        削除してから再接続します。
         リストア後はメモリキャッシュがクリアされ、DB の内容が反映されます。
 
         Args:
@@ -1159,6 +1161,21 @@ class NanaSQLite(MutableMapping):
                         pass
                 os.replace(tmp_path, self._db_path)
                 tmp_path = None  # replace 成功したので cleanup 不要
+                # WAL モード使用時に残る可能性のあるサイドカーファイルを削除する。
+                # 古い -wal/-shm/-journal が残っていると、再接続時に SQLite が
+                # stale な WAL 内容を再生して不整合な状態になり得る。
+                for suffix in ("-wal", "-shm", "-journal"):
+                    sidecar = self._db_path + suffix
+                    try:
+                        os.unlink(sidecar)
+                    except FileNotFoundError:
+                        pass
+                    except OSError as sidecar_err:
+                        logger.warning(
+                            "Could not remove stale sidecar file %r during restore: %s",
+                            sidecar,
+                            sidecar_err,
+                        )
                 self._connection = apsw.Connection(self._db_path)
                 if self._optimize:
                     self._apply_optimizations(self._cache_size_mb)
