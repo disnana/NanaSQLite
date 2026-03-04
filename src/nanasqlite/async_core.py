@@ -1180,13 +1180,12 @@ class AsyncNanaSQLite:
                     # Queue is empty; safe to stop draining
                     break
                 except AttributeError as e:
-                    # Programming error: conn is not an apsw.Connection
-                    logging.getLogger(__name__).error(
-                        "AttributeError during pool cleanup - possible programming error: %s (conn=%r)",
+                    # Unexpected AttributeError - log and continue cleanup for resilience
+                    logging.getLogger(__name__).warning(
+                        "Unexpected AttributeError during pool cleanup: %s (conn=%r)",
                         e,
                         conn,
                     )
-                    # continue draining the queue instead of breaking
                 except apsw.Error as e:
                     # Ignore close errors during best-effort cleanup but log at warning level
                     logging.getLogger(__name__).warning(
