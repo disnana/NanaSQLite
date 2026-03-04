@@ -42,6 +42,7 @@ Raised for invalid input values or parameters.
 - Invalid table or column names
 - Invalid SQL identifiers
 - Parameter type errors
+- validkit-py schema violations (when `validator` is specified)
 
 ```python
 from nanasqlite import NanaSQLite, NanaSQLiteValidationError
@@ -53,6 +54,21 @@ try:
     db.create_table("123invalid", {"id": "INTEGER"})
 except NanaSQLiteValidationError as e:
     print(f"Validation error: {e}")
+```
+
+**Example — validkit-py schema violation:**
+```python
+from validkit import v
+from nanasqlite import NanaSQLite, NanaSQLiteValidationError
+
+schema = {"name": v.str(), "age": v.int()}
+db = NanaSQLite("mydata.db", validator=schema)
+
+try:
+    db["user"] = {"name": "Alice", "age": "invalid"}  # expected int, got str
+except NanaSQLiteValidationError as e:
+    print(f"Schema violation: {e}")
+    # Nothing was written to the DB
 ```
 
 #### `NanaSQLiteDatabaseError`

@@ -24,7 +24,8 @@ def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
              allowed_sql_functions: list[str] | None = None,
              forbidden_sql_functions: list[str] | None = None,
              max_clause_length: int | None = 1000,
-             lock_timeout: float | None = None)
+             lock_timeout: float | None = None,
+             validator: dict | Any | None = None)
 ```
 
 Initializes the NanaSQLite database connection.
@@ -41,6 +42,7 @@ Initializes the NanaSQLite database connection.
 - `forbidden_sql_functions` (list[str] | None, optional): List of SQL functions to explicitly forbid.
 - `max_clause_length` (int | None, optional): Maximum length for SQL clauses (ReDoS protection). Defaults to `1000`.
 - `lock_timeout` (float | None, optional): Maximum seconds to wait for the internal lock. Raises `NanaSQLiteLockError` if the lock cannot be acquired in time. `None` (default) means wait indefinitely. (v1.3.4b1+)
+- `validator` (dict | Schema | None, optional): A validkit-py validation schema (plain dict or `Schema` object). When supplied, every `__setitem__` call (`db["key"] = value`) validates the value against the schema before writing. Raises `NanaSQLiteValidationError` on schema violations. Requires `pip install nanasqlite[validation]`. (v1.3.4b2+)
 
 ---
 
@@ -62,7 +64,10 @@ Closes the database connection.
 ### `table`
 
 ```python
-def table(self, table_name: str) -> NanaSQLite
+def table(self, table_name: str,
+          cache_strategy: CacheType | str | None = None,
+          cache_size: int | None = None,
+          validator: dict | Any | None = None) -> NanaSQLite
 ```
 
 Returns a new `NanaSQLite` instance for a specific sub-table.
@@ -71,9 +76,31 @@ The new instance shares the same underlying connection and lock as the parent, e
 
 **Parameters:**
 - `table_name` (str): The name of the sub-table.
+- `cache_strategy` (CacheType | str | None, optional): Cache strategy for this table. Defaults to the parent's strategy.
+- `cache_size` (int | None, optional): Cache size for this table. Defaults to the parent's size.
+- `validator` (dict | Schema | None, optional): A validkit-py schema for this sub-table. When omitted, the parent's schema is inherited automatically. Pass `None` explicitly to disable validation for this sub-table. (v1.3.4b2+)
 
 **Returns:**
 - `NanaSQLite`: A new instance targeting the specified table.
+
+**Example:**
+```python
+from validkit import v
+
+db = NanaSQLite("app.db", validator={"name": v.str(), "age": v.int()})
+
+# Omit validator → inherits parent schema
+users_db = db.table("users")
+users_db["u1"] = {"name": "Alice", "age": 30}  # OK
+
+# Override with a table-specific schema
+scores_db = db.table("scores", validator={"score": v.float()})
+scores_db["s1"] = {"score": 9.5}  # OK
+
+# validator=None → disable validation for this table
+cache_db = db.table("cache", validator=None)
+cache_db["k"] = {"anything": True}  # OK (no schema check)
+```
 
 ---
 
@@ -560,6 +587,78 @@ db.backup("snapshot.db")
 db["user"] = {"name": "Modified"}
 db.restore("snapshot.db")
 print(db["user"])  # {'name': 'Nana'}
+```
+
+---
+
+## Validkit Validation (v1.3.4b2+)
+
+Schema-based write validation powered by [validkit-py](https://github.com/disnana/Validkit).
+
+**Installation:**
+```bash
+pip install nanasqlite[validation]
+```
+
+### Basic Usage
+
+```python
+from validkit import v
+from nanasqlite import NanaSQLite, NanaSQLiteValidationError
+
+schema = {"name": v.str(), "age": v.int().range(0, 150)}
+db = NanaSQLite("mydata.db", validator=schema)
+
+db["user"] = {"name": "Alice", "age": 30}        # OK
+db["user"] = {"name": "Bob", "age": "invalid"}   # → NanaSQLiteValidationError
+```
+
+### Per-Table Validators
+
+```python
+from validkit import v
+from nanasqlite import NanaSQLite
+
+user_schema  = {"name": v.str(), "age": v.int()}
+score_schema = {"player": v.str(), "score": v.float().range(0.0, 100.0)}
+
+db = NanaSQLite("app.db")
+
+# Apply a different schema to each sub-table
+users_db  = db.table("users",  validator=user_schema)
+scores_db = db.table("scores", validator=score_schema)
+
+# Inherit schema from parent automatically
+db2      = NanaSQLite("app2.db", validator=user_schema)
+child_db = db2.table("users2")              # inherits parent schema
+free_db  = db2.table("cache", validator=None)  # validation disabled
+```
+
+### Checking the Feature Flag
+
+```python
+from nanasqlite import HAS_VALIDKIT
+
+if HAS_VALIDKIT:
+    print("validkit-py is available")
+else:
+    print("validkit-py is not installed")
+```
+
+### Handling Validation Errors
+
+```python
+from nanasqlite import NanaSQLite, NanaSQLiteValidationError
+from validkit import v
+
+schema = {"name": v.str(), "score": v.int().range(0, 100)}
+db = NanaSQLite("game.db", validator=schema)
+
+try:
+    db["player1"] = {"name": "Alice", "score": 150}  # range violation
+except NanaSQLiteValidationError as e:
+    print(f"Validation error: {e}")
+    # Nothing was written to the DB
 ```
 
 ---

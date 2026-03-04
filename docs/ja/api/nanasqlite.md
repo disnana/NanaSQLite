@@ -24,7 +24,8 @@ def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
              allowed_sql_functions: list[str] | None = None,
              forbidden_sql_functions: list[str] | None = None,
              max_clause_length: int | None = 1000,
-             lock_timeout: float | None = None)
+             lock_timeout: float | None = None,
+             validator: dict | Any | None = None)
 ```
 
 NanaSQLiteデータベース接続を初期化します。
@@ -41,6 +42,7 @@ NanaSQLiteデータベース接続を初期化します。
 - `forbidden_sql_functions` (list[str], 任意): 明示的に禁止するSQL関数のリスト。
 - `max_clause_length` (int, 任意): SQL句の最大長（ReDoS対策）。デフォルトは `1000`。
 - `lock_timeout` (float | None, 任意): 内部ロック取得の最大待機秒数。指定時間内にロックを取得できない場合は `NanaSQLiteLockError` を送出します。`None`（デフォルト）は無制限待機。(v1.3.4b1以降)
+- `validator` (dict | Schema | None, 任意): validkit-py のバリデーションスキーマ（辞書または `Schema` オブジェクト）。指定すると `__setitem__` （`db["key"] = value`）の実行時にスキーマ検証を実行します。スキーマ違反の場合は `NanaSQLiteValidationError` を送出します。使用には `pip install nanasqlite[validation]` が必要です。(v1.3.4b2以降)
 
 ---
 
@@ -62,7 +64,10 @@ def close(self) -> None
 ### `table`
 
 ```python
-def table(self, table_name: str) -> NanaSQLite
+def table(self, table_name: str,
+          cache_strategy: CacheType | str | None = None,
+          cache_size: int | None = None,
+          validator: dict | Any | None = None) -> NanaSQLite
 ```
 
 指定したサブテーブル用の新しい `NanaSQLite` インスタンスを返します。
@@ -71,9 +76,31 @@ def table(self, table_name: str) -> NanaSQLite
 
 **パラメータ:**
 - `table_name` (str): サブテーブルの名前。
+- `cache_strategy` (CacheType | str | None, 任意): このテーブル用のキャッシュ戦略。省略時は親と同じ設定を使用。
+- `cache_size` (int | None, 任意): このテーブル用のキャッシュサイズ。省略時は親と同じ設定を使用。
+- `validator` (dict | Schema | None, 任意): このサブテーブル用の validkit-py スキーマ。省略時は親インスタンスのスキーマを自動継承します。`None` を明示的に渡すとバリデーションを無効化できます。(v1.3.4b2以降)
 
 **戻り値:**
 - `NanaSQLite`: 指定したテーブルを操作する新しいインスタンス。
+
+**使用例:**
+```python
+from validkit import v
+
+db = NanaSQLite("app.db", validator={"name": v.str(), "age": v.int()})
+
+# validator を省略 → 親のスキーマを継承
+users_db = db.table("users")
+users_db["u1"] = {"name": "Alice", "age": 30}  # OK
+
+# validator を上書き → テーブル専用スキーマ
+scores_db = db.table("scores", validator={"score": v.float()})
+scores_db["s1"] = {"score": 9.5}  # OK
+
+# validator=None → バリデーションを無効化
+cache_db = db.table("cache", validator=None)
+cache_db["k"] = {"anything": True}  # OK（スキーマ検証なし）
+```
 
 ---
 
@@ -560,6 +587,78 @@ db.backup("snapshot.db")
 db["user"] = {"name": "変更後"}
 db.restore("snapshot.db")
 print(db["user"])  # {'name': 'Nana'}
+```
+
+---
+
+## Validkit バリデーション (v1.3.4b2以降)
+
+[validkit-py](https://github.com/disnana/Validkit) を使用したスキーマベースの書き込みバリデーション機能です。
+
+**インストール:**
+```bash
+pip install nanasqlite[validation]
+```
+
+### 基本的な使い方
+
+```python
+from validkit import v
+from nanasqlite import NanaSQLite, NanaSQLiteValidationError
+
+schema = {"name": v.str(), "age": v.int().range(0, 150)}
+db = NanaSQLite("mydata.db", validator=schema)
+
+db["user"] = {"name": "Alice", "age": 30}        # OK
+db["user"] = {"name": "Bob", "age": "invalid"}   # → NanaSQLiteValidationError
+```
+
+### テーブルごとのバリデーション
+
+```python
+from validkit import v
+from nanasqlite import NanaSQLite
+
+user_schema = {"name": v.str(), "age": v.int()}
+score_schema = {"player": v.str(), "score": v.float().range(0.0, 100.0)}
+
+db = NanaSQLite("app.db")
+
+# テーブルごとに異なるスキーマを適用
+users_db = db.table("users", validator=user_schema)
+scores_db = db.table("scores", validator=score_schema)
+
+# 親からスキーマを継承したい場合
+db2 = NanaSQLite("app2.db", validator=user_schema)
+child_db = db2.table("users2")         # 親のスキーマを自動継承
+free_db  = db2.table("cache", validator=None)  # バリデーション無効化
+```
+
+### 機能フラグの確認
+
+```python
+from nanasqlite import HAS_VALIDKIT
+
+if HAS_VALIDKIT:
+    print("validkit-py が利用可能です")
+else:
+    print("validkit-py は未インストールです")
+```
+
+### バリデーションエラーの処理
+
+```python
+from nanasqlite import NanaSQLite, NanaSQLiteValidationError
+from validkit import v
+
+schema = {"name": v.str(), "score": v.int().range(0, 100)}
+db = NanaSQLite("game.db", validator=schema)
+
+try:
+    db["player1"] = {"name": "Alice", "score": 150}  # range 違反
+except NanaSQLiteValidationError as e:
+    print(f"バリデーションエラー: {e}")
+    # DB には書き込まれていない
 ```
 
 ---

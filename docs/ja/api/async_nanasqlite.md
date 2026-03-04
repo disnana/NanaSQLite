@@ -32,6 +32,7 @@ def __init__(
     forbidden_sql_functions: list[str] | None = None,
     max_clause_length: int | None = 1000,
     read_pool_size: int = 0,
+    validator: dict | Any | None = None,
 )
 ```
 
@@ -46,6 +47,7 @@ AsyncNanaSQLiteインターフェースを初期化します。
 - `read_pool_size` (int, 任意): 専用の読み取り専用接続プールのサイズ。デフォルトは `0`（無効）。
   - これを有効にする（例: `read_pool_size=4`）と、書き込みロックをバイパスして並列読み取りが可能になります。
 - `strict_sql_validation` など: `NanaSQLite` と同じセキュリティパラメータ。
+- `validator` (dict | Schema | None, 任意): validkit-py のバリデーションスキーマ。`NanaSQLite` の `validator` と同じ動作をします。書き込み時にスキーマ検証を行い、違反時は `NanaSQLiteValidationError` を送出します。使用には `pip install nanasqlite[validation]` が必要です。(v1.3.4b2以降)
 
 ---
 
@@ -62,11 +64,15 @@ async def close(self) -> None
 ### `table`
 
 ```python
-async def table(self, table_name: str) -> AsyncNanaSQLite
+async def table(self, table_name: str, validator: dict | Any | None = None) -> AsyncNanaSQLite
 ```
 
 サブテーブル用の新しい `AsyncNanaSQLite` インスタンスを非同期に作成します。
 スレッドプールと接続は親と共有されます。
+
+**パラメータ:**
+- `table_name` (str): サブテーブルの名前。
+- `validator` (dict | Schema | None, 任意): このサブテーブル用の validkit-py スキーマ。省略時は親インスタンスのスキーマを自動継承。`None` を明示すると無効化。(v1.3.4b2以降)
 
 ---
 

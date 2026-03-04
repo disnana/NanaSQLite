@@ -32,6 +32,7 @@ def __init__(
     forbidden_sql_functions: list[str] | None = None,
     max_clause_length: int | None = 1000,
     read_pool_size: int = 0,
+    validator: dict | Any | None = None,
 )
 ```
 
@@ -46,6 +47,7 @@ Initializes the AsyncNanaSQLite interface.
 - `read_pool_size` (int, optional): Size of the dedicated read-only connection pool. Defaults to `0` (disabled).
   - Enable this (e.g., `read_pool_size=4`) to allow concurrent reads to bypass the write lock.
 - `strict_sql_validation`, `allowed_sql_functions`, etc.: Same security parameters as `NanaSQLite`.
+- `validator` (dict | Schema | None, optional): A validkit-py validation schema. Behaves identically to the `validator` parameter of `NanaSQLite`. Validates values on every write and raises `NanaSQLiteValidationError` on schema violations. Requires `pip install nanasqlite[validation]`. (v1.3.4b2+)
 
 ---
 
@@ -62,11 +64,15 @@ Closes the database connection and shuts down the thread pool.
 ### `table`
 
 ```python
-async def table(self, table_name: str) -> AsyncNanaSQLite
+async def table(self, table_name: str, validator: dict | Any | None = None) -> AsyncNanaSQLite
 ```
 
 Asynchronously creates a new `AsyncNanaSQLite` instance for a sub-table.
 Shares the thread pool and connection with the parent.
+
+**Parameters:**
+- `table_name` (str): The name of the sub-table.
+- `validator` (dict | Schema | None, optional): A validkit-py schema for this sub-table. When omitted, the parent's schema is inherited automatically. Pass `None` explicitly to disable validation for this sub-table. (v1.3.4b2+)
 
 ---
 
