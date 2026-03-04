@@ -13,6 +13,8 @@ import json
 import logging
 import os
 import re
+import shutil
+import tempfile
 import threading
 import warnings
 import weakref
@@ -936,26 +938,28 @@ class NanaSQLite(MutableMapping):
         if not mapping:
             return  # 空の場合は何もしない
 
-        cursor = self._connection.cursor()
-        cursor.execute("BEGIN IMMEDIATE")
-        try:
-            # 事前にシリアライズしてexecutemany用のタプルリストを作成
-            params = [(key, self._serialize(value)) for key, value in mapping.items()]
-            cursor.executemany(
-                f"INSERT OR REPLACE INTO {self._table} (key, value) VALUES (?, ?)",  # nosec
-                params,
-            )
-            # キャッシュ更新
-            for key, value in mapping.items():
-                if self._lru_mode:
-                    self._cache.set(key, value)
-                else:
-                    self._data[key] = value
-                    self._cached_keys.add(key)
-            cursor.execute("COMMIT")
-        except Exception:
-            cursor.execute("ROLLBACK")
-            raise
+        self._check_connection()
+        with self._acquire_lock():
+            cursor = self._connection.cursor()
+            cursor.execute("BEGIN IMMEDIATE")
+            try:
+                # 事前にシリアライズしてexecutemany用のタプルリストを作成
+                params = [(key, self._serialize(value)) for key, value in mapping.items()]
+                cursor.executemany(
+                    f"INSERT OR REPLACE INTO {self._table} (key, value) VALUES (?, ?)",  # nosec
+                    params,
+                )
+                # キャッシュ更新
+                for key, value in mapping.items():
+                    if self._lru_mode:
+                        self._cache.set(key, value)
+                    else:
+                        self._data[key] = value
+                        self._cached_keys.add(key)
+                cursor.execute("COMMIT")
+            except Exception:
+                cursor.execute("ROLLBACK")
+                raise
 
     def batch_delete(self, keys: list[str]) -> None:
         """
@@ -973,26 +977,27 @@ class NanaSQLite(MutableMapping):
         if not keys:
             return  # 空の場合は何もしない
 
-        cursor = self._connection.cursor()
-        cursor.execute("BEGIN IMMEDIATE")
-        try:
-            # executemany用のタプルリストを作成
-            params = [(key,) for key in keys]
-            cursor.executemany(
-                f"DELETE FROM {self._table} WHERE key = ?",  # nosec
-                params,
-            )
-            # キャッシュ更新
-            for key in keys:
-                if self._lru_mode:
-                    self._cache.delete(key)
-                else:
-                    self._data.pop(key, None)
-                    self._cached_keys.discard(key)
-            cursor.execute("COMMIT")
-        except Exception:
-            cursor.execute("ROLLBACK")
-            raise
+        with self._acquire_lock():
+            cursor = self._connection.cursor()
+            cursor.execute("BEGIN IMMEDIATE")
+            try:
+                # executemany用のタプルリストを作成
+                params = [(key,) for key in keys]
+                cursor.executemany(
+                    f"DELETE FROM {self._table} WHERE key = ?",  # nosec
+                    params,
+                )
+                # キャッシュ更新
+                for key in keys:
+                    if self._lru_mode:
+                        self._cache.delete(key)
+                    else:
+                        self._data.pop(key, None)
+                        self._cached_keys.discard(key)
+                cursor.execute("COMMIT")
+            except Exception:
+                cursor.execute("ROLLBACK")
+                raise
 
     def to_dict(self) -> dict:
         """全データをPython dictとして取得"""
@@ -1038,6 +1043,14 @@ class NanaSQLite(MutableMapping):
             NanaSQLiteDatabaseError: バックアップ中にエラーが発生した場合
         """
         self._check_connection()
+        # dest_path が DB ファイル自身と同一の場合は自己コピーになり破損する恐れがあるため拒否する
+        try:
+            if os.path.samefile(dest_path, self._db_path):
+                raise NanaSQLiteValidationError(
+                    "dest_path must not be the same as the current database file"
+                )
+        except FileNotFoundError:
+            pass  # dest_path がまだ存在しない場合は問題なし
         with self._acquire_lock():
             dest_conn = None
             try:
@@ -1070,8 +1083,6 @@ class NanaSQLite(MutableMapping):
             NanaSQLiteTransactionError: トランザクション中に呼ばれた場合
             NanaSQLiteDatabaseError: リストア中にエラーが発生した場合
         """
-        import shutil
-
         self._check_connection()
         if not self._is_connection_owner:
             raise NanaSQLiteConnectionError(
@@ -1093,9 +1104,30 @@ class NanaSQLite(MutableMapping):
         with self._acquire_lock():
             # ロック内でスナップショットを取得し、table() と競合しないようにする
             children = list(self._child_instances)
+            tmp_path = None
             try:
+                # 元DBのパーミッションを先に取得しておく（接続クローズ後も stat は可能だがここで取る）
+                try:
+                    original_mode = os.stat(self._db_path).st_mode
+                except OSError:
+                    original_mode = None
                 self._connection.close()
-                shutil.copy2(src_path, self._db_path)
+                # 一時ファイルへコピー→fsync→os.replace() で原子的に置き換える
+                db_dir = os.path.dirname(os.path.abspath(self._db_path))
+                fd, tmp_path = tempfile.mkstemp(dir=db_dir)
+                with os.fdopen(fd, "wb") as tmp_f:
+                    with open(src_path, "rb") as src_f:
+                        shutil.copyfileobj(src_f, tmp_f)
+                    tmp_f.flush()
+                    os.fsync(tmp_f.fileno())
+                # 元DBのパーミッションを一時ファイルに適用してから原子的に置き換える
+                if original_mode is not None:
+                    try:
+                        os.chmod(tmp_path, original_mode)
+                    except OSError:
+                        pass
+                os.replace(tmp_path, self._db_path)
+                tmp_path = None  # replace 成功したので cleanup 不要
                 self._connection = apsw.Connection(self._db_path)
                 if self._optimize:
                     self._apply_optimizations(self._cache_size_mb)
@@ -1107,6 +1139,12 @@ class NanaSQLite(MutableMapping):
                 for child in children:
                     child.clear_cache()
             except (apsw.Error, OSError) as e:
+                # 残った一時ファイルを削除する
+                if tmp_path is not None:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
                 # 失敗時に現在の DB へ再接続して一貫した状態を保つ
                 try:
                     self._connection = apsw.Connection(self._db_path)

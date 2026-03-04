@@ -50,9 +50,11 @@ def test_lock_timeout_raises_on_deadlock(tmp_path):
 
     def hold_lock():
         db._lock.acquire()
-        lock_held.set()           # ロック取得を通知
-        can_release.wait()        # try_acquire が終わるまで保持
-        db._lock.release()
+        try:
+            lock_held.set()           # ロック取得を通知
+            can_release.wait()        # try_acquire が終わるまで保持
+        finally:
+            db._lock.release()
 
     def try_acquire():
         lock_held.wait()          # hold_lock がロックを取得するまで待つ
