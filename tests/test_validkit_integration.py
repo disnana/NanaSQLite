@@ -6,7 +6,7 @@ import importlib.util
 
 import pytest
 
-from nanasqlite import NanaSQLite, NanaSQLiteValidationError
+from nanasqlite import AsyncNanaSQLite, NanaSQLite, NanaSQLiteValidationError
 
 # validkit がインストールされていない場合はほとんどのテストをスキップ
 validkit_installed = importlib.util.find_spec("validkit") is not None
@@ -166,3 +166,103 @@ def test_table_child_does_not_affect_parent_validator(tmp_path):
     child_db["c1"] = {"name": "Helen"}
     with pytest.raises(NanaSQLiteValidationError):
         child_db["c2"] = {"name": 999}
+
+
+# ========================== AsyncNanaSQLite validator tests ==========================
+
+
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.asyncio
+async def test_async_validator_accepts_valid_value(tmp_path):
+    """AsyncNanaSQLite: バリデーションスキーマに一致する値は正常に保存される。"""
+    from validkit import v
+
+    schema = {"name": v.str(), "age": v.int()}
+    async with AsyncNanaSQLite(str(tmp_path / "async_valid.db"), validator=schema) as db:
+        await db.aset("user", {"name": "Alice", "age": 30})
+        assert await db.aget("user") == {"name": "Alice", "age": 30}
+
+
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.asyncio
+async def test_async_validator_rejects_invalid_value(tmp_path):
+    """AsyncNanaSQLite: バリデーションスキーマに違反する値は NanaSQLiteValidationError が送出される。"""
+    from validkit import v
+
+    schema = {"name": v.str(), "age": v.int()}
+    async with AsyncNanaSQLite(str(tmp_path / "async_invalid.db"), validator=schema) as db:
+        with pytest.raises(NanaSQLiteValidationError):
+            await db.aset("user", {"name": "Bob", "age": "not_an_int"})
+
+
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.asyncio
+async def test_async_validator_does_not_affect_db_when_invalid(tmp_path):
+    """AsyncNanaSQLite: バリデーションエラー時はDBに値が保存されないことを確認する。"""
+    from validkit import v
+
+    schema = {"name": v.str(), "score": v.int()}
+    async with AsyncNanaSQLite(str(tmp_path / "async_no_write.db"), validator=schema) as db:
+        with pytest.raises(NanaSQLiteValidationError):
+            await db.aset("entry", {"name": "Carol", "score": "oops"})
+        assert not await db.acontains("entry")
+
+
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.asyncio
+async def test_async_table_inherits_parent_validator(tmp_path):
+    """AsyncNanaSQLite: table() で validator を指定しない場合、親の validator が引き継がれる。"""
+    from validkit import v
+
+    schema = {"name": v.str(), "age": v.int()}
+    async with AsyncNanaSQLite(str(tmp_path / "async_inherit.db"), validator=schema) as db:
+        users_db = await db.table("users")
+
+        await users_db.aset("u1", {"name": "Dave", "age": 25})
+        assert await users_db.aget("u1") == {"name": "Dave", "age": 25}
+
+        with pytest.raises(NanaSQLiteValidationError):
+            await users_db.aset("u2", {"name": "Eve", "age": "bad"})
+
+
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.asyncio
+async def test_async_table_override_validator(tmp_path):
+    """AsyncNanaSQLite: table() で独自の validator を渡すと、そのスキーマが使われる。"""
+    from validkit import v
+
+    parent_schema = {"x": v.int()}
+    child_schema = {"name": v.str(), "score": v.float()}
+    async with AsyncNanaSQLite(str(tmp_path / "async_override.db"), validator=parent_schema) as db:
+        scores_db = await db.table("scores", validator=child_schema)
+
+        await scores_db.aset("s1", {"name": "Frank", "score": 9.5})
+        assert await scores_db.aget("s1") == {"name": "Frank", "score": 9.5}
+
+        with pytest.raises(NanaSQLiteValidationError):
+            await scores_db.aset("s2", {"name": "Grace", "score": "not_a_float"})
+
+
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.asyncio
+async def test_async_table_explicit_none_disables_parent_validator(tmp_path):
+    """AsyncNanaSQLite: table(validator=None) を明示すると親のスキーマを無効化できる。"""
+    from validkit import v
+
+    parent_schema = {"name": v.str(), "age": v.int()}
+    async with AsyncNanaSQLite(str(tmp_path / "async_disable.db"), validator=parent_schema) as db:
+        free_db = await db.table("free_table", validator=None)
+
+        # バリデーションなしなので任意の値を書き込める
+        await free_db.aset("k", {"anything": True, "n": 99})
+        assert (await free_db.aget("k"))["anything"] is True
+
+
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.asyncio
+async def test_async_no_validator_allows_any_value(tmp_path):
+    """AsyncNanaSQLite: validator を指定しない場合は任意の値を保存できる。"""
+    async with AsyncNanaSQLite(str(tmp_path / "async_novalidator.db")) as db:
+        await db.aset("misc", {"anything": [1, 2, 3], "flag": True})
+        result = await db.aget("misc")
+        assert result["flag"] is True
