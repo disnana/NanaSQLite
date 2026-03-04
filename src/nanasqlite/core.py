@@ -1135,21 +1135,24 @@ class NanaSQLite(MutableMapping):
             # ロック内でスナップショットを取得し、table() と競合しないようにする
             children = list(self._child_instances)
             tmp_path = None
+            src_f = None
             try:
                 # 元DBのパーミッションを先に取得しておく（接続クローズ後も stat は可能だがここで取る）
                 try:
                     original_mode = os.stat(self._db_path).st_mode
                 except OSError:
                     original_mode = None
+                # 少なくとも src_path がオープン可能かどうかを、接続クローズ前に確認する
+                # 事前の isfile/access チェックは TOCTOU になるため行わず、open() の成否で判断する
+                src_f = open(src_path, "rb")
                 self._connection.close()
                 # 一時ファイルへコピー→fsync→os.replace() で原子的に置き換える
-                # 事前の isfile/access チェックは TOCTOU になるため省略し、
                 # open()/コピー中の OSError は外側の except (apsw.Error, OSError) で捕捉して
                 # NanaSQLiteDatabaseError に変換する
                 db_dir = os.path.dirname(os.path.abspath(self._db_path))
                 fd, tmp_path = tempfile.mkstemp(dir=db_dir)
                 with os.fdopen(fd, "wb") as tmp_f:
-                    with open(src_path, "rb") as src_f:
+                    with src_f:
                         shutil.copyfileobj(src_f, tmp_f)
                     tmp_f.flush()
                     os.fsync(tmp_f.fileno())
