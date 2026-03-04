@@ -1116,6 +1116,7 @@ class NanaSQLite(MutableMapping):
             NanaSQLiteValidationError: 現在のDBがインメモリDB（':memory:' など）の場合（ファイル置換が不可能なため）
             NanaSQLiteTransactionError: トランザクション中に呼ばれた場合
             NanaSQLiteDatabaseError: リストア中にエラーが発生した場合
+            NanaSQLiteLockError: lock_timeout 設定によりロック取得に失敗した場合
         """
         self._check_connection()
         # DB がインメモリの場合はファイル置換ができないため拒否する（早期失敗）
