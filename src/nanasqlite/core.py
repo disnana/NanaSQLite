@@ -1174,6 +1174,7 @@ class NanaSQLite(MutableMapping):
                     try:
                         os.unlink(sidecar)
                     except FileNotFoundError:
+                        # サイドカーファイルが存在しない場合は問題ないため無視する
                         pass
                     except OSError as sidecar_err:
                         logger.warning(
