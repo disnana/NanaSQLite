@@ -1157,8 +1157,13 @@ class NanaSQLite(MutableMapping):
                 if original_mode is not None:
                     try:
                         os.chmod(tmp_path, stat.S_IMODE(original_mode))
-                    except OSError:
-                        pass
+                    except OSError as chmod_err:
+                        logger.warning(
+                            "Could not apply original file mode %r to temporary DB file %r during restore: %s",
+                            stat.S_IMODE(original_mode),
+                            tmp_path,
+                            chmod_err,
+                        )
                 os.replace(tmp_path, self._db_path)
                 tmp_path = None  # replace 成功したので cleanup 不要
                 # WAL モード使用時に残る可能性のあるサイドカーファイルを削除する。
