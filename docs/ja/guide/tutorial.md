@@ -346,6 +346,75 @@ asyncio.run(main())
 
 詳細な非同期ドキュメントは[async_guide.md](async_guide.md)を参照してください。
 
+## レッスン10: ロックタイムアウト・バックアップ・リストア (v1.3.4b1以降)
+
+### ロックタイムアウト
+
+デフォルトでは NanaSQLite は内部ロックを無制限に待ち続けます。
+`lock_timeout` を設定することで、ロックが一定時間内に取得できない場合に `NanaSQLiteLockError` を送出できます：
+
+```python
+from nanasqlite import NanaSQLite, NanaSQLiteLockError
+
+db = NanaSQLite("app.db", lock_timeout=2.0)  # 2秒待ってもロックが取れなければエラー
+
+try:
+    db["key"] = "value"
+except NanaSQLiteLockError as e:
+    print(f"ロックを取得できませんでした: {e}")
+```
+
+**`lock_timeout` を使う場面:**
+- マルチスレッドのアプリケーションでデッドロックが起こりうる場合
+- 応答時間を上限で保証したいサービス
+
+### バックアップ
+
+`backup()` は APSW の SQLite オンラインバックアップ API を使用してデータベースを別ファイルにコピーします。
+データベースの使用中でも安全に実行できます：
+
+```python
+db = NanaSQLite("app.db")
+db["user"] = {"name": "Nana", "role": "admin"}
+
+# バックアップを作成 — 並行した読み書き中でも安全
+db.backup("app_backup_2026-03-04.db")
+
+# バックアップファイルは完全に独立した SQLite データベース
+backup_db = NanaSQLite("app_backup_2026-03-04.db")
+print(backup_db["user"])  # {'name': 'Nana', 'role': 'admin'}
+backup_db.close()
+```
+
+### リストア
+
+`restore()` は現在のデータベースをバックアップファイルで置き換え、自動的に再接続します：
+
+```python
+db = NanaSQLite("app.db")
+db["counter"] = 1
+
+# ベースラインスナップショットを作成
+db.backup("snapshot.db")
+
+# データの誤操作や破損をシミュレート
+db["counter"] = 9999
+db["bad_key"] = "oops"
+
+# スナップショットまでロールバック
+db.restore("snapshot.db")
+
+print(db["counter"])     # 1
+print("bad_key" in db)   # False
+
+db.close()
+```
+
+> [!NOTE]
+> `restore()` は **プライマリ**（接続を所有している）インスタンスからのみ呼び出せます。
+> `.table()` で取得したインスタンスからは呼び出せません。
+> また、リストア後はメモリキャッシュが自動的にクリアされます。
+
 ## 一般的なパターン
 
 ### 設定の保存
@@ -466,5 +535,7 @@ db.batch_update(data)  # 個別書き込みよりはるかに高速
 - ✅ 直接SQLクエリ
 - ✅ エラーハンドリング
 - ✅ 一般的な使用パターン
+- ✅ ロックタイムアウトによるデッドロック防止
+- ✅ バックアップ / リストアによるデータ保護
 
 NanaSQLiteを楽しんでコーディングしてください！

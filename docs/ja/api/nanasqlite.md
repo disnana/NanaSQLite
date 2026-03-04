@@ -23,7 +23,8 @@ def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
              strict_sql_validation: bool = True,
              allowed_sql_functions: list[str] | None = None,
              forbidden_sql_functions: list[str] | None = None,
-             max_clause_length: int | None = 1000)
+             max_clause_length: int | None = 1000,
+             lock_timeout: float | None = None)
 ```
 
 NanaSQLiteデータベース接続を初期化します。
@@ -39,6 +40,7 @@ NanaSQLiteデータベース接続を初期化します。
 - `allowed_sql_functions` (list[str], 任意): 追加で許可するSQL関数のリスト。
 - `forbidden_sql_functions` (list[str], 任意): 明示的に禁止するSQL関数のリスト。
 - `max_clause_length` (int, 任意): SQL句の最大長（ReDoS対策）。デフォルトは `1000`。
+- `lock_timeout` (float | None, 任意): 内部ロック取得の最大待機秒数。指定時間内にロックを取得できない場合は `NanaSQLiteLockError` を送出します。`None`（デフォルト）は無制限待機。(v1.3.4b1以降)
 
 ---
 
@@ -495,6 +497,63 @@ SQLiteのPRAGMA値を取得または設定します。
 def get_last_insert_rowid(self) -> int
 ```
 最後に挿入された行の `ROWID` を返します。
+
+---
+
+## バックアップ & リストア (v1.3.4b1以降)
+
+### `backup`
+
+```python
+def backup(self, dest_path: str) -> None
+```
+
+APSW の SQLite オンラインバックアップ API を使用して、現在のデータベースをファイルにバックアップします。
+バックアップはページ単位で実行されるため、並行した読み書き中でも安全に動作します。
+
+**パラメータ:**
+- `dest_path` (str): バックアップ先のファイルパス。
+
+**例外:**
+- `NanaSQLiteClosedError`: 接続が閉じられている場合。
+- `NanaSQLiteDatabaseError`: バックアップ中にエラーが発生した場合。
+
+**使用例:**
+```python
+db = NanaSQLite("app.db")
+db["user"] = {"name": "Nana"}
+db.backup("app_backup.db")
+# app_backup.db に app.db の完全なコピーが保存されます
+```
+
+### `restore`
+
+```python
+def restore(self, src_path: str) -> None
+```
+
+バックアップファイルからデータベースをリストアします。
+現在の接続を閉じ、バックアップファイルを DB ファイルに上書きコピーして接続を再確立します。
+リストア後はメモリキャッシュが自動的にクリアされます。
+
+**パラメータ:**
+- `src_path` (str): リストア元のバックアップファイルパス。
+
+**例外:**
+- `NanaSQLiteClosedError`: 接続が閉じられている場合。
+- `NanaSQLiteConnectionError`: `.table()` で取得した（接続を所有しない）インスタンスから呼び出した場合。
+- `NanaSQLiteDatabaseError`: リストア中にエラーが発生した場合（例：ファイルが存在しない）。
+
+**使用例:**
+```python
+db = NanaSQLite("app.db")
+db["user"] = {"name": "Nana"}
+db.backup("snapshot.db")
+
+db["user"] = {"name": "変更後"}
+db.restore("snapshot.db")
+print(db["user"])  # {'name': 'Nana'}
+```
 
 ---
 

@@ -23,7 +23,8 @@ def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
              strict_sql_validation: bool = True,
              allowed_sql_functions: list[str] | None = None,
              forbidden_sql_functions: list[str] | None = None,
-             max_clause_length: int | None = 1000)
+             max_clause_length: int | None = 1000,
+             lock_timeout: float | None = None)
 ```
 
 Initializes the NanaSQLite database connection.
@@ -39,6 +40,7 @@ Initializes the NanaSQLite database connection.
 - `allowed_sql_functions` (list[str] | None, optional): List of additional SQL functions to allow.
 - `forbidden_sql_functions` (list[str] | None, optional): List of SQL functions to explicitly forbid.
 - `max_clause_length` (int | None, optional): Maximum length for SQL clauses (ReDoS protection). Defaults to `1000`.
+- `lock_timeout` (float | None, optional): Maximum seconds to wait for the internal lock. Raises `NanaSQLiteLockError` if the lock cannot be acquired in time. `None` (default) means wait indefinitely. (v1.3.4b1+)
 
 ---
 
@@ -495,6 +497,63 @@ Gets or sets a SQLite PRAGMA value.
 def get_last_insert_rowid(self) -> int
 ```
 Returns the `ROWID` of the last inserted row.
+
+---
+
+## Backup & Restore (v1.3.4b1+)
+
+### `backup`
+
+```python
+def backup(self, dest_path: str) -> None
+```
+
+Backs up the current database to a file using APSW's SQLite online backup API.
+The backup is performed page-by-page so it is safe even during concurrent reads/writes.
+
+**Parameters:**
+- `dest_path` (str): Destination file path for the backup.
+
+**Raises:**
+- `NanaSQLiteClosedError`: If the connection is already closed.
+- `NanaSQLiteDatabaseError`: If an error occurs during the backup.
+
+**Example:**
+```python
+db = NanaSQLite("app.db")
+db["user"] = {"name": "Nana"}
+db.backup("app_backup.db")
+# app_backup.db now contains a complete copy of app.db
+```
+
+### `restore`
+
+```python
+def restore(self, src_path: str) -> None
+```
+
+Restores the database from a backup file.
+Closes the current connection, copies the backup file over the database file,
+and then re-establishes the connection. The in-memory cache is cleared after restore.
+
+**Parameters:**
+- `src_path` (str): Path to the backup file to restore from.
+
+**Raises:**
+- `NanaSQLiteClosedError`: If the connection is already closed.
+- `NanaSQLiteConnectionError`: If called on an instance obtained via `.table()` (not the connection owner).
+- `NanaSQLiteDatabaseError`: If an error occurs during the restore (e.g., file not found).
+
+**Example:**
+```python
+db = NanaSQLite("app.db")
+db["user"] = {"name": "Nana"}
+db.backup("snapshot.db")
+
+db["user"] = {"name": "Modified"}
+db.restore("snapshot.db")
+print(db["user"])  # {'name': 'Nana'}
+```
 
 ---
 
