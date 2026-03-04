@@ -6,6 +6,31 @@
 
 ## 日本語
 
+### [1.3.4b1] - 2026-03-04
+
+#### 新機能
+
+- **`lock_timeout` パラメータの追加** (P2-1):
+  - `NanaSQLite.__init__` に `lock_timeout: float | None = None` パラメータを追加。
+  - 設定すると、ロック取得時に指定秒数以内に取得できない場合は `NanaSQLiteLockError` を送出。
+  - デフォルト `None` は従来通り無制限待機。後方互換性への影響はありません。
+  - 内部に `_acquire_lock()` コンテキストマネージャを新設し、ユーザー操作に伴う排他制御ではロックタイムアウトが反映されます（一部の内部処理〈期限切れ削除など〉は従来通りブロッキング取得のままです）。
+
+- **`backup()` / `restore()` メソッドの追加** (P2-3):
+  - `NanaSQLite.backup(dest_path)`: APSW の SQLite オンラインバックアップ API を使用して、現在の DB を `dest_path` にバックアップします。
+  - `NanaSQLite.restore(src_path)`: `src_path` のバックアップファイルから DB を復元し、接続を再確立してキャッシュをクリアします。リストア時に WAL/SHM/journal サイドカーファイル（`-wal`/`-shm`/`-journal`）を明示的に削除し、stale な WAL 内容の再生による不整合を防止します。
+  - 両メソッドとも新規 public メソッドの追加のみ。後方互換性への影響はありません。
+
+#### スレッドセーフティ改善
+
+- **`table()` の子インスタンス生成をロック保護**:
+  - `table()` での子インスタンス生成〜`WeakSet` 追加を `_acquire_lock()` で保護。`restore()` の接続差し替えとの競合を防止し、子インスタンスが閉じた接続を参照するリスクを排除。
+
+#### バグ修正
+
+- **`__delitem__` に `_check_connection()` を追加**:
+  - `del db[key]` でクローズ済み接続を使用した際に `NanaSQLiteClosedError` を送出するよう修正。`__setitem__`・`pop()`・`clear()` と例外挙動を統一。
+
 ### [1.3.4b0] - 2026-03-04
 
 #### コード品質改善
@@ -480,6 +505,31 @@
 ---
 
 ## English
+
+### [1.3.4b1] - 2026-03-04
+
+#### New Features
+
+- **`lock_timeout` parameter** (P2-1):
+  - Added `lock_timeout: float | None = None` parameter to `NanaSQLite.__init__`.
+  - When set, raises `NanaSQLiteLockError` if the lock cannot be acquired within the specified seconds.
+  - Default `None` preserves the existing unlimited-wait behaviour. Fully backward-compatible.
+  - Introduced `_acquire_lock()` context manager internally so user-facing exclusive operations respect the timeout (some internal operations such as TTL expiry deletion continue to use blocking acquisition).
+
+- **`backup()` / `restore()` methods** (P2-3):
+  - `NanaSQLite.backup(dest_path)`: Backs up the current database to `dest_path` using APSW's SQLite online backup API.
+  - `NanaSQLite.restore(src_path)`: Restores the database from a backup file, re-establishes the connection, and clears the in-memory cache. Explicitly removes WAL/SHM/journal sidecar files (`-wal`/`-shm`/`-journal`) before reopening to prevent stale WAL replay causing an inconsistent state.
+  - Both are new public methods only; no backward-compatibility impact.
+
+#### Thread Safety Improvements
+
+- **Lock-protected child instance creation in `table()`**:
+  - Wrapped child instance creation and `WeakSet` registration in `table()` with `_acquire_lock()` to prevent race conditions with `restore()`'s connection replacement, eliminating the risk of child instances referencing a closed connection.
+
+#### Bug Fixes
+
+- **Added `_check_connection()` to `__delitem__`**:
+  - `del db[key]` on a closed connection now raises `NanaSQLiteClosedError` consistently, matching the behaviour of `__setitem__`, `pop()`, and `clear()`.
 
 ### [1.3.4b0] - 2026-03-04
 

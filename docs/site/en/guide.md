@@ -556,6 +556,75 @@ data = {f"key_{i}": value for i in range(10000)}
 db.batch_update(data)  # Much faster than individual writes
 ```
 
+## Lesson 13: Lock Timeout, Backup & Restore (v1.3.4b1+)
+
+### Lock Timeout
+
+By default, NanaSQLite waits indefinitely to acquire its internal lock.
+You can set `lock_timeout` to raise `NanaSQLiteLockError` if the lock is held too long:
+
+```python
+from nanasqlite import NanaSQLite, NanaSQLiteLockError
+
+db = NanaSQLite("app.db", lock_timeout=2.0)  # Raise error after 2 seconds
+
+try:
+    db["key"] = "value"
+except NanaSQLiteLockError as e:
+    print(f"Lock not acquired: {e}")
+```
+
+**When to use `lock_timeout`:**
+- Multithreaded applications where a deadlock could occur
+- Services that require bounded response times
+
+### Backup
+
+`backup()` uses APSW's SQLite online backup API to copy the database to another file.
+It is safe from a data-integrity perspective even while other SQLite connections are reading/writing.
+NanaSQLite's internal lock is **not** held during the actual backup, so other NanaSQLite operations in the same process can proceed concurrently without blocking:
+
+```python
+db = NanaSQLite("app.db")
+db["user"] = {"name": "Nana", "role": "admin"}
+
+# Create a backup – non-blocking: other NanaSQLite operations continue normally during backup
+db.backup("app_backup_2026-03-04.db")
+
+# The backup file is a fully independent SQLite database
+backup_db = NanaSQLite("app_backup_2026-03-04.db")
+print(backup_db["user"])  # {'name': 'Nana', 'role': 'admin'}
+backup_db.close()
+```
+
+### Restore
+
+`restore()` replaces the current database with a backup file and reconnects automatically:
+
+```python
+db = NanaSQLite("app.db")
+db["counter"] = 1
+
+# Create a baseline snapshot
+db.backup("snapshot.db")
+
+# Simulate data corruption or unwanted changes
+db["counter"] = 9999
+db["bad_key"] = "oops"
+
+# Roll back to the snapshot
+db.restore("snapshot.db")
+
+print(db["counter"])     # 1
+print("bad_key" in db)   # False
+
+db.close()
+```
+
+> [!NOTE]
+> `restore()` can only be called on the **primary** (connection-owning) instance — not on one
+> obtained via `.table()`. Also, all in-memory cache is cleared automatically after restore.
+
 ## Summary
 
 You've learned:
@@ -566,5 +635,6 @@ You've learned:
 - ✅ Direct SQL queries
 - ✅ Error handling
 - ✅ Common usage patterns
+- ✅ Backup and restore for data safety
 
 Happy coding with NanaSQLite!

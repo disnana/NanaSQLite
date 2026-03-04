@@ -380,6 +380,61 @@ with NanaSQLite("app.db") as db:
 
 ---
 
+## Data Safety: Backup & Restore (v1.3.4b1+)
+
+### Scheduled Backups
+
+Use `backup()` to create periodic snapshots without interrupting the running application:
+
+```python
+import schedule
+import time
+from nanasqlite import NanaSQLite
+
+db = NanaSQLite("production.db")
+
+def daily_backup():
+    from datetime import date
+    db.backup(f"backups/production_{date.today()}.db")
+    print(f"Backup completed: {date.today()}")
+
+schedule.every().day.at("02:00").do(daily_backup)
+
+while True:
+    schedule.run_pending()
+    time.sleep(1)
+```
+
+### Pre-Upgrade Snapshot
+
+Always take a snapshot before a schema migration or data transformation:
+
+```python
+with NanaSQLite("app.db") as db:
+    # Take a snapshot before the risky operation
+    db.backup("pre_migration_snapshot.db")
+
+    # Perform the migration
+    db.execute("ALTER TABLE data ADD COLUMN legacy TEXT")
+    # ... migration logic ...
+```
+
+### Rollback on Error
+
+Use `restore()` to roll back to a known-good state:
+
+```python
+with NanaSQLite("app.db") as db:
+    db.backup("pre_operation.db")
+    try:
+        perform_bulk_update(db)
+    except Exception as e:
+        print(f"Error: {e} – rolling back")
+        db.restore("pre_operation.db")
+```
+
+---
+
 ## Testing
 
 ### Unit Testing
