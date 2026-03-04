@@ -6,6 +6,21 @@
 
 ## 日本語
 
+### [1.3.4b0] - 2026-03-04
+
+#### コード品質改善
+- **非同期プールクリーンアップのログレベル修正**:
+  - `AsyncNanaSQLite.close()` 内の読み取り専用プールドレイン処理で、`AttributeError` 発生時のログレベルを `ERROR` から `WARNING` に変更。
+  - あわせてコメントの文言を「Programming error」から実態に即した「Unexpected AttributeError - log and continue cleanup for resilience」に修正。
+  - ログ出力のみの変更であり、動作・後方互換性への影響はありません。
+
+#### ドキュメント・計画
+- **v1.3.x 計画レビュードキュメントの追加** (`etc/in_progress/v1.3.x_plan_review.md`):
+  - `etc/` 配下の全計画書を横断的にレビューし、v1.3.x で実施すべき残タスクを整理・優先順位付け。
+  - ロードマップ残項目（ロックタイムアウト、バリデーション基盤、バックアップ/リストア）の対応優先度を明記。
+  - v1.3.4b0 〜 v1.4.0 のリリース計画案を記載。
+- **`etc/README.md` 更新**: 新規レビュードキュメントを `in_progress/` 一覧に追記。
+
 ### [1.3.3] - 2026-03-02
 
 #### セキュリティ
@@ -465,6 +480,21 @@
 ---
 
 ## English
+
+### [1.3.4b0] - 2026-03-04
+
+#### Code Quality Improvements
+- **Async pool cleanup log level fix**:
+  - Changed the log level from `ERROR` to `WARNING` for `AttributeError` occurrences during read-only pool drain in `AsyncNanaSQLite.close()`.
+  - Updated the comment wording from "Programming error" to "Unexpected AttributeError - log and continue cleanup for resilience" to better reflect intent.
+  - Log output only; no behaviour or backward-compatibility impact.
+
+#### Documentation & Planning
+- **Added v1.3.x plan review document** (`etc/in_progress/v1.3.x_plan_review.md`):
+  - Cross-referenced all `etc/` planning docs against the v1.3.x changelog to surface remaining work and set priorities.
+  - Documented priorities for roadmap Phase 2 items still outstanding (lock timeout, validation foundation, backup/restore).
+  - Included a draft release schedule from v1.3.4b0 through v1.4.0.
+- **Updated `etc/README.md`**: Added the new review document to the `in_progress/` table.
 
 ### [1.3.3] - 2026-03-02
 
