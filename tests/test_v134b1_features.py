@@ -274,6 +274,9 @@ def test_restore_cleans_stale_wal_sidecar_files(tmp_path):
 
     # -journal は WAL モードでは再生成されないため、削除されたままであること
     assert not os.path.exists(db_path + "-journal")
+    # 注: -wal/-shm は WAL モードの再接続で新規作成されるため存在チェックは行わない。
+    # 上記のデータ整合性チェック（"original" に戻っていること）で stale WAL が
+    # 再生されていないことを間接的に検証している。
 
     db.close()
 
