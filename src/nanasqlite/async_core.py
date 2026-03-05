@@ -35,7 +35,7 @@ from typing import Any, Literal
 import apsw
 
 from .cache import CacheType
-from .core import _UNSET, IDENTIFIER_PATTERN, NanaSQLite
+from .core import HAS_VALIDKIT, _UNSET, IDENTIFIER_PATTERN, NanaSQLite
 from .exceptions import NanaSQLiteClosedError, NanaSQLiteDatabaseError
 
 
@@ -145,6 +145,13 @@ class AsyncNanaSQLite:
         self._encryption_mode = encryption_mode
         # _UNSET は「省略」を意味するセンチネル。None は「バリデーションなし」として明示的に渡せる
         self._validator = None if validator is _UNSET else validator
+        if self._validator is not None and not HAS_VALIDKIT:
+            raise ImportError(
+                "The 'validkit-py' library is required for validation. "
+                "Install it with: pip install nanasqlite[validation]\n"
+                "バリデーション機能には 'validkit-py' ライブラリが必要です。"
+                " pip install nanasqlite[validation] でインストールしてください。"
+            )
         self._coerce: bool = bool(coerce)
         self._closed = False
         self._child_instances = weakref.WeakSet()  # WeakSetによる弱参照追跡（死んだ参照は自動的にクリーンアップ）
