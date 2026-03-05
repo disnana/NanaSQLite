@@ -9,6 +9,8 @@ NanaSQLite v1.1.0以降では、統一されたカスタム例外クラスを提
 3. [一般的なエラーシナリオ](#一般的なエラーシナリオ)
 4. [エラーハンドリングのベストプラクティス](#エラーハンドリングのベストプラクティス)
 5. [デバッグとトラブルシューティング](#デバッグとトラブルシューティング)
+6. [非同期版のエラーハンドリング](#非同期版のエラーハンドリング)
+7. [よくある質問とトラブルシューティング (FAQ)](#よくある質問とトラブルシューティング-faq)
 
 ---
 
@@ -143,19 +145,46 @@ except NanaSQLiteConnectionError as e:
 
 #### `NanaSQLiteLockError`
 
-ロック取得エラー（将来の機能拡張用）。
+`lock_timeout` で指定した時間内に内部ロックを取得できなかった場合に発生します。
 
 **発生するケース**:
-- ロック取得タイムアウト
-- デッドロック検出
+- `lock_timeout` 設定時のロック取得タイムアウト
+- マルチスレッドアプリケーションでのロック競合／デッドロック状況によるロック取得タイムアウト
+
+```python
+from nanasqlite import NanaSQLite, NanaSQLiteLockError
+
+db = NanaSQLite("mydata.db", lock_timeout=2.0)
+
+try:
+    db["key"] = "value"
+except NanaSQLiteLockError as e:
+    print(f"ロックタイムアウト: {e}")
+```
+
+#### `NanaSQLiteClosedError`
+
+`NanaSQLiteConnectionError` のサブクラス。クローズ済みのインスタンスに対して操作を行った場合に発生します。
+
+**発生するケース**:
+- クローズ済みのデータベースインスタンスへの操作
+- 親接続がクローズされた後の子インスタンス（`.table()`）の使用
+
+```python
+from nanasqlite import NanaSQLite, NanaSQLiteClosedError
+
+db = NanaSQLite("mydata.db")
+db.close()
+
+try:
+    db["key"] = "value"
+except NanaSQLiteClosedError as e:
+    print(f"インスタンスはクローズ済みです: {e}")
+```
 
 #### `NanaSQLiteCacheError`
 
 キャッシュ関連エラー（将来の機能拡張用）。
-
-**発生するケース**:
-- キャッシュサイズ超過
-- キャッシュの不整合
 
 ---
 
@@ -168,6 +197,7 @@ Exception
     ├── NanaSQLiteDatabaseError
     ├── NanaSQLiteTransactionError
     ├── NanaSQLiteConnectionError
+    │   └── NanaSQLiteClosedError
     ├── NanaSQLiteLockError
     └── NanaSQLiteCacheError
 ```
@@ -427,14 +457,14 @@ from nanasqlite import NanaSQLite, NanaSQLiteValidationError, NanaSQLiteDatabase
 
 def save_user_data(user_data):
     try:
-        db = NanaSQLite("users.db")
-        db.create_table("users", {
-            "id": "INTEGER PRIMARY KEY",
-            "name": "TEXT",
-            "email": "TEXT UNIQUE"
-        })
-        db.sql_insert("users", user_data)
-        return {"success": True, "message": "ユーザーを登録しました"}
+        with NanaSQLite("users.db") as db:
+            db.create_table("users", {
+                "id": "INTEGER PRIMARY KEY",
+                "name": "TEXT",
+                "email": "TEXT UNIQUE"
+            })
+            db.sql_insert("users", user_data)
+            return {"success": True, "message": "ユーザーを登録しました"}
     except NanaSQLiteValidationError as e:
         return {"success": False, "message": "入力データが不正です"}
     except NanaSQLiteDatabaseError as e:

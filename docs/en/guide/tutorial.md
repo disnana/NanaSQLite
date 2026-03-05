@@ -344,7 +344,7 @@ async def main():
 asyncio.run(main())
 ```
 
-See [async_guide.md](async_guide.md) for detailed async documentation.
+See [async.md](async.md) for detailed async documentation.
 
 ## Lesson 10: Lock Timeout, Backup & Restore (v1.3.4b1+)
 

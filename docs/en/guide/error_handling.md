@@ -140,7 +140,42 @@ except NanaSQLiteConnectionError as e:
 
 #### `NanaSQLiteLockError`
 
-Reserved for future use regarding lock acquisition failures.
+Raised when the internal lock cannot be acquired within the specified `lock_timeout`.
+
+**Common cases**:
+- Lock acquisition timeout when `lock_timeout` is set
+- Lock contention or deadlock-like situations causing a timeout in multithreaded applications
+
+```python
+from nanasqlite import NanaSQLite, NanaSQLiteLockError
+
+db = NanaSQLite("mydata.db", lock_timeout=2.0)
+
+try:
+    db["key"] = "value"
+except NanaSQLiteLockError as e:
+    print(f"Lock timeout: {e}")
+```
+
+#### `NanaSQLiteClosedError`
+
+Subclass of `NanaSQLiteConnectionError`. Raised when performing operations on a closed instance.
+
+**Common cases**:
+- Operating on a closed database instance
+- Using a child instance (`.table()`) after the parent connection has been closed
+
+```python
+from nanasqlite import NanaSQLite, NanaSQLiteClosedError
+
+db = NanaSQLite("mydata.db")
+db.close()
+
+try:
+    db["key"] = "value"
+except NanaSQLiteClosedError as e:
+    print(f"Instance is closed: {e}")
+```
 
 #### `NanaSQLiteCacheError`
 
@@ -157,6 +192,7 @@ Exception
     ├── NanaSQLiteDatabaseError
     ├── NanaSQLiteTransactionError
     ├── NanaSQLiteConnectionError
+    │   └── NanaSQLiteClosedError
     ├── NanaSQLiteLockError
     └── NanaSQLiteCacheError
 ```
@@ -381,6 +417,33 @@ try:
     logger.info("Data saved successfully")
 except NanaSQLiteError as e:
     logger.error(f"Error occurred: {e}", exc_info=True)
+```
+
+### 5. Provide User-Friendly Error Messages
+
+Hide technical details and provide user-friendly messages.
+
+```python
+from nanasqlite import NanaSQLite, NanaSQLiteValidationError, NanaSQLiteDatabaseError
+
+def save_user_data(user_data):
+    try:
+        with NanaSQLite("users.db") as db:
+            db.create_table("users", {
+                "id": "INTEGER PRIMARY KEY",
+                "name": "TEXT",
+                "email": "TEXT UNIQUE"
+            })
+            db.sql_insert("users", user_data)
+            return {"success": True, "message": "User registered successfully"}
+    except NanaSQLiteValidationError as e:
+        return {"success": False, "message": "Invalid input data"}
+    except NanaSQLiteDatabaseError as e:
+        if "unique" in str(e).lower():
+            return {"success": False, "message": "This email is already registered"}
+        return {"success": False, "message": "A database error occurred"}
+    except Exception as e:
+        return {"success": False, "message": "An unexpected error occurred"}
 ```
 
 ---
