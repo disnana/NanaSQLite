@@ -25,7 +25,7 @@ def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
              forbidden_sql_functions: list[str] | None = None,
              max_clause_length: int | None = 1000,
              lock_timeout: float | None = None,
-             validator: dict | Any | None = None,
+             validator: Any | None = None,
              coerce: bool = False)
 ```
 
@@ -72,7 +72,7 @@ def table(self, table_name: str,
           cache_size: int | None = ...,
           cache_ttl: float | None = ...,
           cache_persistence_ttl: bool | None = ...,
-          validator: dict | Any | None = ...,
+          validator: Any | None = ...,
           coerce: bool = ...) -> NanaSQLite
 ```
 

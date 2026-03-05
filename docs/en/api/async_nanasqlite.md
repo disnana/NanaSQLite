@@ -32,7 +32,7 @@ def __init__(
     forbidden_sql_functions: list[str] | None = None,
     max_clause_length: int | None = 1000,
     read_pool_size: int = 0,
-    validator: dict | Any | None = None,
+    validator: Any | None = None,
     coerce: bool = False,
 )
 ```
@@ -67,7 +67,7 @@ Closes the database connection and shuts down the thread pool.
 
 ```python
 async def table(self, table_name: str,
-                validator: dict | Any | None = ...,
+                validator: Any | None = ...,
                 coerce: bool = ...) -> AsyncNanaSQLite
 ```
 
