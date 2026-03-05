@@ -108,7 +108,7 @@ class NanaSQLite(MutableMapping):
         encryption_key: str | bytes | None = None,
         encryption_mode: Literal["aes-gcm", "chacha20", "fernet"] = "aes-gcm",
         lock_timeout: float | None = None,
-        validator: dict | Any | None = _UNSET,  # type: ignore[assignment]
+        validator: dict | Any | None = None,
         coerce: bool = False,
         _shared_connection: apsw.Connection | None = None,
         _shared_lock: threading.RLock | None = None,
@@ -172,8 +172,8 @@ class NanaSQLite(MutableMapping):
                 raise ValueError(f"Unsupported encryption_mode: {encryption_mode}")
 
         # Validkit バリデーション設定（オプション）
-        # _UNSET は「省略」を意味するセンチネル。None は「バリデーションなし」として明示的に渡せる
-        resolved_init_validator = None if validator is _UNSET else validator
+        # None は「バリデーションなし」を意味する
+        resolved_init_validator = validator
         if resolved_init_validator is not None and not HAS_VALIDKIT:
             raise ImportError(
                 "The 'validkit-py' library is required for validation. "
@@ -2573,6 +2573,8 @@ class NanaSQLite(MutableMapping):
         table_name: str,
         cache_strategy: CacheType | Literal["unbounded", "lru", "ttl"] | None = None,
         cache_size: int | None = None,
+        cache_ttl: float | None = None,
+        cache_persistence_ttl: bool | None = None,
         validator: dict | Any | None = _UNSET,  # type: ignore[assignment]
         coerce: bool | Any = _UNSET,  # type: ignore[assignment]
     ):
@@ -2585,6 +2587,10 @@ class NanaSQLite(MutableMapping):
             table_name: テーブル名
             cache_strategy: このテーブル用のキャッシュ戦略 (デフォルト: 親と同じ)
             cache_size: このテーブル用のキャッシュサイズ (デフォルト: 親と同じ)
+            cache_ttl: TTL 戦略使用時のキャッシュ有効期限（秒）。省略時は親の設定を継承する。
+                       親が非TTLの場合に TTL 戦略を指定する際は必須。
+            cache_persistence_ttl: TTL 戦略使用時に期限切れキーを DB に永続化するか。
+                                   省略時は親の設定を継承する。
             validator: このテーブル用の validkit-py スキーマ。
                        指定しない場合は親インスタンスのスキーマを引き継ぐ。
                        ``None`` を明示的に渡すとバリデーションなしで使用できる。
@@ -2625,8 +2631,8 @@ class NanaSQLite(MutableMapping):
         strat = cache_strategy if cache_strategy is not None else self._cache_strategy_raw
         size = cache_size if cache_size is not None else self._cache_size_raw
         # TTL 戦略の場合は cache_ttl と cache_persistence_ttl も継承する（省略時）
-        ttl = self._cache_ttl_raw
-        persist_ttl = self._cache_persistence_ttl_raw
+        ttl = cache_ttl if cache_ttl is not None else self._cache_ttl_raw
+        persist_ttl = cache_persistence_ttl if cache_persistence_ttl is not None else self._cache_persistence_ttl_raw
         # validator が省略された場合は親のスキーマを継承し、None 明示指定は無効化とする
         resolved_validator = self._validator if validator is _UNSET else validator
         # coerce が省略された場合は親の設定を継承する

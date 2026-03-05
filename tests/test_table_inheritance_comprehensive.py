@@ -16,8 +16,6 @@ table() 継承セマンティクスとキャッシュ戦略の包括的テスト
 """
 from __future__ import annotations
 
-import time
-
 import pytest
 
 from nanasqlite import CacheType, NanaSQLite
@@ -409,7 +407,6 @@ class TestValidkitValidationPaths:
     def test_valid_value_is_accepted(self, tmp_path):
         """スキーマに一致する値は正常に保存される。"""
         from validkit import v
-        from nanasqlite import NanaSQLiteValidationError
 
         schema = {"name": v.str(), "age": v.int()}
         db = NanaSQLite(str(tmp_path / "db.db"), validator=schema)

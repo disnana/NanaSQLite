@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import inspect
 
-import pytest
-
 from nanasqlite import AsyncNanaSQLite, NanaSQLite
 
 
