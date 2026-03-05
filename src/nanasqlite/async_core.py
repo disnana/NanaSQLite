@@ -35,7 +35,7 @@ from typing import Any, Literal
 import apsw
 
 from .cache import CacheType
-from .core import HAS_VALIDKIT, _UNSET, IDENTIFIER_PATTERN, NanaSQLite
+from .core import _UNSET, HAS_VALIDKIT, IDENTIFIER_PATTERN, NanaSQLite
 from .exceptions import NanaSQLiteClosedError, NanaSQLiteDatabaseError
 
 
