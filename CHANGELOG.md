@@ -6,6 +6,19 @@
 
 ## 日本語
 
+### [1.3.4b3] - 2026-03-05
+
+#### バグ修正・安定性改善
+
+- **Python 3.9 でのテスト不安定問題を修正** (`tests/test_tdd_cycle_6.py`):
+  - `test_ellipsis_type_is_available` は `types.EllipsisType`（Python 3.10 で追加）の有無を確認するテストですが、
+    Python 3.9 環境では無条件に失敗していました。
+  - `@pytest.mark.skipif(sys.version_info < (3, 10), ...)` デコレータを追加し、Python 3.9 では
+    このテストをスキップするよう修正。Python 3.10 以降では引き続き実行されます。
+  - `from __future__ import annotations` が有効なため、`types.EllipsisType` を使った型注釈は
+    ランタイムに評価されず、Python 3.9 でも本体コードは正常に動作します（テストのみの問題でした）。
+  - ライブラリの動作・公開 API への影響はありません。
+
 ### [1.3.4b2] - 2026-03-04
 
 #### 新機能
@@ -541,6 +554,21 @@
 ---
 
 ## English
+
+### [1.3.4b3] - 2026-03-05
+
+#### Bug Fixes & Stability Improvements
+
+- **Fixed test instability on Python 3.9** (`tests/test_tdd_cycle_6.py`):
+  - `test_ellipsis_type_is_available` checks for `types.EllipsisType` (added in Python 3.10),
+    but was unconditionally asserting its presence and therefore always failed on Python 3.9.
+  - Added `@pytest.mark.skipif(sys.version_info < (3, 10), ...)` so the test is skipped on
+    Python 3.9 and still runs on Python 3.10+.
+  - Because both `core.py` and `async_core.py` use `from __future__ import annotations`, the
+    `types.EllipsisType` in their type annotations is stored as a string and is never evaluated
+    at runtime, so the library itself already works correctly on Python 3.9. This was a
+    test-only issue.
+  - No impact on library behaviour or public API.
 
 ### [1.3.4b2] - 2026-03-04
 
