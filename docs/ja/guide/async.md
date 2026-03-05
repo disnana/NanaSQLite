@@ -145,7 +145,7 @@ async def create_user(user: dict):
     return {"status": "created", "id": user['id']}
 ```
 
-### Quartsの例
+### Quartの例
 
 ```python
 from quart import Quart, request, jsonify

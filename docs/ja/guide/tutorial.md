@@ -344,7 +344,7 @@ async def main():
 asyncio.run(main())
 ```
 
-詳細な非同期ドキュメントは[async_guide.md](async_guide.md)を参照してください。
+詳細な非同期ドキュメントは[async.md](async.md)を参照してください。
 
 ## レッスン10: ロックタイムアウト・バックアップ・リストア (v1.3.4b1以降)
 
