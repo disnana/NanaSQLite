@@ -2632,7 +2632,10 @@ class NanaSQLite(MutableMapping):
         size = cache_size if cache_size is not None else self._cache_size_raw
         # TTL 戦略の場合は cache_ttl と cache_persistence_ttl も継承する（省略時）
         ttl = cache_ttl if cache_ttl is not None else self._cache_ttl_raw
-        persist_ttl = cache_persistence_ttl if cache_persistence_ttl is not None else self._cache_persistence_ttl_raw
+        persist_ttl = (
+            cache_persistence_ttl if cache_persistence_ttl is not None
+            else self._cache_persistence_ttl_raw
+        )
         # validator が省略された場合は親のスキーマを継承し、None 明示指定は無効化とする
         resolved_validator = self._validator if validator is _UNSET else validator
         # coerce が省略された場合は親の設定を継承する

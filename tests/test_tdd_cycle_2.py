@@ -1,6 +1,6 @@
 """TDD cycle 2: 失敗するテストを書いてから修正する。
 
-対象の問題（コードレビューコメント from 54c4a16）:
+対応した問題（コードレビューコメント from 54c4a16）:
 1. NanaSQLite.__init__ の validator デフォルトが _UNSET → None に変更すべき
    (コンストラクターに「親から継承」の概念はないため)
 2. table() に cache_ttl / cache_persistence_ttl パラメーターを追加すべき
@@ -112,7 +112,7 @@ class TestTableCacheTTLParam:
 
 
 class TestNoUnusedImports:
-    """Ruff F401: 未使用インポートがないことを確認する。"""
+    """Ruff F401: 未使用インポートが存在しないことを確認する。"""
 
     def _run_ruff_f401(self, filepath: str) -> str:
         """指定ファイルに対して ruff F401 チェックを実行し、エラーがあれば返す。"""
