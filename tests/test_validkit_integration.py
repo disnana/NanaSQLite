@@ -424,3 +424,45 @@ async def test_async_coerce_inherited_by_table(tmp_path):
         await child_db.aset("c1", {"age": "3"})
         assert await child_db.aget("c1") == {"age": 3}
 
+
+# ========================== coerce dual-requirement tests ==========================
+
+
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
+def test_coerce_true_without_field_coerce_still_fails(tmp_path):
+    """coerce=True on NanaSQLite alone does NOT convert types if the field validator lacks .coerce().
+
+    Both coerce=True (NanaSQLite) AND .coerce() on the field validator are needed.
+    Without .coerce() on the field, type mismatches still raise NanaSQLiteValidationError.
+    """
+    from validkit import v
+
+    # Schema without field .coerce()
+    schema = {"age": v.int()}
+    db = NanaSQLite(str(tmp_path / "dual_req.db"), validator=schema, coerce=True)
+
+    # Wrong type input must still fail — coerce=True on NanaSQLite alone is not enough
+    with pytest.raises(NanaSQLiteValidationError):
+        db["user"] = {"age": "30"}  # str, not int — no field .coerce()
+
+    # Correct type passes as before
+    db["user"] = {"age": 30}
+    assert db["user"] == {"age": 30}
+
+
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
+def test_field_coerce_without_nanasqlite_coerce_stores_original(tmp_path):
+    """Field .coerce() without coerce=True on NanaSQLite: validation passes, original value stored.
+
+    When the field has .coerce(), validkit accepts the input (converting internally to validate),
+    but NanaSQLite stores the original value because coerce=False (default).
+    """
+    from validkit import v
+
+    schema = {"age": v.int().coerce()}
+    db = NanaSQLite(str(tmp_path / "field_coerce_only.db"), validator=schema, coerce=False)
+
+    # Validation passes (validkit coerces internally), original string is stored
+    db["user"] = {"age": "30"}
+    assert db["user"] == {"age": "30"}  # original value, NOT converted
+

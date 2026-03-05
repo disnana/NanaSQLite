@@ -49,7 +49,7 @@ AsyncNanaSQLiteインターフェースを初期化します。
   - これを有効にする（例: `read_pool_size=4`）と、書き込みロックをバイパスして並列読み取りが可能になります。
 - `strict_sql_validation` など: `NanaSQLite` と同じセキュリティパラメータ。
 - `validator` (dict | Schema | None, 任意): validkit-py のバリデーションスキーマ。`NanaSQLite` の `validator` と同じ動作をします。書き込み時にスキーマ検証を行い、違反時は `NanaSQLiteValidationError` を送出します。使用には `pip install nanasqlite[validation]` が必要です。(v1.3.4b2以降)
-- `coerce` (bool, 任意): `True` の場合、validkit-py の自動変換機能を有効にします。`validator` が設定されている場合のみ有効。デフォルトは `False`。(v1.3.4b2以降)
+- `coerce` (bool, 任意): `True` の場合、validkit-py の変換済みの値をDBに保存します。**注意**: スキーマの各フィールドバリデーターに `.coerce()` が必要です（例: `v.int().coerce()`）。`validator` が設定されている場合のみ有効。デフォルトは `False`。(v1.3.4b2以降)
 
 ---
 

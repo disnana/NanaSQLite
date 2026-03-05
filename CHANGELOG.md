@@ -26,6 +26,7 @@
 - **`coerce` パラメータの追加（自動変換オプション）**:
   - `NanaSQLite.__init__`、`NanaSQLite.table()`、`AsyncNanaSQLite.__init__`、`AsyncNanaSQLite.table()` に `coerce: bool = False` パラメータを追加。
   - `True` を指定すると、validkit-py のバリデーション後に変換済みの値（例: `"42"` → `42`）をDBに保存します。
+  - **注意**: 自動変換を機能させるには、スキーマの各フィールドバリデーターにも `.coerce()` を呼び出す必要があります（例: `v.int().coerce()`）。フィールドに `.coerce()` がない場合、型が一致しない値はバリデーションエラーになります（NanaSQLite の `coerce=True` だけでは変換されません）。
   - `validator` と組み合わせて使用します。`validator` が設定されていない場合は無効。
   - `table()` で省略した場合は親インスタンスの設定を引き継ぐ。
 
@@ -561,6 +562,7 @@
 - **`coerce` parameter (auto-conversion option)**:
   - Added `coerce: bool = False` parameter to `NanaSQLite.__init__`, `NanaSQLite.table()`, `AsyncNanaSQLite.__init__`, and `AsyncNanaSQLite.table()`.
   - When `True`, the coerced value returned by validkit-py (e.g. `"42"` → `42`) is stored instead of the original value.
+  - **Important**: Auto-conversion requires **both** `coerce=True` on `NanaSQLite` AND `.coerce()` on each field validator in the schema (e.g., `v.int().coerce()`). Without `.coerce()` on the field, values whose types don't match the schema will still raise `NanaSQLiteValidationError` even with `coerce=True`.
   - Works in conjunction with `validator`; has no effect when no validator is set.
   - When omitted in `table()`, the parent's `coerce` setting is inherited automatically.
 

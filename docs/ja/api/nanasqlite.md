@@ -44,7 +44,8 @@ NanaSQLiteデータベース接続を初期化します。
 - `max_clause_length` (int, 任意): SQL句の最大長（ReDoS対策）。デフォルトは `1000`。
 - `lock_timeout` (float | None, 任意): 内部ロック取得の最大待機秒数。指定時間内にロックを取得できない場合は `NanaSQLiteLockError` を送出します。`None`（デフォルト）は無制限待機。(v1.3.4b1以降)
 - `validator` (dict | Schema | None, 任意): validkit-py のバリデーションスキーマ（辞書または `Schema` オブジェクト）。指定すると `__setitem__` （`db["key"] = value`）の実行時にスキーマ検証を実行します。スキーマ違反の場合は `NanaSQLiteValidationError` を送出します。使用には `pip install nanasqlite[validation]` が必要です。(v1.3.4b2以降)
-- `coerce` (bool, 任意): `True` の場合、validkit-py の自動変換（コアース）機能を有効にします。バリデーション後、変換済みの値（例: `"42"` → `42`）をDBに保存します。`validator` が設定されている場合のみ有効。デフォルトは `False`。(v1.3.4b2以降)
+- `coerce` (bool, 任意): `True` の場合、validkit-py が返す変換済みの値をDBに保存します。
+  **重要**: 型変換が実際に行われるためには、スキーマの各フィールドバリデーターに `.coerce()` を呼び出す必要があります（例: `v.int().coerce()`）。フィールドに `.coerce()` がない場合、型が一致しない値は `coerce=True` が設定されていてもバリデーションエラーになります。このパラメータは「変換済みの値を保存するか」を制御するだけです。`validator` が設定されている場合のみ有効。デフォルトは `False`。(v1.3.4b2以降)
 
 ---
 
@@ -82,7 +83,7 @@ def table(self, table_name: str,
 - `cache_strategy` (CacheType | str | None, 任意): このテーブル用のキャッシュ戦略。省略時は親と同じ設定を使用。
 - `cache_size` (int | None, 任意): このテーブル用のキャッシュサイズ。省略時は親と同じ設定を使用。
 - `validator` (dict | Schema | None, 任意): このサブテーブル用の validkit-py スキーマ。省略時は親インスタンスのスキーマを自動継承します。`None` を明示的に渡すとバリデーションを無効化できます。(v1.3.4b2以降)
-- `coerce` (bool, 任意): `True` の場合、このサブテーブルで validkit-py の自動変換を有効にします。省略時は親インスタンスの設定を引き継ぎます。(v1.3.4b2以降)
+- `coerce` (bool, 任意): `True` の場合、このサブテーブルで validkit-py の変換済みの値を保存します。スキーマのフィールドバリデーターに `.coerce()` が必要です。省略時は親インスタンスの設定を引き継ぎます。(v1.3.4b2以降)
 
 **戻り値:**
 - `NanaSQLite`: 指定したテーブルを操作する新しいインスタンス。
@@ -625,15 +626,27 @@ db["user"] = {"name": "Bob", "age": "invalid"}   # → NanaSQLiteValidationError
 
 `coerce=True` を指定すると、validkit-py が変換した値（例: `"42"` → `42`）がDBに保存されます。
 
+> **重要 — 2つの設定が必要**: 自動変換を機能させるには以下の両方が必要です。
+> 1. スキーマの各フィールドバリデーターに `.coerce()` を呼び出す（例: `v.int().coerce()`）。これにより validkit-py がバリデーション中に型変換を試みます。
+> 2. `NanaSQLite`（または `table()`）に `coerce=True` を渡す。これにより NanaSQLite が変換済みの値をDBに保存します。
+>
+> フィールドに `.coerce()` がない場合、`coerce=True` が設定されていても型が一致しない値はバリデーションエラーになります。
+
 ```python
 from validkit import v
-from nanasqlite import NanaSQLite
+from nanasqlite import NanaSQLite, NanaSQLiteValidationError
 
+# 正しい使い方: フィールドに .coerce() + NanaSQLite に coerce=True
 schema = {"age": v.int().coerce(), "score": v.float().coerce()}
 db = NanaSQLite("mydata.db", validator=schema, coerce=True)
 
 db["user"] = {"age": "30", "score": "9.5"}
 print(db["user"])  # {"age": 30, "score": 9.5}  ← 変換済み
+
+# 誤った使い方: フィールドに .coerce() がない場合は変換されない
+schema_bad = {"age": v.int()}  # .coerce() なし
+db_bad = NanaSQLite("bad.db", validator=schema_bad, coerce=True)
+db_bad["user"] = {"age": "30"}  # → NanaSQLiteValidationError（型不一致）
 ```
 
 ### テーブルごとのバリデーション
@@ -656,8 +669,10 @@ db2 = NanaSQLite("app2.db", validator=user_schema)
 child_db = db2.table("users2")         # 親のスキーマを自動継承
 free_db  = db2.table("cache", validator=None)  # バリデーション無効化
 
-# テーブルごとに coerce を設定
-coerce_db = db2.table("users3", coerce=True)  # このテーブルのみ自動変換を有効化
+# テーブルごとに coerce を設定（フィールドに .coerce() が必要）
+coerce_schema = {"age": v.int().coerce()}
+coerce_db = db2.table("users3", validator=coerce_schema, coerce=True)
+coerce_db["u1"] = {"age": "30"}  # {"age": 30} として保存
 ```
 
 ### batch_update のバリデーション

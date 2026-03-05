@@ -49,7 +49,7 @@ Initializes the AsyncNanaSQLite interface.
   - Enable this (e.g., `read_pool_size=4`) to allow concurrent reads to bypass the write lock.
 - `strict_sql_validation`, `allowed_sql_functions`, etc.: Same security parameters as `NanaSQLite`.
 - `validator` (dict | Schema | None, optional): A validkit-py validation schema. Behaves identically to the `validator` parameter of `NanaSQLite`. Validates values on every write and raises `NanaSQLiteValidationError` on schema violations. Requires `pip install nanasqlite[validation]`. (v1.3.4b2+)
-- `coerce` (bool, optional): When `True`, the coerced/converted value returned by validkit-py is stored instead of the original. Only has effect when `validator` is also set. Defaults to `False`. (v1.3.4b2+)
+- `coerce` (bool, optional): When `True`, the coerced/converted value returned by validkit-py is stored instead of the original. **Important**: Field validators in the schema must also have `.coerce()` (e.g., `v.int().coerce()`) for type conversion to occur. Only has effect when `validator` is also set. Defaults to `False`. (v1.3.4b2+)
 
 ---
 
