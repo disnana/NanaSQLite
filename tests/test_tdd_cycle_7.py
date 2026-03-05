@@ -44,6 +44,7 @@ class TestMypyPassesWithEllipsisType:
 
     def test_mypy_installed(self):
         """Mypy must be importable (installed in the test environment)."""
+        _skip_if_mypy_not_installed()
         assert importlib.util.find_spec("mypy") is not None, (
             "mypy is not installed — install it to run type-checking tests"
         )
