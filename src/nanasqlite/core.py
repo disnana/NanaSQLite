@@ -1007,17 +1007,27 @@ class NanaSQLite(MutableMapping):
 
         # validkit 事前バリデーション: DB に触れる前に全値を検証し、1件でも失敗したら何も書かない
         if self._validator is not None:
-            coerced_mapping: dict[str, Any] = {}
-            for key, value in mapping.items():
-                try:
-                    coerced = validkit_validate(value, self._validator)
-                    coerced_mapping[key] = coerced if self._coerce else value
-                except Exception as exc:
-                    raise NanaSQLiteValidationError(
-                        f"Value for key '{key}' failed schema validation: {exc} "
-                        f"/ キー '{key}' の値がスキーマに違反しています: {exc}"
-                    ) from exc
-            mapping = coerced_mapping
+            if self._coerce:
+                coerced_mapping: dict[str, Any] = {}
+                for key, value in mapping.items():
+                    try:
+                        coerced = validkit_validate(value, self._validator)
+                        coerced_mapping[key] = coerced
+                    except Exception as exc:
+                        raise NanaSQLiteValidationError(
+                            f"Value for key '{key}' failed schema validation: {exc} "
+                            f"/ キー '{key}' の値がスキーマに違反しています: {exc}"
+                        ) from exc
+                mapping = coerced_mapping
+            else:
+                for key, value in mapping.items():
+                    try:
+                        validkit_validate(value, self._validator)
+                    except Exception as exc:
+                        raise NanaSQLiteValidationError(
+                            f"Value for key '{key}' failed schema validation: {exc} "
+                            f"/ キー '{key}' の値がスキーマに違反しています: {exc}"
+                        ) from exc
 
         with self._acquire_lock():
             cursor = self._connection.cursor()
