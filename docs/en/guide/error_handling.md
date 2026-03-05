@@ -144,7 +144,7 @@ Raised when the internal lock cannot be acquired within the specified `lock_time
 
 **Common cases**:
 - Lock acquisition timeout when `lock_timeout` is set
-- Deadlock detection in multithreaded applications
+- Lock contention or deadlock-like situations causing a timeout in multithreaded applications
 
 ```python
 from nanasqlite import NanaSQLite, NanaSQLiteLockError
@@ -428,14 +428,14 @@ from nanasqlite import NanaSQLite, NanaSQLiteValidationError, NanaSQLiteDatabase
 
 def save_user_data(user_data):
     try:
-        db = NanaSQLite("users.db")
-        db.create_table("users", {
-            "id": "INTEGER PRIMARY KEY",
-            "name": "TEXT",
-            "email": "TEXT UNIQUE"
-        })
-        db.sql_insert("users", user_data)
-        return {"success": True, "message": "User registered successfully"}
+        with NanaSQLite("users.db") as db:
+            db.create_table("users", {
+                "id": "INTEGER PRIMARY KEY",
+                "name": "TEXT",
+                "email": "TEXT UNIQUE"
+            })
+            db.sql_insert("users", user_data)
+            return {"success": True, "message": "User registered successfully"}
     except NanaSQLiteValidationError as e:
         return {"success": False, "message": "Invalid input data"}
     except NanaSQLiteDatabaseError as e:

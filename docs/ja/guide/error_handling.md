@@ -149,7 +149,7 @@ except NanaSQLiteConnectionError as e:
 
 **発生するケース**:
 - `lock_timeout` 設定時のロック取得タイムアウト
-- マルチスレッドアプリケーションでのデッドロック検出
+- マルチスレッドアプリケーションでのロック競合／デッドロック状況によるロック取得タイムアウト
 
 ```python
 from nanasqlite import NanaSQLite, NanaSQLiteLockError
@@ -457,14 +457,14 @@ from nanasqlite import NanaSQLite, NanaSQLiteValidationError, NanaSQLiteDatabase
 
 def save_user_data(user_data):
     try:
-        db = NanaSQLite("users.db")
-        db.create_table("users", {
-            "id": "INTEGER PRIMARY KEY",
-            "name": "TEXT",
-            "email": "TEXT UNIQUE"
-        })
-        db.sql_insert("users", user_data)
-        return {"success": True, "message": "ユーザーを登録しました"}
+        with NanaSQLite("users.db") as db:
+            db.create_table("users", {
+                "id": "INTEGER PRIMARY KEY",
+                "name": "TEXT",
+                "email": "TEXT UNIQUE"
+            })
+            db.sql_insert("users", user_data)
+            return {"success": True, "message": "ユーザーを登録しました"}
     except NanaSQLiteValidationError as e:
         return {"success": False, "message": "入力データが不正です"}
     except NanaSQLiteDatabaseError as e:
