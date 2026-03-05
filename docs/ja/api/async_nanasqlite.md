@@ -67,8 +67,8 @@ async def close(self) -> None
 
 ```python
 async def table(self, table_name: str,
-                validator: dict | Any | None = None,
-                coerce: bool = False) -> AsyncNanaSQLite
+                validator: dict | Any | None = ...,
+                coerce: bool = ...) -> AsyncNanaSQLite
 ```
 
 サブテーブル用の新しい `AsyncNanaSQLite` インスタンスを非同期に作成します。

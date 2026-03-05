@@ -67,8 +67,8 @@ Closes the database connection and shuts down the thread pool.
 
 ```python
 async def table(self, table_name: str,
-                validator: dict | Any | None = None,
-                coerce: bool = False) -> AsyncNanaSQLite
+                validator: dict | Any | None = ...,
+                coerce: bool = ...) -> AsyncNanaSQLite
 ```
 
 Asynchronously creates a new `AsyncNanaSQLite` instance for a sub-table.

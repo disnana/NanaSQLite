@@ -68,10 +68,10 @@ def close(self) -> None
 
 ```python
 def table(self, table_name: str,
-          cache_strategy: CacheType | str | None = None,
-          cache_size: int | None = None,
-          validator: dict | Any | None = None,
-          coerce: bool = False) -> NanaSQLite
+          cache_strategy: CacheType | str | None = ...,
+          cache_size: int | None = ...,
+          validator: dict | Any | None = ...,
+          coerce: bool = ...) -> NanaSQLite
 ```
 
 指定したサブテーブル用の新しい `NanaSQLite` インスタンスを返します。

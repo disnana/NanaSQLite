@@ -82,6 +82,14 @@ def test_validator_raises_import_error_when_validkit_missing(tmp_path):
         NanaSQLite(str(tmp_path / "err.db"), validator={"key": "value"})
 
 
+@pytest.mark.skipif(validkit_installed, reason="このテストは validkit-py 未インストール環境でのみ実行します")
+@pytest.mark.asyncio
+async def test_async_validator_raises_import_error_when_validkit_missing(tmp_path):
+    """validkit-py が未インストールの状態で AsyncNanaSQLite に validator を渡すと ImportError が送出される。"""
+    with pytest.raises(ImportError, match="validkit-py"):
+        AsyncNanaSQLite(str(tmp_path / "async_err.db"), validator={"key": "value"})
+
+
 # ========================== table() per-table validator tests ==========================
 
 
