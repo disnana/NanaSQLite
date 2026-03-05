@@ -100,7 +100,7 @@ class AsyncNanaSQLite:
         cache_persistence_ttl: bool = False,
         encryption_key: str | bytes | None = None,
         encryption_mode: Literal["aes-gcm", "chacha20", "fernet"] = "aes-gcm",
-        validator: Any | None = _UNSET,  # type: ignore[assignment]
+        validator: Any | None = None,
         coerce: bool = False,
     ):
         """
@@ -143,8 +143,7 @@ class AsyncNanaSQLite:
         self._cache_persistence_ttl = cache_persistence_ttl
         self._encryption_key = encryption_key
         self._encryption_mode = encryption_mode
-        # _UNSET は「省略」を意味するセンチネル。None は「バリデーションなし」として明示的に渡せる
-        self._validator = None if validator is _UNSET else validator
+        self._validator = validator
         if self._validator is not None and not HAS_VALIDKIT:
             raise ImportError(
                 "The 'validkit-py' library is required for validation. "

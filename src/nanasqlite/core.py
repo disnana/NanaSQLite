@@ -87,6 +87,7 @@ class NanaSQLite(MutableMapping):
         strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否 (v1.2.0)
         max_clause_length: SQL句の最大長（ReDoS対策、v1.2.0）
         validator: validkit-py のスキーマ。指定すると値の書き込み時にバリデーションを実行 (オプション)
+        coerce: True の場合、validator に基づいて値を型変換してから永続化する (オプション)
     """
 
     def __init__(
