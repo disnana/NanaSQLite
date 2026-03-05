@@ -2,14 +2,17 @@
 validkit-py オプション連携のテスト
 (Tests for optional validkit-py integration)
 """
-import importlib.util
-
 import pytest
 
 from nanasqlite import AsyncNanaSQLite, NanaSQLite, NanaSQLiteValidationError
 
 # validkit がインストールされていない場合はほとんどのテストをスキップ
-validkit_installed = importlib.util.find_spec("validkit") is not None
+try:
+    import validkit  # noqa: F401
+
+    validkit_installed = True
+except ImportError:
+    validkit_installed = False
 
 
 def test_has_validkit_flag():

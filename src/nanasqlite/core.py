@@ -54,7 +54,7 @@ try:
     import orjson  # type: ignore
 
     HAS_ORJSON = True
-except Exception:
+except ImportError:
     HAS_ORJSON = False
 
 # Optional value validation (validkit-py)
@@ -62,7 +62,7 @@ try:
     from validkit import validate as validkit_validate  # type: ignore
 
     HAS_VALIDKIT = True
-except Exception:
+except ImportError:
     HAS_VALIDKIT = False
 
 # Sentinel used to distinguish "parameter not passed" from "explicitly None"
@@ -201,6 +201,8 @@ class NanaSQLite(MutableMapping):
         # キャッシュ設定の生値を保持（table() での子インスタンスへの継承に使用）
         self._cache_strategy_raw: CacheType | str = cache_strategy
         self._cache_size_raw: int | None = cache_size
+        self._cache_ttl_raw: float | None = cache_ttl
+        self._cache_persistence_ttl_raw: bool = cache_persistence_ttl
         self._cache: CacheStrategy = create_cache(cache_strategy, cache_size, ttl=cache_ttl, on_expire=on_expire)
         self._data = self._cache.get_data()
         self._lru_mode = (
@@ -2568,7 +2570,7 @@ class NanaSQLite(MutableMapping):
     def table(
         self,
         table_name: str,
-        cache_strategy: CacheType | Literal["unbounded", "lru"] | None = None,
+        cache_strategy: CacheType | Literal["unbounded", "lru", "ttl"] | None = None,
         cache_size: int | None = None,
         validator: dict | Any | None = _UNSET,  # type: ignore[assignment]
         coerce: bool | Any = _UNSET,  # type: ignore[assignment]
@@ -2621,6 +2623,9 @@ class NanaSQLite(MutableMapping):
         # キャッシュ設定が省略された場合は親インスタンスの設定を継承する
         strat = cache_strategy if cache_strategy is not None else self._cache_strategy_raw
         size = cache_size if cache_size is not None else self._cache_size_raw
+        # TTL 戦略の場合は cache_ttl と cache_persistence_ttl も継承する（省略時）
+        ttl = self._cache_ttl_raw
+        persist_ttl = self._cache_persistence_ttl_raw
         # validator が省略された場合は親のスキーマを継承し、None 明示指定は無効化とする
         resolved_validator = self._validator if validator is _UNSET else validator
         # coerce が省略された場合は親の設定を継承する
@@ -2634,6 +2639,8 @@ class NanaSQLite(MutableMapping):
                 table=table_name,
                 cache_strategy=strat,
                 cache_size=size,
+                cache_ttl=ttl,
+                cache_persistence_ttl=persist_ttl,
                 lock_timeout=self._lock_timeout,
                 validator=resolved_validator,
                 coerce=resolved_coerce,
