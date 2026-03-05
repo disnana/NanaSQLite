@@ -70,6 +70,8 @@ Closes the database connection.
 def table(self, table_name: str,
           cache_strategy: CacheType | str | None = ...,
           cache_size: int | None = ...,
+          cache_ttl: float | None = ...,
+          cache_persistence_ttl: bool | None = ...,
           validator: dict | Any | None = ...,
           coerce: bool = ...) -> NanaSQLite
 ```
@@ -82,6 +84,8 @@ The new instance shares the same underlying connection and lock as the parent, e
 - `table_name` (str): The name of the sub-table.
 - `cache_strategy` (CacheType | str | None, optional): Cache strategy for this table. Defaults to the parent's strategy.
 - `cache_size` (int | None, optional): Cache size for this table. Defaults to the parent's size.
+- `cache_ttl` (float | None, optional): Cache TTL in seconds for this table. Required when `cache_strategy` is `CacheType.TTL` and the parent is not using TTL. When omitted, inherits the parent's TTL. (v1.3.4b2+)
+- `cache_persistence_ttl` (bool | None, optional): Whether to persist expired TTL entries to disk for this table. When omitted, inherits the parent's setting. (v1.3.4b2+)
 - `validator` (dict | Schema | None, optional): A validkit-py schema for this sub-table. When omitted, the parent's schema is inherited automatically. Pass `None` explicitly to disable validation for this sub-table. (v1.3.4b2+)
 - `coerce` (bool, optional): When `True`, the coerced/converted value returned by validkit-py is stored for this sub-table. Requires `.coerce()` on the field validators in the schema to take effect. When omitted, the parent's `coerce` setting is inherited automatically. (v1.3.4b2+)
 

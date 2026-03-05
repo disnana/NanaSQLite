@@ -70,6 +70,8 @@ def close(self) -> None
 def table(self, table_name: str,
           cache_strategy: CacheType | str | None = ...,
           cache_size: int | None = ...,
+          cache_ttl: float | None = ...,
+          cache_persistence_ttl: bool | None = ...,
           validator: dict | Any | None = ...,
           coerce: bool = ...) -> NanaSQLite
 ```
@@ -82,6 +84,8 @@ def table(self, table_name: str,
 - `table_name` (str): サブテーブルの名前。
 - `cache_strategy` (CacheType | str | None, 任意): このテーブル用のキャッシュ戦略。省略時は親と同じ設定を使用。
 - `cache_size` (int | None, 任意): このテーブル用のキャッシュサイズ。省略時は親と同じ設定を使用。
+- `cache_ttl` (float | None, 任意): このテーブル用のキャッシュ TTL（秒）。`cache_strategy` が `CacheType.TTL` で親が非TTLの場合は必須。省略時は親の TTL を継承。(v1.3.4b2以降)
+- `cache_persistence_ttl` (bool | None, 任意): TTL が切れたキャッシュエントリをディスクに永続化するか。省略時は親の設定を継承。(v1.3.4b2以降)
 - `validator` (dict | Schema | None, 任意): このサブテーブル用の validkit-py スキーマ。省略時は親インスタンスのスキーマを自動継承します。`None` を明示的に渡すとバリデーションを無効化できます。(v1.3.4b2以降)
 - `coerce` (bool, 任意): `True` の場合、このサブテーブルで validkit-py の変換済みの値を保存します。スキーマのフィールドバリデーターに `.coerce()` が必要です。省略時は親インスタンスの設定を引き継ぎます。(v1.3.4b2以降)
 

@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import inspect
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -115,7 +116,12 @@ class TestNoUnusedImports:
     """Ruff F401: 未使用インポートが存在しないことを確認する。"""
 
     def _run_ruff_f401(self, filepath: str) -> str:
-        """指定ファイルに対して ruff F401 チェックを実行し、エラーがあれば返す。"""
+        """指定ファイルに対して ruff F401 チェックを実行し、エラーがあれば返す。
+
+        ruff が利用できない環境（devextras 未インストール）ではテストをスキップする。
+        """
+        if shutil.which("ruff") is None:
+            pytest.skip("ruff is not installed — skipping F401 check")
         result = subprocess.run(
             [sys.executable, "-m", "ruff", "check", filepath, "--select", "F401"],
             capture_output=True,
