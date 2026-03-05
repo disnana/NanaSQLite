@@ -243,6 +243,7 @@ class TestTableValidatorInheritance:
     def test_table_override_with_new_validator(self, tmp_path):
         """table() で別のスキーマを指定すると、子テーブルはそのスキーマを使う。"""
         from validkit import v
+
         from nanasqlite import NanaSQLiteValidationError
 
         parent_schema = {"x": v.int()}
@@ -416,6 +417,7 @@ class TestValidkitValidationPaths:
     def test_invalid_value_raises_validation_error(self, tmp_path):
         """スキーマ違反の値は NanaSQLiteValidationError を送出する。"""
         from validkit import v
+
         from nanasqlite import NanaSQLiteValidationError
 
         schema = {"name": v.str(), "age": v.int()}
@@ -426,6 +428,7 @@ class TestValidkitValidationPaths:
     def test_invalid_value_not_written_to_db(self, tmp_path):
         """バリデーションエラー時は DB に値が保存されない。"""
         from validkit import v
+
         from nanasqlite import NanaSQLiteValidationError
 
         schema = {"score": v.int()}
@@ -449,6 +452,7 @@ class TestValidkitValidationPaths:
     def test_multiple_schemas_independent(self, tmp_path):
         """異なるスキーマを持つ複数のインスタンスが互いに独立している。"""
         from validkit import v
+
         from nanasqlite import NanaSQLiteValidationError
 
         schema_a = {"x": v.int()}
@@ -467,6 +471,7 @@ class TestValidkitValidationPaths:
     def test_batch_update_atomic_failure(self, tmp_path):
         """batch_update() は1件でもバリデーション違反があれば全件書き込まない。"""
         from validkit import v
+
         from nanasqlite import NanaSQLiteValidationError
 
         schema = {"age": v.int()}
@@ -495,6 +500,7 @@ class TestValidkitValidationPaths:
     def test_per_table_validator_isolation(self, tmp_path):
         """異なるテーブルで別スキーマを使うと、テーブルごとにバリデーションが独立する。"""
         from validkit import v
+
         from nanasqlite import NanaSQLiteValidationError
 
         parent_schema = {"x": v.int()}
@@ -532,6 +538,7 @@ class TestCoercePaths:
     def test_coerce_true_without_field_coerce_fails(self, tmp_path):
         """NanaSQLite coerce=True でもフィールドに .coerce() がなければ型不一致は失敗する。"""
         from validkit import v
+
         from nanasqlite import NanaSQLiteValidationError
 
         schema = {"age": v.int()}  # .coerce() なし
@@ -635,6 +642,7 @@ class TestAsyncTableInheritance:
     async def test_async_table_inherits_validator(self, tmp_path):
         """AsyncNanaSQLite: 親の validator が子テーブルに継承される。"""
         from validkit import v
+
         from nanasqlite import AsyncNanaSQLite, NanaSQLiteValidationError
 
         schema = {"name": v.str()}
@@ -650,6 +658,7 @@ class TestAsyncTableInheritance:
     async def test_async_table_explicit_none_disables_validator(self, tmp_path):
         """AsyncNanaSQLite: table(validator=None) で親の validator を無効化できる。"""
         from validkit import v
+
         from nanasqlite import AsyncNanaSQLite
 
         schema = {"name": v.str()}
@@ -663,6 +672,7 @@ class TestAsyncTableInheritance:
     async def test_async_coerce_inherited(self, tmp_path):
         """AsyncNanaSQLite: coerce=True が子テーブルに継承される。"""
         from validkit import v
+
         from nanasqlite import AsyncNanaSQLite
 
         schema = {"age": v.int().coerce()}
@@ -756,6 +766,7 @@ class TestMultiTableOperations:
     def test_child_schema_does_not_affect_parent(self, tmp_path):
         """子テーブルのスキーマを変更しても親インスタンスのバリデーションは変わらない。"""
         from validkit import v
+
         from nanasqlite import NanaSQLiteValidationError
 
         parent_schema = {"x": v.int()}
