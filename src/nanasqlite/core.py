@@ -427,6 +427,13 @@ class NanaSQLite(MutableMapping):
                 "NanaSQLite instance remains open during usage."
             )
 
+    def _raise_key_validation_error(self, key: str, exc: Exception) -> None:
+        """Raise NanaSQLiteValidationError for a specific key with a standard bilingual message."""
+        raise NanaSQLiteValidationError(
+            f"Value for key '{key}' failed schema validation: {exc} "
+            f"/ キー '{key}' の値がスキーマに違反しています: {exc}"
+        ) from exc
+
     def _validate_expression(
         self,
         expr: str | None,
@@ -709,10 +716,7 @@ class NanaSQLite(MutableMapping):
                 if self._coerce:
                     value = coerced
             except Exception as exc:
-                raise NanaSQLiteValidationError(
-                    f"Value for key '{key}' failed schema validation: {exc} "
-                    f"/ キー '{key}' の値がスキーマに違反しています: {exc}"
-                ) from exc
+                self._raise_key_validation_error(key, exc)
         # DB書き込みを先に行い、ロックタイムアウト時のキャッシュ不整合を防止
         self._write_to_db(key, value)
         # DB書き込み成功後にメモリ更新
@@ -1014,20 +1018,14 @@ class NanaSQLite(MutableMapping):
                         coerced = validkit_validate(value, self._validator)
                         coerced_mapping[key] = coerced
                     except Exception as exc:
-                        raise NanaSQLiteValidationError(
-                            f"Value for key '{key}' failed schema validation: {exc} "
-                            f"/ キー '{key}' の値がスキーマに違反しています: {exc}"
-                        ) from exc
+                        self._raise_key_validation_error(key, exc)
                 mapping = coerced_mapping
             else:
                 for key, value in mapping.items():
                     try:
                         validkit_validate(value, self._validator)
                     except Exception as exc:
-                        raise NanaSQLiteValidationError(
-                            f"Value for key '{key}' failed schema validation: {exc} "
-                            f"/ キー '{key}' の値がスキーマに違反しています: {exc}"
-                        ) from exc
+                        self._raise_key_validation_error(key, exc)
 
         with self._acquire_lock():
             cursor = self._connection.cursor()

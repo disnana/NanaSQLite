@@ -8,6 +8,8 @@ After the fix they must all PASS.
 """
 import inspect
 
+import pytest
+
 from nanasqlite import NanaSQLite
 
 
@@ -158,6 +160,3 @@ class TestBatchUpdateBehaviourWithMockedValidkit:
         assert "key1" not in db
         assert "key2" not in db
         assert "key3" not in db
-
-
-import pytest
