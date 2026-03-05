@@ -94,6 +94,26 @@
   - ロードマップ残項目（ロックタイムアウト、バリデーション基盤、バックアップ/リストア）の対応優先度を明記。
   - v1.3.4b0 〜 v1.4.0 のリリース計画案を記載。
 - **`etc/README.md` 更新**: 新規レビュードキュメントを `in_progress/` 一覧に追記。
+- **`etc/` ディレクトリの再編**（PR [#109](https://github.com/disnana/NanaSQLite/pull/109)）:
+  - `etc/` を実装状況別（`implemented/`・`in_progress/`・`planned/`）のサブディレクトリ構造に再編。フラットな `future_plans/` フォルダを廃止。
+  - v1.3.0 キャッシュ機能（`ExpiringDict`・`UnboundedCache`・`TTLCache` 等）がすべて実装済みであることを確認。
+
+#### 依存関係更新（docs/site メンテナンス）
+- **docs/site 依存ライブラリの更新**（Renovate）:
+  - `autoprefixer` を v10.4.24 → v10.4.27 に更新。([#105](https://github.com/disnana/NanaSQLite/pull/105))
+  - `postcss` を v8.5.6 → v8.5.8 に更新。([#106](https://github.com/disnana/NanaSQLite/pull/106))
+  - `vue` を v3.5.27 → v3.5.29 に更新。([#107](https://github.com/disnana/NanaSQLite/pull/107))
+  - `tailwindcss` / `@tailwindcss/postcss` を v4.1.18 → v4.2.1 に更新。([#108](https://github.com/disnana/NanaSQLite/pull/108))
+
+### [1.3.4dev0] - 2026-03-02
+
+#### CI / 開発環境
+- **SLSA プロバナンスキャッシュ警告への対応・撤退**:
+  - `provenance / generator` ジョブが `go.sum` を探して `Restore cache failed` 警告を出力していたため、空の `go.sum` をリポジトリルートに追加（PR [#103](https://github.com/disnana/NanaSQLite/pull/103)）。
+  - その後、`provenance / generator` ジョブは独立したランナーで実行されリポジトリをチェックアウトしないため、ファイルの有無に関係なく警告を解消できないことが判明。空の `go.sum` を削除（PR [#104](https://github.com/disnana/NanaSQLite/pull/104)）。
+
+#### その他
+- バージョンを `1.3.4dev0` に引き上げ（`1.3.3` リリース後の開発スナップショット）。
 
 ### [1.3.3] - 2026-03-02
 
@@ -646,6 +666,26 @@
   - Documented priorities for roadmap Phase 2 items still outstanding (lock timeout, validation foundation, backup/restore).
   - Included a draft release schedule from v1.3.4b0 through v1.4.0.
 - **Updated `etc/README.md`**: Added the new review document to the `in_progress/` table.
+- **Reorganised `etc/` directory** (PR [#109](https://github.com/disnana/NanaSQLite/pull/109)):
+  - Replaced the flat `future_plans/` folder with three status-based subdirectories: `implemented/`, `in_progress/`, and `planned/`.
+  - Verified that all v1.3.0 cache features (`ExpiringDict`, `UnboundedCache`, `TTLCache`, etc.) are fully implemented.
+
+#### Dependency Updates (docs/site Maintenance)
+- **docs/site dependency updates** (Renovate):
+  - Updated `autoprefixer` from v10.4.24 to v10.4.27. ([#105](https://github.com/disnana/NanaSQLite/pull/105))
+  - Updated `postcss` from v8.5.6 to v8.5.8. ([#106](https://github.com/disnana/NanaSQLite/pull/106))
+  - Updated `vue` from v3.5.27 to v3.5.29. ([#107](https://github.com/disnana/NanaSQLite/pull/107))
+  - Updated `tailwindcss` / `@tailwindcss/postcss` from v4.1.18 to v4.2.1. ([#108](https://github.com/disnana/NanaSQLite/pull/108))
+
+### [1.3.4dev0] - 2026-03-02
+
+#### CI / Development Environment
+- **SLSA provenance cache restore warning — investigation and revert**:
+  - Added an empty `go.sum` at the repo root to suppress the `Restore cache failed` warning emitted by the `provenance / generator` job (PR [#103](https://github.com/disnana/NanaSQLite/pull/103)).
+  - Determined that the fix was ineffective: the `provenance / generator` job runs on an isolated runner that does not check out this repository, so the warning cannot be silenced by a local file. The empty `go.sum` was subsequently removed (PR [#104](https://github.com/disnana/NanaSQLite/pull/104)).
+
+#### Other
+- Bumped version to `1.3.4dev0` (development snapshot following the `1.3.3` release).
 
 ### [1.3.3] - 2026-03-02
 
