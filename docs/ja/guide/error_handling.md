@@ -42,6 +42,7 @@ except NanaSQLiteError as e:
 - 不正なテーブル名やカラム名
 - 不正なSQL識別子
 - パラメータの型エラー
+- validkit-py スキーマ違反（`validator` 指定時）
 
 ```python
 from nanasqlite import NanaSQLite, NanaSQLiteValidationError
@@ -54,6 +55,21 @@ try:
 except NanaSQLiteValidationError as e:
     print(f"バリデーションエラー: {e}")
     # 出力: Invalid identifier '123invalid': must start with letter or underscore...
+```
+
+**validkit-py スキーマ違反の例:**
+```python
+from validkit import v
+from nanasqlite import NanaSQLite, NanaSQLiteValidationError
+
+schema = {"name": v.str(), "age": v.int()}
+db = NanaSQLite("mydata.db", validator=schema)
+
+try:
+    db["user"] = {"name": "Alice", "age": "invalid"}  # int が期待されているが str が渡された
+except NanaSQLiteValidationError as e:
+    print(f"スキーマ違反: {e}")
+    # DB には書き込まれていない
 ```
 
 #### `NanaSQLiteDatabaseError`

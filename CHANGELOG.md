@@ -6,6 +6,42 @@
 
 ## 日本語
 
+### [1.3.4b2] - 2026-03-04
+
+#### 新機能
+
+- **`validator` パラメータの追加（オプション依存: validkit-py）**:
+  - `NanaSQLite.__init__` および `AsyncNanaSQLite.__init__` に `validator` パラメータを追加。
+  - validkit-py のスキーマ（辞書または `Schema` オブジェクト）を渡すと、値の書き込み時に自動バリデーションを実行します。
+  - スキーマ違反時は `NanaSQLiteValidationError` を送出。
+  - validkit-py をインストールせずに `validator` を指定した場合は `ImportError` を送出し、インストール手順を案内します。
+  - `pip install nanasqlite[validation]` でインストール可能。
+  - `HAS_VALIDKIT` フラグを `nanasqlite` パッケージ（および `core` モジュール）から公開。
+
+- **`table()` の `validator` 引数対応**:
+  - `NanaSQLite.table()` および `AsyncNanaSQLite.table()` に `validator` パラメータを追加。
+  - テーブルごとに異なるスキーマを適用可能。
+  - `validator` を省略した場合は親インスタンスのスキーマを自動継承。
+
+- **`coerce` パラメータの追加（自動変換オプション）**:
+  - `NanaSQLite.__init__`、`NanaSQLite.table()`、`AsyncNanaSQLite.__init__`、`AsyncNanaSQLite.table()` に `coerce: bool = False` パラメータを追加。
+  - `True` を指定すると、validkit-py のバリデーション後に変換済みの値（例: `"42"` → `42`）をDBに保存します。
+  - **注意**: 自動変換を機能させるには、スキーマの各フィールドバリデーターにも `.coerce()` を呼び出す必要があります（例: `v.int().coerce()`）。フィールドに `.coerce()` がない場合、型が一致しない値はバリデーションエラーになります（NanaSQLite の `coerce=True` だけでは変換されません）。
+  - `validator` と組み合わせて使用します。`validator` が設定されていない場合は無効。
+  - `table()` で省略した場合は親インスタンスの設定を引き継ぐ。
+
+- **`batch_update()` バリデーション対応**:
+  - `validator` を設定している場合、`batch_update()` はすべての値を DB 書き込み前に一括バリデーションするようになりました。
+  - 1件でもスキーマ違反があった場合、何も書き込まれません（アトミックな失敗保証）。
+  - `coerce=True` を設定している場合、変換済みの値を一括書き込みします。
+
+#### バグ修正
+
+- **`table()` で `validator` が子インスタンスに引き継がれない問題を修正**:
+  - b1 では `table()` で生成した子インスタンスに親の `_validator` が渡されておらず、
+    サブテーブルへの書き込み時にバリデーションが実行されませんでした。
+  - `AsyncNanaSQLite.table()` でも同様に `_validator` が `async_sub_db` に設定されていなかった問題を修正。
+
 ### [1.3.4b1] - 2026-03-04
 
 #### 新機能
@@ -505,6 +541,43 @@
 ---
 
 ## English
+
+### [1.3.4b2] - 2026-03-04
+
+#### New Features
+
+- **`validator` parameter (optional dependency: validkit-py)**:
+  - Added `validator` parameter to `NanaSQLite.__init__` and `AsyncNanaSQLite.__init__`.
+  - Accepts a validkit-py schema (plain dict or `Schema` object). When supplied, values are validated before every write.
+  - Raises `NanaSQLiteValidationError` on schema violation.
+  - Raises `ImportError` with an install hint when `validator` is supplied but `validkit-py` is not installed.
+  - Install via `pip install nanasqlite[validation]`.
+  - Exposes `HAS_VALIDKIT` flag from the `nanasqlite` package (and `core` module).
+
+- **Per-table `validator` support in `table()`**:
+  - Added `validator` parameter to `NanaSQLite.table()` and `AsyncNanaSQLite.table()`.
+  - Different schemas can now be applied per sub-table.
+  - When `validator` is omitted, the parent instance's schema is inherited automatically.
+
+- **`coerce` parameter (auto-conversion option)**:
+  - Added `coerce: bool = False` parameter to `NanaSQLite.__init__`, `NanaSQLite.table()`, `AsyncNanaSQLite.__init__`, and `AsyncNanaSQLite.table()`.
+  - When `True`, the coerced value returned by validkit-py (e.g. `"42"` → `42`) is stored instead of the original value.
+  - **Important**: Auto-conversion requires **both** `coerce=True` on `NanaSQLite` AND `.coerce()` on each field validator in the schema (e.g., `v.int().coerce()`). Without `.coerce()` on the field, values whose types don't match the schema will still raise `NanaSQLiteValidationError` even with `coerce=True`.
+  - Works in conjunction with `validator`; has no effect when no validator is set.
+  - When omitted in `table()`, the parent's `coerce` setting is inherited automatically.
+
+- **`batch_update()` validation support**:
+  - When a `validator` is set, `batch_update()` now validates all values before touching the database.
+  - If any value fails validation, nothing is written (atomic failure guarantee).
+  - When `coerce=True`, coerced values are bulk-written instead of the originals.
+
+#### Bug Fixes
+
+- **`table()` no longer drops the parent `validator` on child instances**:
+  - In b1, child instances created via `table()` did not inherit `_validator`, so writes to
+    sub-tables bypassed validation entirely.
+  - The same issue was present in `AsyncNanaSQLite.table()` where `_validator` was never
+    assigned to `async_sub_db`; this is now fixed.
 
 ### [1.3.4b1] - 2026-03-04
 

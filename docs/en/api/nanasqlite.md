@@ -24,7 +24,9 @@ def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
              allowed_sql_functions: list[str] | None = None,
              forbidden_sql_functions: list[str] | None = None,
              max_clause_length: int | None = 1000,
-             lock_timeout: float | None = None)
+             lock_timeout: float | None = None,
+             validator: Any | None = None,
+             coerce: bool = False)
 ```
 
 Initializes the NanaSQLite database connection.
@@ -41,6 +43,9 @@ Initializes the NanaSQLite database connection.
 - `forbidden_sql_functions` (list[str] | None, optional): List of SQL functions to explicitly forbid.
 - `max_clause_length` (int | None, optional): Maximum length for SQL clauses (ReDoS protection). Defaults to `1000`.
 - `lock_timeout` (float | None, optional): Maximum seconds to wait for the internal lock. Raises `NanaSQLiteLockError` if the lock cannot be acquired in time. `None` (default) means wait indefinitely. (v1.3.4b1+)
+- `validator` (dict | Schema | None, optional): A validkit-py validation schema (plain dict or `Schema` object). When supplied, every `__setitem__` call (`db["key"] = value`) validates the value against the schema before writing. Raises `NanaSQLiteValidationError` on schema violations. Requires `pip install nanasqlite[validation]`. (v1.3.4b2+)
+- `coerce` (bool, optional): When `True`, the coerced/converted value returned by validkit-py is stored instead of the original.
+  **Important**: Type coercion requires `.coerce()` to be called on each field validator in the schema (e.g., `v.int().coerce()`). Without that, values whose types don't match the schema still fail validation even when `coerce=True`. This parameter only controls whether the converted result is persisted. Only has effect when `validator` is also set. Defaults to `False`. (v1.3.4b2+)
 
 ---
 
@@ -62,7 +67,13 @@ Closes the database connection.
 ### `table`
 
 ```python
-def table(self, table_name: str) -> NanaSQLite
+def table(self, table_name: str,
+          cache_strategy: CacheType | str | None = ...,
+          cache_size: int | None = ...,
+          cache_ttl: float | None = ...,
+          cache_persistence_ttl: bool | None = ...,
+          validator: Any | None = ...,
+          coerce: bool = ...) -> NanaSQLite
 ```
 
 Returns a new `NanaSQLite` instance for a specific sub-table.
@@ -71,9 +82,38 @@ The new instance shares the same underlying connection and lock as the parent, e
 
 **Parameters:**
 - `table_name` (str): The name of the sub-table.
+- `cache_strategy` (CacheType | str | None, optional): Cache strategy for this table. Defaults to the parent's strategy.
+- `cache_size` (int | None, optional): Cache size for this table. Defaults to the parent's size.
+- `cache_ttl` (float | None, optional): Cache TTL in seconds for this table. Required when `cache_strategy` is `CacheType.TTL` and the parent is not using TTL. When omitted, inherits the parent's TTL. (v1.3.4b2+)
+- `cache_persistence_ttl` (bool | None, optional): Whether to persist expired TTL entries to disk for this table. When omitted, inherits the parent's setting. (v1.3.4b2+)
+- `validator` (dict | Schema | None, optional): A validkit-py schema for this sub-table. When omitted, the parent's schema is inherited automatically. Pass `None` explicitly to disable validation for this sub-table. (v1.3.4b2+)
+- `coerce` (bool, optional): When `True`, the coerced/converted value returned by validkit-py is stored for this sub-table. Requires `.coerce()` on the field validators in the schema to take effect. When omitted, the parent's `coerce` setting is inherited automatically. (v1.3.4b2+)
 
 **Returns:**
 - `NanaSQLite`: A new instance targeting the specified table.
+
+**Example:**
+```python
+from validkit import v
+
+db = NanaSQLite("app.db", validator={"name": v.str(), "age": v.int()})
+
+# Omit validator → inherits parent schema
+users_db = db.table("users")
+users_db["u1"] = {"name": "Alice", "age": 30}  # OK
+
+# Override with a table-specific schema
+scores_db = db.table("scores", validator={"score": v.float()})
+scores_db["s1"] = {"score": 9.5}  # OK
+
+# validator=None → disable validation for this table
+cache_db = db.table("cache", validator=None)
+cache_db["k"] = {"anything": True}  # OK (no schema check)
+
+# coerce=True → auto-convert values to the schema's expected types
+coerce_db = db.table("users2", validator={"age": v.int().coerce()}, coerce=True)
+coerce_db["u1"] = {"age": "30"}  # stored as {"age": 30}
+```
 
 ---
 
@@ -560,6 +600,130 @@ db.backup("snapshot.db")
 db["user"] = {"name": "Modified"}
 db.restore("snapshot.db")
 print(db["user"])  # {'name': 'Nana'}
+```
+
+---
+
+## Validkit Validation (v1.3.4b2+)
+
+Schema-based write validation powered by [validkit-py](https://github.com/disnana/Validkit).
+
+**Installation:**
+```bash
+pip install nanasqlite[validation]
+```
+
+### Basic Usage
+
+```python
+from validkit import v
+from nanasqlite import NanaSQLite, NanaSQLiteValidationError
+
+schema = {"name": v.str(), "age": v.int().range(0, 150)}
+db = NanaSQLite("mydata.db", validator=schema)
+
+db["user"] = {"name": "Alice", "age": 30}        # OK
+db["user"] = {"name": "Bob", "age": "invalid"}   # → NanaSQLiteValidationError
+```
+
+### Auto-Conversion (coerce)
+
+When `coerce=True`, the value coerced/converted by validkit-py is stored instead of the original. This is useful for automatically casting types (e.g., `"42"` → `42`).
+
+> **Important — dual requirement**: Auto-conversion requires **both** of the following:
+> 1. `.coerce()` must be called on each field validator in the schema (e.g., `v.int().coerce()`). This tells validkit-py to attempt type conversion during validation.
+> 2. `coerce=True` must be passed to `NanaSQLite` (or `table()`). This tells NanaSQLite to store the converted value returned by validkit-py instead of the original.
+>
+> Without `.coerce()` on the field, validkit-py will still reject inputs whose types don't match the schema even when `coerce=True` is set on NanaSQLite.
+
+```python
+from validkit import v
+from nanasqlite import NanaSQLite
+
+# CORRECT: field validators have .coerce() + NanaSQLite has coerce=True
+schema = {"age": v.int().coerce(), "score": v.float().coerce()}
+db = NanaSQLite("mydata.db", validator=schema, coerce=True)
+
+db["user"] = {"age": "30", "score": "9.5"}
+print(db["user"])  # {"age": 30, "score": 9.5}  ← converted
+
+# WRONG: .coerce() on field is missing — NanaSQLite coerce=True alone won't convert
+schema_bad = {"age": v.int()}  # no .coerce() on field
+db_bad = NanaSQLite("bad.db", validator=schema_bad, coerce=True)
+db_bad["user"] = {"age": "30"}  # → NanaSQLiteValidationError (type mismatch)
+```
+
+### Per-Table Validators
+
+```python
+from validkit import v
+from nanasqlite import NanaSQLite
+
+user_schema  = {"name": v.str(), "age": v.int()}
+score_schema = {"player": v.str(), "score": v.float().range(0.0, 100.0)}
+
+db = NanaSQLite("app.db")
+
+# Apply a different schema to each sub-table
+users_db  = db.table("users",  validator=user_schema)
+scores_db = db.table("scores", validator=score_schema)
+
+# Inherit schema from parent automatically
+db2      = NanaSQLite("app2.db", validator=user_schema)
+child_db = db2.table("users2")              # inherits parent schema
+free_db  = db2.table("cache", validator=None)  # validation disabled
+
+# Per-table coerce: schema fields must also have .coerce() for conversion to work
+coerce_schema = {"age": v.int().coerce()}
+coerce_db = db2.table("users3", validator=coerce_schema, coerce=True)
+coerce_db["u1"] = {"age": "30"}  # stored as {"age": 30}
+```
+
+### batch_update Validation
+
+When a `validator` is set, `batch_update()` validates **all** values before touching the database. If any value fails, nothing is written (atomic failure guarantee).
+
+```python
+from validkit import v
+from nanasqlite import NanaSQLite, NanaSQLiteValidationError
+
+schema = {"name": v.str(), "age": v.int()}
+db = NanaSQLite("batch.db", validator=schema)
+
+try:
+    db.batch_update({
+        "u1": {"name": "Alice", "age": 30},
+        "u2": {"name": "Bob", "age": "bad"},  # violates schema
+    })
+except NanaSQLiteValidationError:
+    print("u1" in db)  # False — nothing was written
+```
+
+### Checking the Feature Flag
+
+```python
+from nanasqlite import HAS_VALIDKIT
+
+if HAS_VALIDKIT:
+    print("validkit-py is available")
+else:
+    print("validkit-py is not installed")
+```
+
+### Handling Validation Errors
+
+```python
+from nanasqlite import NanaSQLite, NanaSQLiteValidationError
+from validkit import v
+
+schema = {"name": v.str(), "score": v.int().range(0, 100)}
+db = NanaSQLite("game.db", validator=schema)
+
+try:
+    db["player1"] = {"name": "Alice", "score": 150}  # range violation
+except NanaSQLiteValidationError as e:
+    print(f"Validation error: {e}")
+    # Nothing was written to the DB
 ```
 
 ---
