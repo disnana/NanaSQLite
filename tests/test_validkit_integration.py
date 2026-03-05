@@ -290,13 +290,13 @@ def test_batch_update_validates_all_before_writing(tmp_path):
     schema = {"name": v.str(), "age": v.int()}
     db = NanaSQLite(str(tmp_path / "batch.db"), validator=schema)
 
-    valid_mapping = {
+    mapping_with_invalid = {
         "u1": {"name": "Alice", "age": 30},
         "u2": {"name": "Bob", "age": "bad"},  # 不正な値
     }
 
     with pytest.raises(NanaSQLiteValidationError):
-        db.batch_update(valid_mapping)
+        db.batch_update(mapping_with_invalid)
 
     # 1件でも失敗した場合、全件DBに書き込まれない（アトミックな失敗保証）
     assert "u1" not in db
@@ -328,13 +328,13 @@ async def test_async_batch_update_validates_all_before_writing(tmp_path):
 
     schema = {"name": v.str(), "age": v.int()}
     async with AsyncNanaSQLite(str(tmp_path / "async_batch.db"), validator=schema) as db:
-        valid_mapping = {
+        mapping_with_invalid = {
             "u1": {"name": "Alice", "age": 30},
             "u2": {"name": "Bob", "age": "bad"},
         }
 
         with pytest.raises(NanaSQLiteValidationError):
-            await db.abatch_update(valid_mapping)
+            await db.abatch_update(mapping_with_invalid)
 
         assert not await db.acontains("u1")
         assert not await db.acontains("u2")

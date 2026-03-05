@@ -65,8 +65,10 @@ try:
 except ImportError:
     HAS_VALIDKIT = False
 
-# Sentinel used to distinguish "parameter not passed" from "explicitly None"
-_UNSET = object()
+# Sentinel used to distinguish "parameter not passed" from "explicitly None".
+# Ellipsis (...) is used so inspect.signature() shows readable "= ..." instead of
+# "<object object at 0x...>" for table() parameters that support parent-inheritance.
+_UNSET = ...
 
 
 class NanaSQLite(MutableMapping):
