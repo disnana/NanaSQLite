@@ -27,6 +27,7 @@ import asyncio
 import logging
 import queue
 import re
+import types
 import weakref
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -1250,7 +1251,7 @@ class AsyncNanaSQLite:
         """
         return self._db
 
-    async def table(self, table_name: str, validator: Any | None = _UNSET, coerce: bool | Any = _UNSET) -> AsyncNanaSQLite:  # type: ignore[assignment]
+    async def table(self, table_name: str, validator: Any | None | types.EllipsisType = _UNSET, coerce: bool | types.EllipsisType = _UNSET) -> AsyncNanaSQLite:
         """
         非同期でサブテーブルのAsyncNanaSQLiteインスタンスを取得
 

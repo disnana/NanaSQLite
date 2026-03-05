@@ -18,6 +18,7 @@ import shutil
 import stat
 import tempfile
 import threading
+import types
 import warnings
 import weakref
 from collections.abc import Iterator, MutableMapping
@@ -110,7 +111,7 @@ class NanaSQLite(MutableMapping):
         encryption_key: str | bytes | None = None,
         encryption_mode: Literal["aes-gcm", "chacha20", "fernet"] = "aes-gcm",
         lock_timeout: float | None = None,
-        validator: dict | Any | None = None,
+        validator: Any | None = None,
         coerce: bool = False,
         _shared_connection: apsw.Connection | None = None,
         _shared_lock: threading.RLock | None = None,
@@ -2585,8 +2586,8 @@ class NanaSQLite(MutableMapping):
         cache_size: int | None = None,
         cache_ttl: float | None = None,
         cache_persistence_ttl: bool | None = None,
-        validator: dict | Any | None = _UNSET,  # type: ignore[assignment]
-        coerce: bool | Any = _UNSET,  # type: ignore[assignment]
+        validator: Any | None | types.EllipsisType = _UNSET,
+        coerce: bool | types.EllipsisType = _UNSET,
     ):
         """
         新しいインスタンスを作成しますが、SQLite接続とロックは共有します。
