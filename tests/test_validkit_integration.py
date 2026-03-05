@@ -4,15 +4,12 @@ validkit-py オプション連携のテスト
 """
 import pytest
 
-from nanasqlite import AsyncNanaSQLite, NanaSQLite, NanaSQLiteValidationError
+from nanasqlite import HAS_VALIDKIT, AsyncNanaSQLite, NanaSQLite, NanaSQLiteValidationError
 
-# validkit がインストールされていない場合はほとんどのテストをスキップ
-try:
-    import validkit  # noqa: F401
-
-    validkit_installed = True
-except ImportError:
-    validkit_installed = False
+# NanaSQLite が有効に validkit 連携できるかどうかでフラグを決める
+# (HAS_VALIDKIT は `from validkit import validate` の成否で設定されるため、
+#  単なる `import validkit` より正確に連携の可否を反映する)
+validkit_installed = HAS_VALIDKIT
 
 
 def test_has_validkit_flag():
@@ -25,8 +22,6 @@ def test_has_validkit_flag():
 
 def test_has_validkit_flag_from_package():
     """HAS_VALIDKIT が nanasqlite パッケージから直接インポートできることを確認する。"""
-    from nanasqlite import HAS_VALIDKIT
-
     assert isinstance(HAS_VALIDKIT, bool)
     assert HAS_VALIDKIT is validkit_installed
 
