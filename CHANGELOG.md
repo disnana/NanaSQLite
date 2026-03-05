@@ -10,7 +10,7 @@
 
 #### バグ修正・安定性改善
 
-- **Python 3.9 でのテスト不安定問題を修正** (`tests/test_tdd_cycle_6.py`):
+- **Python 3.9 でのテスト不安定問題を修正** (`tests/test_tdd_cycle_6.py`) (PR [#113](https://github.com/disnana/NanaSQLite/pull/113)):
   - `test_ellipsis_type_is_available` は `types.EllipsisType`（Python 3.10 で追加）の有無を確認するテストですが、
     Python 3.9 環境では無条件に失敗していました。
   - `@pytest.mark.skipif(sys.version_info < (3, 10), ...)` デコレータを追加し、Python 3.9 では
@@ -18,6 +18,42 @@
   - `from __future__ import annotations` が有効なため、`types.EllipsisType` を使った型注釈は
     ランタイムに評価されず、Python 3.9 でも本体コードは正常に動作します（テストのみの問題でした）。
   - ライブラリの動作・公開 API への影響はありません。
+
+- **`table()` のキャッシュ設定継承を修正** (PR [#112](https://github.com/disnana/NanaSQLite/pull/112)):
+  - `table()` で子インスタンスを生成する際、`cache_ttl` / `cache_persistence_ttl` が親から引き継がれず、
+    TTL キャッシュ戦略を使用している場合に `ValueError` が発生する問題を修正。
+  - `_cache_strategy_raw` / `_cache_size_raw` / `_cache_ttl_raw` / `_cache_persistence_ttl_raw` を内部に保持し、
+    `table()` が全キャッシュ設定を正しく継承するよう修正。
+
+- **`AsyncNanaSQLite` での validkit-py 未インストール時 `ImportError` の即時送出** (PR [#112](https://github.com/disnana/NanaSQLite/pull/112)):
+  - 従来は操作実行時まで `ImportError` が遅延されていたが、`AsyncNanaSQLite.__init__` で `validator` を指定した時点で
+    即座に送出するよう修正（`NanaSQLite` との挙動を統一）。
+  - `HAS_VALIDKIT` フラグを `async_core.py` に追加。
+
+- **例外の絞り込み** (`core.py`):
+  - オプション依存（orjson / validkit-py）のインポートで `except Exception:` を使用していた箇所を `except ImportError:` に変更。
+
+- **型アノテーション修正**:
+  - `table()` の `cache_strategy` 引数の `Literal` 型に `"ttl"` を追加。
+  - `_UNSET` センチネルの型注釈を `types.EllipsisType` に変更し、型安全性を向上。
+
+- **mypy 設定更新** (`pyproject.toml`):
+  - `python_version` を `3.9` → `3.10` に更新し、`types.EllipsisType` を型チェック時に認識させるよう修正。
+
+#### API ドキュメント修正 (PR [#112](https://github.com/disnana/NanaSQLite/pull/112))
+
+- `NanaSQLite.table()` および `AsyncNanaSQLite.table()` の API ドキュメント（日・英）で、
+  `validator` / `coerce` の既定値が `= ...`（親から継承）であることを明記。
+
+#### テスト・品質改善 (PR [#112](https://github.com/disnana/NanaSQLite/pull/112))
+
+- **包括的テストスイートを追加**:
+  - `tests/test_table_inheritance_comprehensive.py`: `table()` の全継承パターンを 75 ケースで検証。
+  - `tests/test_validkit_integration.py`: validkit-py 統合テスト（同期・非同期）。
+  - `tests/test_tdd_review_fixes.py`: レビューコメント対応の検証テスト。
+  - `tests/test_tdd_cycle_2.py` 〜 `tests/test_tdd_cycle_10.py`: TDD サイクルごとの回帰テスト。
+- **validkit インストール確認の方法を改善**:
+  - `importlib.util.find_spec` から `try/except import` 方式に変更し、破損インストールも正しく検出。
 
 ### [1.3.4b2] - 2026-03-04
 
@@ -94,6 +130,26 @@
   - ロードマップ残項目（ロックタイムアウト、バリデーション基盤、バックアップ/リストア）の対応優先度を明記。
   - v1.3.4b0 〜 v1.4.0 のリリース計画案を記載。
 - **`etc/README.md` 更新**: 新規レビュードキュメントを `in_progress/` 一覧に追記。
+- **`etc/` ディレクトリの再編**（PR [#109](https://github.com/disnana/NanaSQLite/pull/109)）:
+  - `etc/` を実装状況別（`implemented/`・`in_progress/`・`planned/`）のサブディレクトリ構造に再編。フラットな `future_plans/` フォルダを廃止。
+  - v1.3.0 キャッシュ機能（`ExpiringDict`・`UnboundedCache`・`TTLCache` 等）がすべて実装済みであることを確認。
+
+#### 依存関係更新（docs/site メンテナンス）
+- **docs/site 依存ライブラリの更新**（Renovate）:
+  - `autoprefixer` を v10.4.24 → v10.4.27 に更新。([#105](https://github.com/disnana/NanaSQLite/pull/105))
+  - `postcss` を v8.5.6 → v8.5.8 に更新。([#106](https://github.com/disnana/NanaSQLite/pull/106))
+  - `vue` を v3.5.27 → v3.5.29 に更新。([#107](https://github.com/disnana/NanaSQLite/pull/107))
+  - `tailwindcss` / `@tailwindcss/postcss` を v4.1.18 → v4.2.1 に更新。([#108](https://github.com/disnana/NanaSQLite/pull/108))
+
+### [1.3.4dev0] - 2026-03-02
+
+#### CI / 開発環境
+- **SLSA プロバナンスキャッシュ警告への対応・撤退**:
+  - `provenance / generator` ジョブが `go.sum` を探して `Restore cache failed` 警告を出力していたため、空の `go.sum` をリポジトリルートに追加（PR [#103](https://github.com/disnana/NanaSQLite/pull/103)）。
+  - その後、`provenance / generator` ジョブは独立したランナーで実行されリポジトリをチェックアウトしないため、ファイルの有無に関係なく警告を解消できないことが判明。空の `go.sum` を削除（PR [#104](https://github.com/disnana/NanaSQLite/pull/104)）。
+
+#### その他
+- バージョンを `1.3.4dev0` に引き上げ（`1.3.3` リリース後の開発スナップショット）。
 
 ### [1.3.3] - 2026-03-02
 
@@ -559,7 +615,7 @@
 
 #### Bug Fixes & Stability Improvements
 
-- **Fixed test instability on Python 3.9** (`tests/test_tdd_cycle_6.py`):
+- **Fixed test instability on Python 3.9** (`tests/test_tdd_cycle_6.py`) (PR [#113](https://github.com/disnana/NanaSQLite/pull/113)):
   - `test_ellipsis_type_is_available` checks for `types.EllipsisType` (added in Python 3.10),
     but was unconditionally asserting its presence and therefore always failed on Python 3.9.
   - Added `@pytest.mark.skipif(sys.version_info < (3, 10), ...)` so the test is skipped on
@@ -569,6 +625,47 @@
     at runtime, so the library itself already works correctly on Python 3.9. This was a
     test-only issue.
   - No impact on library behaviour or public API.
+
+- **Fixed `table()` cache settings inheritance** (PR [#112](https://github.com/disnana/NanaSQLite/pull/112)):
+  - Child instances created via `table()` did not inherit `cache_ttl` / `cache_persistence_ttl` from
+    their parent, causing `ValueError` when the parent used a TTL cache strategy.
+  - Introduced `_cache_strategy_raw`, `_cache_size_raw`, `_cache_ttl_raw`, and
+    `_cache_persistence_ttl_raw` to store the original arguments; `table()` now propagates
+    all cache settings correctly.
+
+- **`AsyncNanaSQLite` now raises `ImportError` eagerly when validkit-py is missing** (PR [#112](https://github.com/disnana/NanaSQLite/pull/112)):
+  - Previously the error was deferred until a write occurred. `AsyncNanaSQLite.__init__` now
+    raises `ImportError` immediately when `validator` is supplied without validkit-py installed,
+    aligning behaviour with the synchronous `NanaSQLite`.
+  - Added `HAS_VALIDKIT` flag to `async_core.py`.
+
+- **Exception narrowing in `core.py`**:
+  - Replaced broad `except Exception:` clauses guarding optional imports (orjson / validkit-py)
+    with the more specific `except ImportError:`.
+
+- **Type annotation fixes**:
+  - Added `"ttl"` to the `Literal` type of the `cache_strategy` argument in `table()`.
+  - Changed the `_UNSET` sentinel type annotation to `types.EllipsisType` for improved type safety.
+
+- **mypy configuration update** (`pyproject.toml`):
+  - Bumped `python_version` from `3.9` to `3.10` so that `types.EllipsisType` is recognised
+    during static type checking.
+
+#### API Documentation Fixes (PR [#112](https://github.com/disnana/NanaSQLite/pull/112))
+
+- Updated `NanaSQLite.table()` and `AsyncNanaSQLite.table()` API docs (English and Japanese)
+  to show `validator=...` and `coerce=...` (sentinel default indicating parent-inheritance).
+
+#### Tests & Quality Improvements (PR [#112](https://github.com/disnana/NanaSQLite/pull/112))
+
+- **Added comprehensive test suites**:
+  - `tests/test_table_inheritance_comprehensive.py`: 75 test cases covering all `table()` inheritance scenarios.
+  - `tests/test_validkit_integration.py`: Integration tests for validkit-py (sync and async).
+  - `tests/test_tdd_review_fixes.py`: Regression tests for review-comment fixes.
+  - `tests/test_tdd_cycle_2.py` through `tests/test_tdd_cycle_10.py`: Per-cycle regression tests.
+- **Improved validkit availability check**:
+  - Replaced `importlib.util.find_spec` with a `try/except import` check so broken installations
+    are also correctly detected.
 
 ### [1.3.4b2] - 2026-03-04
 
@@ -646,6 +743,26 @@
   - Documented priorities for roadmap Phase 2 items still outstanding (lock timeout, validation foundation, backup/restore).
   - Included a draft release schedule from v1.3.4b0 through v1.4.0.
 - **Updated `etc/README.md`**: Added the new review document to the `in_progress/` table.
+- **Reorganised `etc/` directory** (PR [#109](https://github.com/disnana/NanaSQLite/pull/109)):
+  - Replaced the flat `future_plans/` folder with three status-based subdirectories: `implemented/`, `in_progress/`, and `planned/`.
+  - Verified that all v1.3.0 cache features (`ExpiringDict`, `UnboundedCache`, `TTLCache`, etc.) are fully implemented.
+
+#### Dependency Updates (docs/site Maintenance)
+- **docs/site dependency updates** (Renovate):
+  - Updated `autoprefixer` from v10.4.24 to v10.4.27. ([#105](https://github.com/disnana/NanaSQLite/pull/105))
+  - Updated `postcss` from v8.5.6 to v8.5.8. ([#106](https://github.com/disnana/NanaSQLite/pull/106))
+  - Updated `vue` from v3.5.27 to v3.5.29. ([#107](https://github.com/disnana/NanaSQLite/pull/107))
+  - Updated `tailwindcss` / `@tailwindcss/postcss` from v4.1.18 to v4.2.1. ([#108](https://github.com/disnana/NanaSQLite/pull/108))
+
+### [1.3.4dev0] - 2026-03-02
+
+#### CI / Development Environment
+- **SLSA provenance cache restore warning — investigation and revert**:
+  - Added an empty `go.sum` at the repo root to suppress the `Restore cache failed` warning emitted by the `provenance / generator` job (PR [#103](https://github.com/disnana/NanaSQLite/pull/103)).
+  - Determined that the fix was ineffective: the `provenance / generator` job runs on an isolated runner that does not check out this repository, so the warning cannot be silenced by a local file. The empty `go.sum` was subsequently removed (PR [#104](https://github.com/disnana/NanaSQLite/pull/104)).
+
+#### Other
+- Bumped version to `1.3.4dev0` (development snapshot following the `1.3.3` release).
 
 ### [1.3.3] - 2026-03-02
 
