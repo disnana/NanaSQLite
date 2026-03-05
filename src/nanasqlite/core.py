@@ -198,6 +198,9 @@ class NanaSQLite(MutableMapping):
 
             on_expire = _expire_callback
 
+        # キャッシュ設定の生値を保持（table() での子インスタンスへの継承に使用）
+        self._cache_strategy_raw: CacheType | str = cache_strategy
+        self._cache_size_raw: int | None = cache_size
         self._cache: CacheStrategy = create_cache(cache_strategy, cache_size, ttl=cache_ttl, on_expire=on_expire)
         self._data = self._cache.get_data()
         self._lru_mode = (
@@ -2615,9 +2618,9 @@ class NanaSQLite(MutableMapping):
         """
         self._check_connection()
 
-        # 指定がなければデフォルト（UNBOUNDED）
-        strat = cache_strategy if cache_strategy is not None else CacheType.UNBOUNDED
-        size = cache_size
+        # キャッシュ設定が省略された場合は親インスタンスの設定を継承する
+        strat = cache_strategy if cache_strategy is not None else self._cache_strategy_raw
+        size = cache_size if cache_size is not None else self._cache_size_raw
         # validator が省略された場合は親のスキーマを継承し、None 明示指定は無効化とする
         resolved_validator = self._validator if validator is _UNSET else validator
         # coerce が省略された場合は親の設定を継承する
