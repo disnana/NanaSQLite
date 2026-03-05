@@ -11,7 +11,10 @@ TDD: all tests written BEFORE fixes are applied.
 """
 
 import inspect
+import sys
 import types
+
+import pytest
 
 from nanasqlite import NanaSQLite
 from nanasqlite.async_core import AsyncNanaSQLite
@@ -136,6 +139,7 @@ class TestBehavioralSanityAfterAnnotationChange:
         default = sig.parameters["validator"].default
         assert default is None, f"__init__ validator default should be None but got {default!r}"
 
+    @pytest.mark.skipif(sys.version_info < (3, 10), reason="types.EllipsisType requires Python 3.10+")
     def test_ellipsis_type_is_available(self):
         """Confirm types.EllipsisType is available in this Python version."""
         assert hasattr(types, "EllipsisType"), "types.EllipsisType not available (need Python 3.10+)"
