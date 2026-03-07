@@ -29,7 +29,8 @@ def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
              strict_sql_validation: bool = True,
              allowed_sql_functions: list[str] | None = None,
              forbidden_sql_functions: list[str] | None = None,
-             max_clause_length: int | None = 1000)
+             max_clause_length: int | None = 1000,
+             lock_timeout: float | None = None)
 ```
 
 NanaSQLiteデータベース接続を初期化します。
@@ -51,6 +52,7 @@ NanaSQLiteデータベース接続を初期化します。
 - `allowed_sql_functions` (list[str], 任意): 許可するSQL関数。
 - `forbidden_sql_functions` (list[str], 任意): 禁止するSQL関数。
 - `max_clause_length` (int, 任意): SQL句の最大長。デフォルトは `1000`。
+- `lock_timeout` (float | None, 任意): 内部ロック取得の最大待機秒数。指定時間内にロックを取得できない場合は `NanaSQLiteLockError` を送出します。`None`（デフォルト）は無制限待機。(v1.3.4b1以降)
 
 ---
 
@@ -516,6 +518,70 @@ SQLiteのPRAGMA値を取得または設定します。
 def get_last_insert_rowid(self) -> int
 ```
 最後に挿入された行の `ROWID` を返します。
+
+---
+
+## バックアップ & リストア (v1.3.4b1以降)
+
+### `backup`
+
+```python
+def backup(self, dest_path: str) -> None
+```
+
+APSW の SQLite オンラインバックアップ API を使用して、現在のデータベースをファイルにバックアップします。
+バックアップはページ単位で実行されるため、他の SQLite 接続が同時に読み書きしていても安全に動作します。
+バックアップ実行中に NanaSQLite の内部ロックを保持しないため、同一プロセス内の他の NanaSQLite 操作をブロックしません。
+
+**パラメータ:**
+- `dest_path` (str): バックアップ先のファイルパス。
+
+**例外:**
+- `NanaSQLiteClosedError`: 接続が閉じられている場合。
+- `NanaSQLiteValidationError`: `dest_path` が DB ファイル自身と同一である場合（自己コピー防止）、または `':memory:'` / `'file::memory:...'` などインメモリDB文字列が指定された場合（永続化されないため）。
+- `NanaSQLiteDatabaseError`: バックアップ中にエラーが発生した場合。
+- `NanaSQLiteLockError`: `lock_timeout` 設定によりロック取得がタイムアウトした場合。
+
+**使用例:**
+```python
+db = NanaSQLite("app.db")
+db["user"] = {"name": "Nana"}
+db.backup("app_backup.db")
+# app_backup.db に app.db の完全なコピーが保存されます
+```
+
+### `restore`
+
+```python
+def restore(self, src_path: str) -> None
+```
+
+バックアップファイルからデータベースをリストアします。
+現在の接続を閉じ、バックアップファイルを DB ファイルに上書きコピーし、
+stale な WAL/SHM/journal サイドカーファイル（`-wal`/`-shm`/`-journal`）を削除してから接続を再確立します。
+リストア後はメモリキャッシュが自動的にクリアされます。
+
+**パラメータ:**
+- `src_path` (str): リストア元のバックアップファイルパス。
+
+**例外:**
+- `NanaSQLiteClosedError`: 接続が閉じられている場合。
+- `NanaSQLiteConnectionError`: `.table()` で取得した（接続を所有しない）インスタンスから呼び出した場合。
+- `NanaSQLiteTransactionError`: トランザクション中に呼び出した場合。`restore()` を呼ぶ前にコミットまたはロールバックしてください。
+- `NanaSQLiteValidationError`: 現在の DB が `':memory:'` または `'file::memory:...'` などのインメモリDBの場合（ファイルによるリストアが不可能なため）。
+- `NanaSQLiteDatabaseError`: リストア中にエラーが発生した場合（例：ファイルが存在しない、stale な WAL サイドカーファイルを削除できない場合）。
+- `NanaSQLiteLockError`: `lock_timeout` 設定によりロック取得がタイムアウトした場合。
+
+**使用例:**
+```python
+db = NanaSQLite("app.db")
+db["user"] = {"name": "Nana"}
+db.backup("snapshot.db")
+
+db["user"] = {"name": "変更後"}
+db.restore("snapshot.db")
+print(db["user"])  # {'name': 'Nana'}
+```
 
 ---
 

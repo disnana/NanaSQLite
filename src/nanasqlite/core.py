@@ -11,12 +11,18 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
+import shutil
+import stat
+import tempfile
 import threading
+import types
 import warnings
 import weakref
 from collections.abc import Iterator, MutableMapping
+from contextlib import contextmanager
 from typing import Any, Literal
 
 import apsw
@@ -33,6 +39,7 @@ from .exceptions import (
     NanaSQLiteClosedError,
     NanaSQLiteConnectionError,
     NanaSQLiteDatabaseError,
+    NanaSQLiteLockError,
     NanaSQLiteTransactionError,
     NanaSQLiteValidationError,
 )
@@ -48,8 +55,21 @@ try:
     import orjson  # type: ignore
 
     HAS_ORJSON = True
-except Exception:
+except ImportError:
     HAS_ORJSON = False
+
+# Optional value validation (validkit-py)
+try:
+    from validkit import validate as validkit_validate  # type: ignore
+
+    HAS_VALIDKIT = True
+except ImportError:
+    HAS_VALIDKIT = False
+
+# Sentinel used to distinguish "parameter not passed" from "explicitly None".
+# Ellipsis (...) is used so inspect.signature() shows readable "= ..." instead of
+# "<object object at 0x...>" for table() parameters that support parent-inheritance.
+_UNSET = ...
 
 
 class NanaSQLite(MutableMapping):
@@ -69,6 +89,8 @@ class NanaSQLite(MutableMapping):
         bulk_load: Trueの場合、初期化時に全データをメモリに読み込む
         strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否 (v1.2.0)
         max_clause_length: SQL句の最大長（ReDoS対策、v1.2.0）
+        validator: validkit-py のスキーマ。指定すると値の書き込み時にバリデーションを実行 (オプション)
+        coerce: True の場合、validator に基づいて値を型変換してから永続化する (オプション)
     """
 
     def __init__(
@@ -88,6 +110,9 @@ class NanaSQLite(MutableMapping):
         cache_persistence_ttl: bool = False,
         encryption_key: str | bytes | None = None,
         encryption_mode: Literal["aes-gcm", "chacha20", "fernet"] = "aes-gcm",
+        lock_timeout: float | None = None,
+        validator: Any | None = None,
+        coerce: bool = False,
         _shared_connection: apsw.Connection | None = None,
         _shared_lock: threading.RLock | None = None,
     ):
@@ -102,11 +127,28 @@ class NanaSQLite(MutableMapping):
             allowed_sql_functions: 追加で許可するSQL関数のリスト
             forbidden_sql_functions: 明示的に禁止するSQL関数のリスト
             max_clause_length: SQL句の最大長（ReDoS対策）。Noneで制限なし
+            lock_timeout: ロック取得のタイムアウト秒数。Noneで無制限待機
+            validator: validkit-py のスキーマ（辞書または Schema オブジェクト）。
+                       指定すると、値の書き込み時にバリデーションを実行する。
+                       ``pip install nanasqlite[validation]`` が必要。
+            coerce: ``True`` の場合、validkit-py の自動変換（コアース）機能を有効にする。
+                    バリデーション後、変換済みの値をDBに書き込む。
+                    ``validator`` が設定されている場合のみ有効。デフォルト: ``False``。
             _shared_connection: 内部用：共有する接続（table()メソッドで使用）
             _shared_lock: 内部用：共有するロック（table()メソッドで使用）
         """
         self._db_path: str = db_path
         self._table: str = table
+        # lock_timeout を __init__ で一度だけ検証・正規化する（_acquire_lock の高頻度パスでの検証を省く）
+        if lock_timeout is not None:
+            if isinstance(lock_timeout, bool) or not isinstance(lock_timeout, (int, float)) or lock_timeout < 0 or not math.isfinite(lock_timeout):
+                raise NanaSQLiteValidationError(
+                    f"Invalid lock_timeout '{lock_timeout}': must be None or a non-negative finite number"
+                )
+            lock_timeout = float(lock_timeout)
+        self._lock_timeout: float | None = lock_timeout
+        self._optimize: bool = optimize
+        self._cache_size_mb: int = cache_size_mb
 
         # Encryption setup
         self._encryption_key = encryption_key
@@ -132,6 +174,20 @@ class NanaSQLite(MutableMapping):
             else:
                 raise ValueError(f"Unsupported encryption_mode: {encryption_mode}")
 
+        # Validkit バリデーション設定（オプション）
+        # None は「バリデーションなし」を意味する
+        resolved_init_validator = validator
+        if resolved_init_validator is not None and not HAS_VALIDKIT:
+            raise ImportError(
+                "The 'validkit-py' library is required for validation. "
+                "Install it with: pip install nanasqlite[validation]\n"
+                "バリデーション機能には 'validkit-py' ライブラリが必要です。"
+                " pip install nanasqlite[validation] でインストールしてください。"
+            )
+        self._validator = resolved_init_validator  # validkit スキーマ（dict または Schema オブジェクト）
+        # coerce が省略された場合は False にフォールバック
+        self._coerce: bool = bool(coerce)
+
         # Setup Persistence TTL callback if enabled
         on_expire = None
         if (cache_strategy == CacheType.TTL or cache_strategy == "ttl") and cache_persistence_ttl:
@@ -146,6 +202,11 @@ class NanaSQLite(MutableMapping):
 
             on_expire = _expire_callback
 
+        # キャッシュ設定の生値を保持（table() での子インスタンスへの継承に使用）
+        self._cache_strategy_raw: CacheType | str = cache_strategy
+        self._cache_size_raw: int | None = cache_size
+        self._cache_ttl_raw: float | None = cache_ttl
+        self._cache_persistence_ttl_raw: bool = cache_persistence_ttl
         self._cache: CacheStrategy = create_cache(cache_strategy, cache_size, ttl=cache_ttl, on_expire=on_expire)
         self._data = self._cache.get_data()
         self._lru_mode = (
@@ -220,7 +281,7 @@ class NanaSQLite(MutableMapping):
                 self._apply_optimizations(cache_size_mb)
 
         # テーブル作成
-        with self._lock:
+        with self._acquire_lock():
             self._connection.execute(f"""
                 CREATE TABLE IF NOT EXISTS {self._table} (
                     key TEXT PRIMARY KEY,
@@ -298,6 +359,29 @@ class NanaSQLite(MutableMapping):
 
     # ==================== Private Methods ====================
 
+    @staticmethod
+    def _is_in_memory_path(path: str) -> bool:
+        """パスがインメモリDB文字列（':memory:' または 'file::memory:...'）かどうかを返す。"""
+        return path == ":memory:" or path.startswith("file::memory:")
+
+    @contextmanager
+    def _acquire_lock(self):
+        """ロックを取得するコンテキストマネージャ。lock_timeout が設定されている場合はタイムアウト付きで取得する。"""
+        lock_timeout = self._lock_timeout
+        if lock_timeout is not None:
+            acquired = self._lock.acquire(timeout=lock_timeout)
+            if not acquired:
+                raise NanaSQLiteLockError(
+                    f"Failed to acquire lock within {lock_timeout}s"
+                )
+            try:
+                yield
+            finally:
+                self._lock.release()
+        else:
+            with self._lock:
+                yield
+
     def __hash__(self):
         # MutableMapping inhibits hashing by default because it's mutable.
         # However, we need identity-based hashing to track instances in WeakSet.
@@ -345,6 +429,13 @@ class NanaSQLite(MutableMapping):
                 "If you obtained this instance via .table(), ensure the primary "
                 "NanaSQLite instance remains open during usage."
             )
+
+    def _raise_key_validation_error(self, key: str, exc: Exception) -> None:
+        """Raise NanaSQLiteValidationError for a specific key with a standard bilingual message."""
+        raise NanaSQLiteValidationError(
+            f"Value for key '{key}' failed schema validation: {exc} "
+            f"/ キー '{key}' の値がスキーマに違反しています: {exc}"
+        ) from exc
 
     def _validate_expression(
         self,
@@ -544,7 +635,7 @@ class NanaSQLite(MutableMapping):
     def _write_to_db(self, key: str, value: Any) -> None:
         """即時書き込み: SQLiteに値を保存"""
         serialized = self._serialize(value)
-        with self._lock:
+        with self._acquire_lock():
             self._connection.execute(
                 f"INSERT OR REPLACE INTO {self._table} (key, value) VALUES (?, ?)",  # nosec
                 (key, serialized),
@@ -552,7 +643,7 @@ class NanaSQLite(MutableMapping):
 
     def _read_from_db(self, key: str) -> Any | None:
         """SQLiteから値を読み込み"""
-        with self._lock:
+        with self._acquire_lock():
             cursor = self._connection.execute(
                 f"SELECT value FROM {self._table} WHERE key = ?",  # nosec
                 (key,),
@@ -564,7 +655,7 @@ class NanaSQLite(MutableMapping):
 
     def _delete_from_db(self, key: str) -> None:
         """SQLiteから値を削除"""
-        with self._lock:
+        with self._acquire_lock():
             self._connection.execute(
                 f"DELETE FROM {self._table} WHERE key = ?",  # nosec
                 (key,),
@@ -572,7 +663,7 @@ class NanaSQLite(MutableMapping):
 
     def _get_all_keys_from_db(self) -> list:
         """SQLiteから全キーを取得"""
-        with self._lock:
+        with self._acquire_lock():
             cursor = self._connection.execute(
                 f"SELECT key FROM {self._table}"  # nosec
             )
@@ -621,28 +712,36 @@ class NanaSQLite(MutableMapping):
     def __setitem__(self, key: str, value: Any) -> None:
         """dict[key] = value - 即時書き込み + メモリ更新"""
         self._check_connection()
-        # メモリ更新
+        # validkit バリデーション（スキーマが設定されている場合のみ実行）
+        if self._validator is not None:
+            try:
+                coerced = validkit_validate(value, self._validator)
+                if self._coerce:
+                    value = coerced
+            except Exception as exc:
+                self._raise_key_validation_error(key, exc)
+        # DB書き込みを先に行い、ロックタイムアウト時のキャッシュ不整合を防止
+        self._write_to_db(key, value)
+        # DB書き込み成功後にメモリ更新
         if self._lru_mode or (hasattr(self._cache, "_max_size") and self._cache._max_size):
             self._cache.set(key, value)
         else:
             self._data[key] = value
             self._cached_keys.add(key)
-        # 即時書き込み
-        self._write_to_db(key, value)
 
     def __delitem__(self, key: str) -> None:
         """del dict[key] - 即時削除"""
+        self._check_connection()
         if not self._ensure_cached(key):
             raise KeyError(key)
-        # メモリから削除
+        # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
+        self._delete_from_db(key)
+        # DB削除成功後にメモリから削除
         if self._lru_mode:
             self._cache.delete(key)
         else:
             self._data.pop(key, None)
             self._cached_keys.discard(key)
-
-        # DBから削除
-        self._delete_from_db(key)
 
     def __contains__(self, key: str) -> bool:
         """
@@ -656,7 +755,7 @@ class NanaSQLite(MutableMapping):
             return key in self._data
 
         # 軽量な存在確認クエリ（valueを読み込まない）
-        with self._lock:
+        with self._acquire_lock():
             cursor = self._connection.execute(
                 f"SELECT 1 FROM {self._table} WHERE key = ? LIMIT 1",  # nosec
                 (key,),  # nosec
@@ -678,7 +777,7 @@ class NanaSQLite(MutableMapping):
 
     def __len__(self) -> int:
         """len(dict) - DBの実際の件数を返す"""
-        with self._lock:
+        with self._acquire_lock():
             cursor = self._connection.execute(
                 f"SELECT COUNT(*) FROM {self._table}"  # nosec
             )
@@ -796,7 +895,7 @@ class NanaSQLite(MutableMapping):
         placeholders = ",".join(["?"] * len(missing_keys))
         sql = f"SELECT key, value FROM {self._table} WHERE key IN ({placeholders})"  # nosec
 
-        with self._lock:
+        with self._acquire_lock():
             cursor = self._connection.execute(sql, tuple(missing_keys))
             for key, val_str in cursor:
                 value = self._deserialize(val_str)
@@ -816,8 +915,9 @@ class NanaSQLite(MutableMapping):
         self._check_connection()
         if self._ensure_cached(key):
             value = self._cache.get(key)
-            self._cache.delete(key)
+            # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
             self._delete_from_db(key)
+            self._cache.delete(key)
             return value
         if args:
             return args[0]
@@ -833,10 +933,12 @@ class NanaSQLite(MutableMapping):
 
     def clear(self) -> None:
         """dict.clear() - 全削除"""
+        self._check_connection()
+        # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
+        with self._acquire_lock():
+            self._connection.execute(f"DELETE FROM {self._table}")  # nosec
         self._cache.clear()
         self._all_loaded = False
-        with self._lock:
-            self._connection.execute(f"DELETE FROM {self._table}")  # nosec
 
     def setdefault(self, key: str, default: Any = None) -> Any:
         """dict.setdefault(key, default)"""
@@ -852,7 +954,7 @@ class NanaSQLite(MutableMapping):
         if self._all_loaded:
             return
 
-        with self._lock:
+        with self._acquire_lock():
             cursor = self._connection.execute(
                 f"SELECT key, value FROM {self._table}"  # nosec
             )
@@ -894,6 +996,7 @@ class NanaSQLite(MutableMapping):
 
         大量のデータを一度に書き込む場合、通常のupdateより10-100倍高速。
         v1.0.3rc5でexecutemanyによる最適化を追加。
+        v1.3.4b2より、validkit バリデーター設定時は全値を事前に検証する。
 
         Args:
             mapping: 書き込むキーと値のdict
@@ -907,26 +1010,47 @@ class NanaSQLite(MutableMapping):
         if not mapping:
             return  # 空の場合は何もしない
 
-        cursor = self._connection.cursor()
-        cursor.execute("BEGIN IMMEDIATE")
-        try:
-            # 事前にシリアライズしてexecutemany用のタプルリストを作成
-            params = [(key, self._serialize(value)) for key, value in mapping.items()]
-            cursor.executemany(
-                f"INSERT OR REPLACE INTO {self._table} (key, value) VALUES (?, ?)",  # nosec
-                params,
-            )
-            # キャッシュ更新
-            for key, value in mapping.items():
-                if self._lru_mode:
-                    self._cache.set(key, value)
-                else:
-                    self._data[key] = value
-                    self._cached_keys.add(key)
-            cursor.execute("COMMIT")
-        except Exception:
-            cursor.execute("ROLLBACK")
-            raise
+        self._check_connection()
+
+        # validkit 事前バリデーション: DB に触れる前に全値を検証し、1件でも失敗したら何も書かない
+        if self._validator is not None:
+            if self._coerce:
+                coerced_mapping: dict[str, Any] = {}
+                for key, value in mapping.items():
+                    try:
+                        coerced = validkit_validate(value, self._validator)
+                        coerced_mapping[key] = coerced
+                    except Exception as exc:
+                        self._raise_key_validation_error(key, exc)
+                mapping = coerced_mapping
+            else:
+                for key, value in mapping.items():
+                    try:
+                        validkit_validate(value, self._validator)
+                    except Exception as exc:
+                        self._raise_key_validation_error(key, exc)
+
+        with self._acquire_lock():
+            cursor = self._connection.cursor()
+            cursor.execute("BEGIN IMMEDIATE")
+            try:
+                # 事前にシリアライズしてexecutemany用のタプルリストを作成
+                params = [(key, self._serialize(value)) for key, value in mapping.items()]
+                cursor.executemany(
+                    f"INSERT OR REPLACE INTO {self._table} (key, value) VALUES (?, ?)",  # nosec
+                    params,
+                )
+                # キャッシュ更新
+                for key, value in mapping.items():
+                    if self._lru_mode:
+                        self._cache.set(key, value)
+                    else:
+                        self._data[key] = value
+                        self._cached_keys.add(key)
+                cursor.execute("COMMIT")
+            except Exception:
+                cursor.execute("ROLLBACK")
+                raise
 
     def batch_delete(self, keys: list[str]) -> None:
         """
@@ -944,26 +1068,27 @@ class NanaSQLite(MutableMapping):
         if not keys:
             return  # 空の場合は何もしない
 
-        cursor = self._connection.cursor()
-        cursor.execute("BEGIN IMMEDIATE")
-        try:
-            # executemany用のタプルリストを作成
-            params = [(key,) for key in keys]
-            cursor.executemany(
-                f"DELETE FROM {self._table} WHERE key = ?",  # nosec
-                params,
-            )
-            # キャッシュ更新
-            for key in keys:
-                if self._lru_mode:
-                    self._cache.delete(key)
-                else:
-                    self._data.pop(key, None)
-                    self._cached_keys.discard(key)
-            cursor.execute("COMMIT")
-        except Exception:
-            cursor.execute("ROLLBACK")
-            raise
+        with self._acquire_lock():
+            cursor = self._connection.cursor()
+            cursor.execute("BEGIN IMMEDIATE")
+            try:
+                # executemany用のタプルリストを作成
+                params = [(key,) for key in keys]
+                cursor.executemany(
+                    f"DELETE FROM {self._table} WHERE key = ?",  # nosec
+                    params,
+                )
+                # キャッシュ更新
+                for key in keys:
+                    if self._lru_mode:
+                        self._cache.delete(key)
+                    else:
+                        self._data.pop(key, None)
+                        self._cached_keys.discard(key)
+                cursor.execute("COMMIT")
+            except Exception:
+                cursor.execute("ROLLBACK")
+                raise
 
     def to_dict(self) -> dict:
         """全データをPython dictとして取得"""
@@ -986,6 +1111,8 @@ class NanaSQLite(MutableMapping):
 
     def _delete_from_db_on_expire(self, key: str) -> None:
         """有効期限切れ時にDBからデータを削除 (内部用)"""
+        # バックグラウンドの期限切れ削除はユーザー操作と異なり、ロック競合でタイムアウトしても
+        # データが残るだけなので、lock_timeout に関わらずブロッキング取得で確実に削除する
         with self._lock:
             if self._is_closed:
                 return
@@ -993,6 +1120,210 @@ class NanaSQLite(MutableMapping):
                 self._connection.execute(f'DELETE FROM "{self._table}" WHERE key = ?', (key,))  # nosec
             except apsw.Error as e:
                 logger.error(f"SQL error during background expiration for key '{key}': {e}")
+
+    def backup(self, dest_path: str) -> None:
+        """
+        データベースをファイルにバックアップする
+
+        APSW の SQLite バックアップ API を使用して、現在の DB 全体を dest_path に書き出します。
+        SQLite のトランザクション機構により、他の SQLite 接続が同時に読み書きしていても
+        データの整合性を保ったままバックアップできます。
+        NanaSQLite の内部ロックはバックアップ中に保持しないため、同一プロセス内の
+        他の NanaSQLite 操作をブロックしません。
+
+        Args:
+            dest_path: バックアップ先ファイルパス
+
+        Raises:
+            NanaSQLiteClosedError: 接続が閉じられている場合
+            NanaSQLiteValidationError: dest_path が現在のDBファイルと同一の場合（自己コピー防止）、または
+                dest_path がインメモリDB文字列（':memory:' など）の場合（永続化されないため）
+            NanaSQLiteDatabaseError: バックアップ中にエラーが発生した場合
+            NanaSQLiteLockError: lock_timeout 設定によりロック取得に失敗した場合
+        """
+        self._check_connection()
+        # dest_path がインメモリDB文字列の場合、バックアップが永続化されないため拒否する
+        if self._is_in_memory_path(dest_path):
+            raise NanaSQLiteValidationError(
+                "dest_path must be a file path, not an in-memory database string"
+            )
+        # dest_path が DB ファイル自身と同一の場合は自己コピーになり破損する恐れがあるため拒否する
+        try:
+            if os.path.samefile(dest_path, self._db_path):
+                raise NanaSQLiteValidationError(
+                    "dest_path must not be the same as the current database file"
+                )
+        except FileNotFoundError:
+            pass  # dest_path がまだ存在しない場合は問題なし
+        except OSError as e:
+            # パスの同一性チェックに失敗した場合は、自己コピー防止チェックをスキップし、
+            # 実際のバックアップ処理側での失敗として扱う
+            logger.warning(
+                "Could not verify whether backup destination %r is the same as database file %r: %s",
+                dest_path,
+                self._db_path,
+                e,
+            )
+        # ロックは接続参照の取得のみに限定する。
+        # 実際のバックアップ処理は SQLite のオンラインバックアップ API に委ねるため
+        # NanaSQLite のロックを保持し続ける必要がない。
+        # これにより backup() 実行中も他の NanaSQLite 操作をブロックしない。
+        with self._acquire_lock():
+            conn_ref = self._connection
+        dest_conn = None
+        try:
+            dest_conn = apsw.Connection(dest_path)
+            with dest_conn.backup("main", conn_ref, "main") as b:
+                while not b.done:
+                    b.step(100)
+        except apsw.Error as e:
+            raise NanaSQLiteDatabaseError(f"Backup failed: {e}", e) from e
+        finally:
+            if dest_conn is not None:
+                try:
+                    dest_conn.close()
+                except apsw.Error as close_err:
+                    logger.error("Error closing destination connection after backup: %s", close_err)
+
+    def restore(self, src_path: str) -> None:
+        """
+        バックアップファイルからデータベースをリストアする
+
+        現在の接続を一時的に閉じ、src_path のファイルを DB パスにコピーし、
+        stale な WAL/SHM/journal サイドカーファイル（-wal/-shm/-journal）を
+        削除してから再接続します。
+        リストア後はメモリキャッシュがクリアされ、DB の内容が反映されます。
+
+        Args:
+            src_path: リストア元バックアップファイルパス
+
+        Raises:
+            NanaSQLiteClosedError: 接続が閉じられている場合
+            NanaSQLiteConnectionError: 接続を所有していない (table() で取得した) インスタンスから呼ばれた場合
+            NanaSQLiteValidationError: 現在のDBがインメモリDB（':memory:' など）の場合（ファイル置換が不可能なため）
+            NanaSQLiteTransactionError: トランザクション中に呼ばれた場合
+            NanaSQLiteDatabaseError: リストア中にエラーが発生した場合
+            NanaSQLiteLockError: lock_timeout 設定によりロック取得に失敗した場合
+        """
+        self._check_connection()
+        # DB がインメモリの場合はファイル置換ができないため拒否する（早期失敗）
+        if self._is_in_memory_path(self._db_path):
+            raise NanaSQLiteValidationError(
+                "restore() cannot be used with an in-memory database"
+            )
+        if not self._is_connection_owner:
+            raise NanaSQLiteConnectionError(
+                "restore() can only be called on the primary (connection-owning) instance. "
+                "Use the original NanaSQLite instance, not one obtained via table()."
+            )
+
+        with self._acquire_lock():
+            # ロック取得後にトランザクション中かを再チェック（ロック外チェックとの競合を防ぐ）
+            if self._in_transaction:
+                raise NanaSQLiteTransactionError(
+                    "Cannot restore while a transaction is in progress. Please commit or rollback first."
+                )
+            # ロック内でスナップショットを取得し、table() と競合しないようにする
+            children = list(self._child_instances)
+            tmp_path = None
+            try:
+                # 元DBのパーミッションを先に取得しておく（接続クローズ後も stat は可能だがここで取る）
+                try:
+                    original_mode = os.stat(self._db_path).st_mode
+                except OSError:
+                    original_mode = None
+                # 少なくとも src_path がオープン可能かどうかを、接続クローズ前に確認する
+                # 事前の isfile/access チェックは TOCTOU になるため行わず、open() の成否で判断する
+                with open(src_path, "rb") as src_f:
+                    self._connection.close()
+                    # 一時ファイルへコピー→fsync→os.replace() で原子的に置き換える
+                    # open()/コピー中の OSError は外側の except (apsw.Error, OSError) で捕捉して
+                    # NanaSQLiteDatabaseError に変換する
+                    db_dir = os.path.dirname(os.path.abspath(self._db_path))
+                    fd, tmp_path = tempfile.mkstemp(dir=db_dir)
+                    with os.fdopen(fd, "wb") as tmp_f:
+                        shutil.copyfileobj(src_f, tmp_f)
+                        tmp_f.flush()
+                        os.fsync(tmp_f.fileno())
+                # 元DBのパーミッションを一時ファイルに適用してから原子的に置き換える
+                if original_mode is not None:
+                    try:
+                        os.chmod(tmp_path, stat.S_IMODE(original_mode))
+                    except OSError as chmod_err:
+                        logger.warning(
+                            "Could not apply original file mode %r to temporary DB file %r during restore: %s",
+                            stat.S_IMODE(original_mode),
+                            tmp_path,
+                            chmod_err,
+                        )
+                os.replace(tmp_path, self._db_path)
+                tmp_path = None  # replace 成功したので cleanup 不要
+                # WAL モード使用時に残る可能性のあるサイドカーファイルを削除する。
+                # 古い -wal/-shm/-journal が残っていると、再接続時に SQLite が
+                # stale な WAL 内容を再生して不整合な状態になり得る。
+                # WAL 整合性に直接影響する -wal/-shm は削除またはリネームで隔離する。
+                # 削除もリネームも失敗した場合は restore 失敗として扱う。
+                for suffix in ("-wal", "-shm"):
+                    sidecar = self._db_path + suffix
+                    try:
+                        os.unlink(sidecar)
+                    except FileNotFoundError:
+                        pass  # サイドカーファイルが存在しない場合は問題ないため無視する
+                    except OSError:
+                        # 削除できない場合はリネームで隔離を試みる
+                        renamed = sidecar + ".bak"
+                        try:
+                            os.rename(sidecar, renamed)
+                            logger.warning(
+                                "Could not remove stale sidecar %r; renamed to %r to prevent WAL replay",
+                                sidecar,
+                                renamed,
+                            )
+                        except OSError as rename_err:
+                            raise OSError(
+                                f"Could not remove or rename stale WAL sidecar file {sidecar!r}: {rename_err}"
+                            ) from rename_err
+                # -journal は整合性への影響が小さいため、削除失敗は警告のみに留める
+                sidecar = self._db_path + "-journal"
+                try:
+                    os.unlink(sidecar)
+                except FileNotFoundError:
+                    pass  # サイドカーファイルが存在しない場合は問題ないため無視する
+                except OSError as sidecar_err:
+                    logger.warning(
+                        "Could not remove stale sidecar file %r during restore: %s",
+                        sidecar,
+                        sidecar_err,
+                    )
+                self._connection = apsw.Connection(self._db_path)
+                if self._optimize:
+                    self._apply_optimizations(self._cache_size_mb)
+                for child in children:
+                    child._connection = self._connection
+                self.clear_cache()
+                for child in children:
+                    child.clear_cache()
+            except (apsw.Error, OSError) as e:
+                if tmp_path is not None:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError as cleanup_err:
+                        logger.debug("Failed to remove temporary restore file %r: %s", tmp_path, cleanup_err)
+                try:
+                    self._connection = apsw.Connection(self._db_path)
+                    if self._optimize:
+                        self._apply_optimizations(self._cache_size_mb)
+                    for child in children:
+                        child._connection = self._connection
+                    self.clear_cache()
+                    for child in children:
+                        child.clear_cache()
+                except apsw.Error:
+                    self._is_closed = True
+                    for child in children:
+                        child._mark_parent_closed()
+                    self._child_instances.clear()
+                raise NanaSQLiteDatabaseError(f"Restore failed: {e}", e) from e
 
     def close(self) -> None:
         """
@@ -1147,7 +1478,7 @@ class NanaSQLite(MutableMapping):
         self._check_connection()
 
         try:
-            with self._lock:
+            with self._acquire_lock():
                 if parameters is None:
                     return self._connection.execute(sql)
                 else:
@@ -1172,7 +1503,7 @@ class NanaSQLite(MutableMapping):
             ...     [(1, "Alice"), (2, "Bob"), (3, "Charlie")]
             ... )
         """
-        with self._lock:
+        with self._acquire_lock():
             cursor = self._connection.cursor()
             cursor.execute("BEGIN IMMEDIATE")
             try:
@@ -2251,12 +2582,14 @@ class NanaSQLite(MutableMapping):
     def table(
         self,
         table_name: str,
-        cache_strategy: CacheType | Literal["unbounded", "lru"] | None = None,
+        cache_strategy: CacheType | Literal["unbounded", "lru", "ttl"] | None = None,
         cache_size: int | None = None,
+        cache_ttl: float | None = None,
+        cache_persistence_ttl: bool | None = None,
+        validator: Any | None | types.EllipsisType = _UNSET,
+        coerce: bool | types.EllipsisType = _UNSET,
     ):
         """
-        サブテーブル用のNanaSQLiteインスタンスを取得
-
         新しいインスタンスを作成しますが、SQLite接続とロックは共有します。
         これにより、複数のテーブルインスタンスが同じ接続を使用して
         スレッドセーフに動作します。
@@ -2265,6 +2598,15 @@ class NanaSQLite(MutableMapping):
             table_name: テーブル名
             cache_strategy: このテーブル用のキャッシュ戦略 (デフォルト: 親と同じ)
             cache_size: このテーブル用のキャッシュサイズ (デフォルト: 親と同じ)
+            cache_ttl: TTL 戦略使用時のキャッシュ有効期限（秒）。省略時は親の設定を継承する。
+                       親が非TTLの場合に TTL 戦略を指定する際は必須。
+            cache_persistence_ttl: TTL 戦略使用時に期限切れキーを DB に永続化するか。
+                                   省略時は親の設定を継承する。
+            validator: このテーブル用の validkit-py スキーマ。
+                       指定しない場合は親インスタンスのスキーマを引き継ぐ。
+                       ``None`` を明示的に渡すとバリデーションなしで使用できる。
+            coerce: ``True`` の場合、validkit-py の自動変換機能を有効にする。
+                    指定しない場合は親インスタンスの設定を引き継ぐ。
 
         ⚠️ 重要な注意事項:
         - 同じテーブルに対して複数のインスタンスを作成しないでください
@@ -2286,34 +2628,54 @@ class NanaSQLite(MutableMapping):
             NanaSQLiteConnectionError: 接続が閉じられている場合
 
         Example:
+            >>> from validkit import v
             >>> with NanaSQLite("app.db", table="main") as main_db:
-            ...     users_db = main_db.table("users")
+            ...     users_schema = {"name": v.str(), "age": v.int()}
+            ...     users_db = main_db.table("users", validator=users_schema)
             ...     products_db = main_db.table("products")
-            ...     users_db["user1"] = {"name": "Alice"}
+            ...     users_db["user1"] = {"name": "Alice", "age": 30}
             ...     products_db["prod1"] = {"name": "Laptop"}
         """
         self._check_connection()
 
-        # 指定がなければデフォルト（UNBOUNDED）
-        strat = cache_strategy if cache_strategy is not None else CacheType.UNBOUNDED
-        size = cache_size
-
-        child = NanaSQLite(
-            self._db_path,
-            table=table_name,
-            cache_strategy=strat,
-            cache_size=size,
-            _shared_connection=self._connection,
-            _shared_lock=self._lock,
+        # キャッシュ設定が省略された場合は親インスタンスの設定を継承する
+        strat = cache_strategy if cache_strategy is not None else self._cache_strategy_raw
+        size = cache_size if cache_size is not None else self._cache_size_raw
+        # TTL 戦略の場合は cache_ttl と cache_persistence_ttl も継承する（省略時）
+        ttl = cache_ttl if cache_ttl is not None else self._cache_ttl_raw
+        persist_ttl = (
+            cache_persistence_ttl if cache_persistence_ttl is not None
+            else self._cache_persistence_ttl_raw
         )
+        # validator が省略された場合は親のスキーマを継承し、None 明示指定は無効化とする
+        resolved_validator = self._validator if validator is _UNSET else validator
+        # coerce が省略された場合は親の設定を継承する
+        resolved_coerce = self._coerce if coerce is _UNSET else bool(coerce)
 
-        # If the parent is the connection owner, the child is not.
-        # This ensures only one instance (the owner) attempts to close the connection.
-        if self._is_connection_owner:
-            child._is_connection_owner = False
+        # 子インスタンス生成〜WeakSet追加をロックで保護し、
+        # restore() の接続差し替えと競合しないようにする
+        with self._acquire_lock():
+            child = NanaSQLite(
+                self._db_path,
+                table=table_name,
+                cache_strategy=strat,
+                cache_size=size,
+                cache_ttl=ttl,
+                cache_persistence_ttl=persist_ttl,
+                lock_timeout=self._lock_timeout,
+                validator=resolved_validator,
+                coerce=resolved_coerce,
+                _shared_connection=self._connection,
+                _shared_lock=self._lock,
+            )
 
-        # 子インスタンスを追跡 (WeakSetに直接オブジェクトを追加すると、WeakSetが弱参照を保持する)
-        self._child_instances.add(child)
+            # If the parent is the connection owner, the child is not.
+            # This ensures only one instance (the owner) attempts to close the connection.
+            if self._is_connection_owner:
+                child._is_connection_owner = False
+
+            # 子インスタンスを追跡 (WeakSetに直接オブジェクトを追加すると、WeakSetが弱参照を保持する)
+            self._child_instances.add(child)
 
         return child
 

@@ -6,6 +6,171 @@
 
 ## 日本語
 
+### [1.3.4b3] - 2026-03-05
+
+#### バグ修正・安定性改善
+
+- **Python 3.9 でのテスト不安定問題を修正** (`tests/test_tdd_cycle_6.py`) (PR [#113](https://github.com/disnana/NanaSQLite/pull/113)):
+  - `test_ellipsis_type_is_available` は `types.EllipsisType`（Python 3.10 で追加）の有無を確認するテストですが、
+    Python 3.9 環境では無条件に失敗していました。
+  - `@pytest.mark.skipif(sys.version_info < (3, 10), ...)` デコレータを追加し、Python 3.9 では
+    このテストをスキップするよう修正。Python 3.10 以降では引き続き実行されます。
+  - `from __future__ import annotations` が有効なため、`types.EllipsisType` を使った型注釈は
+    ランタイムに評価されず、Python 3.9 でも本体コードは正常に動作します（テストのみの問題でした）。
+  - ライブラリの動作・公開 API への影響はありません。
+
+- **`table()` のキャッシュ設定継承を修正** (PR [#112](https://github.com/disnana/NanaSQLite/pull/112)):
+  - `table()` で子インスタンスを生成する際、`cache_ttl` / `cache_persistence_ttl` が親から引き継がれず、
+    TTL キャッシュ戦略を使用している場合に `ValueError` が発生する問題を修正。
+  - `_cache_strategy_raw` / `_cache_size_raw` / `_cache_ttl_raw` / `_cache_persistence_ttl_raw` を内部に保持し、
+    `table()` が全キャッシュ設定を正しく継承するよう修正。
+
+- **`AsyncNanaSQLite` での validkit-py 未インストール時 `ImportError` の即時送出** (PR [#112](https://github.com/disnana/NanaSQLite/pull/112)):
+  - 従来は操作実行時まで `ImportError` が遅延されていたが、`AsyncNanaSQLite.__init__` で `validator` を指定した時点で
+    即座に送出するよう修正（`NanaSQLite` との挙動を統一）。
+  - `HAS_VALIDKIT` フラグを `async_core.py` に追加。
+
+- **例外の絞り込み** (`core.py`):
+  - オプション依存（orjson / validkit-py）のインポートで `except Exception:` を使用していた箇所を `except ImportError:` に変更。
+
+- **型アノテーション修正**:
+  - `table()` の `cache_strategy` 引数の `Literal` 型に `"ttl"` を追加。
+  - `_UNSET` センチネルの型注釈を `types.EllipsisType` に変更し、型安全性を向上。
+
+- **mypy 設定更新** (`pyproject.toml`):
+  - `python_version` を `3.9` → `3.10` に更新し、`types.EllipsisType` を型チェック時に認識させるよう修正。
+
+#### API ドキュメント修正 (PR [#112](https://github.com/disnana/NanaSQLite/pull/112))
+
+- `NanaSQLite.table()` および `AsyncNanaSQLite.table()` の API ドキュメント（日・英）で、
+  `validator` / `coerce` の既定値が `= ...`（親から継承）であることを明記。
+
+#### テスト・品質改善 (PR [#112](https://github.com/disnana/NanaSQLite/pull/112))
+
+- **包括的テストスイートを追加**:
+  - `tests/test_table_inheritance_comprehensive.py`: `table()` の全継承パターンを 75 ケースで検証。
+  - `tests/test_validkit_integration.py`: validkit-py 統合テスト（同期・非同期）。
+  - `tests/test_tdd_review_fixes.py`: レビューコメント対応の検証テスト。
+  - `tests/test_tdd_cycle_2.py` 〜 `tests/test_tdd_cycle_10.py`: TDD サイクルごとの回帰テスト。
+- **validkit インストール確認の方法を改善**:
+  - `importlib.util.find_spec` から `try/except import` 方式に変更し、破損インストールも正しく検出。
+
+### [1.3.4b2] - 2026-03-04
+
+#### 新機能
+
+- **`validator` パラメータの追加（オプション依存: validkit-py）**:
+  - `NanaSQLite.__init__` および `AsyncNanaSQLite.__init__` に `validator` パラメータを追加。
+  - validkit-py のスキーマ（辞書または `Schema` オブジェクト）を渡すと、値の書き込み時に自動バリデーションを実行します。
+  - スキーマ違反時は `NanaSQLiteValidationError` を送出。
+  - validkit-py をインストールせずに `validator` を指定した場合は `ImportError` を送出し、インストール手順を案内します。
+  - `pip install nanasqlite[validation]` でインストール可能。
+  - `HAS_VALIDKIT` フラグを `nanasqlite` パッケージ（および `core` モジュール）から公開。
+
+- **`table()` の `validator` 引数対応**:
+  - `NanaSQLite.table()` および `AsyncNanaSQLite.table()` に `validator` パラメータを追加。
+  - テーブルごとに異なるスキーマを適用可能。
+  - `validator` を省略した場合は親インスタンスのスキーマを自動継承。
+
+- **`coerce` パラメータの追加（自動変換オプション）**:
+  - `NanaSQLite.__init__`、`NanaSQLite.table()`、`AsyncNanaSQLite.__init__`、`AsyncNanaSQLite.table()` に `coerce: bool = False` パラメータを追加。
+  - `True` を指定すると、validkit-py のバリデーション後に変換済みの値（例: `"42"` → `42`）をDBに保存します。
+  - **注意**: 自動変換を機能させるには、スキーマの各フィールドバリデーターにも `.coerce()` を呼び出す必要があります（例: `v.int().coerce()`）。フィールドに `.coerce()` がない場合、型が一致しない値はバリデーションエラーになります（NanaSQLite の `coerce=True` だけでは変換されません）。
+  - `validator` と組み合わせて使用します。`validator` が設定されていない場合は無効。
+  - `table()` で省略した場合は親インスタンスの設定を引き継ぐ。
+
+- **`batch_update()` バリデーション対応**:
+  - `validator` を設定している場合、`batch_update()` はすべての値を DB 書き込み前に一括バリデーションするようになりました。
+  - 1件でもスキーマ違反があった場合、何も書き込まれません（アトミックな失敗保証）。
+  - `coerce=True` を設定している場合、変換済みの値を一括書き込みします。
+
+#### バグ修正
+
+- **`table()` で `validator` が子インスタンスに引き継がれない問題を修正**:
+  - b1 では `table()` で生成した子インスタンスに親の `_validator` が渡されておらず、
+    サブテーブルへの書き込み時にバリデーションが実行されませんでした。
+  - `AsyncNanaSQLite.table()` でも同様に `_validator` が `async_sub_db` に設定されていなかった問題を修正。
+
+### [1.3.4b1] - 2026-03-04
+
+#### 新機能
+
+- **`lock_timeout` パラメータの追加** (P2-1):
+  - `NanaSQLite.__init__` に `lock_timeout: float | None = None` パラメータを追加。
+  - 設定すると、ロック取得時に指定秒数以内に取得できない場合は `NanaSQLiteLockError` を送出。
+  - デフォルト `None` は従来通り無制限待機。後方互換性への影響はありません。
+  - 内部に `_acquire_lock()` コンテキストマネージャを新設し、ユーザー操作に伴う排他制御ではロックタイムアウトが反映されます（一部の内部処理〈期限切れ削除など〉は従来通りブロッキング取得のままです）。
+
+- **`backup()` / `restore()` メソッドの追加** (P2-3):
+  - `NanaSQLite.backup(dest_path)`: APSW の SQLite オンラインバックアップ API を使用して、現在の DB を `dest_path` にバックアップします。
+  - `NanaSQLite.restore(src_path)`: `src_path` のバックアップファイルから DB を復元し、接続を再確立してキャッシュをクリアします。リストア時に WAL/SHM/journal サイドカーファイル（`-wal`/`-shm`/`-journal`）を明示的に削除し、stale な WAL 内容の再生による不整合を防止します。
+  - 両メソッドとも新規 public メソッドの追加のみ。後方互換性への影響はありません。
+
+#### スレッドセーフティ改善
+
+- **`table()` の子インスタンス生成をロック保護**:
+  - `table()` での子インスタンス生成〜`WeakSet` 追加を `_acquire_lock()` で保護。`restore()` の接続差し替えとの競合を防止し、子インスタンスが閉じた接続を参照するリスクを排除。
+
+#### バグ修正
+
+- **`__delitem__` に `_check_connection()` を追加**:
+  - `del db[key]` でクローズ済み接続を使用した際に `NanaSQLiteClosedError` を送出するよう修正。`__setitem__`・`pop()`・`clear()` と例外挙動を統一。
+
+### [1.3.4b0] - 2026-03-04
+
+#### コード品質改善
+- **非同期プールクリーンアップのログレベル修正**:
+  - `AsyncNanaSQLite.close()` 内の読み取り専用プールドレイン処理で、`AttributeError` 発生時のログレベルを `ERROR` から `WARNING` に変更。
+  - あわせてコメントの文言を「Programming error」から実態に即した「Unexpected AttributeError - log and continue cleanup for resilience」に修正。
+  - ログ出力のみの変更であり、動作・後方互換性への影響はありません。
+
+#### ドキュメント・計画
+- **v1.3.x 計画レビュードキュメントの追加** (`etc/in_progress/v1.3.x_plan_review.md`):
+  - `etc/` 配下の全計画書を横断的にレビューし、v1.3.x で実施すべき残タスクを整理・優先順位付け。
+  - ロードマップ残項目（ロックタイムアウト、バリデーション基盤、バックアップ/リストア）の対応優先度を明記。
+  - v1.3.4b0 〜 v1.4.0 のリリース計画案を記載。
+- **`etc/README.md` 更新**: 新規レビュードキュメントを `in_progress/` 一覧に追記。
+- **`etc/` ディレクトリの再編**（PR [#109](https://github.com/disnana/NanaSQLite/pull/109)）:
+  - `etc/` を実装状況別（`implemented/`・`in_progress/`・`planned/`）のサブディレクトリ構造に再編。フラットな `future_plans/` フォルダを廃止。
+  - v1.3.0 キャッシュ機能（`ExpiringDict`・`UnboundedCache`・`TTLCache` 等）がすべて実装済みであることを確認。
+
+#### 依存関係更新（docs/site メンテナンス）
+- **docs/site 依存ライブラリの更新**（Renovate）:
+  - `autoprefixer` を v10.4.24 → v10.4.27 に更新。([#105](https://github.com/disnana/NanaSQLite/pull/105))
+  - `postcss` を v8.5.6 → v8.5.8 に更新。([#106](https://github.com/disnana/NanaSQLite/pull/106))
+  - `vue` を v3.5.27 → v3.5.29 に更新。([#107](https://github.com/disnana/NanaSQLite/pull/107))
+  - `tailwindcss` / `@tailwindcss/postcss` を v4.1.18 → v4.2.1 に更新。([#108](https://github.com/disnana/NanaSQLite/pull/108))
+
+### [1.3.4dev0] - 2026-03-02
+
+#### CI / 開発環境
+- **SLSA プロバナンスキャッシュ警告への対応・撤退**:
+  - `provenance / generator` ジョブが `go.sum` を探して `Restore cache failed` 警告を出力していたため、空の `go.sum` をリポジトリルートに追加（PR [#103](https://github.com/disnana/NanaSQLite/pull/103)）。
+  - その後、`provenance / generator` ジョブは独立したランナーで実行されリポジトリをチェックアウトしないため、ファイルの有無に関係なく警告を解消できないことが判明。空の `go.sum` を削除（PR [#104](https://github.com/disnana/NanaSQLite/pull/104)）。
+
+#### その他
+- バージョンを `1.3.4dev0` に引き上げ（`1.3.3` リリース後の開発スナップショット）。
+
+### [1.3.3] - 2026-03-02
+
+#### セキュリティ
+- **docs/site の依存関係脆弱性対応**:
+  - rollup の脆弱性（GHSA-mw96-cpmx-2vgc）に対応するため、`docs/site` 側で rollup を安全なバージョン（`>=4.59.0`）へ更新/固定。
+  - 関連PR: [#99](https://github.com/disnana/NanaSQLite/pull/99), [#102](https://github.com/disnana/NanaSQLite/pull/102)
+
+#### CI / 開発環境
+- **GitHub Actions の更新**:
+  - `actions/download-artifact` を v8 に更新。([#100](https://github.com/disnana/NanaSQLite/pull/100))
+  - `actions/upload-artifact` を v7 に更新。([#101](https://github.com/disnana/NanaSQLite/pull/101))
+  - `google/osv-scanner-action`（reusable / reusable-pr）を 2.3.3 に更新。([#97](https://github.com/disnana/NanaSQLite/pull/97), [#98](https://github.com/disnana/NanaSQLite/pull/98))
+
+#### 依存関係更新（メンテナンス）
+- **リリース自動化アクション更新**:
+  - `softprops/action-gh-release` を v2 に更新。([#96](https://github.com/disnana/NanaSQLite/pull/96))
+
+#### 備考
+- このリリースは主にメンテナンス（セキュリティ/CI/依存更新）を目的としたもので、ライブラリの公開API互換性に影響する変更は含みません。
+
 ### [1.3.2] - 2026-01-17
 
 #### パフォーマンス最適化
@@ -445,6 +610,179 @@
 ---
 
 ## English
+
+### [1.3.4b3] - 2026-03-05
+
+#### Bug Fixes & Stability Improvements
+
+- **Fixed test instability on Python 3.9** (`tests/test_tdd_cycle_6.py`) (PR [#113](https://github.com/disnana/NanaSQLite/pull/113)):
+  - `test_ellipsis_type_is_available` checks for `types.EllipsisType` (added in Python 3.10),
+    but was unconditionally asserting its presence and therefore always failed on Python 3.9.
+  - Added `@pytest.mark.skipif(sys.version_info < (3, 10), ...)` so the test is skipped on
+    Python 3.9 and still runs on Python 3.10+.
+  - Because both `core.py` and `async_core.py` use `from __future__ import annotations`, the
+    `types.EllipsisType` in their type annotations is stored as a string and is never evaluated
+    at runtime, so the library itself already works correctly on Python 3.9. This was a
+    test-only issue.
+  - No impact on library behaviour or public API.
+
+- **Fixed `table()` cache settings inheritance** (PR [#112](https://github.com/disnana/NanaSQLite/pull/112)):
+  - Child instances created via `table()` did not inherit `cache_ttl` / `cache_persistence_ttl` from
+    their parent, causing `ValueError` when the parent used a TTL cache strategy.
+  - Introduced `_cache_strategy_raw`, `_cache_size_raw`, `_cache_ttl_raw`, and
+    `_cache_persistence_ttl_raw` to store the original arguments; `table()` now propagates
+    all cache settings correctly.
+
+- **`AsyncNanaSQLite` now raises `ImportError` eagerly when validkit-py is missing** (PR [#112](https://github.com/disnana/NanaSQLite/pull/112)):
+  - Previously the error was deferred until a write occurred. `AsyncNanaSQLite.__init__` now
+    raises `ImportError` immediately when `validator` is supplied without validkit-py installed,
+    aligning behaviour with the synchronous `NanaSQLite`.
+  - Added `HAS_VALIDKIT` flag to `async_core.py`.
+
+- **Exception narrowing in `core.py`**:
+  - Replaced broad `except Exception:` clauses guarding optional imports (orjson / validkit-py)
+    with the more specific `except ImportError:`.
+
+- **Type annotation fixes**:
+  - Added `"ttl"` to the `Literal` type of the `cache_strategy` argument in `table()`.
+  - Changed the `_UNSET` sentinel type annotation to `types.EllipsisType` for improved type safety.
+
+- **mypy configuration update** (`pyproject.toml`):
+  - Bumped `python_version` from `3.9` to `3.10` so that `types.EllipsisType` is recognised
+    during static type checking.
+
+#### API Documentation Fixes (PR [#112](https://github.com/disnana/NanaSQLite/pull/112))
+
+- Updated `NanaSQLite.table()` and `AsyncNanaSQLite.table()` API docs (English and Japanese)
+  to show `validator=...` and `coerce=...` (sentinel default indicating parent-inheritance).
+
+#### Tests & Quality Improvements (PR [#112](https://github.com/disnana/NanaSQLite/pull/112))
+
+- **Added comprehensive test suites**:
+  - `tests/test_table_inheritance_comprehensive.py`: 75 test cases covering all `table()` inheritance scenarios.
+  - `tests/test_validkit_integration.py`: Integration tests for validkit-py (sync and async).
+  - `tests/test_tdd_review_fixes.py`: Regression tests for review-comment fixes.
+  - `tests/test_tdd_cycle_2.py` through `tests/test_tdd_cycle_10.py`: Per-cycle regression tests.
+- **Improved validkit availability check**:
+  - Replaced `importlib.util.find_spec` with a `try/except import` check so broken installations
+    are also correctly detected.
+
+### [1.3.4b2] - 2026-03-04
+
+#### New Features
+
+- **`validator` parameter (optional dependency: validkit-py)**:
+  - Added `validator` parameter to `NanaSQLite.__init__` and `AsyncNanaSQLite.__init__`.
+  - Accepts a validkit-py schema (plain dict or `Schema` object). When supplied, values are validated before every write.
+  - Raises `NanaSQLiteValidationError` on schema violation.
+  - Raises `ImportError` with an install hint when `validator` is supplied but `validkit-py` is not installed.
+  - Install via `pip install nanasqlite[validation]`.
+  - Exposes `HAS_VALIDKIT` flag from the `nanasqlite` package (and `core` module).
+
+- **Per-table `validator` support in `table()`**:
+  - Added `validator` parameter to `NanaSQLite.table()` and `AsyncNanaSQLite.table()`.
+  - Different schemas can now be applied per sub-table.
+  - When `validator` is omitted, the parent instance's schema is inherited automatically.
+
+- **`coerce` parameter (auto-conversion option)**:
+  - Added `coerce: bool = False` parameter to `NanaSQLite.__init__`, `NanaSQLite.table()`, `AsyncNanaSQLite.__init__`, and `AsyncNanaSQLite.table()`.
+  - When `True`, the coerced value returned by validkit-py (e.g. `"42"` → `42`) is stored instead of the original value.
+  - **Important**: Auto-conversion requires **both** `coerce=True` on `NanaSQLite` AND `.coerce()` on each field validator in the schema (e.g., `v.int().coerce()`). Without `.coerce()` on the field, values whose types don't match the schema will still raise `NanaSQLiteValidationError` even with `coerce=True`.
+  - Works in conjunction with `validator`; has no effect when no validator is set.
+  - When omitted in `table()`, the parent's `coerce` setting is inherited automatically.
+
+- **`batch_update()` validation support**:
+  - When a `validator` is set, `batch_update()` now validates all values before touching the database.
+  - If any value fails validation, nothing is written (atomic failure guarantee).
+  - When `coerce=True`, coerced values are bulk-written instead of the originals.
+
+#### Bug Fixes
+
+- **`table()` no longer drops the parent `validator` on child instances**:
+  - In b1, child instances created via `table()` did not inherit `_validator`, so writes to
+    sub-tables bypassed validation entirely.
+  - The same issue was present in `AsyncNanaSQLite.table()` where `_validator` was never
+    assigned to `async_sub_db`; this is now fixed.
+
+### [1.3.4b1] - 2026-03-04
+
+#### New Features
+
+- **`lock_timeout` parameter** (P2-1):
+  - Added `lock_timeout: float | None = None` parameter to `NanaSQLite.__init__`.
+  - When set, raises `NanaSQLiteLockError` if the lock cannot be acquired within the specified seconds.
+  - Default `None` preserves the existing unlimited-wait behaviour. Fully backward-compatible.
+  - Introduced `_acquire_lock()` context manager internally so user-facing exclusive operations respect the timeout (some internal operations such as TTL expiry deletion continue to use blocking acquisition).
+
+- **`backup()` / `restore()` methods** (P2-3):
+  - `NanaSQLite.backup(dest_path)`: Backs up the current database to `dest_path` using APSW's SQLite online backup API.
+  - `NanaSQLite.restore(src_path)`: Restores the database from a backup file, re-establishes the connection, and clears the in-memory cache. Explicitly removes WAL/SHM/journal sidecar files (`-wal`/`-shm`/`-journal`) before reopening to prevent stale WAL replay causing an inconsistent state.
+  - Both are new public methods only; no backward-compatibility impact.
+
+#### Thread Safety Improvements
+
+- **Lock-protected child instance creation in `table()`**:
+  - Wrapped child instance creation and `WeakSet` registration in `table()` with `_acquire_lock()` to prevent race conditions with `restore()`'s connection replacement, eliminating the risk of child instances referencing a closed connection.
+
+#### Bug Fixes
+
+- **Added `_check_connection()` to `__delitem__`**:
+  - `del db[key]` on a closed connection now raises `NanaSQLiteClosedError` consistently, matching the behaviour of `__setitem__`, `pop()`, and `clear()`.
+
+### [1.3.4b0] - 2026-03-04
+
+#### Code Quality Improvements
+- **Async pool cleanup log level fix**:
+  - Changed the log level from `ERROR` to `WARNING` for `AttributeError` occurrences during read-only pool drain in `AsyncNanaSQLite.close()`.
+  - Updated the comment wording from "Programming error" to "Unexpected AttributeError - log and continue cleanup for resilience" to better reflect intent.
+  - Log output only; no behaviour or backward-compatibility impact.
+
+#### Documentation & Planning
+- **Added v1.3.x plan review document** (`etc/in_progress/v1.3.x_plan_review.md`):
+  - Cross-referenced all `etc/` planning docs against the v1.3.x changelog to surface remaining work and set priorities.
+  - Documented priorities for roadmap Phase 2 items still outstanding (lock timeout, validation foundation, backup/restore).
+  - Included a draft release schedule from v1.3.4b0 through v1.4.0.
+- **Updated `etc/README.md`**: Added the new review document to the `in_progress/` table.
+- **Reorganised `etc/` directory** (PR [#109](https://github.com/disnana/NanaSQLite/pull/109)):
+  - Replaced the flat `future_plans/` folder with three status-based subdirectories: `implemented/`, `in_progress/`, and `planned/`.
+  - Verified that all v1.3.0 cache features (`ExpiringDict`, `UnboundedCache`, `TTLCache`, etc.) are fully implemented.
+
+#### Dependency Updates (docs/site Maintenance)
+- **docs/site dependency updates** (Renovate):
+  - Updated `autoprefixer` from v10.4.24 to v10.4.27. ([#105](https://github.com/disnana/NanaSQLite/pull/105))
+  - Updated `postcss` from v8.5.6 to v8.5.8. ([#106](https://github.com/disnana/NanaSQLite/pull/106))
+  - Updated `vue` from v3.5.27 to v3.5.29. ([#107](https://github.com/disnana/NanaSQLite/pull/107))
+  - Updated `tailwindcss` / `@tailwindcss/postcss` from v4.1.18 to v4.2.1. ([#108](https://github.com/disnana/NanaSQLite/pull/108))
+
+### [1.3.4dev0] - 2026-03-02
+
+#### CI / Development Environment
+- **SLSA provenance cache restore warning — investigation and revert**:
+  - Added an empty `go.sum` at the repo root to suppress the `Restore cache failed` warning emitted by the `provenance / generator` job (PR [#103](https://github.com/disnana/NanaSQLite/pull/103)).
+  - Determined that the fix was ineffective: the `provenance / generator` job runs on an isolated runner that does not check out this repository, so the warning cannot be silenced by a local file. The empty `go.sum` was subsequently removed (PR [#104](https://github.com/disnana/NanaSQLite/pull/104)).
+
+#### Other
+- Bumped version to `1.3.4dev0` (development snapshot following the `1.3.3` release).
+
+### [1.3.3] - 2026-03-02
+
+#### Security
+- **docs/site dependency vulnerability fixes**:
+  - Updated/pinned rollup to a safe version (`>=4.59.0`) to address the rollup vulnerability (GHSA-mw96-cpmx-2vgc).
+  - Related PRs: [#99](https://github.com/disnana/NanaSQLite/pull/99), [#102](https://github.com/disnana/NanaSQLite/pull/102)
+
+#### CI / Development Environment
+- **GitHub Actions updates**:
+  - Bumped `actions/download-artifact` to v8. ([#100](https://github.com/disnana/NanaSQLite/pull/100))
+  - Bumped `actions/upload-artifact` to v7. ([#101](https://github.com/disnana/NanaSQLite/pull/101))
+  - Bumped `google/osv-scanner-action` (reusable / reusable-pr) to 2.3.3. ([#97](https://github.com/disnana/NanaSQLite/pull/97), [#98](https://github.com/disnana/NanaSQLite/pull/98))
+
+#### Dependency Updates (Maintenance)
+- **Release automation action update**:
+  - Updated `softprops/action-gh-release` to v2. ([#96](https://github.com/disnana/NanaSQLite/pull/96))
+
+#### Notes
+- This release is primarily a maintenance update (security/CI/dependency bumps) and does not include breaking changes to the public API.
 
 ### [1.3.2] - 2026-01-17
 

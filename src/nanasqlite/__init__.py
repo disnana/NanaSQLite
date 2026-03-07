@@ -23,7 +23,7 @@ Async Example:
 
 from .async_core import AsyncNanaSQLite
 from .cache import CacheType
-from .core import NanaSQLite
+from .core import HAS_ORJSON, HAS_VALIDKIT, NanaSQLite
 from .exceptions import (
     NanaSQLiteCacheError,
     NanaSQLiteClosedError,
@@ -35,12 +35,14 @@ from .exceptions import (
     NanaSQLiteValidationError,
 )
 
-__version__ = "1.3.3dev4"
+__version__ = "1.3.4rc1"
 __author__ = "Disnana"
 __all__ = [
     "NanaSQLite",
     "AsyncNanaSQLite",
     "CacheType",
+    "HAS_ORJSON",
+    "HAS_VALIDKIT",
     "NanaSQLiteError",
     "NanaSQLiteValidationError",
     "NanaSQLiteDatabaseError",

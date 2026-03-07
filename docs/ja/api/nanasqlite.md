@@ -23,7 +23,10 @@ def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
              strict_sql_validation: bool = True,
              allowed_sql_functions: list[str] | None = None,
              forbidden_sql_functions: list[str] | None = None,
-             max_clause_length: int | None = 1000)
+             max_clause_length: int | None = 1000,
+             lock_timeout: float | None = None,
+             validator: Any | None = None,
+             coerce: bool = False)
 ```
 
 NanaSQLiteデータベース接続を初期化します。
@@ -39,6 +42,10 @@ NanaSQLiteデータベース接続を初期化します。
 - `allowed_sql_functions` (list[str], 任意): 追加で許可するSQL関数のリスト。
 - `forbidden_sql_functions` (list[str], 任意): 明示的に禁止するSQL関数のリスト。
 - `max_clause_length` (int, 任意): SQL句の最大長（ReDoS対策）。デフォルトは `1000`。
+- `lock_timeout` (float | None, 任意): 内部ロック取得の最大待機秒数。指定時間内にロックを取得できない場合は `NanaSQLiteLockError` を送出します。`None`（デフォルト）は無制限待機。(v1.3.4b1以降)
+- `validator` (dict | Schema | None, 任意): validkit-py のバリデーションスキーマ（辞書または `Schema` オブジェクト）。指定すると `__setitem__` （`db["key"] = value`）の実行時にスキーマ検証を実行します。スキーマ違反の場合は `NanaSQLiteValidationError` を送出します。使用には `pip install nanasqlite[validation]` が必要です。(v1.3.4b2以降)
+- `coerce` (bool, 任意): `True` の場合、validkit-py が返す変換済みの値をDBに保存します。
+  **重要**: 型変換が実際に行われるためには、スキーマの各フィールドバリデーターに `.coerce()` を呼び出す必要があります（例: `v.int().coerce()`）。フィールドに `.coerce()` がない場合、型が一致しない値は `coerce=True` が設定されていてもバリデーションエラーになります。このパラメータは「変換済みの値を保存するか」を制御するだけです。`validator` が設定されている場合のみ有効。デフォルトは `False`。(v1.3.4b2以降)
 
 ---
 
@@ -60,7 +67,13 @@ def close(self) -> None
 ### `table`
 
 ```python
-def table(self, table_name: str) -> NanaSQLite
+def table(self, table_name: str,
+          cache_strategy: CacheType | str | None = ...,
+          cache_size: int | None = ...,
+          cache_ttl: float | None = ...,
+          cache_persistence_ttl: bool | None = ...,
+          validator: Any | None = ...,
+          coerce: bool = ...) -> NanaSQLite
 ```
 
 指定したサブテーブル用の新しい `NanaSQLite` インスタンスを返します。
@@ -69,9 +82,38 @@ def table(self, table_name: str) -> NanaSQLite
 
 **パラメータ:**
 - `table_name` (str): サブテーブルの名前。
+- `cache_strategy` (CacheType | str | None, 任意): このテーブル用のキャッシュ戦略。省略時は親と同じ設定を使用。
+- `cache_size` (int | None, 任意): このテーブル用のキャッシュサイズ。省略時は親と同じ設定を使用。
+- `cache_ttl` (float | None, 任意): このテーブル用のキャッシュ TTL（秒）。`cache_strategy` が `CacheType.TTL` で親が非TTLの場合は必須。省略時は親の TTL を継承。(v1.3.4b2以降)
+- `cache_persistence_ttl` (bool | None, 任意): TTL が切れたキャッシュエントリをディスクに永続化するか。省略時は親の設定を継承。(v1.3.4b2以降)
+- `validator` (dict | Schema | None, 任意): このサブテーブル用の validkit-py スキーマ。省略時は親インスタンスのスキーマを自動継承します。`None` を明示的に渡すとバリデーションを無効化できます。(v1.3.4b2以降)
+- `coerce` (bool, 任意): `True` の場合、このサブテーブルで validkit-py の変換済みの値を保存します。スキーマのフィールドバリデーターに `.coerce()` が必要です。省略時は親インスタンスの設定を引き継ぎます。(v1.3.4b2以降)
 
 **戻り値:**
 - `NanaSQLite`: 指定したテーブルを操作する新しいインスタンス。
+
+**使用例:**
+```python
+from validkit import v
+
+db = NanaSQLite("app.db", validator={"name": v.str(), "age": v.int()})
+
+# validator を省略 → 親のスキーマを継承
+users_db = db.table("users")
+users_db["u1"] = {"name": "Alice", "age": 30}  # OK
+
+# validator を上書き → テーブル専用スキーマ
+scores_db = db.table("scores", validator={"score": v.float()})
+scores_db["s1"] = {"score": 9.5}  # OK
+
+# validator=None → バリデーションを無効化
+cache_db = db.table("cache", validator=None)
+cache_db["k"] = {"anything": True}  # OK（スキーマ検証なし）
+
+# coerce=True → 自動変換を有効化
+coerce_db = db.table("users2", validator={"age": v.int().coerce()}, coerce=True)
+coerce_db["u1"] = {"age": "30"}  # {"age": 30} として保存
+```
 
 ---
 
@@ -495,6 +537,194 @@ SQLiteのPRAGMA値を取得または設定します。
 def get_last_insert_rowid(self) -> int
 ```
 最後に挿入された行の `ROWID` を返します。
+
+---
+
+## バックアップ & リストア (v1.3.4b1以降)
+
+### `backup`
+
+```python
+def backup(self, dest_path: str) -> None
+```
+
+APSW の SQLite オンラインバックアップ API を使用して、現在のデータベースをファイルにバックアップします。
+バックアップはページ単位で実行されるため、他の SQLite 接続が同時に読み書きしていても安全に動作します。
+バックアップ実行中に NanaSQLite の内部ロックを保持しないため、同一プロセス内の他の NanaSQLite 操作をブロックしません。
+
+**パラメータ:**
+- `dest_path` (str): バックアップ先のファイルパス。
+
+**例外:**
+- `NanaSQLiteClosedError`: 接続が閉じられている場合。
+- `NanaSQLiteValidationError`: `dest_path` が DB ファイル自身と同一である場合（自己コピー防止）、または `':memory:'` / `'file::memory:...'` などインメモリDB文字列が指定された場合（永続化されないため）。
+- `NanaSQLiteDatabaseError`: バックアップ中にエラーが発生した場合。
+- `NanaSQLiteLockError`: `lock_timeout` 設定によりロック取得がタイムアウトした場合。
+
+**使用例:**
+```python
+db = NanaSQLite("app.db")
+db["user"] = {"name": "Nana"}
+db.backup("app_backup.db")
+# app_backup.db に app.db の完全なコピーが保存されます
+```
+
+### `restore`
+
+```python
+def restore(self, src_path: str) -> None
+```
+
+バックアップファイルからデータベースをリストアします。
+現在の接続を閉じ、バックアップファイルを DB ファイルに上書きコピーし、
+stale な WAL/SHM/journal サイドカーファイル（`-wal`/`-shm`/`-journal`）を削除してから接続を再確立します。
+リストア後はメモリキャッシュが自動的にクリアされます。
+
+**パラメータ:**
+- `src_path` (str): リストア元のバックアップファイルパス。
+
+**例外:**
+- `NanaSQLiteClosedError`: 接続が閉じられている場合。
+- `NanaSQLiteConnectionError`: `.table()` で取得した（接続を所有しない）インスタンスから呼び出した場合。
+- `NanaSQLiteTransactionError`: トランザクション中に呼び出した場合。`restore()` を呼ぶ前にコミットまたはロールバックしてください。
+- `NanaSQLiteValidationError`: 現在の DB が `':memory:'` または `'file::memory:...'` などのインメモリDBの場合（ファイルによるリストアが不可能なため）。
+- `NanaSQLiteDatabaseError`: リストア中にエラーが発生した場合（例：ファイルが存在しない、stale な WAL サイドカーファイルを削除できない場合）。
+- `NanaSQLiteLockError`: `lock_timeout` 設定によりロック取得がタイムアウトした場合。
+
+**使用例:**
+```python
+db = NanaSQLite("app.db")
+db["user"] = {"name": "Nana"}
+db.backup("snapshot.db")
+
+db["user"] = {"name": "変更後"}
+db.restore("snapshot.db")
+print(db["user"])  # {'name': 'Nana'}
+```
+
+---
+
+## Validkit バリデーション (v1.3.4b2以降)
+
+[validkit-py](https://github.com/disnana/Validkit) を使用したスキーマベースの書き込みバリデーション機能です。
+
+**インストール:**
+```bash
+pip install nanasqlite[validation]
+```
+
+### 基本的な使い方
+
+```python
+from validkit import v
+from nanasqlite import NanaSQLite, NanaSQLiteValidationError
+
+schema = {"name": v.str(), "age": v.int().range(0, 150)}
+db = NanaSQLite("mydata.db", validator=schema)
+
+db["user"] = {"name": "Alice", "age": 30}        # OK
+db["user"] = {"name": "Bob", "age": "invalid"}   # → NanaSQLiteValidationError
+```
+
+### 自動変換（coerce）
+
+`coerce=True` を指定すると、validkit-py が変換した値（例: `"42"` → `42`）がDBに保存されます。
+
+> **重要 — 2つの設定が必要**: 自動変換を機能させるには以下の両方が必要です。
+> 1. スキーマの各フィールドバリデーターに `.coerce()` を呼び出す（例: `v.int().coerce()`）。これにより validkit-py がバリデーション中に型変換を試みます。
+> 2. `NanaSQLite`（または `table()`）に `coerce=True` を渡す。これにより NanaSQLite が変換済みの値をDBに保存します。
+>
+> フィールドに `.coerce()` がない場合、`coerce=True` が設定されていても型が一致しない値はバリデーションエラーになります。
+
+```python
+from validkit import v
+from nanasqlite import NanaSQLite, NanaSQLiteValidationError
+
+# 正しい使い方: フィールドに .coerce() + NanaSQLite に coerce=True
+schema = {"age": v.int().coerce(), "score": v.float().coerce()}
+db = NanaSQLite("mydata.db", validator=schema, coerce=True)
+
+db["user"] = {"age": "30", "score": "9.5"}
+print(db["user"])  # {"age": 30, "score": 9.5}  ← 変換済み
+
+# 誤った使い方: フィールドに .coerce() がない場合は変換されない
+schema_bad = {"age": v.int()}  # .coerce() なし
+db_bad = NanaSQLite("bad.db", validator=schema_bad, coerce=True)
+db_bad["user"] = {"age": "30"}  # → NanaSQLiteValidationError（型不一致）
+```
+
+### テーブルごとのバリデーション
+
+```python
+from validkit import v
+from nanasqlite import NanaSQLite
+
+user_schema = {"name": v.str(), "age": v.int()}
+score_schema = {"player": v.str(), "score": v.float().range(0.0, 100.0)}
+
+db = NanaSQLite("app.db")
+
+# テーブルごとに異なるスキーマを適用
+users_db = db.table("users", validator=user_schema)
+scores_db = db.table("scores", validator=score_schema)
+
+# 親からスキーマを継承したい場合
+db2 = NanaSQLite("app2.db", validator=user_schema)
+child_db = db2.table("users2")         # 親のスキーマを自動継承
+free_db  = db2.table("cache", validator=None)  # バリデーション無効化
+
+# テーブルごとに coerce を設定（フィールドに .coerce() が必要）
+coerce_schema = {"age": v.int().coerce()}
+coerce_db = db2.table("users3", validator=coerce_schema, coerce=True)
+coerce_db["u1"] = {"age": "30"}  # {"age": 30} として保存
+```
+
+### batch_update のバリデーション
+
+`validator` を設定している場合、`batch_update()` はDBに触れる前に**全値を一括バリデーション**します。1件でも違反があれば何も書き込まれません（アトミックな失敗保証）。
+
+```python
+from validkit import v
+from nanasqlite import NanaSQLite, NanaSQLiteValidationError
+
+schema = {"name": v.str(), "age": v.int()}
+db = NanaSQLite("batch.db", validator=schema)
+
+try:
+    db.batch_update({
+        "u1": {"name": "Alice", "age": 30},
+        "u2": {"name": "Bob", "age": "bad"},  # スキーマ違反
+    })
+except NanaSQLiteValidationError:
+    print("u1" in db)  # False — 何も書き込まれていない
+```
+
+### 機能フラグの確認
+
+```python
+from nanasqlite import HAS_VALIDKIT
+
+if HAS_VALIDKIT:
+    print("validkit-py が利用可能です")
+else:
+    print("validkit-py は未インストールです")
+```
+
+### バリデーションエラーの処理
+
+```python
+from nanasqlite import NanaSQLite, NanaSQLiteValidationError
+from validkit import v
+
+schema = {"name": v.str(), "score": v.int().range(0, 100)}
+db = NanaSQLite("game.db", validator=schema)
+
+try:
+    db["player1"] = {"name": "Alice", "score": 150}  # range 違反
+except NanaSQLiteValidationError as e:
+    print(f"バリデーションエラー: {e}")
+    # DB には書き込まれていない
+```
 
 ---
 

@@ -95,6 +95,19 @@ with NanaSQLite("mydata.db") as db:
 - **Advanced Cache Strategies**: LRU and TTL support. [Learn more](https://nanasqlite.disnana.com/en/guide#lesson-10-cache-strategies)
 - **Data Encryption**: Secure storage with AES-GCM (default), ChaCha20, or Fernet. [Learn more](https://nanasqlite.disnana.com/en/guide#lesson-11-encryption)
 - **Persistence TTL**: Self-expiring data for sessions and temporary storage.
+- **Lock Timeout** (v1.3.4b1): Raise `NanaSQLiteLockError` if the lock is held too long, preventing indefinite hangs in multi-threaded apps.
+- **Backup & Restore** (v1.3.4b1): Online backup via APSW's SQLite backup API and one-call restore from any backup file.
+
+```python
+# Lock Timeout
+db = NanaSQLite("app.db", lock_timeout=2.0)
+
+# Backup
+db.backup("snapshot.db")
+
+# Restore
+db.restore("snapshot.db")
+```
 
 ### ✨ v1.2.0 New Features
 
@@ -264,6 +277,19 @@ with NanaSQLite("mydata.db") as db:
 - **キャッシュ戦略**: LRU / TTL サポート ([ドキュメント](https://nanasqlite.disnana.com/guide#lesson-10-キャッシュ戦略))
 - **データ暗号化**: AES-GCM / ChaCha20 / Fernet ([ドキュメント](https://nanasqlite.disnana.com/guide#lesson-11-暗号化))
 - **永続化 TTL**: SQLite上のデータの自動消去。
+- **ロックタイムアウト** (v1.3.4b1): ロックが一定時間内に取得できない場合に `NanaSQLiteLockError` を送出。マルチスレッドでのハング防止に最適。
+- **バックアップ / リストア** (v1.3.4b1): APSW の SQLite バックアップ API によるオンラインバックアップと、一発でのリストアをサポート。
+
+```python
+# ロックタイムアウト
+db = NanaSQLite("app.db", lock_timeout=2.0)
+
+# バックアップ
+db.backup("snapshot.db")
+
+# リストア
+db.restore("snapshot.db")
+```
 
 ### ✨ v1.2.0 新機能
 

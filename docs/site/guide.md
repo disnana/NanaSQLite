@@ -18,6 +18,8 @@ pip install nanasqlite
 pip install "nanasqlite[speed]"
 ```
 
+## 学習パス（基礎〜応用）
+
 ## レッスン1: 最初のデータベース
 
 ### データベースの作成
@@ -356,6 +358,8 @@ asyncio.run(main())
 
 詳細な非同期ドキュメントは[async_guide](async_guide)を参照してください。
 
+## 機能別レッスン（v1.3+）
+
 ## レッスン 10: キャッシュ戦略 (v1.3.0)
 
 メモリ使用量を抑えつつ高速に動作させるために、キャッシュの追い出し（LRU）戦略を選択できます。
@@ -447,6 +451,78 @@ NanaSQLite は、用途に合わせて必要な依存関係のみをインスト
 # Zsh などのシェルでは角括弧を解釈させないためにクォートが必要です
 pip install "nanasqlite[all]"
 ```
+
+## レッスン13: ロックタイムアウト・バックアップ・リストア (v1.3.4b1以降)
+
+### ロックタイムアウト
+
+デフォルトでは NanaSQLite は内部ロックを無制限に待ち続けます。
+`lock_timeout` を設定することで、ロックが一定時間内に取得できない場合に `NanaSQLiteLockError` を送出できます：
+
+```python
+from nanasqlite import NanaSQLite, NanaSQLiteLockError
+
+db = NanaSQLite("app.db", lock_timeout=2.0)  # 2秒待ってもロックが取れなければエラー
+
+try:
+    db["key"] = "value"
+except NanaSQLiteLockError as e:
+    print(f"ロックを取得できませんでした: {e}")
+```
+
+**`lock_timeout` を使う場面:**
+- マルチスレッドのアプリケーションでデッドロックが起こりうる場合
+- 応答時間を上限で保証したいサービス
+
+### バックアップ
+
+`backup()` は APSW の SQLite オンラインバックアップ API を使用して、データベースを一貫性のある状態で別ファイルにコピーします。
+SQLite のトランザクション機構により「データベースが使用中」であっても壊れることなく安全に実行できます。
+バックアップ実行中に NanaSQLite の内部ロックを保持しないため、**同一プロセス内の他の NanaSQLite 操作をブロックしません**：
+
+```python
+db = NanaSQLite("app.db")
+db["user"] = {"name": "Nana", "role": "admin"}
+
+# バックアップを作成 — ノンブロッキング: バックアップ中も他の NanaSQLite 操作は通常通り動作します
+db.backup("app_backup_2026-03-04.db")
+
+# バックアップファイルは完全に独立した SQLite データベース
+backup_db = NanaSQLite("app_backup_2026-03-04.db")
+print(backup_db["user"])  # {'name': 'Nana', 'role': 'admin'}
+backup_db.close()
+```
+
+### リストア
+
+`restore()` は現在のデータベースをバックアップファイルで置き換え、自動的に再接続します：
+
+```python
+db = NanaSQLite("app.db")
+db["counter"] = 1
+
+# ベースラインスナップショットを作成
+db.backup("snapshot.db")
+
+# データの誤操作や破損をシミュレート
+db["counter"] = 9999
+db["bad_key"] = "oops"
+
+# スナップショットまでロールバック
+db.restore("snapshot.db")
+
+print(db["counter"])     # 1
+print("bad_key" in db)   # False
+
+db.close()
+```
+
+> [!NOTE]
+> `restore()` は **プライマリ**（接続を所有している）インスタンスからのみ呼び出せます。
+> `.table()` で取得したインスタンスからは呼び出せません。
+> また、リストア後はメモリキャッシュが自動的にクリアされます。
+
+## 実践リファレンス
 
 ## 一般的なパターン
 
@@ -568,5 +644,9 @@ db.batch_update(data)  # 個別書き込みよりはるかに高速
 - ✅ 直接SQLクエリ
 - ✅ エラーハンドリング
 - ✅ 一般的な使用パターン
+- ✅ キャッシュ戦略（LRU/TTL）
+- ✅ 暗号化とモード選択
+- ✅ 機能別インストールオプション
+- ✅ ロックタイムアウト・バックアップ・リストアによる安全運用
 
 NanaSQLiteを楽しんでコーディングしてください！
