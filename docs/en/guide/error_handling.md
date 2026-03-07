@@ -71,6 +71,8 @@ except NanaSQLiteValidationError as e:
     # Nothing was written to the DB
 ```
 
+For installation, coercion, and per-table schema patterns, see the [Validation Guide](validation.md).
+
 #### `NanaSQLiteDatabaseError`
 
 Wraps SQLite/APSW database operation errors.

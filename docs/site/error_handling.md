@@ -44,6 +44,7 @@ except NanaSQLiteError as e:
 - 不正なテーブル名やカラム名
 - 不正なSQL識別子
 - パラメータの型エラー
+- validkit-py スキーマ違反（`validator` を指定した場合）
 
 ```python
 from nanasqlite import NanaSQLite, NanaSQLiteValidationError
@@ -57,6 +58,22 @@ except NanaSQLiteValidationError as e:
     print(f"バリデーションエラー: {e}")
     # 出力: Invalid identifier '123invalid': must start with letter or underscore...
 ```
+
+**validkit-py スキーマ違反の例:**
+```python
+from validkit import v
+from nanasqlite import NanaSQLite, NanaSQLiteValidationError
+
+schema = {"name": v.str(), "age": v.int()}
+db = NanaSQLite("mydata.db", validator=schema)
+
+try:
+    db["user"] = {"name": "Alice", "age": "invalid"}
+except NanaSQLiteValidationError as e:
+    print(f"スキーマ違反: {e}")
+```
+
+インストール方法、`coerce`、テーブルごとのスキーマ例は [バリデーションガイド](./validation_guide.md) を参照してください。
 
 #### `NanaSQLiteDatabaseError`
 
@@ -577,4 +594,3 @@ asyncio.run(main())
 - **ロギング**: エラーの追跡と診断
 
 適切なエラーハンドリングにより、堅牢で信頼性の高いアプリケーションを構築できます。
-
