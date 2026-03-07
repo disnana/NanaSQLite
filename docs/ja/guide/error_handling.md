@@ -74,6 +74,8 @@ except NanaSQLiteValidationError as e:
     # DB には書き込まれていない
 ```
 
+インストール方法、`coerce`、テーブルごとのスキーマ例は [バリデーションガイド](validation.md) を参照してください。
+
 #### `NanaSQLiteDatabaseError`
 
 SQLite/APSWのデータベース操作で発生するエラーをラップします。
@@ -614,4 +616,3 @@ asyncio.run(main())
 - **ロギング**: エラーの追跡と診断
 
 適切なエラーハンドリングにより、堅牢で信頼性の高いアプリケーションを構築できます。
-

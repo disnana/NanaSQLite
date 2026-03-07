@@ -9,6 +9,7 @@ A dict-like SQLite wrapper with instant persistence and intelligent caching.
 - [Quick Start](#quick-start)
 - [Guides](#guides)
   - [Tutorial](guide/tutorial.md)
+  - [Validation](guide/validation.md)
   - [Async Support](guide/async.md)
   - [Transactions](guide/transactions.md)
   - [Error Handling](guide/error_handling.md)
@@ -137,6 +138,7 @@ for key in db.keys():
 For more detailed information, please refer to the following guides:
 
 - **[Tutorial](guide/tutorial.md)**: Extended examples including multiple tables and advanced features.
+- **[Validation](guide/validation.md)**: Using validkit-py schemas, coercion, and per-table validators.
 - **[Async Support](guide/async.md)**: How to use `AsyncNanaSQLite` for non-blocking operations.
 - **[Transactions](guide/transactions.md)**: ensuring data integrity and optimizing bulk writes.
 - **[Error Handling](guide/error_handling.md)**: Handling exceptions and troubleshooting.
