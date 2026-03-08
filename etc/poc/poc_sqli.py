@@ -15,6 +15,7 @@ conn.commit()
 print("Before injection:")
 print(conn.execute("SELECT * FROM users").fetchall())
 
+db = None
 try:
     # 脆弱性: table名にSQLインジェクション
     # "CREATE TABLE IF NOT EXISTS {self._table} (key TEXT...)"
@@ -24,7 +25,8 @@ try:
     print("NanaSQLite initialized with malicious table name.")
 except Exception as e:
     print(f"Error during init (this is safe): {e}")
-    db.close()
+    if db is not None:
+        db.close()
 
 try:
     print("After injection (checking if users table exists):")
