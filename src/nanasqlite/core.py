@@ -144,6 +144,7 @@ class NanaSQLite(MutableMapping):
         # Validate table name but keep it unquoted internally for backward compatibility
         NanaSQLite._sanitize_identifier(table)
         self._table: str = table
+        # Cache the quoted/sanitized form to avoid repeated regex work in hot paths
         self._safe_table: str = NanaSQLite._sanitize_identifier(table)
         # lock_timeout を __init__ で一度だけ検証・正規化する（_acquire_lock の高頻度パスでの検証を省く）
         if lock_timeout is not None:
