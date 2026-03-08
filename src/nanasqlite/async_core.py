@@ -1409,7 +1409,11 @@ class AsyncNanaSQLite:
         override_allowed: bool = False,
     ) -> list[dict]:
         """Internal shared implementation for query execution"""
-        target_table = self._db._sanitize_identifier(table_name) if table_name else self._db._table
+        target_table = (
+            self._db._safe_table
+            if table_name is None
+            else self._db._sanitize_identifier(table_name)
+        )
 
         # Validation (Delegated to Main Instance logic)
         v_args = {
