@@ -6,6 +6,25 @@
 
 ## 日本語
 
+### [1.3.4rc4] - 2026-03-08
+
+#### CI 修正
+
+- **provenance ジョブの権限を最小権限に変更** (PR [#127](https://github.com/disnana/NanaSQLite/pull/127)):
+  - `provenance` ジョブの `contents: write` を `contents: read` に降格。`upload-assets` を使わないため `write` 権限は不要だった。
+  - 無効だった `upload-assets: true` を削除（タグトリガーのないワークフローでは常にスキップされていたデッドコード）。
+  - プロベナンスの GitHub Release への添付は `release` ジョブが引き続き担当。
+  - CI アノテーション（`go.sum not found` ワーニング・PyPI アテステーション通知）の原因をコメントで説明し、誤解を防止。
+
+### [1.3.4rc3] - 2026-03-08
+
+#### CI 修正
+
+- **SLSA3 provenance リリースフローを復旧・安定化** (PR [#123](https://github.com/disnana/NanaSQLite/pull/123)):
+  - GitHub Actions の provenance 検証ジョブに `actions: read` / `contents: read` 権限を追加。
+  - `provenance-name` 出力から期待する provenance ファイル名を明示的に組み立て、存在確認に失敗した場合は早期終了するよう改善。
+  - GitHub Release へ添付する provenance アーティファクトをワイルドカードではなく生成済みファイル名で指定し、リリース時の取り違えを防止。
+
 ### [1.3.4rc2] - 2026-03-08
 
 #### セキュリティ修正
@@ -671,6 +690,25 @@
 
 
 ## English
+
+### [1.3.4rc4] - 2026-03-08
+
+#### CI Fixes
+
+- **Least-privilege cleanup for the provenance job** (PR [#127](https://github.com/disnana/NanaSQLite/pull/127)):
+  - Downgraded `contents: write` to `contents: read` in the `provenance` job; write access was only needed for `upload-assets`, which was already removed.
+  - Removed the dead `upload-assets: true` option — this workflow has no tag-based trigger, so the SLSA generator would always skip it.
+  - Provenance is still attached to GitHub Releases by the `release` job as before.
+  - Added inline comments explaining the two expected CI annotations (`go.sum not found` warning and PyPI attestation notice) to prevent confusion.
+
+### [1.3.4rc3] - 2026-03-08
+
+#### CI Fixes
+
+- **Restored and hardened the SLSA3 provenance release flow** (PR [#123](https://github.com/disnana/NanaSQLite/pull/123)):
+  - Added `actions: read` and `contents: read` permissions to the provenance verification job in GitHub Actions.
+  - Constructed the expected provenance filename from the `provenance-name` output and now fail fast if the file is missing.
+  - Updated GitHub Release asset upload to reference the exact generated provenance file instead of a wildcard, preventing release-time artifact mismatches.
 
 ### [1.3.4rc2] - 2026-03-08
 
