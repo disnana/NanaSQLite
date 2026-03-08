@@ -141,7 +141,13 @@ class NanaSQLite(MutableMapping):
         self._table: str = table
         # lock_timeout を __init__ で一度だけ検証・正規化する（_acquire_lock の高頻度パスでの検証を省く）
         if lock_timeout is not None:
-            if isinstance(lock_timeout, bool) or not isinstance(lock_timeout, (int, float)) or lock_timeout < 0 or not math.isfinite(lock_timeout):
+            invalid = (
+                isinstance(lock_timeout, bool)
+                or not isinstance(lock_timeout, (int, float))
+                or lock_timeout < 0
+                or not math.isfinite(lock_timeout)
+            )
+            if invalid:
                 raise NanaSQLiteValidationError(
                     f"Invalid lock_timeout '{lock_timeout}': must be None or a non-negative finite number"
                 )
@@ -190,15 +196,15 @@ class NanaSQLite(MutableMapping):
 
         # Setup Persistence TTL callback if enabled
         on_expire = None
-        if (cache_strategy == CacheType.TTL or cache_strategy == "ttl") and cache_persistence_ttl:
+        if cache_strategy in (CacheType.TTL, "ttl") and cache_persistence_ttl:
 
-            def _expire_callback(key: str, value: Any) -> None:
+            def _expire_callback(key: str, value: Any) -> None:  # pylint: disable=unused-argument
                 try:
                     # Use a new or shared connection to delete from DB
                     # Implementation detail: we need to be careful with locks
                     self._delete_from_db_on_expire(key)
-                except Exception as e:
-                    logger.error(f"Failed to delete expired key '{key}' from DB: {e}")
+                except Exception as e:  # pylint: disable=broad-exception-caught
+                    logger.error("Failed to delete expired key '%s' from DB: %s", key, e)
 
             on_expire = _expire_callback
 
@@ -209,10 +215,7 @@ class NanaSQLite(MutableMapping):
         self._cache_persistence_ttl_raw: bool = cache_persistence_ttl
         self._cache: CacheStrategy = create_cache(cache_strategy, cache_size, ttl=cache_ttl, on_expire=on_expire)
         self._data = self._cache.get_data()
-        self._lru_mode = (
-            (cache_strategy == CacheType.LRU) or (cache_strategy == "lru") or
-            (cache_strategy == CacheType.TTL) or (cache_strategy == "ttl")
-        )
+        self._lru_mode = cache_strategy in (CacheType.LRU, "lru", CacheType.TTL, "ttl")
 
         if not self._lru_mode:
             # Unbounded 以外のモードでは内部辞書の直接参照を使用しない場合があるが、
@@ -430,12 +433,23 @@ class NanaSQLite(MutableMapping):
                 "NanaSQLite instance remains open during usage."
             )
 
-    def _raise_key_validation_error(self, key: str, exc: Exception) -> None:
-        """Raise NanaSQLiteValidationError for a specific key with a standard bilingual message."""
-        raise NanaSQLiteValidationError(
+    def _format_key_validation_error_message(self, key: str, exc: Exception) -> str:
+        """Build a standard bilingual validation message for a specific key."""
+        return (
             f"Value for key '{key}' failed schema validation: {exc} "
             f"/ キー '{key}' の値がスキーマに違反しています: {exc}"
-        ) from exc
+        )
+
+    def _format_partial_batch_error_message(self, key: str, exc: Exception) -> str:
+        """Build a standard bilingual partial-batch rejection message for a specific key."""
+        return (
+            f"Skipped key '{key}' during partial batch update: {exc} "
+            f"/ 部分一括更新でキー '{key}' をスキップしました: {exc}"
+        )
+
+    def _raise_key_validation_error(self, key: str, exc: Exception) -> None:
+        """Raise NanaSQLiteValidationError for a specific key with a standard bilingual message."""
+        raise NanaSQLiteValidationError(self._format_key_validation_error_message(key, exc)) from exc
 
     def _validate_expression(
         self,
@@ -500,16 +514,14 @@ class NanaSQLite(MutableMapping):
             msg = f"{full_msg} or invalid characters detected."
             if strict or (strict is None and self.strict_sql_validation):
                 raise ValueError(msg)
-            else:
-                warnings.warn(msg, UserWarning, stacklevel=2)
+            warnings.warn(msg, UserWarning, stacklevel=2)
 
         for pattern, msg in dangerous_patterns:
             if re.search(pattern, str(expr), re.IGNORECASE):
                 # Block highly dangerous patterns in strict mode, but only warn in non-strict
                 if strict or (strict is None and self.strict_sql_validation):
                     raise ValueError(msg)
-                else:
-                    warnings.warn(msg, UserWarning, stacklevel=2)
+                warnings.warn(msg, UserWarning, stacklevel=2)
 
         # 1. 長さ制限 (ReDoS対策)
         max_len = self.max_clause_length
@@ -517,8 +529,7 @@ class NanaSQLite(MutableMapping):
             msg = f"SQL expression exceeds maximum length of {max_len} characters."
             if strict or (strict is None and self.strict_sql_validation):
                 raise NanaSQLiteValidationError(msg)
-            else:
-                warnings.warn(msg, UserWarning, stacklevel=2)
+            warnings.warn(msg, UserWarning, stacklevel=2)
 
         # 2. 禁止リストの整理 (メソッド指定を優先、なければインスタンス設定)
         forbidden_list = set(forbidden) if forbidden is not None else self.forbidden_sql_functions
@@ -526,9 +537,8 @@ class NanaSQLite(MutableMapping):
             msg = "All SQL functions are forbidden for this expression."
             if strict or (strict is None and self.strict_sql_validation):
                 raise NanaSQLiteValidationError(msg)
-            else:
-                warnings.warn(msg, UserWarning, stacklevel=2)
-                return
+            warnings.warn(msg, UserWarning, stacklevel=2)
+            return
 
         # 3. 許可リストの整理
         effective_allowed = set()
@@ -556,8 +566,7 @@ class NanaSQLite(MutableMapping):
                 msg = f"SQL function '{func_upper}' is explicitly forbidden."
                 if strict or (strict is None and self.strict_sql_validation):
                     raise NanaSQLiteValidationError(msg)
-                else:
-                    warnings.warn(msg, UserWarning, stacklevel=2)
+                warnings.warn(msg, UserWarning, stacklevel=2)
                 continue
 
             # 許可リストにない場合
@@ -568,8 +577,7 @@ class NanaSQLite(MutableMapping):
                 )
                 if strict or (strict is None and self.strict_sql_validation):
                     raise NanaSQLiteValidationError(msg)
-                else:
-                    warnings.warn(msg, UserWarning, stacklevel=2)
+                warnings.warn(msg, UserWarning, stacklevel=2)
 
     def _mark_parent_closed(self) -> None:
         """
@@ -602,7 +610,7 @@ class NanaSQLite(MutableMapping):
         if HAS_ORJSON:
             # Decode once to keep DB storage as TEXT
             return data.decode("utf-8")
-        return json_str
+        return json_str  # type: ignore[return-value]  # json_str is str here (HAS_ORJSON=False)
 
     def _deserialize(self, value: bytes | str) -> Any:
         """デシリアライズ (Decryption if enabled -> JSON)"""
@@ -718,7 +726,7 @@ class NanaSQLite(MutableMapping):
                 coerced = validkit_validate(value, self._validator)
                 if self._coerce:
                     value = coerced
-            except Exception as exc:
+            except Exception as exc:  # pylint: disable=broad-exception-caught
                 self._raise_key_validation_error(key, exc)
         # DB書き込みを先に行い、ロックタイムアウト時のキャッシュ不整合を防止
         self._write_to_db(key, value)
@@ -769,11 +777,10 @@ class NanaSQLite(MutableMapping):
             else:
                 self._cached_keys.add(key)
             return True
-        else:
-            # 存在しないこともキャッシュ
-            if not self._lru_mode:
-                self._cached_keys.add(key)
-            return False
+        # 存在しないこともキャッシュ
+        if not self._lru_mode:
+            self._cached_keys.add(key)
+        return False
 
     def __len__(self) -> int:
         """len(dict) - DBの実際の件数を返す"""
@@ -847,14 +854,13 @@ class NanaSQLite(MutableMapping):
                 self._data[key] = value
                 self._cached_keys.add(key)
             return value
+        # 存在しない場合はキャッシュからも削除
+        if self._lru_mode:
+            self._cache.delete(key)
         else:
-            # 存在しない場合はキャッシュからも削除
-            if self._lru_mode:
-                self._cache.delete(key)
-            else:
-                self._data.pop(key, None)
-                self._cached_keys.add(key)  # 「存在しない」ことをマーク
-            return default
+            self._data.pop(key, None)
+            self._cached_keys.add(key)  # 「存在しない」ことをマーク
+        return default
 
     def batch_get(self, keys: list[str]) -> dict[str, Any]:
         """
@@ -1020,14 +1026,14 @@ class NanaSQLite(MutableMapping):
                     try:
                         coerced = validkit_validate(value, self._validator)
                         coerced_mapping[key] = coerced
-                    except Exception as exc:
+                    except Exception as exc:  # pylint: disable=broad-exception-caught
                         self._raise_key_validation_error(key, exc)
                 mapping = coerced_mapping
             else:
                 for key, value in mapping.items():
                     try:
                         validkit_validate(value, self._validator)
-                    except Exception as exc:
+                    except Exception as exc:  # pylint: disable=broad-exception-caught
                         self._raise_key_validation_error(key, exc)
 
         with self._acquire_lock():
@@ -1051,6 +1057,79 @@ class NanaSQLite(MutableMapping):
             except Exception:
                 cursor.execute("ROLLBACK")
                 raise
+
+    def batch_update_partial(self, mapping: dict[str, Any]) -> dict[str, str]:
+        """
+        一括書き込み（部分成功モード）
+
+        `batch_update()` のアトミック契約は維持したまま、各キーを個別に準備し、
+        バリデーションまたはシリアライズに失敗したキーだけをスキップして残りを書き込む。
+        返り値は、拒否されたキーとその理由の辞書。
+
+        Args:
+            mapping: 書き込むキーと値のdict
+
+        Returns:
+            拒否されたキー -> エラーメッセージ のdict
+
+        Example:
+            >>> failed = db.batch_update_partial({"ok": 1, "bad": object()})
+            >>> print(failed)
+        """
+        if not mapping:
+            return {}
+
+        self._check_connection()
+
+        params: list[tuple[str, str | bytes]] = []
+        accepted_values: dict[str, Any] = {}
+        failed: dict[str, str] = {}
+
+        for key, original_value in mapping.items():
+            value = original_value
+
+            if self._validator is not None:
+                try:
+                    if self._coerce:
+                        value = validkit_validate(original_value, self._validator)
+                    else:
+                        validkit_validate(original_value, self._validator)
+                except Exception as exc:  # pylint: disable=broad-exception-caught
+                    failed[key] = self._format_key_validation_error_message(key, exc)
+                    continue
+
+            try:
+                serialized = self._serialize(value)
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                failed[key] = self._format_partial_batch_error_message(key, exc)
+                continue
+
+            params.append((key, serialized))
+            accepted_values[key] = value
+
+        if not params:
+            return failed
+
+        with self._acquire_lock():
+            cursor = self._connection.cursor()
+            cursor.execute("BEGIN IMMEDIATE")
+            try:
+                cursor.executemany(
+                    f"INSERT OR REPLACE INTO {self._table} (key, value) VALUES (?, ?)",  # nosec
+                    params,
+                )
+                for key, value in accepted_values.items():
+                    if self._lru_mode:
+                        self._cache.set(key, value)
+                    else:
+                        self._data[key] = value
+                        self._cached_keys.add(key)
+                cursor.execute("COMMIT")
+            except Exception:
+                cursor.execute("ROLLBACK")
+                raise
+
+        return failed
 
     def batch_delete(self, keys: list[str]) -> None:
         """
@@ -1119,7 +1198,7 @@ class NanaSQLite(MutableMapping):
             try:
                 self._connection.execute(f'DELETE FROM "{self._table}" WHERE key = ?', (key,))  # nosec
             except apsw.Error as e:
-                logger.error(f"SQL error during background expiration for key '{key}': {e}")
+                logger.error("SQL error during background expiration for key '%s': %s", key, e)
 
     def backup(self, dest_path: str) -> None:
         """
@@ -1355,7 +1434,6 @@ class NanaSQLite(MutableMapping):
                 self._connection.close()
             except apsw.Error as e:
                 # 接続クローズの失敗は警告に留める
-                import warnings
 
                 warnings.warn(f"Failed to close database connection: {e}", stacklevel=2)
 
@@ -1400,7 +1478,7 @@ class NanaSQLite(MutableMapping):
             else:
                 raise TypeError(f"Object of type {type(model)} is not a Pydantic model")
         except Exception as e:
-            raise TypeError(f"Failed to serialize Pydantic model: {e}")
+            raise TypeError(f"Failed to serialize Pydantic model: {e}") from e
 
     def get_model(self, key: str, model_class: type = None) -> Any:
         """
@@ -1431,13 +1509,13 @@ class NanaSQLite(MutableMapping):
             try:
                 return model_class(**data["__pydantic_data__"])
             except Exception as e:
-                raise ValueError(f"Failed to deserialize Pydantic model: {e}")
+                raise ValueError(f"Failed to deserialize Pydantic model: {e}") from e
         elif model_class is not None:
             # 通常のdictをPydanticモデルに変換
             try:
                 return model_class(**data)
             except Exception as e:
-                raise ValueError(f"Failed to create Pydantic model from data: {e}")
+                raise ValueError(f"Failed to create Pydantic model from data: {e}") from e
         else:
             raise ValueError("Data is not a Pydantic model and no model_class provided")
 
@@ -1481,8 +1559,7 @@ class NanaSQLite(MutableMapping):
             with self._acquire_lock():
                 if parameters is None:
                     return self._connection.execute(sql)
-                else:
-                    return self._connection.execute(sql, parameters)
+                return self._connection.execute(sql, parameters)
         except apsw.Error as e:
             raise NanaSQLiteDatabaseError(f"Failed to execute SQL: {e}", original_error=e) from e
 
@@ -2311,7 +2388,6 @@ class NanaSQLite(MutableMapping):
             >>> size = db.get_db_size()
             >>> print(f"DB size: {size / 1024 / 1024:.2f} MB")
         """
-        import os
 
         return os.path.getsize(self._db_path)
 
@@ -2401,7 +2477,7 @@ class NanaSQLite(MutableMapping):
             >>> db.pragma("foreign_keys", 1)
         """
         # Whitelist of allowed PRAGMA commands for security
-        ALLOWED_PRAGMAS = {
+        allowed_pragmas = {
             "foreign_keys",
             "journal_mode",
             "synchronous",
@@ -2424,31 +2500,33 @@ class NanaSQLite(MutableMapping):
             "database_list",
         }
 
-        if pragma_name not in ALLOWED_PRAGMAS:
-            raise ValueError(f"PRAGMA '{pragma_name}' is not allowed. Allowed: {', '.join(sorted(ALLOWED_PRAGMAS))}")
+        if pragma_name not in allowed_pragmas:
+            raise ValueError(
+                f"PRAGMA '{pragma_name}' is not allowed. Allowed: {', '.join(sorted(allowed_pragmas))}"
+            )
 
         if value is None:
             cursor = self.execute(f"PRAGMA {pragma_name}")
             result = cursor.fetchone()
             return result[0] if result else None
+
+        # Validate value is safe (int, float, or simple string)
+        if not isinstance(value, (int, float, str)):
+            raise ValueError(f"PRAGMA value must be int, float, or str, got {type(value).__name__}")
+
+        # For string values, validate to prevent SQL injection
+        if isinstance(value, str):
+            # Only allow alphanumeric, underscore, dash, and dots for string values
+            if not re.match(r"^[\w\-\.]+$", value):
+                raise ValueError(
+                    "PRAGMA string value must contain only alphanumeric, underscore, dash, or dot characters"
+                )
+            value_str = f"'{value}'"
         else:
-            # Validate value is safe (int, float, or simple string)
-            if not isinstance(value, (int, float, str)):
-                raise ValueError(f"PRAGMA value must be int, float, or str, got {type(value).__name__}")
+            value_str = str(value)
 
-            # For string values, validate to prevent SQL injection
-            if isinstance(value, str):
-                # Only allow alphanumeric, underscore, dash, and dots for string values
-                if not re.match(r"^[\w\-\.]+$", value):
-                    raise ValueError(
-                        "PRAGMA string value must contain only alphanumeric, underscore, dash, or dot characters"
-                    )
-                value_str = f"'{value}'"
-            else:
-                value_str = str(value)
-
-            self.execute(f"PRAGMA {pragma_name} = {value_str}")
-            return None
+        self.execute(f"PRAGMA {pragma_name} = {value_str}")
+        return None
 
     # ==================== Transaction Control ====================
 

@@ -10,7 +10,9 @@ import inspect
 
 import pytest
 
-from nanasqlite import NanaSQLite
+from nanasqlite import AsyncNanaSQLite, NanaSQLite
+from nanasqlite import core as core_module
+from nanasqlite.exceptions import NanaSQLiteValidationError
 
 
 class TestBatchUpdateCodeStructure:
@@ -61,8 +63,6 @@ class TestBatchUpdateBehaviourWithMockedValidkit:
 
     def _patch_validkit(self, monkeypatch, mock_fn):
         """Helper: enable HAS_VALIDKIT and patch validkit_validate on the module."""
-        import nanasqlite.core as core_module
-
         monkeypatch.setattr(core_module, "HAS_VALIDKIT", True)
         # validkit_validate may not exist as a module attr when validkit is absent
         monkeypatch.setattr(core_module, "validkit_validate", mock_fn, raising=False)
@@ -72,8 +72,8 @@ class TestBatchUpdateBehaviourWithMockedValidkit:
         coerced_sentinel = object()
         calls: list[tuple] = []
 
-        def mock_validate(value, schema):
-            calls.append((value, schema))
+        def mock_validate(value, _schema):
+            calls.append((value, _schema))
             return coerced_sentinel  # always return a different object
 
         self._patch_validkit(monkeypatch, mock_validate)
@@ -93,7 +93,7 @@ class TestBatchUpdateBehaviourWithMockedValidkit:
     def test_batch_update_coerce_true_stores_coerced_values(self, tmp_path, monkeypatch):
         """With coerce=True and a validator, batch_update should store coerced values."""
 
-        def mock_validate(value, schema):
+        def mock_validate(value, _schema):
             return str(value) + "_coerced"
 
         self._patch_validkit(monkeypatch, mock_validate)
@@ -114,9 +114,8 @@ class TestBatchUpdateBehaviourWithMockedValidkit:
 
         If any item fails validation, nothing should be written.
         """
-        from nanasqlite.exceptions import NanaSQLiteValidationError
 
-        def mock_validate(value, schema):
+        def mock_validate(value, _schema):
             if value == "bad":
                 raise ValueError("invalid value")
             return value
@@ -141,9 +140,8 @@ class TestBatchUpdateBehaviourWithMockedValidkit:
 
         If any item fails coercion, nothing should be written.
         """
-        from nanasqlite.exceptions import NanaSQLiteValidationError
 
-        def mock_validate(value, schema):
+        def mock_validate(value, _schema):
             if value == "bad":
                 raise ValueError("invalid value")
             return str(value) + "_coerced"
@@ -160,3 +158,61 @@ class TestBatchUpdateBehaviourWithMockedValidkit:
         assert "key1" not in db
         assert "key2" not in db
         assert "key3" not in db
+
+    def test_batch_update_partial_writes_only_valid_items_when_coerce_false(self, tmp_path, monkeypatch):
+        """batch_update_partial() should skip only invalid items and keep valid ones."""
+
+        def mock_validate(value, _schema):
+            if value == "bad":
+                raise ValueError("invalid value")
+            return f"{value}_coerced"
+
+        self._patch_validkit(monkeypatch, mock_validate)
+
+        db = NanaSQLite(str(tmp_path / "test_partial.db"), validator={"type": "string"}, coerce=False)
+        failed = db.batch_update_partial({"key1": "good", "key2": "bad", "key3": "also_good"})
+
+        assert set(failed) == {"key2"}
+        assert "failed schema validation" in failed["key2"]
+        assert db["key1"] == "good"
+        assert db["key3"] == "also_good"
+        assert "key2" not in db
+
+    def test_batch_update_partial_writes_coerced_valid_items_when_coerce_true(self, tmp_path, monkeypatch):
+        """batch_update_partial() should keep coerced valid items and skip only invalid ones."""
+
+        def mock_validate(value, _schema):
+            if value == "bad":
+                raise ValueError("invalid value")
+            return str(value) + "_coerced"
+
+        self._patch_validkit(monkeypatch, mock_validate)
+
+        db = NanaSQLite(str(tmp_path / "test_partial_coerce.db"), validator={"type": "string"}, coerce=True)
+        failed = db.batch_update_partial({"key1": "good", "key2": "bad", "key3": "also_good"})
+
+        assert set(failed) == {"key2"}
+        assert db["key1"] == "good_coerced"
+        assert db["key3"] == "also_good_coerced"
+        assert "key2" not in db
+
+
+@pytest.mark.asyncio
+async def test_async_batch_update_partial_writes_only_valid_items(tmp_path, monkeypatch):
+    """AsyncNanaSQLite: batch_update_partial() should mirror the sync best-effort behavior."""
+
+    def mock_validate(value, _schema):
+        if value == "bad":
+            raise ValueError("invalid value")
+        return value
+
+    monkeypatch.setattr(core_module, "HAS_VALIDKIT", True)
+    monkeypatch.setattr(core_module, "validkit_validate", mock_validate, raising=False)
+
+    async with AsyncNanaSQLite(str(tmp_path / "test_async_partial.db"), validator={"type": "string"}) as db:
+        failed = await db.abatch_update_partial({"key1": "good", "key2": "bad", "key3": "also_good"})
+
+        assert set(failed) == {"key2"}
+        assert await db.aget("key1") == "good"
+        assert await db.aget("key3") == "also_good"
+        assert not await db.acontains("key2")

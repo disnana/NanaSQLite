@@ -142,6 +142,33 @@ python pydantic_demo.py
 
 ---
 
+### 5. Validkit Batch Operations Demo (`validkit_batch_demo.py`)
+
+Demonstrates validkit-py integration with batch operations, showing the difference between atomic and partial success modes.
+
+**Features:**
+- Schema validation with validkit-py
+- `batch_update()` - atomic behavior (all-or-nothing)
+- `batch_update_partial()` - partial success mode
+- Automatic type coercion
+- Error reporting for failed entries
+
+**Requirements:**
+```bash
+pip install nanasqlite[validation]
+```
+
+**Running:**
+```bash
+python validkit_batch_demo.py
+```
+
+**Key Concepts:**
+- **batch_update()**: Use when transactional integrity is required (e.g., financial data)
+- **batch_update_partial()**: Use for best-effort imports (e.g., logs, external API data)
+
+---
+
 ## Testing the Examples
 
 To validate that the example patterns work correctly without installing the frameworks:

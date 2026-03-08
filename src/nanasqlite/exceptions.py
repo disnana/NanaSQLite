@@ -12,8 +12,6 @@ class NanaSQLiteError(Exception):
     すべてのNanaSQLite固有の例外はこのクラスを継承する。
     """
 
-    pass
-
 
 class NanaSQLiteValidationError(NanaSQLiteError):
     """
@@ -26,8 +24,6 @@ class NanaSQLiteValidationError(NanaSQLiteError):
         - 不正なSQL識別子
         - パラメータの型エラー
     """
-
-    pass
 
 
 class NanaSQLiteDatabaseError(NanaSQLiteError):
@@ -60,8 +56,6 @@ class NanaSQLiteTransactionError(NanaSQLiteError):
         - トランザクション中の接続クローズ
     """
 
-    pass
-
 
 class NanaSQLiteConnectionError(NanaSQLiteError):
     """
@@ -75,8 +69,6 @@ class NanaSQLiteConnectionError(NanaSQLiteError):
         - 孤立した子インスタンスの使用
     """
 
-    pass
-
 
 class NanaSQLiteClosedError(NanaSQLiteConnectionError):
     """
@@ -85,8 +77,6 @@ class NanaSQLiteClosedError(NanaSQLiteConnectionError):
     Occurs when operating on a closed instance, or on a child instance whose parent has been closed.
     閉じられたインスタンスや、親が閉じられた子インスタンスを操作しようとした時に発生。
     """
-
-    pass
 
 
 class NanaSQLiteLockError(NanaSQLiteError):
@@ -100,8 +90,6 @@ class NanaSQLiteLockError(NanaSQLiteError):
         - デッドロック検出
     """
 
-    pass
-
 
 class NanaSQLiteCacheError(NanaSQLiteError):
     """
@@ -113,5 +101,3 @@ class NanaSQLiteCacheError(NanaSQLiteError):
         - キャッシュサイズ超過
         - キャッシュの不整合
     """
-
-    pass

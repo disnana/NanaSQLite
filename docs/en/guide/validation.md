@@ -127,7 +127,7 @@ coerce_db["u2"] = {"age": "31"}  # stored as {"age": 31}
 
 ## Validation with `batch_update()`
 
-When a validator is configured, `batch_update()` validates the entire batch before writing anything. If one record fails, the whole write is rejected.
+When a validator is configured, `batch_update()` validates the entire batch before writing anything. If one record fails, the whole write is rejected. This is the **default atomic behavior**.
 
 ```python
 from validkit import v
@@ -144,6 +144,27 @@ try:
 except NanaSQLiteValidationError:
     print("Atomic failure: no records were written")
 ```
+
+If you want to **reject only the failed keys and still persist the valid ones**, use `batch_update_partial()` instead.
+
+```python
+from validkit import v
+from nanasqlite import NanaSQLite
+
+schema = {"name": v.str(), "age": v.int()}
+db = NanaSQLite("batch.db", validator=schema)
+
+failed = db.batch_update_partial({
+    "u1": {"name": "Alice", "age": 30},
+    "u2": {"name": "Bob", "age": "bad"},
+})
+
+print(failed)     # {"u2": "...validation..."}
+print(db["u1"])  # persisted
+```
+
+- `batch_update()` for all-or-nothing writes
+- `batch_update_partial()` for best-effort imports
 
 ## Error Handling Tips
 

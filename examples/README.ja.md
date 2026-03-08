@@ -25,7 +25,16 @@
    - 要件: `pip install pydantic`
    - 実行: `python pydantic_demo.py`
 
-5. Quart デモ（クリーン版）(`quart_demo_clean.py`)
+5. Validkit バッチ操作デモ (`validkit_batch_demo.py`)
+   - validkit-py を使ったスキーマ検証とバッチ操作の例。
+   - `batch_update()` (アトミック動作) と `batch_update_partial()` (部分成功モード) の違いを示します。
+   - 要件: `pip install nanasqlite[validation]`
+   - 実行: `python validkit_batch_demo.py`
+   - 主な使い分け:
+     - `batch_update()`: トランザクション的な整合性が必要な場合（例: 財務データ）
+     - `batch_update_partial()`: ベストエフォートでデータを取り込みたい場合（例: ログ、外部API）
+
+6. Quart デモ（クリーン版）(`quart_demo_clean.py`)
    - Quart（非同期フレームワーク）と Tailwind CSS を使ったワンファイルの Todo アプリ例（ダークテーマ）。
    - 要件: `pip install quart hypercorn nanasqlite`
    - 実行: `python quart_demo_clean.py` → http://localhost:5000

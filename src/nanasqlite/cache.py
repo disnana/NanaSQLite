@@ -1,3 +1,7 @@
+"""
+NanaSQLite Cache Module: Provides multiple cache strategy implementations.
+(NanaSQLite用キャッシュモジュール: 複数のキャッシュ戦略実装を提供)
+"""
 from __future__ import annotations
 
 import logging
@@ -6,6 +10,8 @@ from collections import OrderedDict
 from collections.abc import MutableMapping
 from enum import Enum
 from typing import Any, Callable, Protocol
+
+from .utils import ExpiringDict
 
 logger = logging.getLogger(__name__)
 
@@ -34,53 +40,43 @@ class CacheStrategy(Protocol):
     @abstractmethod
     def get(self, key: str) -> Any | None:
         """Get item from cache. Returns None if not found."""
-        pass
 
     @abstractmethod
     def set(self, key: str, value: Any) -> None:
         """Set item in cache."""
-        pass
 
     @abstractmethod
     def delete(self, key: str) -> None:
         """Remove item from cache."""
-        pass
 
     @abstractmethod
     def invalidate(self, key: str) -> None:
         """Completely remove key from cache knowledge (forget it exists or not)."""
-        pass
 
     @abstractmethod
     def contains(self, key: str) -> bool:
         """Check if key exists in cache."""
-        pass
 
     @abstractmethod
     def mark_cached(self, key: str) -> None:
         """Mark a key as 'known' (cached) even if value is not loaded yet."""
-        pass
 
     @abstractmethod
     def is_cached(self, key: str) -> bool:
         """Check if we have knowledge about this key (either value or existence)."""
-        pass
 
     @abstractmethod
     def clear(self) -> None:
         """Clear entire cache."""
-        pass
 
     @abstractmethod
     def get_data(self) -> MutableMapping[str, Any]:
         """Return reference to internal data storage (for legacy compatibility/inspection)."""
-        pass
 
     @property
     @abstractmethod
     def size(self) -> int:
         """Current number of items in cache."""
-        pass
 
 
 class UnboundedCache(CacheStrategy):
@@ -257,7 +253,6 @@ class TTLCache(CacheStrategy):
             max_size: 最大保持件数 (FIFO併用、None の場合は無制限)
             on_expire: 有効期限切れ時のコールバック
         """
-        from .utils import ExpiringDict
 
         self._data = ExpiringDict(expiration_time=ttl, on_expire=on_expire)
         self._max_size = max_size
@@ -321,11 +316,12 @@ def create_cache(
             raise ValueError("cache_size must be a positive integer when using LRU strategy")
 
         if HAS_FAST_LRU:
-            logger.info(f"Using FastLRUCache (lru-dict) with size {size}")
+            logger.info("Using FastLRUCache (lru-dict) with size %s", size)
             return FastLRUCache(size)
-        else:
-            logger.warning(f"lru-dict not found. Falling back to standard LRUCache (OrderedDict) with size {size}")
-            return StdLRUCache(size)
+        logger.warning(
+            "lru-dict not found. Falling back to standard LRUCache (OrderedDict) with size %s", size
+        )
+        return StdLRUCache(size)
 
     if strategy == CacheType.TTL:
         if ttl is None or ttl <= 0:

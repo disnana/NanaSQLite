@@ -107,9 +107,9 @@ class ExpiringDict(collections.abc.MutableMapping):
                 if self._on_expire:
                     try:
                         self._on_expire(key, value)
-                    except Exception as e:
-                        logger.error(f"Error in ExpiringDict on_expire callback for key '{key}': {e}")
-                logger.debug(f"Key '{key}' expired and removed.")
+                    except Exception as e:  # pylint: disable=broad-exception-caught
+                        logger.error("Error in ExpiringDict on_expire callback for key '%s': %s", key, e)
+                logger.debug("Key '%s' expired and removed.", key)
 
     def _check_expiry(self, key: str) -> bool:
         """Check if a key is expired and remove it if it is (Lazy eviction)."""

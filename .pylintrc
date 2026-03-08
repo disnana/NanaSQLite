@@ -1,0 +1,46 @@
+[MASTER]
+# Python バージョン
+py-version = 3.11
+# src レイアウトのパッケージを認識させる
+source-roots = src
+
+[MESSAGES CONTROL]
+# 設計上避けられない警告を無効化
+disable =
+    # orjson はCライブラリのため pylint がメンバーを認識できない
+    no-member,
+    # クラス設計上、多数のインスタンス属性・メソッドが必要
+    too-many-instance-attributes,
+    too-many-public-methods,
+    # APIの使いやすさを優先した多引数設計
+    too-many-arguments,
+    too-many-positional-arguments,
+    # 複雑なビジネスロジックのため
+    too-many-locals,
+    too-many-branches,
+    too-many-statements,
+    too-many-return-statements,
+    too-many-lines,
+    # 内部実装の都合上、同一クラス内での protected アクセスは意図的
+    protected-access,
+    # 同期/非同期のAPIミラーリングによる重複コード
+    duplicate-code,
+    # not-context-manager は複合型のコンテキストマネージャ
+    not-context-manager,
+    # MutableMapping.update のシグネチャ変更は意図的（kwargs対応）
+    arguments-differ,
+    # validkit/cryptography等の条件付きインポートで__init__引数を pylint が静的解析できない
+    unexpected-keyword-arg,
+
+[FORMAT]
+# 行の最大長
+max-line-length = 120
+
+[DESIGN]
+# クラスの属性数上限（デフォルト7は厳しすぎる）
+max-attributes = 35
+# パブリックメソッド数上限
+max-public-methods = 60
+
+
+

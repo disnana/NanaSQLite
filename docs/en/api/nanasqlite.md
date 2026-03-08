@@ -258,6 +258,27 @@ def batch_update(self, mapping: dict[str, Any]) -> None
 
 Performs a bulk write operation using a single transaction. Significantly faster (10-100x) than individual updates.
 
+When a validator is configured, all values are validated upfront. If any value fails, nothing is written (atomic behavior).
+
+### `batch_update_partial`
+
+```python
+def batch_update_partial(self, mapping: dict[str, Any]) -> dict[str, str]
+```
+
+Bulk write operation (partial success mode). Rejects only keys that fail validation or serialization, while successfully writing valid keys.
+
+**Returns:** Dictionary of rejected keys and their error messages
+
+**Example:**
+```python
+failed = db.batch_update_partial({
+    "key1": {"valid": "data"},
+    "key2": "invalid data that fails validation"
+})
+print(failed)  # {"key2": "Validation error: ..."}
+```
+
 ### `batch_delete`
 
 ```python

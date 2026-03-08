@@ -187,7 +187,16 @@ Asynchronously fetches fresh data from DB.
 ```python
 async def batch_update(self, mapping: dict[str, Any]) -> None
 ```
-Asynchronous bulk update.
+Asynchronous bulk update. When a validator is configured, all values are validated upfront. If any value fails, nothing is written.
+
+### `batch_update_partial`
+
+```python
+async def batch_update_partial(self, mapping: dict[str, Any]) -> dict[str, str]
+```
+Asynchronous bulk update (partial success mode). Rejects only keys that fail validation or serialization, while successfully writing valid keys.
+
+**Returns:** Dictionary of rejected keys and their error messages
 
 ### `batch_delete`
 

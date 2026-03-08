@@ -318,7 +318,7 @@ class AsyncNanaSQLite:
         if self._db is None:
             await self._ensure_initialized()
             if self._db is None:
-                 raise RuntimeError("Database not initialized")
+                raise RuntimeError("Database not initialized")
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self._db.__contains__, key)
 
@@ -509,6 +509,23 @@ class AsyncNanaSQLite:
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(self._executor, self._db.batch_update, mapping)
+
+    async def batch_update_partial(self, mapping: dict[str, Any]) -> dict[str, str]:
+        """
+        非同期で一括書き込み（部分成功モード）
+
+        バリデーションまたはシリアライズに失敗したキーだけを拒否し、
+        正常なキーは一括で保存する。返り値は拒否されたキーと理由の辞書。
+
+        Args:
+            mapping: 書き込むキーと値のdict
+
+        Returns:
+            拒否されたキー -> エラーメッセージ のdict
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self._db.batch_update_partial, mapping)
 
     async def batch_delete(self, keys: list[str]) -> None:
         """
@@ -1230,9 +1247,11 @@ class AsyncNanaSQLite:
         self._child_instances.clear()
 
     def __repr__(self) -> str:
-        if self._db is not None:
-            return f"AsyncNanaSQLite({self._db_path!r}, table={self._table!r}, max_workers={self._max_workers}, initialized=True)"
-        return f"AsyncNanaSQLite({self._db_path!r}, table={self._table!r}, max_workers={self._max_workers}, initialized=False)"
+        status = "initialized=True" if self._db is not None else "initialized=False"
+        return (
+            f"AsyncNanaSQLite({self._db_path!r}, table={self._table!r}, "
+            f"max_workers={self._max_workers}, {status})"
+        )
 
     # ==================== Sync DB Access (for advanced use) ====================
 
@@ -1251,7 +1270,12 @@ class AsyncNanaSQLite:
         """
         return self._db
 
-    async def table(self, table_name: str, validator: Any | None | types.EllipsisType = _UNSET, coerce: bool | types.EllipsisType = _UNSET) -> AsyncNanaSQLite:
+    async def table(
+        self,
+        table_name: str,
+        validator: Any | None | types.EllipsisType = _UNSET,
+        coerce: bool | types.EllipsisType = _UNSET,
+    ) -> AsyncNanaSQLite:
         """
         非同期でサブテーブルのAsyncNanaSQLiteインスタンスを取得
 
@@ -1344,6 +1368,7 @@ class AsyncNanaSQLite:
     arefresh = refresh
     ais_cached = is_cached
     abatch_update = batch_update
+    abatch_update_partial = batch_update_partial
     abatch_delete = batch_delete
     ato_dict = to_dict
     acopy = copy

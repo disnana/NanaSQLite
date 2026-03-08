@@ -258,6 +258,27 @@ def batch_update(self, mapping: dict[str, Any]) -> None
 
 単一のトランザクションを使用して一括書き込みを行います。個別の更新より大幅に（10〜100倍）高速です。
 
+バリデーターが設定されている場合、全値を事前検証し、1件でも失敗すると全件が拒否されます（アトミック動作）。
+
+### `batch_update_partial`
+
+```python
+def batch_update_partial(self, mapping: dict[str, Any]) -> dict[str, str]
+```
+
+一括書き込み（部分成功モード）。バリデーションまたはシリアライズに失敗したキーのみを拒否し、正常なキーは一括保存します。
+
+**戻り値:** 拒否されたキーとエラーメッセージの辞書
+
+**使用例:**
+```python
+failed = db.batch_update_partial({
+    "key1": {"valid": "data"},
+    "key2": "invalid data that fails validation"
+})
+print(failed)  # {"key2": "Validation error: ..."}
+```
+
 ### `batch_delete`
 
 ```python

@@ -127,7 +127,7 @@ coerce_db["u2"] = {"age": "31"}  # {"age": 31} として保存
 
 ## `batch_update()` とバリデーション
 
-`validator` が設定されている場合、`batch_update()` は書き込み前にバッチ全体を検証します。1件でも失敗すると、全件が拒否されます。
+`validator` が設定されている場合、`batch_update()` は書き込み前にバッチ全体を検証します。1件でも失敗すると、全件が拒否されます。**アトミック性を優先する既定の挙動**です。
 
 ```python
 from validkit import v
@@ -144,6 +144,27 @@ try:
 except NanaSQLiteValidationError:
     print("アトミックに失敗し、何も書き込まれません")
 ```
+
+一方、**失敗したキーだけを拒否して、通ったものだけ保存したい**場合は `batch_update_partial()` を使えます。
+
+```python
+from validkit import v
+from nanasqlite import NanaSQLite
+
+schema = {"name": v.str(), "age": v.int()}
+db = NanaSQLite("batch.db", validator=schema)
+
+failed = db.batch_update_partial({
+    "u1": {"name": "Alice", "age": 30},
+    "u2": {"name": "Bob", "age": "bad"},
+})
+
+print(failed)   # {"u2": "...validation..."}
+print(db["u1"])  # 保存される
+```
+
+- `batch_update()` : 全件成功か全件失敗のどちらかにしたいとき
+- `batch_update_partial()` : ベストエフォートで通ったものだけ取り込みたいとき
 
 ## エラーハンドリングのポイント
 

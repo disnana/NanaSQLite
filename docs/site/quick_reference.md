@@ -307,6 +307,8 @@ config_db["theme"] = "dark"
 
 トランザクション内で一括書き込みを行います。個別書き込みより10〜100倍高速です。
 
+バリデーターが設定されている場合、全値を事前検証し、1件でも失敗すると全件が拒否されます（アトミック動作）。
+
 ```python
 db.batch_update({
     "key1": "value1",
@@ -314,6 +316,20 @@ db.batch_update({
     "key3": {"nested": "data"}
 })
 ```
+
+### `batch_update_partial(mapping: dict) -> dict[str, str]`
+
+一括書き込み（部分成功モード）。バリデーションまたはシリアライズに失敗したキーのみを拒否し、正常なキーは保存します。
+
+```python
+failed = db.batch_update_partial({
+    "key1": {"valid": "data"},
+    "key2": "invalid data"
+})
+print(failed)  # {"key2": "Validation error: ..."}
+```
+
+**戻り値:** 拒否されたキーとエラーメッセージの辞書
 
 ---
 

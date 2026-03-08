@@ -187,7 +187,16 @@ async def get_fresh(self, key: str, default: Any = None) -> Any
 ```python
 async def batch_update(self, mapping: dict[str, Any]) -> None
 ```
-非同期の一括更新。
+非同期の一括更新。バリデーターが設定されている場合、全値を事前検証し、1件でも失敗すると全件が拒否されます。
+
+### `batch_update_partial`
+
+```python
+async def batch_update_partial(self, mapping: dict[str, Any]) -> dict[str, str]
+```
+非同期の一括更新（部分成功モード）。バリデーションまたはシリアライズに失敗したキーのみを拒否し、正常なキーは保存します。
+
+**戻り値:** 拒否されたキーとエラーメッセージの辞書
 
 ### `batch_delete`
 

@@ -6,6 +6,34 @@
 
 ## 日本語
 
+### [1.3.4rc1] - 2026-03-07
+
+#### 新機能
+
+- **`batch_update_partial()` メソッドを追加**（同期・非同期）:
+  - `validator` が設定されている場合にバッチ書き込みを「部分成功モード」で実行する新メソッド。
+  - 各エントリを個別にバリデーションし、成功したものだけ DB に書き込む。
+  - 失敗したエントリは `{key: エラーメッセージ}` の `dict` として返却し、例外は送出しない。
+  - `coerce=True` の場合は変換済みの値で書き込む。
+  - 既存の `batch_update()` はアトミック動作（全件成功 or 全件拒否）のまま維持。
+  - 非同期版は `AsyncNanaSQLite.abatch_update_partial()` として追加。
+
+#### バグ修正・コード品質改善
+
+- **`core.py` mypy エラーを修正**:
+  - `_serialize()` の `json_str` が `HAS_ORJSON=False` パスで `str` 確定だが mypy が `str | None` と推論していたため `type: ignore` を付与。
+- **examples の ruff 違反を修正**:
+  - `examples/test_examples.py`: import ソート（I001）、`assert False` → `raise AssertionError()`（B011）、クラス名を CapWords に変更（N801）。
+  - `examples/validkit_batch_demo.py`: import ソート（I001）。
+
+#### サンプル追加
+
+- **`examples/validkit_batch_demo.py` を追加**:
+  - `batch_update()` のアトミック動作と `batch_update_partial()` の部分成功モードを実演。
+  - `coerce=True` との組み合わせ例を含む。
+- **`examples/test_examples.py` に validkit バッチ操作の検証を追加**:
+  - `batch_update()` のロールバック確認、`batch_update_partial()` の部分書き込み確認、`coerce=True` の変換確認。
+
 ### [1.3.4b3] - 2026-03-05
 
 #### バグ修正・安定性改善
@@ -609,7 +637,36 @@
 
 ---
 
+
 ## English
+
+### [1.3.4rc1] - 2026-03-07
+
+#### New Features
+
+- **Added `batch_update_partial()` method** (sync and async):
+  - New method that writes a batch in "best-effort" mode when a `validator` is set.
+  - Each entry is validated individually; only entries that pass are written to the database.
+  - Returns a `dict` of `{key: error_message}` for failed entries — no exception is raised.
+  - When `coerce=True`, coerced values are stored for successful entries.
+  - The existing `batch_update()` retains its atomic behaviour (all-or-nothing).
+  - Async counterpart added as `AsyncNanaSQLite.abatch_update_partial()`.
+
+#### Bug Fixes & Code Quality
+
+- **Fixed mypy error in `core.py`**:
+  - `_serialize()` returned `json_str` which mypy inferred as `str | None` in the `HAS_ORJSON=False` path; suppressed with `type: ignore` since `json_str` is guaranteed `str` at that point.
+- **Fixed ruff violations in examples**:
+  - `examples/test_examples.py`: import sort (I001), `assert False` → `raise AssertionError()` (B011), class name to CapWords (N801).
+  - `examples/validkit_batch_demo.py`: import sort (I001).
+
+#### Added Examples
+
+- **Added `examples/validkit_batch_demo.py`**:
+  - Demonstrates atomic `batch_update()` and best-effort `batch_update_partial()`.
+  - Includes `coerce=True` usage with field-level `.coerce()`.
+- **Extended `examples/test_examples.py`** with validkit batch operation validation:
+  - Atomic rollback verification, partial write verification, coerce mode verification.
 
 ### [1.3.4b3] - 2026-03-05
 
