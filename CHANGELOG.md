@@ -15,6 +15,7 @@
   - 無効だった `upload-assets: true` を削除（タグトリガーのないワークフローでは常にスキップされていたデッドコード）。
   - プロベナンスの GitHub Release への添付は `release` ジョブが引き続き担当。
   - CI アノテーション（`go.sum not found` ワーニング・PyPI アテステーション通知）の原因をコメントで説明し、誤解を防止。
+  - `CHANGELOG.md` を main ブランチの最新版に同期。
 
 ### [1.3.4rc3] - 2026-03-08
 
@@ -700,6 +701,7 @@
   - Removed the dead `upload-assets: true` option — this workflow has no tag-based trigger, so the SLSA generator would always skip it.
   - Provenance is still attached to GitHub Releases by the `release` job as before.
   - Added inline comments explaining the two expected CI annotations (`go.sum not found` warning and PyPI attestation notice) to prevent confusion.
+  - Synced `CHANGELOG.md` from the latest `main` branch.
 
 ### [1.3.4rc3] - 2026-03-08
 
