@@ -144,6 +144,7 @@ class NanaSQLite(MutableMapping):
         # Validate table name but keep it unquoted internally for backward compatibility
         NanaSQLite._sanitize_identifier(table)
         self._table: str = table
+        self._safe_table: str = NanaSQLite._sanitize_identifier(table)
         # lock_timeout を __init__ で一度だけ検証・正規化する（_acquire_lock の高頻度パスでの検証を省く）
         if lock_timeout is not None:
             invalid = (
@@ -655,7 +656,7 @@ class NanaSQLite(MutableMapping):
         """即時書き込み: SQLiteに値を保存"""
         serialized = self._serialize(value)
         with self._acquire_lock():
-            table_name = NanaSQLite._sanitize_identifier(self._table)
+            table_name = self._safe_table
             self._connection.execute(
                 f"INSERT OR REPLACE INTO {table_name} (key, value) VALUES (?, ?)",  # nosec
                 (key, serialized),
@@ -664,7 +665,7 @@ class NanaSQLite(MutableMapping):
     def _read_from_db(self, key: str) -> Any:
         """SQLiteから値を読み込み"""
         with self._acquire_lock():
-            table_name = NanaSQLite._sanitize_identifier(self._table)
+            table_name = self._safe_table
             cursor = self._connection.execute(
                 f"SELECT value FROM {table_name} WHERE key = ?",  # nosec
                 (key,),
@@ -677,7 +678,7 @@ class NanaSQLite(MutableMapping):
     def _delete_from_db(self, key: str) -> None:
         """SQLiteから値を削除"""
         with self._acquire_lock():
-            table_name = NanaSQLite._sanitize_identifier(self._table)
+            table_name = self._safe_table
             self._connection.execute(
                 f"DELETE FROM {table_name} WHERE key = ?",  # nosec
                 (key,),
@@ -686,7 +687,7 @@ class NanaSQLite(MutableMapping):
     def _get_all_keys_from_db(self) -> list:
         """SQLiteから全キーを取得"""
         with self._acquire_lock():
-            table_name = NanaSQLite._sanitize_identifier(self._table)
+            table_name = self._safe_table
             cursor = self._connection.execute(
                 f"SELECT key FROM {table_name}"  # nosec
             )
@@ -770,15 +771,30 @@ class NanaSQLite(MutableMapping):
         """
         key in dict - キーの存在確認
 
-        _ensure_cached を委譲して値もキャッシュに読み込む。
-        これにより None 値の場合でも __getitem__ で KeyError が発生しない。
+        軽量な SELECT 1 ... LIMIT 1 クエリで存在確認を行う。
+        値の読み込みは __getitem__ の _ensure_cached に委譲する。
         """
-        return self._ensure_cached(key)
+        # FAST PATH: already cached
+        if not self._lru_mode:
+            if key in self._cached_keys:
+                return key in self._data
+        else:
+            if key in self._data:
+                return True
+
+        # Lightweight existence check against DB
+        with self._acquire_lock():
+            table_name = self._safe_table
+            cursor = self._connection.execute(
+                f"SELECT 1 FROM {table_name} WHERE key = ? LIMIT 1",  # nosec
+                (key,),
+            )
+            return cursor.fetchone() is not None
 
     def __len__(self) -> int:
         """len(dict) - DBの実際の件数を返す"""
         with self._acquire_lock():
-            table_name = NanaSQLite._sanitize_identifier(self._table)
+            table_name = self._safe_table
             cursor = self._connection.execute(
                 f"SELECT COUNT(*) FROM {table_name}"  # nosec
             )
@@ -840,7 +856,7 @@ class NanaSQLite(MutableMapping):
         # DBから直接読み込み
         value = self._read_from_db(key)
 
-        if value is not None:
+        if value is not _NOT_FOUND:
             # キャッシュを更新
             if self._lru_mode:
                 self._cache.set(key, value)
