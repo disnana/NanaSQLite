@@ -95,7 +95,7 @@ class TestSQLInjectionProtection:
     def test_invalid_table_name_on_init(self, tmp_path):
         """Test that invalid table names are rejected during initialization."""
         from nanasqlite import NanaSQLiteValidationError
-        
+
         db_path = str(tmp_path / "test_init_table_sqli.db")
         # Initialize with malicious table name
         with pytest.raises(NanaSQLiteValidationError, match="Invalid identifier"):
