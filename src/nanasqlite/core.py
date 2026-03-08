@@ -793,7 +793,12 @@ class NanaSQLite(MutableMapping):
                 f"SELECT 1 FROM {table_name} WHERE key = ? LIMIT 1",  # nosec
                 (key,),
             )
-            return cursor.fetchone() is not None
+            exists = cursor.fetchone() is not None
+            # In unbounded mode, remember negative lookups so repeated
+            # "key in dict" checks for missing keys don't keep hitting the DB.
+            if not self._lru_mode and not exists:
+                self._cached_keys.add(key)
+            return exists
 
     def __len__(self) -> int:
         """len(dict) - DBの実際の件数を返す"""
