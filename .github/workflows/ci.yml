@@ -382,14 +382,14 @@ jobs:
   # ============================================
   # SLSA Provenance - Main branch only, new version only
   # ============================================
-  # NOTE: The "provenance / generator" job produces an expected warning:
+  # 【原因】"provenance / generator" ジョブでは、以下の警告が発生することが予想されます:
   #   "Restore cache failed: Dependencies file is not found ... Supported file pattern: go.sum"
-  # This comes from the SLSA generator's internal setup-go step, which tries to
-  # restore a Go module cache using go.sum as the cache key. Since NanaSQLite is
-  # a pure-Python project, go.sum does not exist and the cache cannot be restored.
-  # This warning is harmless — SLSA3 provenance is still generated correctly.
-  # It is an internal limitation of the slsa-github-generator reusable workflow
-  # and cannot be suppressed from the calling workflow. Tracked upstream:
+  # 【理由】SLSAジェネレーター内部の setup-go ステップが、Goモジュールキャッシュを
+  # go.sum をキャッシュキーとして復元しようとするために発生します。NanaSQLite は
+  # 純粋なPythonプロジェクトであるため go.sum は存在せず、キャッシュを復元できません。
+  # 【推奨対応】この警告は無害です — SLSA3プロベナンスは正しく生成されます。
+  # これは slsa-github-generator の再利用可能ワークフローの内部的な制限であり、
+  # 呼び出し元ワークフローから抑制することはできません。上流で追跡中:
   # https://github.com/slsa-framework/slsa-github-generator/pull/3604
   provenance:
     needs: [build]
@@ -468,12 +468,12 @@ jobs:
         name: dist
         path: dist/
     
-    # NOTE: The "Generating and uploading digital attestations" notice is expected.
-    # pypa/gh-action-pypi-publish@release/v1 automatically generates GitHub Artifact
-    # Attestations (PyPI publish/v1 predicate) when id-token: write is present.
-    # These are distinct from, and complementary to, the SLSA3 provenance generated
-    # above. PyPI Trusted Publishing requires these attestations. This is correct
-    # and desirable behaviour — no action is needed.
+    # 【原因】"Generating and uploading digital attestations" という通知が表示されます。
+    # 【理由】pypa/gh-action-pypi-publish@release/v1 は id-token: write 権限が存在する場合、
+    # GitHub Artifact Attestations（PyPI publish/v1 述語）を自動的に生成します。
+    # これは上記で生成された SLSA3 プロベナンスとは別のもので、補完的な役割を果たします。
+    # 【推奨対応】PyPI Trusted Publishing はこれらの証明書を必要とします。これは正しく、
+    # 望ましい動作であり、対応は不要です。
     - name: Publish to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
 
