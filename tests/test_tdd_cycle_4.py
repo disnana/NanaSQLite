@@ -11,6 +11,7 @@ import inspect
 import pytest
 
 from nanasqlite import AsyncNanaSQLite, NanaSQLite
+from nanasqlite import async_core as async_core_module
 from nanasqlite import core as core_module
 from nanasqlite.exceptions import NanaSQLiteValidationError
 
@@ -207,6 +208,7 @@ async def test_async_batch_update_partial_writes_only_valid_items(tmp_path, monk
         return value
 
     monkeypatch.setattr(core_module, "HAS_VALIDKIT", True)
+    monkeypatch.setattr(async_core_module, "HAS_VALIDKIT", True)
     monkeypatch.setattr(core_module, "validkit_validate", mock_validate, raising=False)
 
     async with AsyncNanaSQLite(str(tmp_path / "test_async_partial.db"), validator={"type": "string"}) as db:
