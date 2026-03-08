@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 validkit-py オプション連携のテスト
 (Tests for optional validkit-py integration)
@@ -8,12 +7,12 @@ import pytest
 from nanasqlite import HAS_VALIDKIT, AsyncNanaSQLite, NanaSQLite, NanaSQLiteValidationError
 from nanasqlite import core as core_mod
 
-try:
+validkit_installed = HAS_VALIDKIT
+
+if validkit_installed:
     from validkit import v
-    VALIDKIT_INSTALLED = True
-except ImportError:
+else:
     v = None  # type: ignore[assignment]
-    VALIDKIT_INSTALLED = False
 
 
 def test_has_validkit_flag():
@@ -25,10 +24,10 @@ def test_has_validkit_flag():
 def test_has_validkit_flag_from_package():
     """HAS_VALIDKIT が nanasqlite パッケージから直接インポートできることを確認する。"""
     assert isinstance(HAS_VALIDKIT, bool)
-    assert HAS_VALIDKIT is VALIDKIT_INSTALLED
+    assert HAS_VALIDKIT is validkit_installed
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 def test_validator_accepts_valid_value(tmp_path):
     """バリデーションスキーマに一致する値は正常に保存される。"""
     schema = {"name": v.str(), "age": v.int()}
@@ -38,7 +37,7 @@ def test_validator_accepts_valid_value(tmp_path):
     assert db["user"] == {"name": "Alice", "age": 30}
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 def test_validator_rejects_invalid_value(tmp_path):
     """バリデーションスキーマに違反する値を設定すると NanaSQLiteValidationError が送出される。"""
     schema = {"name": v.str(), "age": v.int()}
@@ -48,7 +47,7 @@ def test_validator_rejects_invalid_value(tmp_path):
         db["user"] = {"name": "Bob", "age": "not_an_int"}
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 def test_validator_does_not_affect_db_when_invalid(tmp_path):
     """バリデーションエラー時はDBに値が保存されないことを確認する。"""
     schema = {"name": v.str(), "score": v.int()}
@@ -60,7 +59,7 @@ def test_validator_does_not_affect_db_when_invalid(tmp_path):
     assert "entry" not in db
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 def test_no_validator_allows_any_value(tmp_path):
     """validator を指定しない場合は任意の値を保存できる。"""
     db = NanaSQLite(str(tmp_path / "novalidator.db"))
@@ -69,14 +68,14 @@ def test_no_validator_allows_any_value(tmp_path):
     assert db["misc"]["flag"] is True
 
 
-@pytest.mark.skipif(VALIDKIT_INSTALLED, reason="このテストは validkit-py 未インストール環境のみ実行します")
+@pytest.mark.skipif(validkit_installed, reason="このテストは validkit-py 未インストール環境のみ実行します")
 def test_validator_raises_import_error_when_validkit_missing(tmp_path):
     """validkit-py が未インストールの状態で validator を渡すと ImportError が送出される。"""
     with pytest.raises(ImportError, match="validkit-py"):
         NanaSQLite(str(tmp_path / "err.db"), validator={"key": "value"})
 
 
-@pytest.mark.skipif(VALIDKIT_INSTALLED, reason="このテストは validkit-py 未インストール環境のみ実行します")
+@pytest.mark.skipif(validkit_installed, reason="このテストは validkit-py 未インストール環境のみ実行します")
 @pytest.mark.asyncio
 async def test_async_validator_raises_import_error_when_validkit_missing(tmp_path):
     """validkit-py が未インストールの状態で AsyncNanaSQLite に validator を渡すと ImportError が送出される。"""
@@ -87,7 +86,7 @@ async def test_async_validator_raises_import_error_when_validkit_missing(tmp_pat
 # ========================== table() per-table validator tests ==========================
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 def test_table_inherits_parent_validator(tmp_path):
     """table() で validator を指定しない場合、親の validator が引き継がれる。"""
     schema = {"name": v.str(), "age": v.int()}
@@ -103,7 +102,7 @@ def test_table_inherits_parent_validator(tmp_path):
         users_db["u2"] = {"name": "Eve", "age": "bad"}
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 def test_table_override_validator(tmp_path):
     """table() で独自の validator を渡すと、親のスキーマではなくそのスキーマが使われる。"""
     parent_schema = {"x": v.int()}
@@ -120,7 +119,7 @@ def test_table_override_validator(tmp_path):
         scores_db["s2"] = {"name": "Grace", "score": "not_a_float"}
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 def test_table_no_parent_validator_no_child_validator(tmp_path):
     """親も子も validator なしの場合、任意の値を書き込める。"""
     db = NanaSQLite(str(tmp_path / "novalidator.db"))
@@ -130,7 +129,7 @@ def test_table_no_parent_validator_no_child_validator(tmp_path):
     assert child_db["k"]["anything"] is True
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 def test_table_explicit_none_disables_parent_validator(tmp_path):
     """table(validator=None) を明示すると親のスキーマを無効化して任意値を書き込める。"""
     parent_schema = {"name": v.str(), "age": v.int()}
@@ -143,7 +142,7 @@ def test_table_explicit_none_disables_parent_validator(tmp_path):
     assert free_db["k"]["anything"] is True
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 def test_table_child_does_not_affect_parent_validator(tmp_path):
     """table() で別スキーマを持たせても親インスタンスのバリデーションは変わらない。"""
     parent_schema = {"x": v.int()}
@@ -165,7 +164,7 @@ def test_table_child_does_not_affect_parent_validator(tmp_path):
 # ========================== AsyncNanaSQLite validator tests ==========================
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 @pytest.mark.asyncio
 async def test_async_validator_accepts_valid_value(tmp_path):
     """AsyncNanaSQLite: バリデーションスキーマに一致する値は正常に保存される。"""
@@ -175,7 +174,7 @@ async def test_async_validator_accepts_valid_value(tmp_path):
         assert await db.aget("user") == {"name": "Alice", "age": 30}
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 @pytest.mark.asyncio
 async def test_async_validator_rejects_invalid_value(tmp_path):
     """AsyncNanaSQLite: バリデーションスキーマに違反する値は NanaSQLiteValidationError が送出される。"""
@@ -185,7 +184,7 @@ async def test_async_validator_rejects_invalid_value(tmp_path):
             await db.aset("user", {"name": "Bob", "age": "not_an_int"})
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 @pytest.mark.asyncio
 async def test_async_validator_does_not_affect_db_when_invalid(tmp_path):
     """AsyncNanaSQLite: バリデーションエラー時はDBに値が保存されないことを確認する。"""
@@ -196,7 +195,7 @@ async def test_async_validator_does_not_affect_db_when_invalid(tmp_path):
         assert not await db.acontains("entry")
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 @pytest.mark.asyncio
 async def test_async_table_inherits_parent_validator(tmp_path):
     """AsyncNanaSQLite: table() で validator を指定しない場合、親の validator が引き継がれる。"""
@@ -211,7 +210,7 @@ async def test_async_table_inherits_parent_validator(tmp_path):
             await users_db.aset("u2", {"name": "Eve", "age": "bad"})
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 @pytest.mark.asyncio
 async def test_async_table_override_validator(tmp_path):
     """AsyncNanaSQLite: table() で独自の validator を渡すと、そのスキーマが使われる。"""
@@ -227,7 +226,7 @@ async def test_async_table_override_validator(tmp_path):
             await scores_db.aset("s2", {"name": "Grace", "score": "not_a_float"})
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 @pytest.mark.asyncio
 async def test_async_table_explicit_none_disables_parent_validator(tmp_path):
     """AsyncNanaSQLite: table(validator=None) を明示すると親のスキーマを無効化できる。"""
@@ -240,7 +239,7 @@ async def test_async_table_explicit_none_disables_parent_validator(tmp_path):
         assert (await free_db.aget("k"))["anything"] is True
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 @pytest.mark.asyncio
 async def test_async_no_validator_allows_any_value(tmp_path):
     """AsyncNanaSQLite: validator を指定しない場合は任意の値を保存できる。"""
@@ -253,7 +252,7 @@ async def test_async_no_validator_allows_any_value(tmp_path):
 # ========================== batch_update() validation tests ==========================
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 def test_batch_update_validates_all_before_writing(tmp_path):
     """batch_update() はすべての値をDB書き込み前に検証し、1件でも違反があれば何も書かない。"""
     schema = {"name": v.str(), "age": v.int()}
@@ -272,7 +271,7 @@ def test_batch_update_validates_all_before_writing(tmp_path):
     assert "u2" not in db
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 def test_batch_update_all_valid_writes_all(tmp_path):
     """batch_update() は全値がバリデーションを通過すれば全件書き込む。"""
     schema = {"name": v.str(), "age": v.int()}
@@ -287,7 +286,7 @@ def test_batch_update_all_valid_writes_all(tmp_path):
     assert db["u2"] == {"name": "Bob", "age": 25}
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 @pytest.mark.asyncio
 async def test_async_batch_update_validates_all_before_writing(tmp_path):
     """AsyncNanaSQLite: batch_update() は1件でも違反があれば何も書かない。"""
@@ -308,7 +307,7 @@ async def test_async_batch_update_validates_all_before_writing(tmp_path):
 # ========================== coerce mode tests ==========================
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 def test_coerce_converts_value_on_setitem(tmp_path):
     """coerce=True のとき、__setitem__ が変換済みの値を保存する。"""
     schema = {"age": v.int().coerce()}
@@ -318,7 +317,7 @@ def test_coerce_converts_value_on_setitem(tmp_path):
     assert db["user"] == {"age": 42}
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 def test_no_coerce_keeps_original_value(tmp_path):
     """coerce=False（デフォルト）のとき、バリデーションは通っても元の値がそのまま保存される。"""
     schema = {"age": v.int()}
@@ -328,7 +327,7 @@ def test_no_coerce_keeps_original_value(tmp_path):
     assert db["user"] == {"age": 42}
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 def test_coerce_in_batch_update(tmp_path):
     """coerce=True のとき、batch_update() も変換済みの値を保存する。"""
     schema = {"score": v.float().coerce()}
@@ -343,7 +342,7 @@ def test_coerce_in_batch_update(tmp_path):
     assert db["b"] == {"score": 2.0}
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 def test_coerce_inherited_by_table(tmp_path):
     """coerce=True は table() で子テーブルに引き継がれる。"""
     schema = {"age": v.int().coerce()}
@@ -354,7 +353,7 @@ def test_coerce_inherited_by_table(tmp_path):
     assert child_db["c1"] == {"age": 7}
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 def test_coerce_can_be_disabled_per_table(tmp_path):
     """table(coerce=False) で子テーブルの自動変換を無効にできる。"""
     schema = {"age": v.int()}
@@ -366,7 +365,7 @@ def test_coerce_can_be_disabled_per_table(tmp_path):
     assert child_db["c1"] == {"age": 5}
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 @pytest.mark.asyncio
 async def test_async_coerce_converts_value(tmp_path):
     """AsyncNanaSQLite: coerce=True のとき自動変換が有効になる。"""
@@ -376,7 +375,7 @@ async def test_async_coerce_converts_value(tmp_path):
         assert await db.aget("user") == {"age": 99}
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 @pytest.mark.asyncio
 async def test_async_coerce_inherited_by_table(tmp_path):
     """AsyncNanaSQLite: coerce=True は table() で子テーブルに引き継がれる。"""
@@ -390,7 +389,7 @@ async def test_async_coerce_inherited_by_table(tmp_path):
 # ========================== coerce dual-requirement tests ==========================
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 def test_coerce_true_without_field_coerce_still_fails(tmp_path):
     """coerce=True on NanaSQLite alone does NOT convert types if the field validator lacks .coerce().
 
@@ -410,7 +409,7 @@ def test_coerce_true_without_field_coerce_still_fails(tmp_path):
     assert db["user"] == {"age": 30}
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 def test_field_coerce_without_nanasqlite_coerce_stores_original(tmp_path):
     """Field .coerce() without coerce=True on NanaSQLite: validation passes, original value stored.
 
@@ -425,7 +424,7 @@ def test_field_coerce_without_nanasqlite_coerce_stores_original(tmp_path):
     assert db["user"] == {"age": "30"}  # original value, NOT converted
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 def test_batch_update_partial_writes_valid_values_and_reports_failures(tmp_path):
     """batch_update_partial() は違反キーだけを返し、正常値は保存する。"""
     schema = {"name": v.str(), "age": v.int()}
@@ -444,7 +443,7 @@ def test_batch_update_partial_writes_valid_values_and_reports_failures(tmp_path)
     assert "u2" not in db
 
 
-@pytest.mark.skipif(not VALIDKIT_INSTALLED, reason="validkit-py が未インストールのためスキップ")
+@pytest.mark.skipif(not validkit_installed, reason="validkit-py が未インストールのためスキップ")
 @pytest.mark.asyncio
 async def test_async_batch_update_partial_writes_valid_values_and_reports_failures(tmp_path):
     """AsyncNanaSQLite: batch_update_partial() は違反キーだけを返し、正常値は保存する。"""
