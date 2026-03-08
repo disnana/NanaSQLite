@@ -396,7 +396,7 @@ jobs:
     permissions:
       actions: read    # To read the workflow run.
       id-token: write  # To sign the provenance (OIDC token).
-      contents: read   # Read-only; release upload is handled by the release job below.
+      contents: write  # Required by the SLSA generator's internal upload-assets job.
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
     with:
       base64-subjects: "${{ needs.build.outputs.hashes }}"
