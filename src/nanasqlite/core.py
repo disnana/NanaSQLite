@@ -141,11 +141,14 @@ class NanaSQLite(MutableMapping):
             _shared_lock: 内部用：共有するロック（table()メソッドで使用）
         """
         self._db_path: str = db_path
-        # Validate table name but keep it unquoted internally for backward compatibility
-        NanaSQLite._sanitize_identifier(table)
+        # Sanitize and quote table name once; reuse the result for all SQL
+        sanitized_table = NanaSQLite._sanitize_identifier(table)
+        # Preserve the original name for informational / debugging purposes
+        self._raw_table: str = table
+        # _table keeps the raw name for backward compatibility (repr, etc.)
         self._table: str = table
-        # Cache the quoted/sanitized form to avoid repeated regex work in hot paths
-        self._safe_table: str = NanaSQLite._sanitize_identifier(table)
+        # Use the sanitized/quoted form for all SQL to avoid keyword/name edge cases
+        self._safe_table: str = sanitized_table
         # lock_timeout を __init__ で一度だけ検証・正規化する（_acquire_lock の高頻度パスでの検証を省く）
         if lock_timeout is not None:
             invalid = (
@@ -293,7 +296,7 @@ class NanaSQLite(MutableMapping):
         # テーブル作成
         with self._acquire_lock():
             self._connection.execute(f"""
-                CREATE TABLE IF NOT EXISTS {self._table} (
+                CREATE TABLE IF NOT EXISTS {self._safe_table} (
                     key TEXT PRIMARY KEY,
                     value TEXT
                 )
@@ -910,7 +913,7 @@ class NanaSQLite(MutableMapping):
 
         # 2. DBから足りない分を一括取得
         placeholders = ",".join(["?"] * len(missing_keys))
-        sql = f"SELECT key, value FROM {self._table} WHERE key IN ({placeholders})"  # nosec
+        sql = f"SELECT key, value FROM {self._safe_table} WHERE key IN ({placeholders})"  # nosec
 
         with self._acquire_lock():
             cursor = self._connection.execute(sql, tuple(missing_keys))
@@ -953,7 +956,7 @@ class NanaSQLite(MutableMapping):
         self._check_connection()
         # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
         with self._acquire_lock():
-            self._connection.execute(f"DELETE FROM {self._table}")  # nosec
+            self._connection.execute(f"DELETE FROM {self._safe_table}")  # nosec
         self._cache.clear()
         self._all_loaded = False
 
@@ -973,7 +976,7 @@ class NanaSQLite(MutableMapping):
 
         with self._acquire_lock():
             cursor = self._connection.execute(
-                f"SELECT key, value FROM {self._table}"  # nosec
+                f"SELECT key, value FROM {self._safe_table}"  # nosec
             )
             rows = list(cursor)  # ロック内でフェッチ
 
@@ -1054,7 +1057,7 @@ class NanaSQLite(MutableMapping):
                 # 事前にシリアライズしてexecutemany用のタプルリストを作成
                 params = [(key, self._serialize(value)) for key, value in mapping.items()]
                 cursor.executemany(
-                    f"INSERT OR REPLACE INTO {self._table} (key, value) VALUES (?, ?)",  # nosec
+                    f"INSERT OR REPLACE INTO {self._safe_table} (key, value) VALUES (?, ?)",  # nosec
                     params,
                 )
                 # キャッシュ更新
@@ -1126,7 +1129,7 @@ class NanaSQLite(MutableMapping):
             cursor.execute("BEGIN IMMEDIATE")
             try:
                 cursor.executemany(
-                    f"INSERT OR REPLACE INTO {self._table} (key, value) VALUES (?, ?)",  # nosec
+                    f"INSERT OR REPLACE INTO {self._safe_table} (key, value) VALUES (?, ?)",  # nosec
                     params,
                 )
                 for key, value in accepted_values.items():
@@ -1165,7 +1168,7 @@ class NanaSQLite(MutableMapping):
                 # executemany用のタプルリストを作成
                 params = [(key,) for key in keys]
                 cursor.executemany(
-                    f"DELETE FROM {self._table} WHERE key = ?",  # nosec
+                    f"DELETE FROM {self._safe_table} WHERE key = ?",  # nosec
                     params,
                 )
                 # キャッシュ更新
@@ -1207,7 +1210,7 @@ class NanaSQLite(MutableMapping):
             if self._is_closed:
                 return
             try:
-                self._connection.execute(f'DELETE FROM "{self._table}" WHERE key = ?', (key,))  # nosec
+                self._connection.execute(f"DELETE FROM {self._safe_table} WHERE key = ?", (key,))  # nosec
             except apsw.Error as e:
                 logger.error("SQL error during background expiration for key '%s': %s", key, e)
 
@@ -1757,9 +1760,9 @@ class NanaSQLite(MutableMapping):
             ... )
         """
         if table_name is None:
-            table_name = self._table
-
-        safe_table_name = self._sanitize_identifier(table_name)
+            safe_table_name = self._safe_table
+        else:
+            safe_table_name = self._sanitize_identifier(table_name)
 
         # バリデーション
         self._validate_expression(
@@ -2181,9 +2184,9 @@ class NanaSQLite(MutableMapping):
             >>> adults = db.count("users", "age >= ?", (18,))
         """
         if table_name is None:
-            table_name = self._table
-
-        safe_table_name = self._sanitize_identifier(table_name)
+            safe_table_name = self._safe_table
+        else:
+            safe_table_name = self._sanitize_identifier(table_name)
 
         # バリデーション
         self._validate_expression(
@@ -2267,9 +2270,9 @@ class NanaSQLite(MutableMapping):
             ... )
         """
         if table_name is None:
-            table_name = self._table
-
-        safe_table_name = self._sanitize_identifier(table_name)
+            safe_table_name = self._safe_table
+        else:
+            safe_table_name = self._sanitize_identifier(table_name)
 
         # バリデーション
         self._validate_expression(

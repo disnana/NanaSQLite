@@ -418,7 +418,7 @@ class TestCacheBehavior:
 
         # execute()で直接DBを変更（キャッシュは更新されない）
         new_value = json.dumps("updated_value")
-        db.execute(f"UPDATE {db._table} SET value = ? WHERE key = ?", (new_value, "key"))
+        db.execute(f"UPDATE {db._safe_table} SET value = ? WHERE key = ?", (new_value, "key"))
 
         # 通常のget()はキャッシュから古い値を返す
         assert db.get("key") == "original_value"
@@ -454,7 +454,7 @@ class TestCacheBehavior:
         assert db.is_cached("to_delete")
 
         # execute()で直接削除
-        db.execute(f"DELETE FROM {db._table} WHERE key = ?", ("to_delete",))
+        db.execute(f"DELETE FROM {db._safe_table} WHERE key = ?", ("to_delete",))
 
         # 通常のget()はまだキャッシュから返す
         assert db.get("to_delete") == "value"

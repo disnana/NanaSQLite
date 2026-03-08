@@ -200,7 +200,7 @@ class TestDirectSQLExecution:
         db["test2"] = "value2"
 
         # SQL実行
-        cursor = db.execute(f"SELECT key, value FROM {db._table} ORDER BY key")
+        cursor = db.execute(f"SELECT key, value FROM {db._safe_table} ORDER BY key")
         rows = cursor.fetchall()
 
         assert len(rows) == 2
@@ -214,7 +214,7 @@ class TestDirectSQLExecution:
         db["post1"] = "Hello"
 
         # パラメータバインディング
-        cursor = db.execute(f"SELECT key, value FROM {db._table} WHERE key LIKE ?", ("user%",))
+        cursor = db.execute(f"SELECT key, value FROM {db._safe_table} WHERE key LIKE ?", ("user%",))
         rows = cursor.fetchall()
 
         assert len(rows) == 2
@@ -247,10 +247,10 @@ class TestDirectSQLExecution:
         db["key"] = "original"
 
         # 直接UPDATE
-        db.execute(f"UPDATE {db._table} SET value = ? WHERE key = ?", ('"updated"', "key"))
+        db.execute(f"UPDATE {db._safe_table} SET value = ? WHERE key = ?", ('"updated"', "key"))
 
         # 直接SQLで確認（キャッシュをバイパス）
-        cursor = db.execute(f"SELECT value FROM {db._table} WHERE key = ?", ("key",))
+        cursor = db.execute(f"SELECT value FROM {db._safe_table} WHERE key = ?", ("key",))
         row = cursor.fetchone()
         assert row is not None
         # JSONでシリアライズされているので、デシリアライズして確認
@@ -262,10 +262,10 @@ class TestDirectSQLExecution:
         assert "to_delete" in db
 
         # 直接DELETE
-        db.execute(f"DELETE FROM {db._table} WHERE key = ?", ("to_delete",))
+        db.execute(f"DELETE FROM {db._safe_table} WHERE key = ?", ("to_delete",))
 
         # 直接SQLで確認（キャッシュをバイパス）
-        cursor = db.execute(f"SELECT key FROM {db._table} WHERE key = ?", ("to_delete",))
+        cursor = db.execute(f"SELECT key FROM {db._safe_table} WHERE key = ?", ("to_delete",))
         assert cursor.fetchone() is None
 
     def test_execute_many(self, db):
@@ -297,14 +297,14 @@ class TestDirectSQLExecution:
         """fetch_oneで1行取得"""
         db["single"] = "value"
 
-        row = db.fetch_one(f"SELECT key, value FROM {db._table} WHERE key = ?", ("single",))
+        row = db.fetch_one(f"SELECT key, value FROM {db._safe_table} WHERE key = ?", ("single",))
 
         assert row is not None
         assert row[0] == "single"
 
     def test_fetch_one_no_result(self, db):
         """fetch_oneで結果なし"""
-        row = db.fetch_one(f"SELECT * FROM {db._table} WHERE key = ?", ("nonexistent",))
+        row = db.fetch_one(f"SELECT * FROM {db._safe_table} WHERE key = ?", ("nonexistent",))
 
         assert row is None
 
@@ -313,7 +313,7 @@ class TestDirectSQLExecution:
         for i in range(5):
             db[f"key{i}"] = f"value{i}"
 
-        rows = db.fetch_all(f"SELECT key FROM {db._table} ORDER BY key")
+        rows = db.fetch_all(f"SELECT key FROM {db._safe_table} ORDER BY key")
 
         assert len(rows) == 5
         assert rows[0][0] == "key0"
