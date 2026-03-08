@@ -80,7 +80,7 @@ We currently provide security updates for the following versions:
 
 **Fix/Mitigation:**
 - A sentinel object (`_NOT_FOUND`) was introduced in the internal read mechanism to accurately distinguish between missing records and explicitly stored `None` values.
-- `__contains__` now delegates to `_ensure_cached`, ensuring the value is loaded into cache, maintaining consistency between existence checks and value retrieval.
+- `__contains__` now performs a dedicated existence query without mutating the in-memory caches, avoiding inconsistent cache state while correctly handling explicitly stored `None` values in combination with the `_NOT_FOUND` sentinel.
 
 ## Built-in Security Features
 
