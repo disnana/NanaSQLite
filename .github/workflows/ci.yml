@@ -341,6 +341,9 @@ jobs:
     needs: [check-version]
     if: needs.check-version.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write      # Required for OIDC-based attestation
+      attestations: write  # Required to write build provenance attestations
     outputs:
       hashes: ${{ steps.hash.outputs.hashes }}
     
@@ -372,6 +375,11 @@ jobs:
         # Then base64 encode the whole thing as a single line
         cd dist && echo "hashes=$(sha256sum * | base64 -w0)" >> $GITHUB_OUTPUT
 
+    - name: Attest Build Provenance
+      uses: actions/attest-build-provenance@v2
+      with:
+        subject-path: 'dist/*'
+
     - name: Upload build artifacts
       uses: actions/upload-artifact@v7
       with:
@@ -380,63 +388,11 @@ jobs:
         retention-days: 7
 
   # ============================================
-  # SLSA Provenance - Main branch only, new version only
-  # ============================================
-  provenance:
-    needs: [build]
-    permissions:
-      actions: read # To read the workflow run.
-      id-token: write # To sign the provenance.
-      contents: write # To add assets to a release.
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
-    with:
-      base64-subjects: "${{ needs.build.outputs.hashes }}"
-      upload-assets: true # Optional: Upload to a new release
-
-  # ============================================
-  # Verify SLSA Provenance - Automated check before release
-  # ============================================
-  verify-provenance:
-    name: Verify SLSA Provenance
-    needs: [check-version, build, provenance]
-    if: needs.check-version.outputs.should_publish == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: dist
-          path: dist/
-
-      - name: Download provenance
-        uses: actions/download-artifact@v8
-        with:
-          name: ${{ needs.provenance.outputs.provenance-name }}
-          path: provenance-dir/
-
-      - name: Install slsa-verifier
-        uses: slsa-framework/slsa-verifier/actions/installer@v2.7.1
-
-      - name: Verify provenance
-        run: |
-          PROVENANCE_FILE=$(ls provenance-dir/*.intoto.jsonl)
-          echo "Verifying artifacts against $PROVENANCE_FILE"
-          
-          # Verify each artifact in dist/
-          for file in dist/*; do
-            echo "Verifying $file..."
-            slsa-verifier verify-artifact "$file" \
-              --provenance-path "$PROVENANCE_FILE" \
-              --source-uri "github.com/${{ github.repository }}" \
-              --source-branch "main"
-          done
-
-  # ============================================
   # Publish - Main branch only, new version only
   # ============================================
   publish:
     name: Publish to PyPI
-    needs: [check-version, build, verify-provenance]
+    needs: [check-version, build]
     if: needs.check-version.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
     environment: pypi
@@ -458,7 +414,7 @@ jobs:
   # ============================================
   release:
     name: GitHub Release
-    needs: [check-version, build, publish, provenance, verify-provenance]
+    needs: [check-version, build, publish]
     if: needs.check-version.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -472,12 +428,6 @@ jobs:
       with:
         name: dist
         path: dist/
-
-    - name: Download provenance
-      uses: actions/download-artifact@v8
-      with:
-        name: ${{ needs.provenance.outputs.provenance-name }}
-        path: provenance-dir/
     
     - name: Create source zip
       run: |
@@ -501,11 +451,11 @@ jobs:
           - 📁 **tar.gz**: ソース配布物
           - 🗂️ **src.zip**: ソースコードのみ
           
+          ビルドの出所証明（SLSA provenance）は `gh attestation verify` で確認できます。
           詳細は [CHANGELOG.md](CHANGELOG.md) を参照してください。
         files: |
           dist/*
           nanasqlite-${{ needs.check-version.outputs.local_version }}-src.zip
-          provenance-dir/*.intoto.jsonl
         draft: false
         prerelease: ${{ needs.check-version.outputs.is_prerelease == 'true' }}
     
