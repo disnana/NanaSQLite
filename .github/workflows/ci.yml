@@ -401,6 +401,9 @@ jobs:
     needs: [check-version, build, provenance]
     if: needs.check-version.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     steps:
       - name: Download build artifacts
         uses: actions/download-artifact@v8
@@ -419,7 +422,11 @@ jobs:
 
       - name: Verify provenance
         run: |
-          PROVENANCE_FILE=$(ls provenance-dir/*.intoto.jsonl)
+          PROVENANCE_FILE="provenance-dir/${{ needs.provenance.outputs.provenance-name }}"
+          if [ ! -f "$PROVENANCE_FILE" ]; then
+            echo "Expected provenance file not found: $PROVENANCE_FILE"
+            exit 1
+          fi
           echo "Verifying artifacts against $PROVENANCE_FILE"
           
           # Verify each artifact in dist/
@@ -505,7 +512,7 @@ jobs:
         files: |
           dist/*
           nanasqlite-${{ needs.check-version.outputs.local_version }}-src.zip
-          provenance-dir/*.intoto.jsonl
+          provenance-dir/${{ needs.provenance.outputs.provenance-name }}
         draft: false
         prerelease: ${{ needs.check-version.outputs.is_prerelease == 'true' }}
     

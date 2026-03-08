@@ -6,6 +6,38 @@
 
 ## 日本語
 
+### [1.3.4rc2] - 2026-03-08
+
+#### セキュリティ修正
+
+- **SQLインジェクション保護を実装** (PR [#121](https://github.com/disnana/NanaSQLite/pull/121), [#122](https://github.com/disnana/NanaSQLite/pull/122)):
+  - テーブル名を SQL クエリ内で直接展開していたため、細工されたテーブル名でインジェクションが可能でした。
+  - `self._safe_table` にサニタイズ済み（クォート済み）のテーブル名をキャッシュし、すべての SQL 実行箇所でこちらを使用するよう変更。
+  - `self._table` は従来どおり生の名前を保持し、`__repr__` や後方互換のために使用。
+  - SECURITY.md を更新し脆弱性の経緯と修正内容を記載。
+  - PoC スクリプト (`etc/poc/poc_sqli.py`, `etc/poc/poc_none.py`) を追加してリスクを文書化。
+
+#### バグ修正・コード品質改善
+
+- **`_NOT_FOUND` センチネルを `get_fresh()` および `__contains__` に適用** (PR [#121](https://github.com/disnana/NanaSQLite/pull/121)):
+  - `get_fresh()` が DB ミス時に `None` を返すため、実際に `None` を格納したキーと区別できなかった問題を修正。
+  - `_NOT_FOUND = object()` センチネルを使用し、DB ミスと格納値 `None` を正確に識別できるよう改善。
+  - `__contains__` を軽量な実装に戻し、不要な DB 読み込みを削減。
+
+#### CI 修正
+
+- **validkit-py の CI テストガードを修正** (PR [#119](https://github.com/disnana/NanaSQLite/pull/119)):
+  - CI で `validation` エクストラをインストールするよう修正し、validkit 関連テストが正しく実行されるようになった。
+
+#### ドキュメント
+
+- **validkit-py バリデーションガイドを追加** (PR [#117](https://github.com/disnana/NanaSQLite/pull/117)):
+  - 日英両方のドキュメントサイトに validkit-py の使い方・バリデーションガイドを追加。
+- **ガイドのレッスン順序を整理** (PR [#116](https://github.com/disnana/NanaSQLite/pull/116)):
+  - JA/EN サイトドキュメントのガイドレッスンを再整理・分類。
+- **ドキュメントの不整合・リンク切れ・誤記を修正** (PR [#115](https://github.com/disnana/NanaSQLite/pull/115)):
+  - 英語・日本語ドキュメント間の不整合、壊れたリンク、誤った記述、および欠落していた文書を修正。
+
 ### [1.3.4rc1] - 2026-03-07
 
 #### 新機能
@@ -639,6 +671,38 @@
 
 
 ## English
+
+### [1.3.4rc2] - 2026-03-08
+
+#### Security Fixes
+
+- **Implemented SQL injection protection for table names** (PR [#121](https://github.com/disnana/NanaSQLite/pull/121), [#122](https://github.com/disnana/NanaSQLite/pull/122)):
+  - Table names were interpolated directly into SQL queries, making crafted names exploitable for injection.
+  - Sanitized (double-quoted) table name is now cached in `self._safe_table` and used in all SQL execution paths.
+  - `self._table` retains the raw name for `__repr__` and backwards compatibility.
+  - Updated SECURITY.md with disclosure history and remediation details.
+  - Added PoC scripts (`etc/poc/poc_sqli.py`, `etc/poc/poc_none.py`) to document the risk.
+
+#### Bug Fixes & Code Quality
+
+- **Applied `_NOT_FOUND` sentinel to `get_fresh()` and `__contains__`** (PR [#121](https://github.com/disnana/NanaSQLite/pull/121)):
+  - `get_fresh()` previously returned `None` on a DB miss, making it impossible to distinguish from a stored `None` value.
+  - Switched to the `_NOT_FOUND = object()` sentinel so DB misses and stored `None` are reliably distinguished.
+  - Restored a lightweight `__contains__` implementation to reduce unnecessary DB reads.
+
+#### CI Fixes
+
+- **Fixed validkit-py CI test guards** (PR [#119](https://github.com/disnana/NanaSQLite/pull/119)):
+  - Updated CI to install the `validation` extra so validkit-related tests are executed correctly.
+
+#### Documentation
+
+- **Added validkit-py validation guide** (PR [#117](https://github.com/disnana/NanaSQLite/pull/117)):
+  - Added validkit-py usage and validation guides to both the English and Japanese documentation sites.
+- **Reordered and classified guide lessons** (PR [#116](https://github.com/disnana/NanaSQLite/pull/116)):
+  - Reorganised and categorised guide lessons in the JA/EN site documentation.
+- **Fixed docs inconsistencies, broken links, and factual errors** (PR [#115](https://github.com/disnana/NanaSQLite/pull/115)):
+  - Resolved inconsistencies between English and Japanese documentation, fixed broken links, corrected factual errors, and added missing documentation.
 
 ### [1.3.4rc1] - 2026-03-07
 
