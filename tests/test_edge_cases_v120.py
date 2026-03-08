@@ -24,6 +24,21 @@ class TestSyncEdgeCases:
         # batch_delete with empty list -> no error
         db.batch_delete([])
 
+    def test_none_value_storage(self, tmp_path):
+        """Verify that storing None (null) does not cause data loss upon reload."""
+        db_path = str(tmp_path / "edge_cases_none.db")
+        db = NanaSQLite(db_path)
+        db["test_none"] = None
+        assert db["test_none"] is None
+        assert "test_none" in db
+        db.close()
+
+        # Reopen database to check if None value is retained and not causing KeyError
+        db2 = NanaSQLite(db_path)
+        assert "test_none" in db2
+        assert db2["test_none"] is None
+        db2.close()
+
     def test_pagination_edge_cases(self, db):
         """Verify pagination edge cases."""
         # Setup data
