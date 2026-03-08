@@ -20,9 +20,11 @@ try:
     # "CREATE TABLE IF NOT EXISTS {self._table} (key TEXT...)"
     malicious_table_name = "data (key TEXT PRIMARY KEY, value TEXT); DROP TABLE users; --"
     db = NanaSQLite(db_path, table=malicious_table_name)
+    db.close()
     print("NanaSQLite initialized with malicious table name.")
 except Exception as e:
-    print(f"Error during init: {e}")
+    print(f"Error during init (this is safe): {e}")
+    db.close()
 
 try:
     print("After injection (checking if users table exists):")
