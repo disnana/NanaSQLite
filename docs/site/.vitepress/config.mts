@@ -24,7 +24,8 @@ export default defineConfig({
                     { text: 'トランザクション', link: '/transaction_guide' },
                     { text: 'エラーハンドリング', link: '/error_handling' },
                     { text: '性能・最適化', link: '/performance_tuning' },
-                    { text: 'ベストプラクティス', link: '/best_practices' }
+                    { text: 'ベストプラクティス', link: '/best_practices' },
+                    { text: 'セキュリティ監査', link: '/security_audit' }
                 ]
             },
             {

@@ -15,21 +15,24 @@ conn.commit()
 print("Before injection:")
 print(conn.execute("SELECT * FROM users").fetchall())
 
+db = None
 try:
     # 脆弱性: table名にSQLインジェクション
     # "CREATE TABLE IF NOT EXISTS {self._table} (key TEXT...)"
     malicious_table_name = "data (key TEXT PRIMARY KEY, value TEXT); DROP TABLE users; --"
     db = NanaSQLite(db_path, table=malicious_table_name)
-    db.close()
-    print("NanaSQLite initialized with malicious table name.")
+    print("Unexpected: NanaSQLite initialized with malicious table name.")
 except Exception as e:
     print(f"Error during init (this is safe): {e}")
-    db.close()
+finally:
+    if db is not None:
+        db.close()
 
 try:
     print("After injection (checking if users table exists):")
     # これがエラー(no such table)になればインジェクション成功 = usersテーブルが消去された
     print(conn.execute("SELECT * FROM users").fetchall())
+    print("SQL injection blocked: users table is still intact.")
 except sqlite3.OperationalError as e:
     print(f"SQL Injection SUCCESSFUL! Error: {e}")
 
