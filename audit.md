@@ -68,7 +68,7 @@ decoded = self._aead.decrypt(nonce, ciphertext, None).decode("utf-8")
 
 `value` が 12 バイト未満の場合、`nonce` は不正な長さになり、`self._aead.decrypt()` が暗号ライブラリの低レベル例外をそのまま送出する。エラーメッセージからデータ破損かキー不一致かを判別できない。
 
-**修正案:** `if len(value) < 13: raise NanaSQLiteDatabaseError("Corrupted encrypted data: too short")`
+**修正案:** `if len(value) < 28: raise NanaSQLiteDatabaseError("Corrupted encrypted data: too short (expected >= 28 bytes for nonce+tag)")`
 
 ---
 

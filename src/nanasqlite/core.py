@@ -944,15 +944,13 @@ class NanaSQLite(MutableMapping):
         missing_keys = []
 
         # 1. キャッシュから取得可能なものをチェック
+        # `cache_data` はライブデータそのもの（ExpiringDict 等）を指すため、
+        # TTL 期限切れで実データから削除されたキーは False になり、
+        # 正しく missing_keys に回される（is_cached() の _cached_keys 残留バグを回避）
         cache_data = self._cache.get_data()
         for key in keys:
-            if self._cache.is_cached(key):
-                val = self._cache.get(key)
-                if val is not None:
-                    results[key] = val
-                elif key in cache_data:
-                    # Key exists in cache with an explicit None value
-                    results[key] = None
+            if key in cache_data:
+                results[key] = cache_data[key]
             else:
                 missing_keys.append(key)
 

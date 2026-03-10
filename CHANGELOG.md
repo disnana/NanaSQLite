@@ -17,7 +17,7 @@
 
 - **BUG-01 [Critical]**: `items()` メソッドに `_check_connection()` チェックを追加。クローズ済みインスタンスで呼び出した際に APSW 低レベル例外ではなく `NanaSQLiteClosedError` が発生するよう修正。
 - **BUG-02 [High]**: AEAD 暗号化有効時に非 bytes 値を受け取った場合、サイレントに平文 JSON フォールバックするのではなく警告ログを出力するよう変更。
-- **BUG-03 [High]**: AEAD 復号前に nonce 長の検証（≥13 バイト）を追加。短すぎるデータに対して明確な `NanaSQLiteDatabaseError` を送出。
+- **BUG-03 [High]**: AEAD 復号前に nonce+認証タグを含む最小長の検証（≥28 バイト = nonce 12 + auth tag 16）を追加。短すぎるデータに対して明確な `NanaSQLiteDatabaseError` を送出。InvalidTag など低レベル例外も同エラーにラップ。
 - **BUG-04 [High]**: `AsyncNanaSQLite.acontains()` の冗長な二重 `_ensure_initialized()` 呼び出しを削除。
 - **BUG-05 [Medium]**: 非同期 `_shared_query_impl()` に `offset` パラメータの型・非負チェックを追加。
 - **BUG-06 [Medium]**: `async_core.py` の `parameters: tuple = None` を `tuple | None = None` に修正（mypy strict 対応）。
@@ -739,7 +739,7 @@
 
 - **BUG-01 [Critical]**: Added `_check_connection()` check to `items()`. Calling on a closed instance now raises `NanaSQLiteClosedError` instead of leaking a low-level APSW exception.
 - **BUG-02 [High]**: AEAD deserialization now logs a warning instead of silently falling back to plaintext JSON when receiving non-bytes values.
-- **BUG-03 [High]**: Added nonce length validation (≥13 bytes) before AEAD decrypt. Short data now raises a clear `NanaSQLiteDatabaseError`.
+- **BUG-03 [High]**: Added payload length validation (≥28 bytes = 12-byte nonce + 16-byte auth tag) before AEAD decrypt. Short data now raises a clear `NanaSQLiteDatabaseError`. `InvalidTag` and other low-level crypto exceptions are also wrapped into `NanaSQLiteDatabaseError`.
 - **BUG-04 [High]**: Removed redundant double `_ensure_initialized()` call in `AsyncNanaSQLite.acontains()`.
 - **BUG-05 [Medium]**: Added `offset` type and non-negative validation in async `_shared_query_impl()`.
 - **BUG-06 [Medium]**: Fixed `parameters: tuple = None` → `tuple | None = None` type annotations in `async_core.py` (mypy strict compliance).
