@@ -96,15 +96,17 @@ def sanitize_sql_for_function_scan(sql: str) -> str:
         # so we keep the content visible for function-call pattern matching.
         if in_double:
             if ch == '"' and i + 1 < length and sql[i + 1] == '"':
-                # Escaped double quote (SQL standard: "")
+                # Escaped double quote ("") → replace both chars with spaces
                 result.append("  ")
                 i += 2
             elif ch == '"':
                 in_double = False
-                result.append(" ")  # Replace closing quote with space
+                # Replace closing quote with space (strip quote, keep position)
+                result.append(" ")
                 i += 1
             else:
-                result.append(ch)  # Preserve identifier content
+                # Preserve the identifier character as-is for regex matching
+                result.append(ch)
                 i += 1
             continue
 
