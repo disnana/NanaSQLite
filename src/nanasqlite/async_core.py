@@ -315,10 +315,6 @@ class AsyncNanaSQLite:
             ...     print("User exists")
         """
         await self._ensure_initialized()
-        if self._db is None:
-            await self._ensure_initialized()
-            if self._db is None:
-                raise RuntimeError("Database not initialized")
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self._db.__contains__, key)
 
@@ -682,7 +678,7 @@ class AsyncNanaSQLite:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(self._executor, self._db.execute_many, sql, parameters_list)
 
-    async def fetch_one(self, sql: str, parameters: tuple = None) -> tuple | None:
+    async def fetch_one(self, sql: str, parameters: tuple | None = None) -> tuple | None:
         """
         非同期でSQLを実行して1行取得
 
@@ -706,7 +702,7 @@ class AsyncNanaSQLite:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, _fetch_one_impl)
 
-    async def fetch_all(self, sql: str, parameters: tuple = None) -> list[tuple]:
+    async def fetch_all(self, sql: str, parameters: tuple | None = None) -> list[tuple]:
         """
         非同期でSQLを実行して全行取得
 
@@ -784,7 +780,7 @@ class AsyncNanaSQLite:
         table_name: str = None,
         columns: list[str] = None,
         where: str = None,
-        parameters: tuple = None,
+        parameters: tuple | None = None,
         order_by: str = None,
         limit: int = None,
         strict_sql_validation: bool = None,
@@ -845,7 +841,7 @@ class AsyncNanaSQLite:
         table_name: str = None,
         columns: list[str] = None,
         where: str = None,
-        parameters: tuple = None,
+        parameters: tuple | None = None,
         order_by: str = None,
         limit: int = None,
         offset: int = None,
@@ -990,7 +986,7 @@ class AsyncNanaSQLite:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self._db.sql_insert, table_name, data)
 
-    async def sql_update(self, table_name: str, data: dict, where: str, parameters: tuple = None) -> int:
+    async def sql_update(self, table_name: str, data: dict, where: str, parameters: tuple | None = None) -> int:
         """
         非同期でdictとwhere条件でUPDATE
 
@@ -1014,7 +1010,7 @@ class AsyncNanaSQLite:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self._db.sql_update, table_name, data, where, parameters)
 
-    async def sql_delete(self, table_name: str, where: str, parameters: tuple = None) -> int:
+    async def sql_delete(self, table_name: str, where: str, parameters: tuple | None = None) -> int:
         """
         非同期でwhere条件でDELETE
 
@@ -1037,7 +1033,7 @@ class AsyncNanaSQLite:
         self,
         table_name: str = None,
         where: str = None,
-        parameters: tuple = None,
+        parameters: tuple | None = None,
         strict_sql_validation: bool = None,
         allowed_sql_functions: list[str] = None,
         forbidden_sql_functions: list[str] = None,
@@ -1449,6 +1445,12 @@ class AsyncNanaSQLite:
                 raise ValueError(f"limit must be an integer, got {type(limit).__name__}")
             if limit < 0:
                 raise ValueError("limit must be non-negative")
+
+        if offset is not None:
+            if not isinstance(offset, int):
+                raise ValueError(f"offset must be an integer, got {type(offset).__name__}")
+            if offset < 0:
+                raise ValueError("offset must be non-negative")
 
         # SQL Construction
         sql = f"SELECT {columns_sql} FROM {target_table}"  # nosec

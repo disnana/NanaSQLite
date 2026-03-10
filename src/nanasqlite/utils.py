@@ -79,17 +79,18 @@ class ExpiringDict(collections.abc.MutableMapping):
             expired_keys = []
 
             with self._lock:
-                # Since items are added in order, the first item is the oldest (likely to expire first)
+                # Collect all keys that have expired, not just the first one
                 if not self._exptimes:
                     sleep_time = 1.0
                 else:
-                    first_key = next(iter(self._exptimes))
-                    expiry = self._exptimes[first_key]
-                    if expiry <= now:
-                        expired_keys.append(first_key)
-                        sleep_time = 0  # Process next immediately
+                    for key, expiry in list(self._exptimes.items()):
+                        if expiry <= now:
+                            expired_keys.append(key)
+                    if expired_keys:
+                        sleep_time = 0  # Process next batch immediately
                     else:
-                        sleep_time = min(expiry - now, 1.0)
+                        first_expiry = next(iter(self._exptimes.values()))
+                        sleep_time = min(first_expiry - now, 1.0)
 
             # Do deletion outside of the common lock if possible, but for simplicity here we keep it safe
             for key in expired_keys:
