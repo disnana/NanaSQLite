@@ -39,7 +39,7 @@ def db_path():
         try:
             os.unlink(path + suffix)
         except OSError:
-            pass
+            pass  # File may already be deleted or locked during cleanup
 
 
 @pytest.fixture
