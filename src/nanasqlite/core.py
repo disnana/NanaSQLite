@@ -586,13 +586,12 @@ class NanaSQLite(MutableMapping):
         # 4. 関数呼び出しの抽出
         # 文字列リテラルやコメントをマスクした上で関数呼び出しを検索
         # これにより、SELECT 'COUNT(' ... のようなパターンでの誤検知を防ぐ
+        # Note: sanitize_sql_for_function_scan() preserves double-quoted identifier
+        # content so that "FUNC"() patterns are detected.
         sanitized_expr = sanitize_sql_for_function_scan(expr)
-        # Match both unquoted and double-quoted identifiers followed by '('
-        matches = re.findall(r'(?:"([a-zA-Z_][a-zA-Z0-9_]*)"|([a-zA-Z_][a-zA-Z0-9_]*))\s*\(', sanitized_expr)
+        matches = re.findall(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", sanitized_expr)
 
-        for func_match in matches:
-            # func_match is a tuple: (quoted_name, unquoted_name) – one will be empty
-            func = func_match[0] or func_match[1]
+        for func in matches:
             func_upper = func.upper()
 
             # 明示的に禁止されている場合
