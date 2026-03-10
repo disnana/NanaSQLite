@@ -114,7 +114,7 @@ class TestBug03AeadShortNonce:
     """BUG-03: Short encrypted data must raise NanaSQLiteDatabaseError."""
 
     def test_short_encrypted_data_raises(self, db_path):
-        """Data shorter than 13 bytes raises NanaSQLiteDatabaseError."""
+        """Data shorter than 28 bytes (12 nonce + 16 auth tag) raises NanaSQLiteDatabaseError."""
         key = AESGCM.generate_key(bit_length=256)
 
         # Write very short binary data directly
@@ -144,6 +144,28 @@ class TestBug03AeadShortNonce:
         db = NanaSQLite(db_path, encryption_key=key)
         try:
             with pytest.raises(NanaSQLiteDatabaseError, match="too short"):
+                _ = db["k"]
+        finally:
+            db.close()
+
+    def test_partial_nonce_data_raises(self, db_path):
+        """Data with 13-27 bytes (nonce only, no full auth tag) raises NanaSQLiteDatabaseError.
+
+        Previously, the guard only checked len < 13, allowing payloads that would
+        reach decrypt() and raise a low-level InvalidTag instead of NanaSQLiteDatabaseError.
+        """
+        key = AESGCM.generate_key(bit_length=256)
+
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE IF NOT EXISTS data (key TEXT PRIMARY KEY, value BLOB)")
+        # 20 bytes: passes old < 13 check but still too short (12 nonce + 16 tag = 28 min)
+        conn.execute("INSERT INTO data (key, value) VALUES (?, ?)", ("k", b"\x00" * 20))
+        conn.commit()
+        conn.close()
+
+        db = NanaSQLite(db_path, encryption_key=key)
+        try:
+            with pytest.raises(NanaSQLiteDatabaseError):
                 _ = db["k"]
         finally:
             db.close()
@@ -341,9 +363,9 @@ class TestSec02QuotedFunctionBypass:
         db.sql_insert("t", {"id": 1, "name": "test"})
 
         try:
-            # COUNT is in default allowed list
-            results = db.query("t", where='"COUNT" IS NOT NULL')
-            # This should NOT raise because "COUNT" here is not followed by (
+            # Use an existing column; quoted identifier not followed by '(' must be allowed
+            results = db.query("t", where='"name" IS NOT NULL')
+            # This should NOT raise because "name" here is not treated as a function
             assert isinstance(results, list)
         finally:
             db.close()

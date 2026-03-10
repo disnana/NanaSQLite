@@ -28,6 +28,7 @@ from typing import Any, Literal
 import apsw
 
 try:
+    from cryptography.exceptions import InvalidTag
     from cryptography.fernet import Fernet
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
     HAS_CRYPTOGRAPHY = True
@@ -663,17 +664,27 @@ class NanaSQLite(MutableMapping):
                     return orjson.loads(value)
                 return json.loads(value)
 
-            # Validate minimum size: 12-byte nonce + at least 1 byte ciphertext
-            if len(value) < 13:
+            # Validate minimum size:
+            # 12-byte nonce + 16-byte AES-GCM/ChaCha20-Poly1305 auth tag = 28 bytes minimum.
+            # Shorter payloads are always corrupted; reject early with a clear error
+            # rather than propagating a low-level InvalidTag from the crypto library.
+            _NONCE_LEN = 12
+            _TAG_LEN = 16
+            if len(value) < _NONCE_LEN + _TAG_LEN:
                 raise NanaSQLiteDatabaseError(
                     "Corrupted encrypted data: payload too short "
-                    f"(expected >= 13 bytes, got {len(value)})"
+                    f"(expected >= {_NONCE_LEN + _TAG_LEN} bytes, got {len(value)})"
                 )
 
             # Split nonce (12B) and ciphertext
             nonce = value[:12]
             ciphertext = value[12:]
-            decoded = self._aead.decrypt(nonce, ciphertext, None).decode("utf-8")
+            try:
+                decoded = self._aead.decrypt(nonce, ciphertext, None).decode("utf-8")
+            except InvalidTag as exc:
+                raise NanaSQLiteDatabaseError(
+                    "Failed to decrypt value: authentication tag mismatch or corrupted data"
+                ) from exc
             if HAS_ORJSON:
                 return orjson.loads(decoded)
             return json.loads(decoded)
