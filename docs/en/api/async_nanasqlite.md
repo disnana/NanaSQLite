@@ -264,12 +264,12 @@ All SQL and query methods available in `NanaSQLite` are available here as `async
 
 ### `query` (Alias: `aquery`)
 ```python
-async def query(self, table_name: str, columns: list[str] | None = None, where: str | None = None, parameters: tuple = None, order_by: str | None = None, limit: int | None = None) -> list[dict]
+async def query(self, table_name: str, columns: list[str] | None = None, where: str | None = None, parameters: tuple | None = None, order_by: str | None = None, limit: int | None = None) -> list[dict]
 ```
 
 ### `query_with_pagination` (Alias: `aquery_with_pagination`)
 ```python
-async def query_with_pagination(self, table_name: str, columns: list[str] | None = None, where: str | None = None, parameters: tuple = None, order_by: str | None = None, limit: int = 20, offset: int = 0, group_by: str | None = None) -> list[dict]
+async def query_with_pagination(self, table_name: str, columns: list[str] | None = None, where: str | None = None, parameters: tuple | None = None, order_by: str | None = None, limit: int = 20, offset: int = 0, group_by: str | None = None) -> list[dict]
 ```
 
 ### `execute` (Alias: `aexecute`)
@@ -284,12 +284,12 @@ async def execute_many(self, sql: str, parameters: list[tuple]) -> None
 
 ### `fetch_all` (Alias: `afetch_all`)
 ```python
-async def fetch_all(self, sql: str, parameters: tuple = None) -> list[tuple]
+async def fetch_all(self, sql: str, parameters: tuple | None = None) -> list[tuple]
 ```
 
 ### `fetch_one` (Alias: `afetch_one`)
 ```python
-async def fetch_one(self, sql: str, parameters: tuple = None) -> tuple | None
+async def fetch_one(self, sql: str, parameters: tuple | None = None) -> tuple | None
 ```
 
 ### `sql_insert` (Alias: `asql_insert`)
@@ -299,12 +299,12 @@ async def sql_insert(self, table_name: str, data: dict) -> int
 
 ### `sql_update` (Alias: `asql_update`)
 ```python
-async def sql_update(self, table_name: str, data: dict, where: str, parameters: tuple = None) -> None
+async def sql_update(self, table_name: str, data: dict, where: str, parameters: tuple | None = None) -> None
 ```
 
 ### `sql_delete` (Alias: `asql_delete`)
 ```python
-async def sql_delete(self, table_name: str, where: str, parameters: tuple = None) -> None
+async def sql_delete(self, table_name: str, where: str, parameters: tuple | None = None) -> None
 ```
 
 ### `upsert` (Alias: `aupsert`)
@@ -314,12 +314,12 @@ async def upsert(self, table_name: str, data: dict, unique_keys: list[str]) -> N
 
 ### `count` (Alias: `acount`)
 ```python
-async def count(self, table_name: str, where: str | None = None, parameters: tuple = None) -> int
+async def count(self, table_name: str, where: str | None = None, parameters: tuple | None = None) -> int
 ```
 
 ### `exists` (Alias: `aexists`)
 ```python
-async def exists(self, table_name: str, where: str, parameters: tuple = None) -> bool
+async def exists(self, table_name: str, where: str, parameters: tuple | None = None) -> bool
 ```
 
 ### `create_table`

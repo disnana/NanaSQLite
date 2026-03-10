@@ -9,37 +9,48 @@ and handle edge cases in SQL parsing.
 
 def sanitize_sql_for_function_scan(sql: str) -> str:
     """
-    Return a version of the SQL string where string literals and comments
-    are replaced with spaces so that function-like patterns inside them
-    are ignored by the validation regex.
+    Return a sanitized version of the SQL string for function-call scanning.
 
-    This function implements a state machine that processes SQL character by character,
-    tracking whether we're inside:
-    - Single-quoted string literals (with '' escaping)
-    - Double-quoted identifiers/strings (with "" escaping)
-    - Line comments (-- to newline)
-    - Block comments (/* to */)
+    The sanitizer uses a character-by-character state machine with the
+    following rules:
+
+    - **Single-quoted string literals** (``'...'``): content replaced with
+      spaces so that function-like patterns inside string values are not
+      matched by the validation regex.
+    - **Double-quoted identifiers** (``"identifier"``): content is
+      **preserved as-is** so that quoted function names such as
+      ``"LOAD_EXTENSION"(...)`` can still be detected by the validation
+      regex.  Only the surrounding quote characters themselves are replaced
+      with spaces.
+    - **Line comments** (``-- ...``): replaced with spaces up to the
+      newline, which is preserved.
+    - **Block comments** (``/* ... */``): replaced with spaces.
+    - **Outside any of the above**: characters are passed through unchanged.
 
     Args:
-        sql: The SQL string to sanitize
+        sql: The SQL string to sanitize.
 
     Returns:
-        A sanitized version of the SQL string where all content inside
-        string literals and comments is replaced with spaces, while
-        preserving the original length and newline positions.
+        A sanitized version of the SQL string that preserves the original
+        length and newline positions.  Single-quoted literal content and
+        comment content are blanked out; double-quoted identifier content
+        is kept intact for pattern matching.
 
     Example:
         >>> sanitize_sql_for_function_scan("SELECT 'COUNT(*)' FROM table")
         'SELECT           FROM table'
+        >>> sanitize_sql_for_function_scan('SELECT "LOAD_EXTENSION"(x)')
+        'SELECT  LOAD_EXTENSION (x)'
         >>> sanitize_sql_for_function_scan("SELECT COUNT(*) -- comment")
         'SELECT COUNT(*)            '
 
     Note:
-        This function handles SQL-specific escaping rules:
-        - Single quotes are escaped as ''
-        - Double quotes are escaped as ""
-        - Line comments start with -- and end at newline
-        - Block comments are /* ... */
+        SQL escaping rules applied:
+        - Single quotes escaped as ``''`` (both chars blanked)
+        - Double quotes escaped as ``""`` (both chars blanked, identifier
+          content still visible on either side)
+        - Line comments end at the first newline
+        - Block comments may span multiple lines
     """
     if not sql:
         return sql
