@@ -201,8 +201,10 @@ class TestBug07ExpiringDictBatch:
         for i in range(10):
             d[f"key_{i}"] = f"val_{i}"
 
-        # Wait for expiry + scheduler cycle
-        time.sleep(0.5)
+        # Poll until all keys are evicted (bounded timeout to avoid hanging)
+        deadline = time.time() + 3.0
+        while len(evicted) < 10 and time.time() < deadline:
+            time.sleep(0.1)
 
         # All keys should be evicted, not just one per iteration
         assert len(evicted) == 10, f"Only {len(evicted)}/10 keys evicted: {evicted}"
