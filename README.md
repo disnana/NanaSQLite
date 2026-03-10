@@ -97,6 +97,7 @@ with NanaSQLite("mydata.db") as db:
 - **Persistence TTL**: Self-expiring data for sessions and temporary storage.
 - **Lock Timeout** (v1.3.4b1): Raise `NanaSQLiteLockError` if the lock is held too long, preventing indefinite hangs in multi-threaded apps.
 - **Backup & Restore** (v1.3.4b1): Online backup via APSW's SQLite backup API and one-call restore from any backup file.
+- **Security Audit & Hardening** (v1.3.4): Whitelist-based column type validation, AEAD nonce validation, closed-instance safety on all dict methods. See [CHANGELOG](CHANGELOG.md) for full details.
 
 ```python
 # Lock Timeout
@@ -279,6 +280,7 @@ with NanaSQLite("mydata.db") as db:
 - **永続化 TTL**: SQLite上のデータの自動消去。
 - **ロックタイムアウト** (v1.3.4b1): ロックが一定時間内に取得できない場合に `NanaSQLiteLockError` を送出。マルチスレッドでのハング防止に最適。
 - **バックアップ / リストア** (v1.3.4b1): APSW の SQLite バックアップ API によるオンラインバックアップと、一発でのリストアをサポート。
+- **セキュリティ監査・強化** (v1.3.4): column_type ホワイトリスト検証、AEAD nonce 検証、全 dict メソッドのクローズ済みインスタンス安全性。詳細は [CHANGELOG](CHANGELOG.md) を参照。
 
 ```python
 # ロックタイムアウト
