@@ -590,9 +590,9 @@ class NanaSQLite(MutableMapping):
         # Match both unquoted and double-quoted identifiers followed by '('
         matches = re.findall(r'(?:"([a-zA-Z_][a-zA-Z0-9_]*)"|([a-zA-Z_][a-zA-Z0-9_]*))\s*\(', sanitized_expr)
 
-        for match in matches:
-            # match is a tuple: (quoted_name, unquoted_name) – one will be empty
-            func = match[0] or match[1]
+        for func_match in matches:
+            # func_match is a tuple: (quoted_name, unquoted_name) – one will be empty
+            func = func_match[0] or func_match[1]
             func_upper = func.upper()
 
             # 明示的に禁止されている場合
@@ -934,12 +934,13 @@ class NanaSQLite(MutableMapping):
         missing_keys = []
 
         # 1. キャッシュから取得可能なものをチェック
+        cache_data = self._cache.get_data()
         for key in keys:
             if self._cache.is_cached(key):
                 val = self._cache.get(key)
                 if val is not None:
                     results[key] = val
-                elif key in self._cache.get_data():
+                elif key in cache_data:
                     # Key exists in cache with an explicit None value
                     results[key] = None
             else:
