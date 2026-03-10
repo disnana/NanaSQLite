@@ -6,6 +6,42 @@
 
 ## 日本語
 
+### [1.3.4] - 2026-03-10
+
+#### セキュリティ修正
+
+- **SEC-01 [High]**: `alter_table_add_column()` の `column_type` バリデーションをブラックリスト方式からホワイトリスト正規表現に変更。`TEXT; DROP TABLE` のようなインジェクションペイロードを確実にブロック。
+- **SEC-02 [High]**: `sanitize_sql_for_function_scan()` を修正し、ダブルクォート付き SQL 識別子の内容を保持するよう変更。`"LOAD_EXTENSION"()` のようなクォート付き関数名バイパスを `_validate_expression()` が正しく検出可能に。
+
+#### バグ修正
+
+- **BUG-01 [Critical]**: `items()` メソッドに `_check_connection()` チェックを追加。クローズ済みインスタンスで呼び出した際に APSW 低レベル例外ではなく `NanaSQLiteClosedError` が発生するよう修正。
+- **BUG-02 [High]**: AEAD 暗号化有効時に非 bytes 値を受け取った場合、サイレントに平文 JSON フォールバックするのではなく警告ログを出力するよう変更。
+- **BUG-03 [High]**: AEAD 復号前に nonce+認証タグを含む最小長の検証（≥28 バイト = nonce 12 + auth tag 16）を追加。短すぎるデータに対して明確な `NanaSQLiteDatabaseError` を送出。InvalidTag など低レベル例外も同エラーにラップ。
+- **BUG-04 [High]**: `AsyncNanaSQLite.acontains()` の冗長な二重 `_ensure_initialized()` 呼び出しを削除。
+- **BUG-05 [Medium]**: 非同期 `_shared_query_impl()` に `offset` パラメータの型・非負チェックを追加。
+- **BUG-06 [Medium]**: `async_core.py` の `parameters: tuple = None` を `tuple | None = None` に修正（mypy strict 対応）。
+- **BUG-07 [Medium]**: `ExpiringDict` スケジューラが 1 反復で期限切れキーをすべて処理するよう改善（従来は 1 キーずつ）。
+- **BUG-09 [Medium]**: `batch_get()` が値 `None` を明示的に格納したキーを結果に含めるよう修正。
+- **BUG-10 [Low]**: `_sanitize_identifier()` でコンパイル済み `IDENTIFIER_PATTERN` を再利用。
+- **BUG-12 [Low]**: `NanaSQLiteDatabaseError.__init__` の `original_error` 型アノテーションを `Exception | None` に修正。
+
+#### パフォーマンス改善
+
+- **PERF-03 [Medium]**: カラム名エイリアス抽出ロジックを `_extract_column_aliases()` ヘルパーに共通化（3 箇所の重複排除）。
+
+#### コード品質改善
+
+- **QUAL-01 [Medium]**: `_get_all_keys_from_db()` の戻り値型を `list[str]` に修正。
+- **QUAL-03 [Medium]**: `query()` と `query_with_pagination()` 間のカラム名クォート除去ロジックを統一。
+
+#### 監査・テスト
+
+- プレリリース監査レポート (`audit.md`) を追加 — 35 件の発見事項を文書化。
+- POC スクリプト 6 件を `etc/poc/` に追加。
+- POC 検証テスト 20 件を `tests/test_audit_poc.py` に追加。
+- `audit_prompt.md` を 6 フェーズ構成に改正（監査 → POC → パッチ → pytest → CI 検証 → リリース準備）。
+
 ### [1.3.4rc4] - 2026-03-08
 
 #### CI 修正
@@ -691,6 +727,42 @@
 
 
 ## English
+
+### [1.3.4] - 2026-03-10
+
+#### Security Fixes
+
+- **SEC-01 [High]**: Switched `alter_table_add_column()` `column_type` validation from blacklist to whitelist regex. Reliably blocks injection payloads like `TEXT; DROP TABLE`.
+- **SEC-02 [High]**: Fixed `sanitize_sql_for_function_scan()` to preserve double-quoted SQL identifier content. `_validate_expression()` now correctly detects quoted function name bypasses like `"LOAD_EXTENSION"()`.
+
+#### Bug Fixes
+
+- **BUG-01 [Critical]**: Added `_check_connection()` check to `items()`. Calling on a closed instance now raises `NanaSQLiteClosedError` instead of leaking a low-level APSW exception.
+- **BUG-02 [High]**: AEAD deserialization now logs a warning instead of silently falling back to plaintext JSON when receiving non-bytes values.
+- **BUG-03 [High]**: Added payload length validation (≥28 bytes = 12-byte nonce + 16-byte auth tag) before AEAD decrypt. Short data now raises a clear `NanaSQLiteDatabaseError`. `InvalidTag` and other low-level crypto exceptions are also wrapped into `NanaSQLiteDatabaseError`.
+- **BUG-04 [High]**: Removed redundant double `_ensure_initialized()` call in `AsyncNanaSQLite.acontains()`.
+- **BUG-05 [Medium]**: Added `offset` type and non-negative validation in async `_shared_query_impl()`.
+- **BUG-06 [Medium]**: Fixed `parameters: tuple = None` → `tuple | None = None` type annotations in `async_core.py` (mypy strict compliance).
+- **BUG-07 [Medium]**: `ExpiringDict` scheduler now processes all expired keys per iteration instead of just one.
+- **BUG-09 [Medium]**: `batch_get()` now correctly includes keys with explicit `None` values in results.
+- **BUG-10 [Low]**: Reuse compiled `IDENTIFIER_PATTERN` in `_sanitize_identifier()`.
+- **BUG-12 [Low]**: Fixed `NanaSQLiteDatabaseError.__init__` `original_error` type annotation to `Exception | None`.
+
+#### Performance Improvements
+
+- **PERF-03 [Medium]**: Extracted `_extract_column_aliases()` helper, deduplicating column-alias extraction from 3 call sites.
+
+#### Code Quality
+
+- **QUAL-01 [Medium]**: Fixed `_get_all_keys_from_db()` return type to `list[str]`.
+- **QUAL-03 [Medium]**: Harmonized column-name quote stripping between `query()` and `query_with_pagination()`.
+
+#### Audit & Testing
+
+- Added pre-release audit report (`audit.md`) — 35 findings documented.
+- Added 6 POC scripts in `etc/poc/`.
+- Added 20 POC verification tests in `tests/test_audit_poc.py`.
+- Updated `audit_prompt.md` to 6-phase workflow (audit → POC → patch → pytest → CI verification → release preparation).
 
 ### [1.3.4rc4] - 2026-03-08
 
