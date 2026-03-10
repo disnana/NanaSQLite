@@ -1,6 +1,6 @@
-# NanaSQLite v1.3.4 プレリリース監査レポート
+# NanaSQLite v1.3.4 監査レポート
 
-> 対象バージョン: 1.3.4r5  
+> 対象バージョン: 1.3.4 (プレリリースビルド r5 を監査)  
 > 監査日: 2026-03-10  
 > 対象ファイル: `src/nanasqlite/` 配下すべて (core.py, async_core.py, cache.py, utils.py, sql_utils.py, exceptions.py)
 
