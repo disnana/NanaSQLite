@@ -1208,10 +1208,10 @@ class TestV2ArchitectureBenchmarks:
     def test_v2_dlq_operations(self, benchmark, v2_dbs):
         """v2モードでの get_dlq() のオーバーヘッド"""
         db = v2_dbs["manual"]
-        
+
         def dlq_op():
             return db.get_dlq()
-            
+
         benchmark(dlq_op)
 
 
@@ -1225,30 +1225,30 @@ class TestBackupRestoreBenchmarks:
     def test_backup_1000(self, benchmark, db_path, tmp_path):
         """1000件のデータがあるDBのバックアップ"""
         from nanasqlite import NanaSQLite
-        
+
         backup_path = str(tmp_path / "backup_target.db")
         with NanaSQLite(db_path) as db:
             # Prepare 1000 items
             db.batch_update({f"k_{i}": i for i in range(1000)})
-            
+
             def backup_op():
                 db.backup(backup_path)
-                
+
             benchmark(backup_op)
 
     def test_restore_1000(self, benchmark, db_path, tmp_path):
         """1000件のデータがあるDBのリストア"""
         from nanasqlite import NanaSQLite
-        
+
         backup_path = str(tmp_path / "restore_source.db")
         # Setup source
         with NanaSQLite(backup_path) as db:
             db.batch_update({f"k_{i}": i for i in range(1000)})
-            
+
         with NanaSQLite(db_path) as db:
             def restore_op():
                 db.restore(backup_path)
-                
+
             benchmark(restore_op)
 
 
