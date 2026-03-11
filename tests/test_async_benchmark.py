@@ -1339,3 +1339,86 @@ class TestAsyncUtilityOperationsBenchmarks:
             return run_async(_check())
 
         benchmark(is_cached_op)
+
+
+# ==================== Async v2 Architecture Benchmarks ====================
+
+
+@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
+class TestAsyncV2ArchitectureBenchmarks:
+    """非同期v2アーキテクチャ（Write-Back Cache）のベンチマーク"""
+
+    @pytest.fixture
+    def async_v2_dbs(self, tmp_path):
+        import os
+        from nanasqlite import AsyncNanaSQLite
+
+        base_dir = tmp_path / "async_v2_bench"
+        base_dir.mkdir()
+
+        # Suppress multiprocess warning in test environment
+        os.environ["NANASQLITE_SUPPRESS_MP_WARNING"] = "1"
+
+        dbs = {}
+        modes = ["immediate", "count", "time", "manual"]
+        
+        for mode in modes:
+            kwargs = {"v2_mode": True, "flush_mode": mode}
+            if mode == "immediate":
+                kwargs["flush_interval"] = 1.0
+            elif mode == "count":
+                kwargs["flush_count"] = 100
+            elif mode == "time":
+                kwargs["flush_interval"] = 0.1
+                
+            dbs[mode] = AsyncNanaSQLite(str(base_dir / f"async_v2_{mode}.db"), **kwargs)
+
+        yield dbs
+
+        for db in dbs.values():
+            with contextlib.suppress(Exception):
+                run_async(db.close())
+
+    @pytest.mark.parametrize("mode", ["immediate", "count", "time", "manual"])
+    def test_async_v2_write_1000(self, benchmark, async_v2_dbs, mode):
+        """v2モードごとの非同期書き込み性能 (100件連続)"""
+        db = async_v2_dbs[mode]
+
+        def write_op():
+            async def _write():
+                for i in range(100): 
+                    await db.aset(f"w_{i}", i)
+            run_async(_write())
+
+        benchmark(write_op)
+
+    @pytest.mark.parametrize("mode", ["immediate", "count", "time", "manual"])
+    def test_async_v2_read_hit(self, benchmark, async_v2_dbs, mode):
+        """v2モードごとの非同期読み込み性能 (キャッシュヒット)"""
+        db = async_v2_dbs[mode]
+        # Setup data
+        async def setup():
+            for i in range(100):
+                await db.aset(f"r_{i}", i)
+        run_async(setup())
+
+        def read_op():
+            async def _read():
+                for i in range(100):
+                    await db.aget(f"r_{i}")
+            run_async(_read())
+
+        benchmark(read_op)
+
+    def test_async_v2_batch_write_1000(self, benchmark, async_v2_dbs):
+        """v2モード (count) での非同期バッチ書き込み性能"""
+        db = async_v2_dbs["count"]
+
+        def batch_write():
+            async def _batch():
+                data = {f"batch_{i}": {"index": i} for i in range(1000)}
+                await db.abatch_update(data)
+            run_async(_batch())
+
+        benchmark(batch_write)
+

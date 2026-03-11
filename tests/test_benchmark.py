@@ -1106,3 +1106,90 @@ class TestMixedBenchmarks:
                 db[f"k_{counter[0]}"] = {"data": "x" * 100}
                 counter[0] += 1
             benchmark(write_op)
+
+
+# ==================== v2 Architecture Benchmarks ====================
+
+
+@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
+class TestV2ArchitectureBenchmarks:
+    """v2アーキテクチャ（Write-Back Cache）のベンチマーク"""
+
+    @pytest.fixture
+    def v2_dbs(self, tmp_path):
+        from nanasqlite import NanaSQLite
+
+        base_dir = tmp_path / "v2_bench"
+        base_dir.mkdir()
+
+        # Suppress multiprocess warning in test environment
+        os.environ["NANASQLITE_SUPPRESS_MP_WARNING"] = "1"
+
+        dbs = {}
+        modes = ["immediate", "count", "time", "manual"]
+        
+        for mode in modes:
+            kwargs = {"v2_mode": True, "flush_mode": mode}
+            if mode == "immediate":
+                kwargs["flush_interval"] = 1.0  # ignored but safe
+            elif mode == "count":
+                kwargs["flush_count"] = 100
+            elif mode == "time":
+                kwargs["flush_interval"] = 0.1
+                
+            dbs[mode] = NanaSQLite(str(base_dir / f"v2_{mode}.db"), **kwargs)
+
+        yield dbs
+
+        for db in dbs.values():
+            db.close()
+
+    @pytest.mark.parametrize("mode", ["immediate", "count", "time", "manual"])
+    def test_v2_write_1000(self, benchmark, v2_dbs, mode):
+        """v2モードごとの書き込み性能 (1000件連続)"""
+        db = v2_dbs[mode]
+
+        def write_op():
+            # benchmark will run this many times
+            for i in range(100): 
+                db[f"w_{i}"] = i
+
+        benchmark(write_op)
+
+    @pytest.mark.parametrize("mode", ["immediate", "count", "time", "manual"])
+    def test_v2_read_hit(self, benchmark, v2_dbs, mode):
+        """v2モードごとの読み込み性能 (キャッシュヒット)"""
+        db = v2_dbs[mode]
+        # Setup data
+        for i in range(100):
+            db[f"r_{i}"] = i
+
+        def read_op():
+            for i in range(100):
+                _ = db[f"r_{i}"]
+
+        benchmark(read_op)
+
+    def test_v2_batch_write_1000(self, benchmark, v2_dbs):
+        """v2モード (count) でのバッチ書き込み性能"""
+        # use count mode since it is a common batching scenario
+        db = v2_dbs["count"]
+
+        def batch_write():
+            data = {f"batch_{i}": {"index": i} for i in range(1000)}
+            db.batch_update(data)
+
+        benchmark(batch_write)
+
+    def test_v2_sql_insert(self, benchmark, v2_dbs):
+        """v2モード (immediate) でのSQL直接実行によるQueueレイテンシ"""
+        db = v2_dbs["immediate"]
+        db.create_table("v2_sql_bench", {"id": "INTEGER PRIMARY KEY AUTOINCREMENT", "val": "INTEGER"})
+        
+        counter = [0]
+        
+        def sql_insert_op():
+            db.sql_insert("v2_sql_bench", {"val": counter[0]})
+            counter[0] += 1
+            
+        benchmark(sql_insert_op)
