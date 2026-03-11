@@ -6,6 +6,23 @@
 
 ## 日本語
 
+### [1.4.0dev1] - 2026-03-12
+
+#### 新機能: v2 アーキテクチャ (オプション)
+- **ノンブロッキング・バックグラウンド永続化**:
+  - `NanaSQLite(db_path, v2_mode=True)` を指定することで、v2アーキテクチャが有効になります。
+  - すべての書き込み操作（KVS操作およびSQL実行）が一時的にメモリ上のバッファまたはキューに格納され、バックグラウンドスレッドで非同期にSQLiteへフラッシュされます。
+  - これにより、**書き込みによるメインスレッドのI/Oブロックが完全にゼロ**になり、書き込みレイテンシが劇的に改善します。
+  - 読み込みレイテンシは従来通り（メモリキャッシュから直接取得するため）ゼロコストです。
+  - **フラッシュモード**: `flush_mode` パラメータで最適なタイミング（`immediate`, `count`, `time`, `manual`）を選択できます。
+  - **デッドレターキュー (DLQ)**: バックグラウンドでのSQL実行失敗時に、問題のあるタスクだけを隔離し、他のデータ永続化を継続・保護します。
+  - **チャンク処理**: 大量データの書き込み時にSQLiteのロックを長時間占有しないよう、バッチを分割（デフォルト 1000件ごと）して少しずつ書き込みます。
+  - **注意**: v2アーキテクチャは「単一プロセス」システム専用です。マルチプロセス環境（FastAPI/Gunicornの複数ワーカーなど）ではデータ破損の原因となるため警告が出力されます。
+
+#### 変更
+- `NanaSQLite` および `AsyncNanaSQLite` の `__init__` に `v2_mode`, `flush_mode`, `flush_interval`, `flush_count`, `v2_chunk_size` パラメータを追加。
+- 手動フラッシュ用の `flush()` (同期) および `aflush()` (非同期) メソッドを追加。
+
 ### [1.3.4] - 2026-03-10
 
 #### セキュリティ修正
@@ -727,6 +744,23 @@
 
 
 ## English
+
+### [1.4.0dev1] - 2026-03-12
+
+#### New Features: v2 Architecture (Optional)
+- **Non-blocking Background Persistence**:
+  - Enable the v2 architecture by passing `v2_mode=True` to `NanaSQLite`.
+  - All write operations (KVS updates and explicit SQL execution) are temporarily buffered in memory or queued, and then flushed to SQLite asynchronously by a background thread.
+  - This eliminates disk I/O blocking on the main thread entirely, dramatically improving write latency.
+  - Read latency remains zero-cost as data is still fetched directly from the in-memory cache.
+  - **Flush Modes**: Customize flushing behavior using the `flush_mode` parameter (`immediate`, `count`, `time`, or `manual`).
+  - **Dead Letter Queue (DLQ)**: If a background SQL execution fails, the problematic task is isolated to a DLQ, allowing the rest of the data persistence pipeline to proceed without halting the system.
+  - **Chunk Flushing**: Automatically splits large write batches (default: 1000 items) to prevent long-held database locks.
+  - **Warning**: The v2 architecture is designed exclusively for SINGLE-PROCESS systems. A warning is emitted if used in multi-process environments (e.g., Gunicorn with multiple workers) as parallel background threads will cause data corruption.
+
+#### Changes
+- Added `v2_mode`, `flush_mode`, `flush_interval`, `flush_count`, and `v2_chunk_size` parameters to `NanaSQLite` and `AsyncNanaSQLite` initialization.
+- Added explicit `flush()` (sync) and `aflush()` (async) methods.
 
 ### [1.3.4] - 2026-03-10
 
