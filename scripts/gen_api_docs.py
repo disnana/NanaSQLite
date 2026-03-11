@@ -129,7 +129,8 @@ def format_docstring(doc, lang='ja'):
 
 def generate_class_md(cls_obj, title, description="", lang='ja'):
     md = f"# {title}\n\n"
-    if description: md += f"{description}\n\n"
+    if description:
+        md += f"{description}\n\n"
     md += f"## {cls_obj.__name__}\n\n"
     md += format_docstring(cls_obj.__doc__, lang) + "\n\n"
     md += "---\n\n"
@@ -137,24 +138,29 @@ def generate_class_md(cls_obj, title, description="", lang='ja'):
 
     members = inspect.getmembers(cls_obj, predicate=lambda x: inspect.isfunction(x) or inspect.ismethod(x))
     def get_lnum(obj):
-        try: return inspect.getsourcelines(obj)[1]
-        except Exception: return 9999
+        try:
+            return inspect.getsourcelines(obj)[1]
+        except Exception:
+            return 9999
     members.sort(key=lambda x: get_lnum(x[1]))
 
     for name, method in members:
-        if name.startswith("_") and name != "__init__": continue
+        if name.startswith("_") and name != "__init__":
+            continue
         sig = inspect.signature(method)
         md += f"### {name}\n\n"
         md += f"```python\n{name}{str(sig).replace('NoneType', 'None')}\n```\n\n"
         doc = format_docstring(method.__doc__, lang)
-        if doc: md += doc + "\n\n"
+        if doc:
+            md += doc + "\n\n"
         md += "---\n\n"
     return md
 
 def main():
     root_dir = Path(__file__).parent.parent / "docs" / "site"
     ja_dir, en_dir = root_dir, root_dir / "en"
-    for d in [ja_dir, en_dir]: d.mkdir(parents=True, exist_ok=True)
+    for d in [ja_dir, en_dir]:
+        d.mkdir(parents=True, exist_ok=True)
     from nanasqlite.async_core import AsyncNanaSQLite
     from nanasqlite.core import NanaSQLite
 

@@ -6,6 +6,24 @@
 
 ## 日本語
 
+### [1.4.0dev2] - 2026-03-12
+
+#### 改善: 非同期 API の完全化
+- `AsyncNanaSQLite` において、同期版と同等の全主要メソッドを非同期版（`abackup`, `arestore`, `apragma`, `aget_table_schema`, `alist_indexes`, `aalter_table_add_column`, `aupsert`, `aget_dlq`, `aretry_dlq` 等）として実装・公開しました。
+
+#### 変更: upsert() メソッドの統合と強化
+- `upsert()` メソッドのシグネチャを統合し、`(table_name, data_dict, conflict_columns)` パターンと `(key, value)` パターンの両方を単一のメソッドでサポートするように強化しました。
+- v2 モード有効時に `(key, value)` パターンで呼び出すと、内部的にバックグラウンドキューへルーティングされます。
+
+#### テスト: ベンチマーク・カバレッジの拡充
+- `pytest-benchmark` による計測対象を 158 から **177** に拡大。
+- これまで未カバーだった `backup`, `restore`, `pragma`, `DDL (alter table/index)`, `export/import` 等の主要全操作を計測対象に追加しました。
+- 非同期ベンチマーク (`tests/test_async_benchmark.py`) を大幅に強化。
+
+#### 修正
+- `get_table_schema` メソッドが `table` プロパティが存在しない場合にエラーになる不具合を修正し、`table_name` 引数を省略可能（デフォルトで現在のテーブルを使用）に変更しました。
+- プロジェクト全体の `ruff` lint エラー（31件）および `mypy` 型チェックエラーを解消。
+
 ### [1.4.0dev1] - 2026-03-12
 
 #### 新機能: v2 アーキテクチャ (オプション)
@@ -749,6 +767,24 @@
 
 
 ## English
+
+### [1.4.0dev2] - 2026-03-12
+
+#### Improvements: Async API Completion
+- Implemented and exposed all key methods in `AsyncNanaSQLite` as asynchronous versions (`abackup`, `arestore`, `apragma`, `aget_table_schema`, `alist_indexes`, `aalter_table_add_column`, `aupsert`, `aget_dlq`, `aretry_dlq`, etc.) to achieve full feature parity with the synchronous version.
+
+#### Changes: Unified and Enhanced upsert() Method
+- Unified the `upsert()` method signature to support both `(table_name, data_dict, conflict_columns)` and `(key, value)` patterns in a single method.
+- When `v2_mode` is enabled, the `(key, value)` pattern is automatically routed to the background persistence queue.
+
+#### Testing: Expanded Benchmark Coverage
+- Increased benchmark tests from 158 to **177**.
+- Added coverage for previously unmeasured operations: `backup`, `restore`, `pragma`, `DDL (alter table/index)`, `export/import`, etc.
+- Significantly enhanced asynchronous benchmarks (`tests/test_async_benchmark.py`).
+
+#### Fixes
+- Fixed `get_table_schema` to accept an optional `table_name` argument (defaulting to the current table) and handle cases where the `table` property is missing.
+- Resolved all project-wide `ruff` linting errors (31 items) and `mypy` type check issues.
 
 ### [1.4.0dev1] - 2026-03-12
 

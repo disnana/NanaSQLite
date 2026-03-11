@@ -53,7 +53,7 @@ def load_previous_benchmark():
 
         # Get the most recent benchmark entry
         previous = {}
-        for entry_name, entries in data.get('entries', {}).items():
+        for _, entries in data.get('entries', {}).items():
             if entries:
                 # Get the latest entry
                 latest = entries[-1]
