@@ -1423,3 +1423,119 @@ class TestAsyncV2ArchitectureBenchmarks:
 
         benchmark(batch_write)
 
+    def test_async_v2_upsert(self, benchmark, async_v2_dbs):
+        """v2モードごとの非同期 upsert パフォーマンス"""
+        db = async_v2_dbs["count"]
+        counter = [0]
+        
+        def upsert_op():
+            async def _upsert():
+                await db.aupsert(f"u_{counter[0]}", counter[0])
+                counter[0] += 1
+            run_async(_upsert())
+            
+        benchmark(upsert_op)
+
+    def test_async_v2_dlq_ops(self, benchmark, async_v2_dbs):
+        """非同期 get_dlq() のオーバーヘッド"""
+        db = async_v2_dbs["manual"]
+        
+        def dlq_op():
+            async def _dlq():
+                return await db.aget_dlq()
+            return run_async(_dlq())
+            
+        benchmark(dlq_op)
+
+
+# ==================== Async Backup & Restore Benchmarks ====================
+
+
+@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
+class TestAsyncBackupRestoreBenchmarks:
+    """非同期バックアップとリストアのベンチマーク"""
+
+    def test_async_backup_1000(self, benchmark, db_path, tmp_path):
+        """非同期バックアップ (1000件)"""
+        from nanasqlite import AsyncNanaSQLite
+        
+        backup_path = str(tmp_path / "async_backup.db")
+        
+        async def setup():
+            async with AsyncNanaSQLite(db_path) as db:
+                await db.abatch_update({f"k_{i}": i for i in range(1000)})
+        run_async(setup())
+
+        def backup_op():
+            async def _backup():
+                async with AsyncNanaSQLite(db_path) as db:
+                    await db.abackup(backup_path)
+            run_async(_backup())
+            
+        benchmark(backup_op)
+
+    def test_async_restore_1000(self, benchmark, db_path, tmp_path):
+        """非同期リストア (1000件)"""
+        from nanasqlite import AsyncNanaSQLite
+        
+        source_path = str(tmp_path / "async_restore_src.db")
+        
+        async def setup():
+            async with AsyncNanaSQLite(source_path) as db:
+                await db.abatch_update({f"k_{i}": i for i in range(1000)})
+        run_async(setup())
+
+        def restore_op():
+            async def _restore():
+                async with AsyncNanaSQLite(db_path) as db:
+                    await db.arestore(source_path)
+            run_async(_restore())
+            
+        benchmark(restore_op)
+
+
+# ==================== Async Extended Utility Benchmarks ====================
+
+
+@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
+class TestAsyncExtendedBenchmarks:
+    """非同期スキーマ操作やユーティリティの追加ベンチマーク"""
+
+    def test_async_pragma_read(self, benchmark, db_path):
+        """非同期 PRAGMA 取得"""
+        from nanasqlite import AsyncNanaSQLite
+        
+        def pragma_op():
+            async def _pragma():
+                async with AsyncNanaSQLite(db_path) as db:
+                    return await db.apragma("journal_mode")
+            return run_async(_pragma())
+            
+        benchmark(pragma_op)
+
+    def test_async_get_table_schema(self, benchmark, db_path):
+        """非同期 get_table_schema 取得"""
+        from nanasqlite import AsyncNanaSQLite
+        
+        def schema_op():
+            async def _schema():
+                async with AsyncNanaSQLite(db_path) as db:
+                    return await db.aget_table_schema()
+            return run_async(_schema())
+            
+        benchmark(schema_op)
+
+    def test_async_alter_table_add_column(self, benchmark, db_path):
+        """非同期 alter_table_add_column 実行"""
+        from nanasqlite import AsyncNanaSQLite
+        counter = [0]
+        
+        def alter_op():
+            async def _alter():
+                async with AsyncNanaSQLite(db_path) as db:
+                    await db.aalter_table_add_column("data", f"new_async_col_{counter[0]}", "TEXT")
+                    counter[0] += 1
+            run_async(_alter())
+            
+        benchmark(alter_op)
+

@@ -1193,3 +1193,129 @@ class TestV2ArchitectureBenchmarks:
             counter[0] += 1
 
         benchmark(sql_insert_op)
+
+    def test_v2_upsert(self, benchmark, v2_dbs):
+        """v2モード (count) での upsert() パフォーマンス"""
+        db = v2_dbs["count"]
+        counter = [0]
+
+        def upsert_op():
+            db.upsert(f"u_{counter[0]}", {"v": counter[0]})
+            counter[0] += 1
+
+        benchmark(upsert_op)
+
+    def test_v2_dlq_operations(self, benchmark, v2_dbs):
+        """v2モードでの get_dlq() のオーバーヘッド"""
+        db = v2_dbs["manual"]
+        
+        def dlq_op():
+            return db.get_dlq()
+            
+        benchmark(dlq_op)
+
+
+# ==================== Backup & Restore Benchmarks ====================
+
+
+@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
+class TestBackupRestoreBenchmarks:
+    """バックアップとリストアのベンチマーク"""
+
+    def test_backup_1000(self, benchmark, db_path, tmp_path):
+        """1000件のデータがあるDBのバックアップ"""
+        from nanasqlite import NanaSQLite
+        
+        backup_path = str(tmp_path / "backup_target.db")
+        with NanaSQLite(db_path) as db:
+            # Prepare 1000 items
+            db.batch_update({f"k_{i}": i for i in range(1000)})
+            
+            def backup_op():
+                db.backup(backup_path)
+                
+            benchmark(backup_op)
+
+    def test_restore_1000(self, benchmark, db_path, tmp_path):
+        """1000件のデータがあるDBのリストア"""
+        from nanasqlite import NanaSQLite
+        
+        backup_path = str(tmp_path / "restore_source.db")
+        # Setup source
+        with NanaSQLite(backup_path) as db:
+            db.batch_update({f"k_{i}": i for i in range(1000)})
+            
+        with NanaSQLite(db_path) as db:
+            def restore_op():
+                db.restore(backup_path)
+                
+            benchmark(restore_op)
+
+
+# ==================== Extended Schema & Utility Benchmarks ====================
+
+
+@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
+class TestExtendedBenchmarks:
+    """スキーマ操作やユーティリティの追加ベンチマーク"""
+
+    def test_pragma_read(self, benchmark, db_path):
+        """PRAGMA取得 (journal_mode)"""
+        from nanasqlite import NanaSQLite
+        with NanaSQLite(db_path) as db:
+            benchmark(lambda: db.pragma("journal_mode"))
+
+    def test_pragma_write(self, benchmark, db_path):
+        """PRAGMA設定 (synchronous)"""
+        # 注意: PRAGMA設定はDB設定を変えるため計測に副作用がある可能性があるが、APIコストとして測る
+        from nanasqlite import NanaSQLite
+        with NanaSQLite(db_path) as db:
+            def pragma_op():
+                db.pragma("synchronous", "NORMAL")
+            benchmark(pragma_op)
+
+    def test_get_table_schema(self, benchmark, db_path):
+        """get_table_schema() 取得"""
+        from nanasqlite import NanaSQLite
+        with NanaSQLite(db_path) as db:
+            benchmark(lambda: db.get_table_schema())
+
+    def test_list_indexes(self, benchmark, db_path):
+        """list_indexes() 取得"""
+        from nanasqlite import NanaSQLite
+        with NanaSQLite(db_path) as db:
+            db.create_index("idx_bench", "data", ["key"])
+            benchmark(lambda: db.list_indexes())
+
+    def test_alter_table_add_column(self, benchmark, db_path):
+        """alter_table_add_column() の実行"""
+        from nanasqlite import NanaSQLite
+        counter = [0]
+        with NanaSQLite(db_path) as db:
+            def alter_op():
+                db.alter_table_add_column("data", f"new_col_{counter[0]}", "TEXT")
+                counter[0] += 1
+            benchmark(alter_op)
+
+    def test_import_from_dict_list(self, benchmark, db_path):
+        """import_from_dict_list() の実行 (100件)"""
+        from nanasqlite import NanaSQLite
+        data = [{"id": i, "name": f"User{i}"} for i in range(100)]
+        counter = [0]
+        with NanaSQLite(db_path) as db:
+            db.create_table("import_test", {"id": "INTEGER", "name": "TEXT"})
+            def import_op():
+                db.import_from_dict_list("import_test", data)
+                counter[0] += 1
+            benchmark(import_op)
+
+    def test_batch_update_partial_100(self, benchmark, db_path):
+        """batch_update_partial() (100件、すべて成功ケース)"""
+        from nanasqlite import NanaSQLite
+        data = {f"pk_{i}": i for i in range(100)}
+        counter = [0]
+        with NanaSQLite(db_path) as db:
+            def partial_op():
+                db.batch_update_partial({f"k_{counter[0]}_{k}": v for k, v in data.items()})
+                counter[0] += 1
+            benchmark(partial_op)

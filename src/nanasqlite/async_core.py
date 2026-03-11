@@ -1409,6 +1409,119 @@ class AsyncNanaSQLite:
     aexecute_many = execute_many
     afetch_one = fetch_one
     afetch_all = fetch_all
+    afetch_all = fetch_all
+
+    async def abackup(self, target_path: str) -> None:
+        """
+        非同期でデータベースを指定のパスにバックアップします。
+
+        Args:
+            target_path: バックアップ先のファイルパス
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(self._executor, self._db.backup, target_path)
+
+    async def arestore(self, source_path: str) -> None:
+        """
+        非同期で指定のパスからデータベースをリストアします。
+
+        Args:
+            source_path: リストア元のファイルパス
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(self._executor, self._db.restore, source_path)
+
+    async def apragma(self, pragma_name: str, value: Any = None) -> Any:
+        """
+        非同期で PRAGMA を実行します。
+
+        Args:
+            pragma_name: PRAGMA名
+            value: 設定する値（Noneの場合は取得）
+
+        Returns:
+            PRAGMAの結果
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self._db.pragma, pragma_name, value)
+
+    async def aget_table_schema(self, table_name: str = None) -> list[dict]:
+        """
+        非同期でテーブルのスキーマ情報を取得します。
+
+        Args:
+            table_name: 対象のテーブル名（Noneの場合は自身のテーブル）
+
+        Returns:
+            スキーマ情報のリスト
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self._db.get_table_schema, table_name)
+
+    async def alist_indexes(self, table_name: str = None) -> list[str]:
+        """
+        非同期でテーブルのインデックス一覧を取得します。
+
+        Args:
+            table_name: 対象のテーブル名（Noneの場合は自身のテーブル）
+
+        Returns:
+            インデックス名のリスト
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self._db.list_indexes, table_name)
+
+    async def aalter_table_add_column(
+        self, table_name: str, column_name: str, column_type: str
+    ) -> None:
+        """
+        非同期でテーブルにカラムを追加します。
+
+        Args:
+            table_name: テーブル名
+            column_name: カラム名
+            column_type: カラムの型定義
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            self._executor, self._db.alter_table_add_column, table_name, column_name, column_type
+        )
+
+    async def aupsert(self, key: str, value: Any) -> None:
+        """
+        非同期でキーに値を設定します (aset のエイリアス)。
+
+        Args:
+            key: 設定するキー
+            value: 設定する値
+        """
+        await self.aset(key, value)
+
+    async def aget_dlq(self) -> list[dict[str, Any]]:
+        """
+        [v2 Feature] 非同期でデッドレターキュー (DLQ) の内容を取得します。
+
+        Returns:
+            list[dict]: エラー内容、アイテム、タイムスタンプを含む辞書のリスト
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self._db.get_dlq)
+
+    async def aretry_dlq(self) -> None:
+        """
+        [v2 Feature] 非同期でデッドレターキュー (DLQ) アイテムをリトライキューに戻します。
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(self._executor, self._db.retry_dlq)
+
     acreate_table = create_table
     acreate_index = create_index
     aquery = query

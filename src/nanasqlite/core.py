@@ -2632,6 +2632,40 @@ class NanaSQLite(MutableMapping):
         self.execute_many(sql, parameters_list)
         return len(data_list)
 
+    def upsert(self, key: str, value: Any) -> None:
+        """
+        キーに対して値を設定する (__setitem__ のエイリアス)。
+        v2モードが有効な場合はバックグラウンドキューに送られ、無効な場合は即座にDBに書き込まれます。
+
+        Args:
+            key: 設定するキー
+            value: 設定する値
+
+        Example:
+            >>> db.upsert("user:1", {"name": "Nana"})
+        """
+        self[key] = value
+
+    def get_dlq(self) -> list[dict[str, Any]]:
+        """
+        [v2 Feature] デッドレターキュー (DLQ) の内容を取得します。
+        v2モードが無効な場合は空リストを返します。
+
+        Returns:
+            list[dict]: エラー内容、アイテム、タイムスタンプを含む辞書のリスト
+        """
+        if self._v2_mode and self._v2_engine:
+            return self._v2_engine.get_dlq()
+        return []
+
+    def retry_dlq(self) -> None:
+        """
+        [v2 Feature] デッドレターキュー (DLQ) にあるアイテムをリトライキューに戻します。
+        v2モードが無効な場合は何もしません。
+        """
+        if self._v2_mode and self._v2_engine:
+            self._v2_engine.retry_dlq()
+
     def get_last_insert_rowid(self) -> int:
         """
         最後に挿入されたROWIDを取得
