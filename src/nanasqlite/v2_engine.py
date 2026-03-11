@@ -91,6 +91,7 @@ class V2Engine:
         # Stores keys that poisoned the batch, or StrictTasks that failed.
         # Structure: [(error_msg, object, timestamp), ...]
         self.dlq: list[tuple[str, Any, float]] = []
+        self._dlq_lock = threading.Lock()
 
         # Threading/Worker state
         self._worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="NanaSQLite-v2Engine")
@@ -124,7 +125,8 @@ class V2Engine:
 
     def _add_to_dlq(self, error_msg: str, item: Any) -> None:
         """Adds a failed item to the Dead Letter Queue."""
-        self.dlq.append((error_msg, item, time.time()))
+        with self._dlq_lock:
+            self.dlq.append((error_msg, item, time.time()))
         logger.error("NanaSQLite DLQ Entry: %s", error_msg)
 
     # ==================== KVS Lane (Lane 1) Public API ====================
@@ -334,6 +336,38 @@ class V2Engine:
                 cursor.execute("ROLLBACK;")
                 self._add_to_dlq(f"KVS Poison Pill row '{key}' failed: {e}", (key, op))
                 # Row is skipped, system continues processing
+
+    def get_dlq(self) -> list[dict[str, Any]]:
+        """Return a copy of the Dead Letter Queue for inspection."""
+        with self._dlq_lock:
+            return [
+                {"error": err, "item": item, "timestamp": ts}
+                for err, item, ts in self.dlq
+            ]
+
+    def retry_dlq(self) -> None:
+        """
+        Move all items from DLQ back to their respective lanes for retry.
+        Note: KVS items are moved back to the staging buffer, 
+        and StrictTasks are re-enqueued.
+        """
+        with self._dlq_lock:
+            items = list(self.dlq)
+            self.dlq.clear()
+
+        for _, item, _ in items:
+            if isinstance(item, StrictTask):
+                self._strict_queue.put(item)
+            elif isinstance(item, tuple) and len(item) == 2 and isinstance(item[1], dict) and "action" in item[1]:
+                # It's a KVS row (key, op)
+                key, op = item
+                with self._staging_lock:
+                    self._staging_buffer[key] = op
+                    self._staging_changes += 1
+            else:
+                logger.warning("NanaSQLite v2 Engine: Unknown item type in DLQ, cannot retry: %s", item)
+
+        self._check_auto_flush()
 
     def shutdown(self) -> None:
         """Gracefully shutdown the engine, forcing a synchronous final flush."""
