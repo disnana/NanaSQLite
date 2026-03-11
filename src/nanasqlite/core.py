@@ -2132,12 +2132,12 @@ class NanaSQLite(MutableMapping):
             sql += f" DEFAULT {default}"
         self.execute(sql)
 
-    def get_table_schema(self, table_name: str) -> list[dict]:
+    def get_table_schema(self, table_name: str = None) -> list[dict]:
         """
         テーブル構造を取得
 
         Args:
-            table_name: テーブル名
+            table_name: テーブル名 (Noneの場合は自身のテーブル)
 
         Returns:
             カラム情報のリスト（各カラムはdict）
@@ -2147,7 +2147,8 @@ class NanaSQLite(MutableMapping):
             >>> for col in schema:
             ...     print(f"{col['name']}: {col['type']}")
         """
-        safe_table_name = self._sanitize_identifier(table_name)
+        target = table_name if table_name is not None else self._table
+        safe_table_name = self._sanitize_identifier(target)
         cursor = self.execute(f"PRAGMA table_info({safe_table_name})")
         columns = []
         for row in cursor:
