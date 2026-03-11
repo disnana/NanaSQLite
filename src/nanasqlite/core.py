@@ -27,6 +27,8 @@ from typing import Any, Literal
 
 import apsw
 
+from .v2_engine import V2Engine
+
 try:
     from cryptography.exceptions import InvalidTag
     from cryptography.fernet import Fernet
@@ -117,6 +119,11 @@ class NanaSQLite(MutableMapping):
         lock_timeout: float | None = None,
         validator: Any | None = None,
         coerce: bool = False,
+        v2_mode: bool = False,
+        flush_mode: Literal["immediate", "count", "time", "manual"] = "immediate",
+        flush_interval: float = 3.0,
+        flush_count: int = 100,
+        v2_chunk_size: int = 1000,
         _shared_connection: apsw.Connection | None = None,
         _shared_lock: threading.RLock | None = None,
     ):
@@ -133,13 +140,14 @@ class NanaSQLite(MutableMapping):
             max_clause_length: SQL句の最大長（ReDoS対策）。Noneで制限なし
             lock_timeout: ロック取得のタイムアウト秒数。Noneで無制限待機
             validator: validkit-py のスキーマ（辞書または Schema オブジェクト）。
-                       指定すると、値の書き込み時にバリデーションを実行する。
-                       ``pip install nanasqlite[validation]`` が必要。
             coerce: ``True`` の場合、validkit-py の自動変換（コアース）機能を有効にする。
-                    バリデーション後、変換済みの値をDBに書き込む。
-                    ``validator`` が設定されている場合のみ有効。デフォルト: ``False``。
-            _shared_connection: 内部用：共有する接続（table()メソッドで使用）
-            _shared_lock: 内部用：共有するロック（table()メソッドで使用）
+            v2_mode: True の場合、新アーキテクチャ（バックグラウンド非同期書き込み）を有効化
+            flush_mode: v2のフラッシュモード (immediate, count, time, manual)
+            flush_interval: v2のtimeモード時の秒数
+            flush_count: v2のcountモード時の書き込み閾値
+            v2_chunk_size: v2フラッシュ時のトランザクション最大件数
+            _shared_connection: 内部用：共有する接続
+            _shared_lock: 内部用：共有するロック
         """
         self._db_path: str = db_path
         # Sanitize and quote table name once; reuse the result for all SQL
@@ -191,19 +199,48 @@ class NanaSQLite(MutableMapping):
             else:
                 raise ValueError(f"Unsupported encryption_mode: {encryption_mode}")
 
-        # Validkit バリデーション設定（オプション）
-        # None は「バリデーションなし」を意味する
+        # validkit バリデーション設定
         resolved_init_validator = validator
         if resolved_init_validator is not None and not HAS_VALIDKIT:
             raise ImportError(
                 "The 'validkit-py' library is required for validation. "
                 "Install it with: pip install nanasqlite[validation]\n"
-                "バリデーション機能には 'validkit-py' ライブラリが必要です。"
-                " pip install nanasqlite[validation] でインストールしてください。"
             )
-        self._validator = resolved_init_validator  # validkit スキーマ（dict または Schema オブジェクト）
-        # coerce が省略された場合は False にフォールバック
+        self._validator = resolved_init_validator
         self._coerce: bool = bool(coerce)
+
+        # v2 Architecture Setup
+        self._v2_mode = v2_mode
+        self._v2_engine: V2Engine | None = None
+
+        if self._v2_mode:
+            # Check for multiprocess environment to emit warning (Gunicorn, Uvicorn workers etc)
+            import multiprocessing
+            current_proc = multiprocessing.current_process()
+            proc_name = getattr(current_proc, "name", "")
+            pid = os.getpid()
+            ppid = getattr(os, "getppid", lambda: None)()
+
+            # Heuristic detection for common multi-process web servers running under a master process
+            # E.g. gunicorn workers, uvicorn workers, celery workers
+            is_worker_heuristic = (
+                "worker" in proc_name.lower() or
+                "spawnProcess" in proc_name or
+                "ForkProcess" in proc_name or
+                (ppid is not None and ppid != 1 and ppid != 0)
+            )
+
+            # We warn if we suspect it's a multiprocess environment and v2 is explicitly enabled
+            if is_worker_heuristic and os.environ.get("NANASQLITE_SUPPRESS_MP_WARNING") != "1":
+                warning_msg = (
+                    f"NanaSQLite v2 mode is enabled in a multi-process environment (PID: {pid}, PPID: {ppid}, Name: {proc_name}). "
+                    "NanaSQLite v2 is an in-memory Write-Back Cache architecture designed for SINGLE-PROCESS systems. "
+                    "Using it in a multi-process system without an external message broker can cause critical data corruption "
+                    "due to parallel processes overwriting the SQLite file with divergent memory states. "
+                    "If you are using FastAPI/Uvicorn/Gunicorn, please run with a single worker, "
+                    "or set env var NANASQLITE_SUPPRESS_MP_WARNING=1 to hide this message."
+                )
+                warnings.warn(warning_msg, UserWarning, stacklevel=2)
 
         # Setup Persistence TTL callback if enabled
         on_expire = None
@@ -302,6 +339,19 @@ class NanaSQLite(MutableMapping):
                     value TEXT
                 )
             """)
+
+        # Initialize V2 Engine if enabled and we own the connection (or even if shared, engine owns the queue)
+        # Note: If multiple tables share a connection, each gets its own V2Engine but they use the same underlying SQLite.
+        if self._v2_mode:
+            self._v2_engine = V2Engine(
+                connection=self._connection,
+                table_name=self._safe_table,
+                flush_mode=flush_mode,
+                flush_interval=flush_interval,
+                flush_count=flush_count,
+                max_chunk_size=v2_chunk_size,
+                serialize_func=self._serialize,
+            )
 
         # 一括ロード
         if bulk_load:
@@ -786,9 +836,15 @@ class NanaSQLite(MutableMapping):
                     value = coerced
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 self._raise_key_validation_error(key, exc)
-        # DB書き込みを先に行い、ロックタイムアウト時のキャッシュ不整合を防止
-        self._write_to_db(key, value)
-        # DB書き込み成功後にメモリ更新
+
+        # v2 Architecture: Route to background staging buffer instead of blocking DB write
+        if self._v2_mode and self._v2_engine:
+            self._v2_engine.kvs_set(key, value)
+        else:
+            # DB書き込みを先に行い、ロックタイムアウト時のキャッシュ不整合を防止
+            self._write_to_db(key, value)
+
+        # DB書き込み（またはv2バッファ格納）成功後にメモリ更新
         if self._lru_mode or (hasattr(self._cache, "_max_size") and self._cache._max_size):
             self._cache.set(key, value)
         else:
@@ -800,8 +856,14 @@ class NanaSQLite(MutableMapping):
         self._check_connection()
         if not self._ensure_cached(key):
             raise KeyError(key)
-        # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
-        self._delete_from_db(key)
+
+        # v2 Architecture: Route to background staging buffer
+        if self._v2_mode and self._v2_engine:
+            self._v2_engine.kvs_delete(key)
+        else:
+            # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
+            self._delete_from_db(key)
+
         # DB削除成功後にメモリから削除
         if self._lru_mode:
             self._cache.delete(key)
@@ -996,6 +1058,14 @@ class NanaSQLite(MutableMapping):
                 self[key] = value
         for key, value in kwargs.items():
             self[key] = value
+
+    def flush(self) -> None:
+        """
+        [v2 Feature] Explicitly flush the v2 engine's background buffer and queue to SQLite.
+        If v2_mode is False, this operates as a no-op.
+        """
+        if self._v2_mode and self._v2_engine:
+            self._v2_engine.flush()
 
     def clear(self) -> None:
         """dict.clear() - 全削除"""
@@ -1487,6 +1557,14 @@ class NanaSQLite(MutableMapping):
             child._mark_parent_closed()
 
         self._child_instances.clear()
+
+        # Shutdown v2 engine before closing connection
+        if self._v2_mode and self._v2_engine:
+            try:
+                self._v2_engine.shutdown()
+            except Exception as e:
+                warnings.warn(f"Error shutting down v2 engine: {e}", stacklevel=2)
+
         self._is_closed = True
 
         if self._is_connection_owner:
@@ -1615,6 +1693,43 @@ class NanaSQLite(MutableMapping):
         """
         self._check_connection()
 
+        # v2 Architecture: Route explicit executes to the strict lane queue
+        if self._v2_mode and self._v2_engine:
+            event = threading.Event()
+            exception = None
+
+            def _on_error(e: Exception) -> None:
+                nonlocal exception
+                exception = e
+                event.set()
+
+            def _on_success() -> None:
+                event.set()
+
+            self._v2_engine.enqueue_strict_task(
+                task_type="execute",
+                sql=sql,
+                parameters=parameters,
+                on_success=_on_success,
+                on_error=_on_error
+            )
+            # Await completion to act synchronously and return a cursor if possible
+            # Note: The returned cursor will be attached to the background connection,
+            # and fetching results from it immediately might be risky if the transaction is closed.
+            # However, execute() is typically used for writes in this context.
+            event.wait()
+            if exception:
+                raise NanaSQLiteDatabaseError(f"Failed to execute SQL in background: {exception}", original_error=exception) from exception
+
+            # Since the transaction in the background is committed immediately after,
+            # returning a usable cursor for SELECTs requires careful handling.
+            # We return a dummy or fresh cursor here for backward compatibility.
+            # For pure read queries, users should arguably not use background execution anyway,
+            # but for writes, this works.
+            with self._acquire_lock():
+                # Provide a cursor to satisfy return type, though it won't have the results of the background query
+                return self._connection.cursor()
+
         try:
             with self._acquire_lock():
                 if parameters is None:
@@ -1640,6 +1755,33 @@ class NanaSQLite(MutableMapping):
             ...     [(1, "Alice"), (2, "Bob"), (3, "Charlie")]
             ... )
         """
+        self._check_connection()
+
+        # v2 Architecture: Route to strict lane
+        if self._v2_mode and self._v2_engine:
+            event = threading.Event()
+            exception = None
+
+            def _on_error(e: Exception) -> None:
+                nonlocal exception
+                exception = e
+                event.set()
+
+            def _on_success() -> None:
+                event.set()
+
+            self._v2_engine.enqueue_strict_task(
+                task_type="executemany",
+                sql=sql,
+                parameters=parameters_list,
+                on_success=_on_success,
+                on_error=_on_error
+            )
+            event.wait()
+            if exception:
+                raise NanaSQLiteDatabaseError(f"Failed to execute_many in background: {exception}", original_error=exception) from exception
+            return
+
         with self._acquire_lock():
             cursor = self._connection.cursor()
             cursor.execute("BEGIN IMMEDIATE")

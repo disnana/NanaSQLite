@@ -90,6 +90,21 @@ with NanaSQLite("mydata.db") as db:
 - [Benchmark Trends 📊](https://nanasqlite.disnana.com/dev/bench/)
 - [Migration Guide (v1.1.x to v1.2.0)](MIGRATION_GUIDE.md)
 
+### ✨ v1.4.x New Features (v2 Architecture)
+
+**v2 Architecture: Non-blocking Background Persistance**
+Introduced an optional "Write-Back Cache" architecture where all KVS writes are instantly available in memory but saved to SQLite asynchronously in the background. Read latency remains exactly zero.
+
+```python
+# Enable v2 mode with automatic background flushing
+db = NanaSQLite("high_load.db", v2_mode=True, flush_mode="time", flush_interval=1.0)
+
+# The main thread is NEVER blocked by disk I/O!
+db["heavy_key"] = validate_and_compute_data()
+```
+
+> ⚠️ **WARNING**: v2 mode is built for SINGLE-PROCESS systems. Do not use it with multi-worker setups (e.g., Gunicorn with multiple workers) as parallel background threads will corrupt the SQLite file.
+
 ### ✨ v1.3.x New Features
 
 - **Advanced Cache Strategies**: LRU and TTL support. [Learn more](https://nanasqlite.disnana.com/en/guide#lesson-10-cache-strategies)
@@ -272,6 +287,21 @@ with NanaSQLite("mydata.db") as db:
 - [APIリファレンス (非同期)](https://nanasqlite.disnana.com/api_async)
 - [ベンチマーク履歴 📊](https://nanasqlite.disnana.com/dev/bench/)
 - [移行ガイド (v1.1.x から v1.2.0)](MIGRATION_GUIDE.md)
+
+### ✨ v1.4.x 新機能 (v2 アーキテクチャ)
+
+**v2 アーキテクチャ: ノンブロッキング・バックグラウンド永続化**
+KVSの書き込みをすべて「Write-Back Cache（メモリ優先更新）」として処理し、SQLiteへの保存をバックグラウンドスレッドで非同期に行うオプションアーキテクチャを導入しました。読み込みレイテンシも引き続きゼロコストです。
+
+```python
+# v2モードを有効化（1秒ごとのバックグラウンドフラッシュ）
+db = NanaSQLite("high_load.db", v2_mode=True, flush_mode="time", flush_interval=1.0)
+
+# どんなに重いI/Oが発生しても、メインスレッドは一切ブロックされません！
+db["heavy_key"] = validate_and_compute_data()
+```
+
+> ⚠️ **警告**: v2モードは「単一プロセス」システム専用に設計されています。Gunicornの複数ワーカー構成などでv2モードを使用すると、複数のバックグラウンドスレッドが同時にSQLiteファイルを上書きし、致命的なデータ破損を引き起こします。
 
 ### ✨ v1.3.x 新機能
 

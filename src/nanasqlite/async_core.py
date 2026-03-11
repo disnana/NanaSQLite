@@ -103,6 +103,11 @@ class AsyncNanaSQLite:
         encryption_mode: Literal["aes-gcm", "chacha20", "fernet"] = "aes-gcm",
         validator: Any | None = None,
         coerce: bool = False,
+        v2_mode: bool = False,
+        flush_mode: Literal["immediate", "count", "time", "manual"] = "immediate",
+        flush_interval: float = 3.0,
+        flush_count: int = 100,
+        v2_chunk_size: int = 1000,
     ):
         """
         Args:
@@ -124,6 +129,11 @@ class AsyncNanaSQLite:
                        ``pip install nanasqlite[validation]`` が必要。
             coerce: ``True`` の場合、validkit-py の自動変換機能を有効にする。
                     バリデーション後、変換済みの値をDBに書き込む。デフォルト: ``False``。
+            v2_mode: True の場合、新アーキテクチャ（バックグラウンド非同期書き込み）を有効化
+            flush_mode: v2のフラッシュモード (immediate, count, time, manual)
+            flush_interval: v2のtimeモード時の秒数
+            flush_count: v2のcountモード時の書き込み閾値
+            v2_chunk_size: v2フラッシュ時のトランザクション最大件数
         """
         self._db_path = db_path
         self._table = table
@@ -149,10 +159,16 @@ class AsyncNanaSQLite:
             raise ImportError(
                 "The 'validkit-py' library is required for validation. "
                 "Install it with: pip install nanasqlite[validation]\n"
-                "バリデーション機能には 'validkit-py' ライブラリが必要です。"
-                " pip install nanasqlite[validation] でインストールしてください。"
             )
         self._coerce: bool = bool(coerce)
+
+        # v2 Architecture Setup
+        self._v2_mode = v2_mode
+        self._flush_mode = flush_mode
+        self._flush_interval = flush_interval
+        self._flush_count = flush_count
+        self._v2_chunk_size = v2_chunk_size
+
         self._closed = False
         self._child_instances = weakref.WeakSet()  # WeakSetによる弱参照追跡（死んだ参照は自動的にクリーンアップ）
         self._is_connection_owner = True
@@ -194,6 +210,11 @@ class AsyncNanaSQLite:
                     encryption_mode=self._encryption_mode,
                     validator=self._validator,
                     coerce=self._coerce,
+                    v2_mode=self._v2_mode,
+                    flush_mode=self._flush_mode,
+                    flush_interval=self._flush_interval,
+                    flush_count=self._flush_count,
+                    v2_chunk_size=self._v2_chunk_size,
                 ),
             )
 
@@ -315,6 +336,7 @@ class AsyncNanaSQLite:
             ...     print("User exists")
         """
         await self._ensure_initialized()
+        assert self._db is not None
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self._db.__contains__, key)
 
@@ -413,6 +435,18 @@ class AsyncNanaSQLite:
             self._db.update(mapping, **kwargs)
 
         await loop.run_in_executor(self._executor, update_wrapper)
+
+    async def aflush(self) -> None:
+        """
+        [v2 Feature] 非同期でv2エンジンのバックグラウンドバッファとキューをSQLiteに明示的にフラッシュする。
+        v2_modeがFalseの場合は何もしない。
+
+        Example:
+            >>> await db.aflush()
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(self._executor, self._db.flush)
 
     async def aclear(self) -> None:
         """
