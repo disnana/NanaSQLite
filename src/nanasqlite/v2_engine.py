@@ -67,7 +67,7 @@ class V2Engine:
         self._table_name = table_name
 
         # Serialization function injected from core.py
-        self._serialize = serialize_func if serialize_func else lambda v: str(v)
+        self._serialize = serialize_func if serialize_func else str
 
         # Flush Settings
         if flush_mode not in ("immediate", "count", "time", "manual"):
