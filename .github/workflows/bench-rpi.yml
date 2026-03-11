@@ -1,0 +1,227 @@
+name: NanaSQLite Benchmarks (Self-Hosted RPI)
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  deployments: write
+
+jobs:
+  should-run:
+    name: Check if Benchmark needed
+    runs-on: ubuntu-latest
+    outputs:
+      run_benchmark: ${{ steps.check.outputs.run_benchmark }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check changed files
+        id: check
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "run_benchmark=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            echo "run_benchmark=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE_SHA="${{ github.event.before }}"
+          fi
+          CHANGED_FILES=$(git diff --name-only $BASE_SHA ${{ github.sha }} 2>/dev/null || echo "")
+          if echo "$CHANGED_FILES" | grep -qE '^src/'; then
+            echo "run_benchmark=true" >> $GITHUB_OUTPUT
+          else
+            echo "run_benchmark=false" >> $GITHUB_OUTPUT
+          fi
+
+  # ============================================
+  # Pre-Build: ネットありの状態でイメージを構築
+  # ============================================
+  build:
+    needs: should-run
+    if: needs.should-run.outputs.run_benchmark == 'true'
+    runs-on: [self-hosted, rpi]
+    outputs:
+      image_tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set image tag
+        id: tag
+        run: echo "tag=sqlite-bench:${{ github.sha }}" >> $GITHUB_OUTPUT
+
+      - name: Build benchmark image (network available)
+        run: docker build -t ${{ steps.tag.outputs.tag }} .
+
+  # ============================================
+  # Sync Benchmark - ネット完全遮断で実行
+  # ============================================
+  benchmark:
+    needs: [should-run, build]
+    if: needs.should-run.outputs.run_benchmark == 'true'
+    runs-on: [self-hosted, rpi]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run sync benchmarks (no network)
+        run: |
+          mkdir -p output
+          docker run --rm --network none \
+            -v ${{ github.workspace }}/output:/output \
+            ${{ needs.build.outputs.image_tag }} \
+            pytest tests/test_benchmark.py -v --benchmark-only \
+              --benchmark-json=/output/benchmark.json || true
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-results-rpi-py3.12
+          path: output/benchmark.json
+          retention-days: 7
+
+  # ============================================
+  # Async Benchmark - ネット完全遮断で実行
+  # ============================================
+  async-benchmark:
+    needs: [should-run, build]
+    if: needs.should-run.outputs.run_benchmark == 'true'
+    runs-on: [self-hosted, rpi]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run async benchmarks (no network)
+        run: |
+          mkdir -p output
+          docker run --rm --network none \
+            -v ${{ github.workspace }}/output:/output \
+            ${{ needs.build.outputs.image_tag }} \
+            pytest tests/test_async_benchmark.py -v --benchmark-only \
+              --benchmark-json=/output/async-benchmark.json || true
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: async-benchmark-results-rpi-py3.12
+          path: output/async-benchmark.json
+          retention-days: 7
+
+  # ============================================
+  # Cleanup - ビルドしたイメージを削除
+  # ============================================
+  cleanup:
+    needs: [benchmark, async-benchmark]
+    if: always()
+    runs-on: [self-hosted, rpi]
+    steps:
+      - name: Remove benchmark image
+        run: docker rmi ${{ needs.build.outputs.image_tag }} || true
+
+  # ============================================
+  # Summary - 元のワークフローと同じロジック
+  # ============================================
+  benchmark-summary:
+    needs: [should-run, benchmark, async-benchmark]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: always()
+
+    steps:
+      - name: Skip Summary (No src changes)
+        if: needs.should-run.outputs.run_benchmark != 'true'
+        run: |
+          echo "## 📊 Performance Benchmarks (RPI)" >> $GITHUB_STEP_SUMMARY
+          echo "⏭️ **Benchmarks skipped** - No changes in \`src/\` directory" >> $GITHUB_STEP_SUMMARY
+
+      - uses: actions/checkout@v6
+        if: needs.should-run.outputs.run_benchmark == 'true'
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch gh-pages branch for comparison
+        if: needs.should-run.outputs.run_benchmark == 'true'
+        run: git fetch origin gh-pages:gh-pages || echo "gh-pages not found"
+
+      - uses: actions/download-artifact@v8
+        if: needs.should-run.outputs.run_benchmark == 'true'
+        with:
+          pattern: benchmark-results-*
+          path: benchmark-results
+
+      - uses: actions/download-artifact@v8
+        if: needs.should-run.outputs.run_benchmark == 'true'
+        with:
+          pattern: async-benchmark-results-*
+          path: async-benchmark-results
+
+      - uses: actions/setup-python@v6
+        if: needs.should-run.outputs.run_benchmark == 'true'
+        with:
+          python-version: '3.11'
+
+      - name: Generate Combined Benchmark Summary
+        if: needs.should-run.outputs.run_benchmark == 'true'
+        run: |
+          echo "## 📊 Performance Benchmarks (RPI)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> ⚠️ **Note**: Self-hosted RPI runner results." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔄 Sync Benchmarks" >> $GITHUB_STEP_SUMMARY
+          python3 scripts/parse_benchmark.py benchmark-results sync >> $GITHUB_STEP_SUMMARY || true
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ⚡ Async Benchmarks" >> $GITHUB_STEP_SUMMARY
+          python3 scripts/parse_benchmark.py async-benchmark-results async >> $GITHUB_STEP_SUMMARY || true
+
+      - name: Merge all results for comparison
+        if: github.ref == 'refs/heads/main' && needs.should-run.outputs.run_benchmark == 'true'
+        run: |
+          python3 -c "
+          import json
+          from pathlib import Path
+          combined = {'benchmarks': []}
+          for p in Path('benchmark-results').rglob('benchmark.json'):
+              try:
+                  data = json.load(open(p))
+                  combined['benchmarks'].extend(data.get('benchmarks', []))
+                  if 'machine_info' not in combined and 'machine_info' in data:
+                      combined.update({k: data[k] for k in ['machine_info','commit_info','datetime'] if k in data})
+              except: pass
+          for p in Path('async-benchmark-results').rglob('async-benchmark.json'):
+              try:
+                  data = json.load(open(p))
+                  combined['benchmarks'].extend(data.get('benchmarks', []))
+              except: pass
+          json.dump(combined, open('combined-benchmark.json', 'w'))
+          print(f'Combined {len(combined[\"benchmarks\"])} benchmarks')
+          "
+
+      - name: Store and Compare Benchmark Result
+        if: github.ref == 'refs/heads/main' && needs.should-run.outputs.run_benchmark == 'true'
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: NanaSQLite Performance (RPI)
+          tool: 'pytest'
+          output-file-path: combined-benchmark.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          alert-threshold: '120%'
+          comment-on-alert: true
+          fail-on-alert: false
+          gh-pages-branch: 'gh-pages'
+          benchmark-data-dir-path: 'dev/bench-rpi'
