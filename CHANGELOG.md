@@ -6,6 +6,94 @@
 
 ## 日本語
 
+### [1.3.4] - 2026-03-10
+
+#### セキュリティ修正
+
+- **SEC-01 [High]**: `alter_table_add_column()` の `column_type` バリデーションをブラックリスト方式からホワイトリスト正規表現に変更。`TEXT; DROP TABLE` のようなインジェクションペイロードを確実にブロック。
+- **SEC-02 [High]**: `sanitize_sql_for_function_scan()` を修正し、ダブルクォート付き SQL 識別子の内容を保持するよう変更。`"LOAD_EXTENSION"()` のようなクォート付き関数名バイパスを `_validate_expression()` が正しく検出可能に。
+
+#### バグ修正
+
+- **BUG-01 [Critical]**: `items()` メソッドに `_check_connection()` チェックを追加。クローズ済みインスタンスで呼び出した際に APSW 低レベル例外ではなく `NanaSQLiteClosedError` が発生するよう修正。
+- **BUG-02 [High]**: AEAD 暗号化有効時に非 bytes 値を受け取った場合、サイレントに平文 JSON フォールバックするのではなく警告ログを出力するよう変更。
+- **BUG-03 [High]**: AEAD 復号前に nonce+認証タグを含む最小長の検証（≥28 バイト = nonce 12 + auth tag 16）を追加。短すぎるデータに対して明確な `NanaSQLiteDatabaseError` を送出。InvalidTag など低レベル例外も同エラーにラップ。
+- **BUG-04 [High]**: `AsyncNanaSQLite.acontains()` の冗長な二重 `_ensure_initialized()` 呼び出しを削除。
+- **BUG-05 [Medium]**: 非同期 `_shared_query_impl()` に `offset` パラメータの型・非負チェックを追加。
+- **BUG-06 [Medium]**: `async_core.py` の `parameters: tuple = None` を `tuple | None = None` に修正（mypy strict 対応）。
+- **BUG-07 [Medium]**: `ExpiringDict` スケジューラが 1 反復で期限切れキーをすべて処理するよう改善（従来は 1 キーずつ）。
+- **BUG-09 [Medium]**: `batch_get()` が値 `None` を明示的に格納したキーを結果に含めるよう修正。
+- **BUG-10 [Low]**: `_sanitize_identifier()` でコンパイル済み `IDENTIFIER_PATTERN` を再利用。
+- **BUG-12 [Low]**: `NanaSQLiteDatabaseError.__init__` の `original_error` 型アノテーションを `Exception | None` に修正。
+
+#### パフォーマンス改善
+
+- **PERF-03 [Medium]**: カラム名エイリアス抽出ロジックを `_extract_column_aliases()` ヘルパーに共通化（3 箇所の重複排除）。
+
+#### コード品質改善
+
+- **QUAL-01 [Medium]**: `_get_all_keys_from_db()` の戻り値型を `list[str]` に修正。
+- **QUAL-03 [Medium]**: `query()` と `query_with_pagination()` 間のカラム名クォート除去ロジックを統一。
+
+#### 監査・テスト
+
+- プレリリース監査レポート (`audit.md`) を追加 — 35 件の発見事項を文書化。
+- POC スクリプト 6 件を `etc/poc/` に追加。
+- POC 検証テスト 20 件を `tests/test_audit_poc.py` に追加。
+- `audit_prompt.md` を 6 フェーズ構成に改正（監査 → POC → パッチ → pytest → CI 検証 → リリース準備）。
+
+### [1.3.4rc4] - 2026-03-08
+
+#### CI 修正
+
+- **provenance ジョブの権限を最小権限に変更** (PR [#127](https://github.com/disnana/NanaSQLite/pull/127)):
+  - `provenance` ジョブの `contents: write` を `contents: read` に降格。`upload-assets` を使わないため `write` 権限は不要だった。
+  - 無効だった `upload-assets: true` を削除（タグトリガーのないワークフローでは常にスキップされていたデッドコード）。
+  - プロベナンスの GitHub Release への添付は `release` ジョブが引き続き担当。
+  - CI アノテーション（`go.sum not found` ワーニング・PyPI アテステーション通知）の原因をコメントで説明し、誤解を防止。
+  - `CHANGELOG.md` を main ブランチの最新版に同期。
+
+### [1.3.4rc3] - 2026-03-08
+
+#### CI 修正
+
+- **SLSA3 provenance リリースフローを復旧・安定化** (PR [#123](https://github.com/disnana/NanaSQLite/pull/123)):
+  - GitHub Actions の provenance 検証ジョブに `actions: read` / `contents: read` 権限を追加。
+  - `provenance-name` 出力から期待する provenance ファイル名を明示的に組み立て、存在確認に失敗した場合は早期終了するよう改善。
+  - GitHub Release へ添付する provenance アーティファクトをワイルドカードではなく生成済みファイル名で指定し、リリース時の取り違えを防止。
+
+### [1.3.4rc2] - 2026-03-08
+
+#### セキュリティ修正
+
+- **SQLインジェクション保護を実装** (PR [#121](https://github.com/disnana/NanaSQLite/pull/121), [#122](https://github.com/disnana/NanaSQLite/pull/122)):
+  - テーブル名を SQL クエリ内で直接展開していたため、細工されたテーブル名でインジェクションが可能でした。
+  - `self._safe_table` にサニタイズ済み（クォート済み）のテーブル名をキャッシュし、すべての SQL 実行箇所でこちらを使用するよう変更。
+  - `self._table` は従来どおり生の名前を保持し、`__repr__` や後方互換のために使用。
+  - SECURITY.md を更新し脆弱性の経緯と修正内容を記載。
+  - PoC スクリプト (`etc/poc/poc_sqli.py`, `etc/poc/poc_none.py`) を追加してリスクを文書化。
+
+#### バグ修正・コード品質改善
+
+- **`_NOT_FOUND` センチネルを `get_fresh()` および `__contains__` に適用** (PR [#121](https://github.com/disnana/NanaSQLite/pull/121)):
+  - `get_fresh()` が DB ミス時に `None` を返すため、実際に `None` を格納したキーと区別できなかった問題を修正。
+  - `_NOT_FOUND = object()` センチネルを使用し、DB ミスと格納値 `None` を正確に識別できるよう改善。
+  - `__contains__` を軽量な実装に戻し、不要な DB 読み込みを削減。
+
+#### CI 修正
+
+- **validkit-py の CI テストガードを修正** (PR [#119](https://github.com/disnana/NanaSQLite/pull/119)):
+  - CI で `validation` エクストラをインストールするよう修正し、validkit 関連テストが正しく実行されるようになった。
+
+#### ドキュメント
+
+- **validkit-py バリデーションガイドを追加** (PR [#117](https://github.com/disnana/NanaSQLite/pull/117)):
+  - 日英両方のドキュメントサイトに validkit-py の使い方・バリデーションガイドを追加。
+- **ガイドのレッスン順序を整理** (PR [#116](https://github.com/disnana/NanaSQLite/pull/116)):
+  - JA/EN サイトドキュメントのガイドレッスンを再整理・分類。
+- **ドキュメントの不整合・リンク切れ・誤記を修正** (PR [#115](https://github.com/disnana/NanaSQLite/pull/115)):
+  - 英語・日本語ドキュメント間の不整合、壊れたリンク、誤った記述、および欠落していた文書を修正。
+
 ### [1.3.4rc1] - 2026-03-07
 
 #### 新機能
@@ -639,6 +727,94 @@
 
 
 ## English
+
+### [1.3.4] - 2026-03-10
+
+#### Security Fixes
+
+- **SEC-01 [High]**: Switched `alter_table_add_column()` `column_type` validation from blacklist to whitelist regex. Reliably blocks injection payloads like `TEXT; DROP TABLE`.
+- **SEC-02 [High]**: Fixed `sanitize_sql_for_function_scan()` to preserve double-quoted SQL identifier content. `_validate_expression()` now correctly detects quoted function name bypasses like `"LOAD_EXTENSION"()`.
+
+#### Bug Fixes
+
+- **BUG-01 [Critical]**: Added `_check_connection()` check to `items()`. Calling on a closed instance now raises `NanaSQLiteClosedError` instead of leaking a low-level APSW exception.
+- **BUG-02 [High]**: AEAD deserialization now logs a warning instead of silently falling back to plaintext JSON when receiving non-bytes values.
+- **BUG-03 [High]**: Added payload length validation (≥28 bytes = 12-byte nonce + 16-byte auth tag) before AEAD decrypt. Short data now raises a clear `NanaSQLiteDatabaseError`. `InvalidTag` and other low-level crypto exceptions are also wrapped into `NanaSQLiteDatabaseError`.
+- **BUG-04 [High]**: Removed redundant double `_ensure_initialized()` call in `AsyncNanaSQLite.acontains()`.
+- **BUG-05 [Medium]**: Added `offset` type and non-negative validation in async `_shared_query_impl()`.
+- **BUG-06 [Medium]**: Fixed `parameters: tuple = None` → `tuple | None = None` type annotations in `async_core.py` (mypy strict compliance).
+- **BUG-07 [Medium]**: `ExpiringDict` scheduler now processes all expired keys per iteration instead of just one.
+- **BUG-09 [Medium]**: `batch_get()` now correctly includes keys with explicit `None` values in results.
+- **BUG-10 [Low]**: Reuse compiled `IDENTIFIER_PATTERN` in `_sanitize_identifier()`.
+- **BUG-12 [Low]**: Fixed `NanaSQLiteDatabaseError.__init__` `original_error` type annotation to `Exception | None`.
+
+#### Performance Improvements
+
+- **PERF-03 [Medium]**: Extracted `_extract_column_aliases()` helper, deduplicating column-alias extraction from 3 call sites.
+
+#### Code Quality
+
+- **QUAL-01 [Medium]**: Fixed `_get_all_keys_from_db()` return type to `list[str]`.
+- **QUAL-03 [Medium]**: Harmonized column-name quote stripping between `query()` and `query_with_pagination()`.
+
+#### Audit & Testing
+
+- Added pre-release audit report (`audit.md`) — 35 findings documented.
+- Added 6 POC scripts in `etc/poc/`.
+- Added 20 POC verification tests in `tests/test_audit_poc.py`.
+- Updated `audit_prompt.md` to 6-phase workflow (audit → POC → patch → pytest → CI verification → release preparation).
+
+### [1.3.4rc4] - 2026-03-08
+
+#### CI Fixes
+
+- **Least-privilege cleanup for the provenance job** (PR [#127](https://github.com/disnana/NanaSQLite/pull/127)):
+  - Downgraded `contents: write` to `contents: read` in the `provenance` job; write access was only needed for `upload-assets`, which was already removed.
+  - Removed the dead `upload-assets: true` option — this workflow has no tag-based trigger, so the SLSA generator would always skip it.
+  - Provenance is still attached to GitHub Releases by the `release` job as before.
+  - Added inline comments explaining the two expected CI annotations (`go.sum not found` warning and PyPI attestation notice) to prevent confusion.
+  - Synced `CHANGELOG.md` from the latest `main` branch.
+
+### [1.3.4rc3] - 2026-03-08
+
+#### CI Fixes
+
+- **Restored and hardened the SLSA3 provenance release flow** (PR [#123](https://github.com/disnana/NanaSQLite/pull/123)):
+  - Added `actions: read` and `contents: read` permissions to the provenance verification job in GitHub Actions.
+  - Constructed the expected provenance filename from the `provenance-name` output and now fail fast if the file is missing.
+  - Updated GitHub Release asset upload to reference the exact generated provenance file instead of a wildcard, preventing release-time artifact mismatches.
+
+### [1.3.4rc2] - 2026-03-08
+
+#### Security Fixes
+
+- **Implemented SQL injection protection for table names** (PR [#121](https://github.com/disnana/NanaSQLite/pull/121), [#122](https://github.com/disnana/NanaSQLite/pull/122)):
+  - Table names were interpolated directly into SQL queries, making crafted names exploitable for injection.
+  - Sanitized (double-quoted) table name is now cached in `self._safe_table` and used in all SQL execution paths.
+  - `self._table` retains the raw name for `__repr__` and backwards compatibility.
+  - Updated SECURITY.md with disclosure history and remediation details.
+  - Added PoC scripts (`etc/poc/poc_sqli.py`, `etc/poc/poc_none.py`) to document the risk.
+
+#### Bug Fixes & Code Quality
+
+- **Applied `_NOT_FOUND` sentinel to `get_fresh()` and `__contains__`** (PR [#121](https://github.com/disnana/NanaSQLite/pull/121)):
+  - `get_fresh()` previously returned `None` on a DB miss, making it impossible to distinguish from a stored `None` value.
+  - Switched to the `_NOT_FOUND = object()` sentinel so DB misses and stored `None` are reliably distinguished.
+  - Restored a lightweight `__contains__` implementation to reduce unnecessary DB reads.
+
+#### CI Fixes
+
+- **Fixed validkit-py CI test guards** (PR [#119](https://github.com/disnana/NanaSQLite/pull/119)):
+  - Updated CI to install the `validation` extra so validkit-related tests are executed correctly.
+
+#### Documentation
+
+- **Added validkit-py validation guide** (PR [#117](https://github.com/disnana/NanaSQLite/pull/117)):
+  - Added validkit-py usage and validation guides to both the English and Japanese documentation sites.
+- **Reordered and classified guide lessons** (PR [#116](https://github.com/disnana/NanaSQLite/pull/116)):
+  - Reorganised and categorised guide lessons in the JA/EN site documentation.
+- **Fixed docs inconsistencies, broken links, and factual errors** (PR [#115](https://github.com/disnana/NanaSQLite/pull/115)):
+  - Resolved inconsistencies between English and Japanese documentation, fixed broken links, corrected factual errors, and added missing documentation.
 
 ### [1.3.4rc1] - 2026-03-07
 

@@ -382,16 +382,27 @@ jobs:
   # ============================================
   # SLSA Provenance - Main branch only, new version only
   # ============================================
+  # NOTE: The "provenance / generator" job produces an expected warning:
+  #   "Restore cache failed: Dependencies file is not found ... Supported file pattern: go.sum"
+  # This comes from the SLSA generator's internal setup-go step, which tries to
+  # restore a Go module cache using go.sum as the cache key. Since NanaSQLite is
+  # a pure-Python project, go.sum does not exist and the cache cannot be restored.
+  # This warning is harmless — SLSA3 provenance is still generated correctly.
+  # It is an internal limitation of the slsa-github-generator reusable workflow
+  # and cannot be suppressed from the calling workflow. Tracked upstream:
+  # https://github.com/slsa-framework/slsa-github-generator/pull/3604
   provenance:
     needs: [build]
     permissions:
-      actions: read # To read the workflow run.
-      id-token: write # To sign the provenance.
-      contents: write # To add assets to a release.
+      actions: read    # To read the workflow run.
+      id-token: write  # To sign the provenance (OIDC token).
+      contents: write  # Required by the SLSA generator's internal upload-assets job.
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
     with:
       base64-subjects: "${{ needs.build.outputs.hashes }}"
-      upload-assets: true # Optional: Upload to a new release
+      # upload-assets is intentionally omitted: this workflow has no tag-based trigger,
+      # so the SLSA generator would always skip it. The provenance artifact is instead
+      # downloaded and attached to the GitHub Release in the release job below.
 
   # ============================================
   # Verify SLSA Provenance - Automated check before release
@@ -401,6 +412,9 @@ jobs:
     needs: [check-version, build, provenance]
     if: needs.check-version.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     steps:
       - name: Download build artifacts
         uses: actions/download-artifact@v8
@@ -419,7 +433,11 @@ jobs:
 
       - name: Verify provenance
         run: |
-          PROVENANCE_FILE=$(ls provenance-dir/*.intoto.jsonl)
+          PROVENANCE_FILE="provenance-dir/${{ needs.provenance.outputs.provenance-name }}"
+          if [ ! -f "$PROVENANCE_FILE" ]; then
+            echo "Expected provenance file not found: $PROVENANCE_FILE"
+            exit 1
+          fi
           echo "Verifying artifacts against $PROVENANCE_FILE"
           
           # Verify each artifact in dist/
@@ -441,7 +459,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      id-token: write
+      id-token: write  # Required for PyPI Trusted Publishing.
     
     steps:
     - name: Download build artifacts
@@ -450,6 +468,12 @@ jobs:
         name: dist
         path: dist/
     
+    # NOTE: The "Generating and uploading digital attestations" notice is expected.
+    # pypa/gh-action-pypi-publish@release/v1 automatically generates GitHub Artifact
+    # Attestations (PyPI publish/v1 predicate) when id-token: write is present.
+    # These are distinct from, and complementary to, the SLSA3 provenance generated
+    # above. PyPI Trusted Publishing requires these attestations. This is correct
+    # and desirable behaviour — no action is needed.
     - name: Publish to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
 
@@ -505,7 +529,7 @@ jobs:
         files: |
           dist/*
           nanasqlite-${{ needs.check-version.outputs.local_version }}-src.zip
-          provenance-dir/*.intoto.jsonl
+          provenance-dir/${{ needs.provenance.outputs.provenance-name }}
         draft: false
         prerelease: ${{ needs.check-version.outputs.is_prerelease == 'true' }}
     

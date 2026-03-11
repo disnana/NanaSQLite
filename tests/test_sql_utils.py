@@ -31,10 +31,15 @@ class TestSanitizeSqlForFunctionScan:
         assert len(result) == len(sql)
 
     def test_double_quoted_identifier(self):
-        """Test double-quoted identifiers are replaced with spaces."""
+        """Test double-quoted identifiers preserve content for function detection.
+
+        In SQL, double-quoted strings are identifiers (not string literals).
+        The sanitizer preserves their content so function-call patterns like
+        "LOAD_EXTENSION"() can be detected by the validation regex.
+        """
         sql = 'SELECT "user_id" FROM table'
         result = sanitize_sql_for_function_scan(sql)
-        assert result == "SELECT           FROM table"
+        assert result == "SELECT  user_id  FROM table"
         assert len(result) == len(sql)
 
     def test_escaped_single_quotes(self):
@@ -47,10 +52,11 @@ class TestSanitizeSqlForFunctionScan:
         assert len(result) == len(sql)
 
     def test_escaped_double_quotes(self):
-        """Test SQL-style escaped double quotes ("")."""
+        """Test SQL-style escaped double quotes ("") inside identifiers."""
         sql = 'SELECT "column""name" FROM table'
         result = sanitize_sql_for_function_scan(sql)
-        assert result == "SELECT                FROM table"
+        # Escaped double quote "" is replaced with spaces, but content is preserved
+        assert result == "SELECT  column  name  FROM table"
         assert len(result) == len(sql)
 
     def test_line_comment(self):

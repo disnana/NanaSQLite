@@ -4,6 +4,8 @@ NanaSQLite Exception Classes
 カスタム例外クラスを定義し、エラーハンドリングを統一する。
 """
 
+from __future__ import annotations
+
 
 class NanaSQLiteError(Exception):
     """
@@ -39,7 +41,7 @@ class NanaSQLiteDatabaseError(NanaSQLiteError):
         - SQL構文エラー
     """
 
-    def __init__(self, message: str, original_error: Exception = None):
+    def __init__(self, message: str, original_error: Exception | None = None):
         super().__init__(message)
         self.original_error = original_error
 

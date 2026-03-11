@@ -28,6 +28,7 @@ from typing import Any, Literal
 import apsw
 
 try:
+    from cryptography.exceptions import InvalidTag
     from cryptography.fernet import Fernet
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
     HAS_CRYPTOGRAPHY = True
@@ -367,7 +368,7 @@ class NanaSQLite(MutableMapping):
             inner_identifier = identifier
 
         # 基本的な検証: 英数字とアンダースコアのみ許可
-        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", inner_identifier):
+        if not IDENTIFIER_PATTERN.match(inner_identifier):
             raise NanaSQLiteValidationError(
                 f"Invalid identifier '{inner_identifier}': must start with letter or underscore "
                 "and contain only alphanumeric characters and underscores"
@@ -382,6 +383,21 @@ class NanaSQLite(MutableMapping):
     def _is_in_memory_path(path: str) -> bool:
         """パスがインメモリDB文字列（':memory:' または 'file::memory:...'）かどうかを返す。"""
         return path == ":memory:" or path.startswith("file::memory:")
+
+    @staticmethod
+    def _extract_column_aliases(columns: list[str]) -> list[str]:
+        """カラムリストからAS句のエイリアスを抽出する。
+
+        例: ["col1", "col2 AS alias2"] → ["col1", "alias2"]
+        """
+        col_names: list[str] = []
+        for col in columns:
+            parts = re.split(r"\s+as\s+", col, flags=re.IGNORECASE)
+            if len(parts) > 1:
+                col_names.append(parts[-1].strip().strip('"').strip("'"))
+            else:
+                col_names.append(col.strip().strip('"').strip("'"))
+        return col_names
 
     @contextmanager
     def _acquire_lock(self):
@@ -571,6 +587,8 @@ class NanaSQLite(MutableMapping):
         # 4. 関数呼び出しの抽出
         # 文字列リテラルやコメントをマスクした上で関数呼び出しを検索
         # これにより、SELECT 'COUNT(' ... のようなパターンでの誤検知を防ぐ
+        # Note: sanitize_sql_for_function_scan() preserves double-quoted identifier
+        # content so that "FUNC"() patterns are detected.
         sanitized_expr = sanitize_sql_for_function_scan(expr)
         matches = re.findall(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", sanitized_expr)
 
@@ -638,15 +656,35 @@ class NanaSQLite(MutableMapping):
 
         if self._aead:
             if not isinstance(value, bytes):
-                # Fallback or manual check if stored as string accidentally
+                logger.warning(
+                    "AEAD encryption is enabled but received non-bytes data; "
+                    "treating as unencrypted legacy value"
+                )
                 if HAS_ORJSON:
                     return orjson.loads(value)
                 return json.loads(value)
 
+            # Validate minimum size:
+            # 12-byte nonce + 16-byte AES-GCM/ChaCha20-Poly1305 auth tag = 28 bytes minimum.
+            # Shorter payloads are always corrupted; reject early with a clear error
+            # rather than propagating a low-level InvalidTag from the crypto library.
+            _NONCE_LEN = 12
+            _TAG_LEN = 16
+            if len(value) < _NONCE_LEN + _TAG_LEN:
+                raise NanaSQLiteDatabaseError(
+                    "Corrupted encrypted data: payload too short "
+                    f"(expected >= {_NONCE_LEN + _TAG_LEN} bytes, got {len(value)})"
+                )
+
             # Split nonce (12B) and ciphertext
             nonce = value[:12]
             ciphertext = value[12:]
-            decoded = self._aead.decrypt(nonce, ciphertext, None).decode("utf-8")
+            try:
+                decoded = self._aead.decrypt(nonce, ciphertext, None).decode("utf-8")
+            except InvalidTag as exc:
+                raise NanaSQLiteDatabaseError(
+                    "Failed to decrypt value: authentication tag mismatch or corrupted data"
+                ) from exc
             if HAS_ORJSON:
                 return orjson.loads(decoded)
             return json.loads(decoded)
@@ -688,7 +726,7 @@ class NanaSQLite(MutableMapping):
                 (key,),
             )
 
-    def _get_all_keys_from_db(self) -> list:
+    def _get_all_keys_from_db(self) -> list[str]:
         """SQLiteから全キーを取得"""
         with self._acquire_lock():
             table_name = self._safe_table
@@ -830,6 +868,7 @@ class NanaSQLite(MutableMapping):
 
     def items(self) -> list:
         """全アイテムを取得（一括ロードしてからメモリから）"""
+        self._check_connection()
         self.load_all()
         return list(self._cache.get_data().items())
 
@@ -905,11 +944,13 @@ class NanaSQLite(MutableMapping):
         missing_keys = []
 
         # 1. キャッシュから取得可能なものをチェック
+        # `cache_data` はライブデータそのもの（ExpiringDict 等）を指すため、
+        # TTL 期限切れで実データから削除されたキーは False になり、
+        # 正しく missing_keys に回される（is_cached() の _cached_keys 残留バグを回避）
+        cache_data = self._cache.get_data()
         for key in keys:
-            if self._cache.is_cached(key):
-                val = self._cache.get(key)
-                if val is not None:
-                    results[key] = val
+            if key in cache_data:
+                results[key] = cache_data[key]
             else:
                 missing_keys.append(key)
 
@@ -1840,16 +1881,7 @@ class NanaSQLite(MutableMapping):
             pragma_cursor = self.execute(f"PRAGMA table_info({safe_table_name})")
             col_names = [row[1] for row in pragma_cursor]
         else:
-            # Extract aliases from AS clauses, similar to query_with_pagination
-            col_names = []
-            for col in columns:
-                parts = re.split(r"\s+as\s+", col, flags=re.IGNORECASE)
-                if len(parts) > 1:
-                    # Use the alias (after AS)
-                    col_names.append(parts[-1].strip().strip('"').strip("'"))
-                else:
-                    # Use the column expression as-is
-                    col_names.append(col.strip())
+            col_names = self._extract_column_aliases(columns)
 
         # 結果をdictのリストに変換
         results = []
@@ -1938,9 +1970,10 @@ class NanaSQLite(MutableMapping):
         """
         safe_table_name = self._sanitize_identifier(table_name)
         safe_column_name = self._sanitize_identifier(column_name)
-        # column_type is a SQL type string - validate it doesn't contain dangerous characters
-        # Also check for closing parenthesis which could break out of ALTER TABLE structure
-        if any(c in column_type for c in [";", "'", ")"]) or "--" in column_type or "/*" in column_type:
+        # Whitelist-based validation for column_type to prevent SQL injection.
+        # Allows standard SQLite type names with optional length/precision specifiers.
+        # e.g. "TEXT", "INTEGER", "VARCHAR(255)", "DECIMAL(10,2)", "DOUBLE PRECISION"
+        if not re.match(r"^[A-Za-z][A-Za-z0-9_ ]*(?:\(\s*\d+\s*(?:,\s*\d+\s*)?\))?$", column_type):
             raise ValueError(f"Invalid or dangerous column type: {column_type}")
 
         sql = f"ALTER TABLE {safe_table_name} ADD COLUMN {safe_column_name} {column_type}"
@@ -2367,14 +2400,7 @@ class NanaSQLite(MutableMapping):
             pragma_cursor = self.execute(f"PRAGMA table_info({safe_table_name})")
             col_names = [row[1] for row in pragma_cursor]
         else:
-            # カラム名からAS句を考慮（case-insensitive）
-            col_names = []
-            for col in columns:
-                parts = re.split(r"\s+as\s+", col, flags=re.IGNORECASE)
-                if len(parts) > 1:
-                    col_names.append(parts[-1].strip().strip('"').strip("'"))
-                else:
-                    col_names.append(col.strip().strip('"').strip("'"))
+            col_names = self._extract_column_aliases(columns)
 
         # 結果をdictのリストに変換
         results = []
