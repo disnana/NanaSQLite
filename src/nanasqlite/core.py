@@ -2277,31 +2277,50 @@ class NanaSQLite(MutableMapping):
         self.execute(sql, parameters)
         return self._connection.changes()
 
-    def upsert(self, table_name: str, data: dict, conflict_columns: list[str] = None) -> int:
+    def upsert(self, table_name: str | Any = None, data: Any = None, conflict_columns: list[str] = None) -> int | None:
         """
         INSERT OR REPLACE の簡易版（upsert）
+        v2モードが有効で、キー/値のペアとして呼び出された場合はバックグラウンドキューに送られます。
 
         Args:
-            table_name: テーブル名
-            data: カラム名と値のdict
-            conflict_columns: 競合判定に使用するカラム（Noneの場合はINSERT OR REPLACE）
+            table_name: テーブル名、または第2引数がNoneの場合はキー名
+            data: カラム名と値のdict、または第1引数がキー名の場合は値
+            conflict_columns: 競合判定に使用するカラム（Noneの場合はINSERT OR REPLACE）。
+                              キー/値のペア指定時は無視されます。
 
         Returns:
-            挿入/更新されたROWID
+            挿入/更新されたROWID。v2モードでのキー/値ペア指定時はNone。
 
         Example:
-            >>> # 単純なINSERT OR REPLACE
+            >>> # テーブル指定（標準）
             >>> db.upsert("users", {"id": 1, "name": "Alice", "age": 25})
-
-            >>> # ON CONFLICT句を使用
-            >>> db.upsert("users",
-            ...     {"email": "alice@example.com", "name": "Alice", "age": 26},
-            ...     conflict_columns=["email"]
-            ... )
+            >>> # キー/値指定 (v2互換)
+            >>> db.upsert("user:1", {"name": "Nana"})
         """
-        safe_table_name = self._sanitize_identifier(table_name)
-        safe_columns = [self._sanitize_identifier(col) for col in data.keys()]
-        values = list(data.values())
+        # 引数のパターン判定
+        if table_name is not None and data is not None and isinstance(data, dict):
+            # 標準的な (table, data_dict) パターン
+            target_table = table_name
+            target_data = data
+        elif table_name is not None and data is not None:
+            # (key, value) パターン (v2互換)
+            self[table_name] = data
+            return None
+        elif table_name is not None and data is None:
+            # table_name に dict が渡された場合の安全策 (もしあれば)
+            if isinstance(table_name, dict):
+                 # self.upsert(data_dict) のような呼び出しは現時点では非サポートとするか
+                 # デフォルトテーブルへの挿入とみなす
+                 target_table = self._table
+                 target_data = table_name
+            else:
+                 raise ValueError("Invalid arguments for upsert")
+        else:
+            raise ValueError("upsert requires at least table_name and data")
+
+        safe_table_name = self._sanitize_identifier(target_table)
+        safe_columns = [self._sanitize_identifier(col) for col in target_data.keys()]
+        values = list(target_data.values())
         placeholders = ", ".join(["?"] * len(values))
         columns_sql = ", ".join(safe_columns)
 
@@ -2632,20 +2651,6 @@ class NanaSQLite(MutableMapping):
 
         self.execute_many(sql, parameters_list)
         return len(data_list)
-
-    def upsert(self, key: str, value: Any) -> None:
-        """
-        キーに対して値を設定する (__setitem__ のエイリアス)。
-        v2モードが有効な場合はバックグラウンドキューに送られ、無効な場合は即座にDBに書き込まれます。
-
-        Args:
-            key: 設定するキー
-            value: 設定する値
-
-        Example:
-            >>> db.upsert("user:1", {"name": "Nana"})
-        """
-        self[key] = value
 
     def get_dlq(self) -> list[dict[str, Any]]:
         """

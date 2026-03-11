@@ -1409,7 +1409,6 @@ class AsyncNanaSQLite:
     aexecute_many = execute_many
     afetch_one = fetch_one
     afetch_all = fetch_all
-    afetch_all = fetch_all
 
     async def abackup(self, target_path: str) -> None:
         """
@@ -1493,15 +1492,25 @@ class AsyncNanaSQLite:
             self._executor, self._db.alter_table_add_column, table_name, column_name, column_type
         )
 
-    async def aupsert(self, key: str, value: Any) -> None:
+    async def aupsert(
+        self, table_name: str | Any = None, data: Any = None, conflict_columns: list[str] = None
+    ) -> int | None:
         """
-        非同期でキーに値を設定します (aset のエイリアス)。
+        非同期で UPSERT 操作を実行します。
 
         Args:
-            key: 設定するキー
-            value: 設定する値
+            table_name: テーブル名、または第2引数がNoneの場合はキー名
+            data: カラム名と値のdict、または第1引数がキー名の場合は値
+            conflict_columns: 競合判定に使用するカラム（Noneの場合はINSERT OR REPLACE）
+
+        Returns:
+            挿入/更新されたROWID。キー/値ペア指定時はNone。
         """
-        await self.aset(key, value)
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor, self._db.upsert, table_name, data, conflict_columns
+        )
 
     async def aget_dlq(self) -> list[dict[str, Any]]:
         """
