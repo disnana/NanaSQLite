@@ -348,7 +348,7 @@ class V2Engine:
     def retry_dlq(self) -> None:
         """
         Move all items from DLQ back to their respective lanes for retry.
-        Note: KVS items are moved back to the staging buffer, 
+        Note: KVS items are moved back to the staging buffer,
         and StrictTasks are re-enqueued.
         """
         with self._dlq_lock:

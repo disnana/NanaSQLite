@@ -1127,7 +1127,7 @@ class TestV2ArchitectureBenchmarks:
 
         dbs = {}
         modes = ["immediate", "count", "time", "manual"]
-        
+
         for mode in modes:
             kwargs = {"v2_mode": True, "flush_mode": mode}
             if mode == "immediate":
@@ -1136,7 +1136,7 @@ class TestV2ArchitectureBenchmarks:
                 kwargs["flush_count"] = 100
             elif mode == "time":
                 kwargs["flush_interval"] = 0.1
-                
+
             dbs[mode] = NanaSQLite(str(base_dir / f"v2_{mode}.db"), **kwargs)
 
         yield dbs
@@ -1151,7 +1151,7 @@ class TestV2ArchitectureBenchmarks:
 
         def write_op():
             # benchmark will run this many times
-            for i in range(100): 
+            for i in range(100):
                 db[f"w_{i}"] = i
 
         benchmark(write_op)
@@ -1185,11 +1185,11 @@ class TestV2ArchitectureBenchmarks:
         """v2モード (immediate) でのSQL直接実行によるQueueレイテンシ"""
         db = v2_dbs["immediate"]
         db.create_table("v2_sql_bench", {"id": "INTEGER PRIMARY KEY AUTOINCREMENT", "val": "INTEGER"})
-        
+
         counter = [0]
-        
+
         def sql_insert_op():
             db.sql_insert("v2_sql_bench", {"val": counter[0]})
             counter[0] += 1
-            
+
         benchmark(sql_insert_op)

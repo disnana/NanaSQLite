@@ -101,7 +101,7 @@ def demo_batch_update_partial(tmpdir: str):
 
     try:
         print("\nMixed valid and invalid data:")
-        batch_update_partial = getattr(db, "batch_update_partial")
+        batch_update_partial = db.batch_update_partial
         failed = batch_update_partial(
             {
                 "user1": {"name": "Alice", "age": 25},     # OK
@@ -162,7 +162,7 @@ def demo_coerce_mode(tmpdir: str):
 
     try:
         print("\nData with type coercion:")
-        batch_update_partial = getattr(db, "batch_update_partial")
+        batch_update_partial = db.batch_update_partial
         failed = batch_update_partial(
             {
                 "user1": {"name": "Alice", "age": "25", "score": "98.5"},

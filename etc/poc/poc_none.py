@@ -1,4 +1,5 @@
 import os
+
 from nanasqlite import NanaSQLite
 
 db_path = "test_none.db"

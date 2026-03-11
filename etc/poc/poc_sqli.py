@@ -1,5 +1,6 @@
 import os
 import sqlite3
+
 from nanasqlite import NanaSQLite
 
 db_path = "test_sqli.db"

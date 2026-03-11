@@ -1351,6 +1351,7 @@ class TestAsyncV2ArchitectureBenchmarks:
     @pytest.fixture
     def async_v2_dbs(self, tmp_path):
         import os
+
         from nanasqlite import AsyncNanaSQLite
 
         base_dir = tmp_path / "async_v2_bench"
@@ -1361,7 +1362,7 @@ class TestAsyncV2ArchitectureBenchmarks:
 
         dbs = {}
         modes = ["immediate", "count", "time", "manual"]
-        
+
         for mode in modes:
             kwargs = {"v2_mode": True, "flush_mode": mode}
             if mode == "immediate":
@@ -1370,7 +1371,7 @@ class TestAsyncV2ArchitectureBenchmarks:
                 kwargs["flush_count"] = 100
             elif mode == "time":
                 kwargs["flush_interval"] = 0.1
-                
+
             dbs[mode] = AsyncNanaSQLite(str(base_dir / f"async_v2_{mode}.db"), **kwargs)
 
         yield dbs
@@ -1386,7 +1387,7 @@ class TestAsyncV2ArchitectureBenchmarks:
 
         def write_op():
             async def _write():
-                for i in range(100): 
+                for i in range(100):
                     await db.aset(f"w_{i}", i)
             run_async(_write())
 
