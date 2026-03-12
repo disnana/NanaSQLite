@@ -158,17 +158,19 @@ jobs:
         if: needs.should-run.outputs.run_benchmark == 'true'
         run: git fetch origin gh-pages:gh-pages || echo "gh-pages not found"
 
-      - uses: actions/download-artifact@v8
+      - name: Download sync benchmark results
         if: needs.should-run.outputs.run_benchmark == 'true'
+        uses: actions/download-artifact@v8
         with:
-          pattern: benchmark-results-*
-          path: benchmark-results
+          name: benchmark-results-rpi-py3.12
+          path: benchmark-results/benchmark-results-rpi-py3.12
 
-      - uses: actions/download-artifact@v8
+      - name: Download async benchmark results
         if: needs.should-run.outputs.run_benchmark == 'true'
+        uses: actions/download-artifact@v8
         with:
-          pattern: async-benchmark-results-*
-          path: async-benchmark-results
+          name: async-benchmark-results-rpi-py3.12
+          path: async-benchmark-results/async-benchmark-results-rpi-py3.12
 
       - uses: actions/setup-python@v6
         if: needs.should-run.outputs.run_benchmark == 'true'
