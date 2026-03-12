@@ -12,23 +12,24 @@ permissions:
   contents: read
   security-events: write
   actions: read
+  pull-requests: write
 
 jobs:
   # CodeQL - コードの脆弱性静的解析
   codeql:
     name: CodeQL Analysis
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v6
-    
+
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v4
       with:
         languages: python
         queries: security-and-quality
-    
+
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v4
       with:
@@ -39,21 +40,21 @@ jobs:
   bandit:
     name: Bandit Security Linter
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v6
-    
+
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
         python-version: '3.11'
-    
+
     - name: Install Bandit
       run: pip install bandit[toml]
-    
+
     - name: Run Bandit
       run: bandit -r src/ -f json -o bandit-report.json || true
-    
+
     - name: Upload Bandit report
       uses: actions/upload-artifact@v7
       if: always()
@@ -61,15 +62,58 @@ jobs:
         name: bandit-report
         path: bandit-report.json
 
+
+  # Semgrep - 高精度Pythonセマンティック静的解析
+  semgrep:
+    name: Semgrep Analysis
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # SARIF: Security Tab + PRインラインアノテーション用（失敗しても続行）
+    - name: Run Semgrep (SARIF for Security Tab)
+      run: semgrep ci --config="p/python" --sarif -o semgrep-results.sarif || true
+
+    # JSON: サマリー解析用 + findingsがあればここでfailしてPRを止める
+    - name: Run Semgrep (JSON / fail on findings)
+      run: semgrep ci --config="p/python" --json -o semgrep-report.json
+
+    - name: Upload Semgrep JSON report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: semgrep-report
+        path: semgrep-report.json
+
+    - name: Upload Semgrep SARIF artifact
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: semgrep-sarif
+        path: semgrep-results.sarif
+
+    - name: Upload Semgrep results to GitHub Security Tab
+      uses: github/codeql-action/upload-sarif@v4
+      if: always()
+      with:
+        sarif_file: semgrep-results.sarif
+        category: semgrep
+
+
   # Trivy - 包括的な脆弱性スキャン
   trivy:
     name: Trivy Vulnerability Scan
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v6
-    
-    - name: Run Trivy vulnerability scanner
+
+    # SARIF: Security Tab用（exit-code:0 で失敗させない）
+    - name: Run Trivy (SARIF for Security Tab, no fail)
       uses: aquasecurity/trivy-action@master
       with:
         scan-type: 'fs'
@@ -77,70 +121,329 @@ jobs:
         format: 'sarif'
         output: 'trivy-results.sarif'
         severity: 'CRITICAL,HIGH,MEDIUM'
-    
-    - name: Upload Trivy scan results
+        exit-code: '0'
+
+    - name: Upload Trivy SARIF to Security Tab
       uses: github/codeql-action/upload-sarif@v4
       if: always()
       with:
         sarif_file: 'trivy-results.sarif'
+        category: trivy
+
+    - name: Upload Trivy SARIF artifact
+      uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: trivy-sarif
+        path: trivy-results.sarif
+
+    # JSON: サマリー解析用 + CRITICAL/HIGH/MEDIUM検知でfailしてPRを止める
+    - name: Run Trivy (JSON for summary / fail on findings)
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'json'
+        output: 'trivy-results.json'
+        severity: 'CRITICAL,HIGH,MEDIUM'
+        exit-code: '1'
+
+    - name: Upload Trivy JSON artifact
+      uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: trivy-json
+        path: trivy-results.json
+
 
   # Bun Audit - Node.js(Bun)依存関係の既知脆弱性チェック
   bun-audit:
     name: Bun Audit
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v6
-    
+
     - name: Setup Bun
       uses: oven-sh/setup-bun@v2
       with:
         bun-version: latest
-        
+
     - name: Run Bun Audit
       working-directory: docs/site
       run: bun audit
 
-  # セキュリティサマリー
+
+  # Grype - 脆弱性スキャン (OS/Python/JS)
+  grype:
+    name: Grype Vulnerability Scan
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+
+    # SARIF: Security Tab用（fail-build:false で失敗させない）
+    - name: Scan for vulnerabilities (SARIF for Security Tab, no fail)
+      uses: anchore/scan-action@v7
+      with:
+        path: "."
+        fail-build: false
+        output-format: sarif
+
+    # 次のJSON実行で上書きされる前にコピーして保持
+    - name: Preserve SARIF before next scan
+      if: always()
+      run: cp results.sarif grype-results.sarif
+
+    - name: Upload Grype SARIF to Security Tab
+      uses: github/codeql-action/upload-sarif@v4
+      if: always()
+      with:
+        sarif_file: grype-results.sarif
+        category: grype
+
+    - name: Upload Grype SARIF artifact
+      uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: grype-sarif
+        path: grype-results.sarif
+
+    # JSON: サマリー解析用 + findings検知でfailしてPRを止める
+    - name: Scan for vulnerabilities (JSON for summary / fail on findings)
+      uses: anchore/scan-action@v7
+      with:
+        path: "."
+        fail-build: true
+        output-format: json
+
+    - name: Upload Grype JSON artifact
+      uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: grype-json
+        path: results.json
+
+
+  # セキュリティサマリー（件数+具体内容 / PRコメント / 合否判定）
   summary:
     name: Security Summary
-    needs: [codeql, bandit, trivy, bun-audit, grype]
+    needs: [codeql, bandit, semgrep, trivy, bun-audit, grype]
     runs-on: ubuntu-latest
     if: always()
-    
+
     steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v8
+      with:
+        path: artifacts
+
+    # 各ツールの結果JSONを解析して件数と具体的な内容をファイルに書き出す
+    - name: Parse findings
+      id: findings
+      run: |
+        mkdir -p finding-details
+
+        # --- Bandit (JSON) ---
+        BANDIT_COUNT=0
+        if [ -f artifacts/bandit-report/bandit-report.json ]; then
+          BANDIT_COUNT=$(jq '[.results[]] | length' artifacts/bandit-report/bandit-report.json 2>/dev/null || echo 0)
+          jq -r '.results[] | "[\(.issue_severity)] \(.issue_text)\n  File: \(.filename):\(.line_number)\n"' \
+            artifacts/bandit-report/bandit-report.json 2>/dev/null | head -n 60 \
+            > finding-details/bandit.txt || echo "(parse error)" > finding-details/bandit.txt
+        fi
+        touch finding-details/bandit.txt
+
+        # --- Semgrep (JSON) ---
+        SEMGREP_COUNT=0
+        if [ -f artifacts/semgrep-report/semgrep-report.json ]; then
+          SEMGREP_COUNT=$(jq '[.results[]] | length' artifacts/semgrep-report/semgrep-report.json 2>/dev/null || echo 0)
+          jq -r '.results[] | "[\(.extra.severity)] \(.check_id)\n  \(.extra.message)\n  File: \(.path):\(.start.line)\n"' \
+            artifacts/semgrep-report/semgrep-report.json 2>/dev/null | head -n 60 \
+            > finding-details/semgrep.txt || echo "(parse error)" > finding-details/semgrep.txt
+        fi
+        touch finding-details/semgrep.txt
+
+        # --- Trivy (JSON) ---
+        TRIVY_COUNT=0
+        if [ -f artifacts/trivy-json/trivy-results.json ]; then
+          TRIVY_COUNT=$(jq '[.Results[].Vulnerabilities // [] | .[]] | length' artifacts/trivy-json/trivy-results.json 2>/dev/null || echo 0)
+          jq -r '.Results[].Vulnerabilities // [] | .[] | "[\(.Severity)] \(.VulnerabilityID) \(.PkgName)@\(.InstalledVersion)\n  \(.Title // "no title")\n"' \
+            artifacts/trivy-json/trivy-results.json 2>/dev/null | head -n 60 \
+            > finding-details/trivy.txt || echo "(parse error)" > finding-details/trivy.txt
+        fi
+        touch finding-details/trivy.txt
+
+        # --- Grype (JSON) ---
+        GRYPE_COUNT=0
+        if [ -f artifacts/grype-json/results.json ]; then
+          GRYPE_COUNT=$(jq '[.matches[]] | length' artifacts/grype-json/results.json 2>/dev/null || echo 0)
+          jq -r '.matches[] | "[\(.vulnerability.severity)] \(.vulnerability.id) \(.artifact.name)@\(.artifact.version)\n"' \
+            artifacts/grype-json/results.json 2>/dev/null | head -n 60 \
+            > finding-details/grype.txt || echo "(parse error)" > finding-details/grype.txt
+        fi
+        touch finding-details/grype.txt
+
+        echo "bandit_count=${BANDIT_COUNT}"   >> $GITHUB_OUTPUT
+        echo "semgrep_count=${SEMGREP_COUNT}" >> $GITHUB_OUTPUT
+        echo "trivy_count=${TRIVY_COUNT}"     >> $GITHUB_OUTPUT
+        echo "grype_count=${GRYPE_COUNT}"     >> $GITHUB_OUTPUT
+
+    # Actionsのステップサマリーに件数テーブル + 具体的な検知内容を出力
     - name: Create summary
       run: |
         echo "## 🛡️ Security Scan Results" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
-        echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-        echo "| CodeQL | ${{ needs.codeql.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Bandit | ${{ needs.bandit.result == 'success' && '✅ Passed' || '⚠️ Check logs' }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Trivy | ${{ needs.trivy.result == 'success' && '✅ Passed' || '⚠️ Check logs' }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Bun Audit | ${{ needs.bun-audit.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Grype | ${{ needs.grype.result == 'success' && '✅ Passed' || '⚠️ Check logs' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Check | Status | Findings |" >> $GITHUB_STEP_SUMMARY
+        echo "|-------|--------|----------|" >> $GITHUB_STEP_SUMMARY
+        echo "| **CodeQL**    | ${{ needs.codeql.result == 'success' && '✅ Passed' || '❌ Failed' }}        | [Security Tab参照](../../security/code-scanning) |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Bandit**    | ${{ needs.bandit.result == 'success' && '✅ Passed' || '⚠️ Check logs' }}   | ${{ steps.findings.outputs.bandit_count }}件 |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Semgrep**   | ${{ needs.semgrep.result == 'success' && '✅ Passed' || '⚠️ Check logs' }}  | ${{ steps.findings.outputs.semgrep_count }}件 |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Trivy**     | ${{ needs.trivy.result == 'success' && '✅ Passed' || '⚠️ Check logs' }}   | ${{ steps.findings.outputs.trivy_count }}件 |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Bun Audit** | ${{ needs.bun-audit.result == 'success' && '✅ Passed' || '❌ Failed' }}    | (ログ参照) |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Grype**     | ${{ needs.grype.result == 'success' && '✅ Passed' || '⚠️ Check logs' }}   | ${{ steps.findings.outputs.grype_count }}件 |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        if [ "${{ steps.findings.outputs.bandit_count }}" != "0" ] && [ -s finding-details/bandit.txt ]; then
+          echo "### 🐍 Bandit Findings" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat finding-details/bandit.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [ "${{ steps.findings.outputs.semgrep_count }}" != "0" ] && [ -s finding-details/semgrep.txt ]; then
+          echo "### 🔎 Semgrep Findings" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat finding-details/semgrep.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [ "${{ steps.findings.outputs.trivy_count }}" != "0" ] && [ -s finding-details/trivy.txt ]; then
+          echo "### 📦 Trivy Findings" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat finding-details/trivy.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [ "${{ steps.findings.outputs.grype_count }}" != "0" ] && [ -s finding-details/grype.txt ]; then
+          echo "### 🔍 Grype Findings" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat finding-details/grype.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+        fi
+
+    # PRに件数+具体内容をコメント投稿（再実行時は既存コメントを上書き更新）
+    - name: Post PR Comment
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const icon = (r) => r === 'success' ? '✅' : r === 'skipped' ? '⏭️' : '❌';
+          const results = {
+            codeql:   '${{ needs.codeql.result }}',
+            bandit:   '${{ needs.bandit.result }}',
+            semgrep:  '${{ needs.semgrep.result }}',
+            trivy:    '${{ needs.trivy.result }}',
+            bunAudit: '${{ needs.bun-audit.result }}',
+            grype:    '${{ needs.grype.result }}'
+          };
+          const counts = {
+            bandit:  '${{ steps.findings.outputs.bandit_count }}'  || '0',
+            semgrep: '${{ steps.findings.outputs.semgrep_count }}' || '0',
+            trivy:   '${{ steps.findings.outputs.trivy_count }}'   || '0',
+            grype:   '${{ steps.findings.outputs.grype_count }}'   || '0',
+          };
+          const readDetail = (file) => {
+            try { return fs.readFileSync(file, 'utf8').trim(); } catch { return ''; }
+          };
+          const details = {
+            bandit:  readDetail('finding-details/bandit.txt'),
+            semgrep: readDetail('finding-details/semgrep.txt'),
+            trivy:   readDetail('finding-details/trivy.txt'),
+            grype:   readDetail('finding-details/grype.txt'),
+          };
+          const allPassed = Object.values(results).every(r => r === 'success');
+
+          let body = [
+            '## 🛡️ Security Scan Results',
+            '',
+            '| スキャナ | 役割 | 結果 | Findings |',
+            '|---------|------|------|----------|',
+            `| **CodeQL**    | Python深層データフロー解析        | ${icon(results.codeql)}   \`${results.codeql}\`   | [Security Tab参照](../../security/code-scanning) |`,
+            `| **Bandit**    | Python静的解析                   | ${icon(results.bandit)}   \`${results.bandit}\`   | ${counts.bandit}件 |`,
+            `| **Semgrep**   | Pythonセマンティック解析          | ${icon(results.semgrep)}  \`${results.semgrep}\`  | ${counts.semgrep}件 |`,
+            `| **Trivy**     | 依存関係 / IaC / シークレット     | ${icon(results.trivy)}    \`${results.trivy}\`    | ${counts.trivy}件 |`,
+            `| **Bun Audit** | Node.js依存関係                  | ${icon(results.bunAudit)} \`${results.bunAudit}\` | (ログ参照) |`,
+            `| **Grype**     | 深堀り脆弱性スキャン              | ${icon(results.grype)}    \`${results.grype}\`    | ${counts.grype}件 |`,
+            '',
+          ].join('\n');
+
+          // findingsがあるツールだけ <details> で折り畳んで具体的な内容を追記
+          const tools = [
+            { name: '🐍 Bandit',  key: 'bandit'  },
+            { name: '🔎 Semgrep', key: 'semgrep' },
+            { name: '📦 Trivy',   key: 'trivy'   },
+            { name: '🔍 Grype',   key: 'grype'   },
+          ];
+          for (const t of tools) {
+            if (parseInt(counts[t.key]) > 0 && details[t.key]) {
+              body += `\n<details>\n<summary>${t.name} Findings（${counts[t.key]}件）― クリックして展開</summary>\n\n\`\`\`\n${details[t.key]}\n\`\`\`\n</details>\n`;
+            }
+          }
+
+          body += '\n' + (allPassed
+            ? '### ✅ 全チェックが通過しました！'
+            : '### ❌ 1つ以上のセキュリティチェックが失敗しています。マージ前に修正してください。');
+          body += '\n\n> 🔍 詳細・行ハイライトはリポジトリの **Security → Code scanning** タブで確認できます。';
+
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+          const existing = comments.find(c => c.body.includes('🛡️ Security Scan Results'));
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: existing.id,
+              body
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
+          }
 
     - name: Verify all checks passed
       if: always()
       run: |
         echo ""
         echo "📝 Job statuses:"
-        echo "📝 codeql → ${{ needs.codeql.result == 'success' && '✓ success' || format('✗ {0}', needs.codeql.result) }} [required]"
-        echo "📝 bandit → ${{ needs.bandit.result == 'success' && '✓ success' || format('✗ {0}', needs.bandit.result) }} [required]"
-        echo "📝 trivy → ${{ needs.trivy.result == 'success' && '✓ success' || format('✗ {0}', needs.trivy.result) }} [required]"
+        echo "📝 codeql    → ${{ needs.codeql.result == 'success' && '✓ success' || format('✗ {0}', needs.codeql.result) }} [required]"
+        echo "📝 bandit    → ${{ needs.bandit.result == 'success' && '✓ success' || format('✗ {0}', needs.bandit.result) }} [required]"
+        echo "📝 semgrep   → ${{ needs.semgrep.result == 'success' && '✓ success' || format('✗ {0}', needs.semgrep.result) }} [required]"
+        echo "📝 trivy     → ${{ needs.trivy.result == 'success' && '✓ success' || format('✗ {0}', needs.trivy.result) }} [required]"
         echo "📝 bun-audit → ${{ needs.bun-audit.result == 'success' && '✓ success' || format('✗ {0}', needs.bun-audit.result) }} [required]"
-        echo "📝 grype → ${{ needs.grype.result == 'success' && '✓ success' || format('✗ {0}', needs.grype.result) }} [required]"
+        echo "📝 grype     → ${{ needs.grype.result == 'success' && '✓ success' || format('✗ {0}', needs.grype.result) }} [required]"
         echo ""
-        
-        # Check for failures
+
         FAILED=false
         if [[ "${{ needs.codeql.result }}" != "success" ]]; then FAILED=true; fi
         if [[ "${{ needs.bandit.result }}" != "success" ]]; then FAILED=true; fi
+        if [[ "${{ needs.semgrep.result }}" != "success" ]]; then FAILED=true; fi
         if [[ "${{ needs.trivy.result }}" != "success" ]]; then FAILED=true; fi
         if [[ "${{ needs.bun-audit.result }}" != "success" ]]; then FAILED=true; fi
         if [[ "${{ needs.grype.result }}" != "success" ]]; then FAILED=true; fi
-        
+
         if [ "$FAILED" = true ]; then
           echo "❌ One or more security checks failed."
           exit 1
@@ -148,38 +451,17 @@ jobs:
           echo "# ✓ All security checks succeeded 🎉🎉🎉"
         fi
 
-  # Grype - 脆弱性スキャン (OS/Python/JS)
-  grype:
-    name: Grype Vulnerability Scan
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v6
-    
-    - name: Scan for vulnerabilities
-      uses: anchore/scan-action@v7
-      with:
-        path: "."
-        fail-build: false # レポート集約のため、ここでは落とさない（後のステップで判定）
-        output-format: json
-    
-    - name: Upload Grype report
-      uses: actions/upload-artifact@v7
-      if: always()
-      with:
-        name: grype-results
-        path: results.json
 
-  # セキュリティレポート集約
+  # セキュリティレポート集約（アーティファクトとして保存）
   security-report:
     name: Generate Security Report
-    needs: [codeql, bandit, trivy, bun-audit, grype]
+    needs: [codeql, bandit, semgrep, trivy, bun-audit, grype]
     runs-on: ubuntu-latest
     if: always()
-    
+
     steps:
     - uses: actions/checkout@v6
-    
+
     - name: Download all artifacts
       uses: actions/download-artifact@v8
       with:
@@ -190,26 +472,48 @@ jobs:
         echo "# 🛡️ Comprehensive Security Report" > security-report.md
         echo "Generated at: $(date -u)" >> security-report.md
         echo "" >> security-report.md
-        
         echo "## 🔍 Detailed Findings" >> security-report.md
         echo "*(If any issues are found, they will be listed below)*" >> security-report.md
         echo "" >> security-report.md
-        
-        # Grype Findings
-        if [ -f artifacts/grype-results/results.json ] && jq -e '.matches | length > 0' artifacts/grype-results/results.json > /dev/null; then
-            echo "### 📦 Grype Scan Results" >> security-report.md
-            # JSON解析してMarkdownに変換 (簡易的なjq処理)
-            echo "\`\`\`json" >> security-report.md
-            jq -r '.matches[] | "Title: " + .vulnerability.id + "\nPackage: " + .artifact.name + " (" + .artifact.version + ")\nSeverity: " + .vulnerability.severity + "\nLink: " + .vulnerability.dataSource + "\n---"' artifacts/grype-results/results.json | head -n 50 >> security-report.md || echo "Parse error" >> security-report.md
-            echo "\`\`\`" >> security-report.md
+
+        # Grype
+        if [ -f artifacts/grype-json/results.json ] && jq -e '.matches | length > 0' artifacts/grype-json/results.json > /dev/null 2>&1; then
+          echo "### 🔍 Grype Scan Results" >> security-report.md
+          echo '```' >> security-report.md
+          jq -r '.matches[] | "[\(.vulnerability.severity)] \(.vulnerability.id) \(.artifact.name)@\(.artifact.version)\n  → \(.vulnerability.dataSource)\n---"' \
+            artifacts/grype-json/results.json | head -n 100 >> security-report.md || echo "Parse error" >> security-report.md
+          echo '```' >> security-report.md
+          echo "" >> security-report.md
         fi
 
-        # Bandit Findings
-        if [ -f artifacts/bandit-report/bandit-report.json ] && jq -e '.results | length > 0' artifacts/bandit-report/bandit-report.json > /dev/null; then
-            echo "### 🐍 Bandit Scan Results" >> security-report.md
-            echo "\`\`\`json" >> security-report.md
-            jq -r '.results[] | "Issue: " + .issue_text + "\nSeverity: " + .issue_severity + "\nFile: " + .filename + ":" + (.line_number|tostring) + "\n---"' artifacts/bandit-report/bandit-report.json | head -n 50 >> security-report.md || echo "Parse error" >> security-report.md
-            echo "\`\`\`" >> security-report.md
+        # Bandit
+        if [ -f artifacts/bandit-report/bandit-report.json ] && jq -e '.results | length > 0' artifacts/bandit-report/bandit-report.json > /dev/null 2>&1; then
+          echo "### 🐍 Bandit Scan Results" >> security-report.md
+          echo '```' >> security-report.md
+          jq -r '.results[] | "[\(.issue_severity)] \(.issue_text)\n  → \(.filename):\(.line_number)\n---"' \
+            artifacts/bandit-report/bandit-report.json | head -n 100 >> security-report.md || echo "Parse error" >> security-report.md
+          echo '```' >> security-report.md
+          echo "" >> security-report.md
+        fi
+
+        # Semgrep
+        if [ -f artifacts/semgrep-report/semgrep-report.json ] && jq -e '.results | length > 0' artifacts/semgrep-report/semgrep-report.json > /dev/null 2>&1; then
+          echo "### 🔎 Semgrep Scan Results" >> security-report.md
+          echo '```' >> security-report.md
+          jq -r '.results[] | "[\(.extra.severity)] \(.check_id)\n  \(.extra.message)\n  → \(.path):\(.start.line)\n---"' \
+            artifacts/semgrep-report/semgrep-report.json | head -n 100 >> security-report.md || echo "Parse error" >> security-report.md
+          echo '```' >> security-report.md
+          echo "" >> security-report.md
+        fi
+
+        # Trivy
+        if [ -f artifacts/trivy-json/trivy-results.json ] && jq -e '[.Results[].Vulnerabilities // []] | flatten | length > 0' artifacts/trivy-json/trivy-results.json > /dev/null 2>&1; then
+          echo "### 📦 Trivy Scan Results" >> security-report.md
+          echo '```' >> security-report.md
+          jq -r '.Results[].Vulnerabilities // [] | .[] | "[\(.Severity)] \(.VulnerabilityID) \(.PkgName)@\(.InstalledVersion)\n  → \(.Title // "no title")\n---"' \
+            artifacts/trivy-json/trivy-results.json | head -n 100 >> security-report.md || echo "Parse error" >> security-report.md
+          echo '```' >> security-report.md
+          echo "" >> security-report.md
         fi
 
         cat security-report.md >> $GITHUB_STEP_SUMMARY
@@ -219,4 +523,3 @@ jobs:
       with:
         name: full-security-report
         path: security-report.md
-
