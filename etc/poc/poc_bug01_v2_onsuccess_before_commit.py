@@ -13,8 +13,9 @@ fd, path = tempfile.mkstemp(suffix=".db")
 os.close(fd)
 
 try:
-    from nanasqlite.v2_engine import V2Engine, StrictTask
     import apsw
+
+    from nanasqlite.v2_engine import StrictTask, V2Engine
 
     conn = apsw.Connection(path)
     conn.execute("CREATE TABLE IF NOT EXISTS data (key TEXT PRIMARY KEY, value TEXT)")
@@ -44,7 +45,7 @@ try:
         sql="INVALID SQL THAT WILL FAIL",
         parameters=None,
         on_success=lambda: callback_log.append("task2_success"),
-        on_error=lambda e: callback_log.append(f"task2_error"),
+        on_error=lambda e: callback_log.append("task2_error"),
     )
 
     engine._strict_queue.put(task1)

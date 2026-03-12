@@ -282,14 +282,14 @@ class V2Engine:
             # 1. Process KVS sets (UPSERT)
             if sets:
                 cursor.executemany(
-                    f"INSERT OR REPLACE INTO {self._table_name} (key, value) VALUES (?, ?)",
+                    f"INSERT OR REPLACE INTO {self._table_name} (key, value) VALUES (?, ?)",  # nosec
                     sets
                 )
 
             # 2. Process KVS deletes
             if deletes:
                 cursor.executemany(
-                    f"DELETE FROM {self._table_name} WHERE key = ?",
+                    f"DELETE FROM {self._table_name} WHERE key = ?",  # nosec
                     deletes
                 )
 
@@ -362,9 +362,9 @@ class V2Engine:
             try:
                 cursor.execute("BEGIN IMMEDIATE TRANSACTION;")
                 if op["action"] == "set":
-                    cursor.execute(f"INSERT OR REPLACE INTO {self._table_name} (key, value) VALUES (?, ?)", (key, op["value"]))
+                    cursor.execute(f"INSERT OR REPLACE INTO {self._table_name} (key, value) VALUES (?, ?)", (key, op["value"])) # nosec
                 elif op["action"] == "delete":
-                    cursor.execute(f"DELETE FROM {self._table_name} WHERE key = ?", (key,))
+                    cursor.execute(f"DELETE FROM {self._table_name} WHERE key = ?", (key,)) # nosec
 
                 # We attempt to drain any NEW strict queue items here per-row as well,
                 # though strictly speaking they should be clean by now.

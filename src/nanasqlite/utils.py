@@ -217,4 +217,5 @@ class ExpiringDict(collections.abc.MutableMapping):
             if self._scheduler_thread and self._scheduler_thread.is_alive():
                 self._scheduler_thread.join(timeout=1.0)
         except Exception:  # pylint: disable=broad-exception-caught
+            # Cleanup at exit/garbage collection is best-effort and should not raise during interpreter shutdown
             pass
