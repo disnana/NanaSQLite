@@ -15,6 +15,11 @@ A dict-like SQLite wrapper with instant persistence and intelligent caching.
   - [Error Handling](guide/error_handling.md)
   - [Performance](guide/performance.md)
   - [Best Practices](guide/best_practices.md)
+  - [Cache Strategies](guide/cache_strategies.md)
+  - [Encryption](guide/encryption.md)
+  - [V2 Architecture](guide/v2_architecture.md)
+  - [Security Audit](guide/security_audit.md)
+  - [Exceptions](guide/exceptions.md)
 - [API Reference](#api-reference)
   - [NanaSQLite (Sync)](api/nanasqlite.md)
   - [AsyncNanaSQLite (Async)](api/async_nanasqlite.md)
@@ -140,10 +145,15 @@ For more detailed information, please refer to the following guides:
 - **[Tutorial](guide/tutorial.md)**: Extended examples including multiple tables and advanced features.
 - **[Validation](guide/validation.md)**: Using validkit-py schemas, coercion, and per-table validators.
 - **[Async Support](guide/async.md)**: How to use `AsyncNanaSQLite` for non-blocking operations.
-- **[Transactions](guide/transactions.md)**: ensuring data integrity and optimizing bulk writes.
+- **[Transactions](guide/transactions.md)**: Ensuring data integrity and optimizing bulk writes.
 - **[Error Handling](guide/error_handling.md)**: Handling exceptions and troubleshooting.
 - **[Performance](guide/performance.md)**: Tuning NanaSQLite for maximum speed.
 - **[Best Practices](guide/best_practices.md)**: Recommended patterns for production use.
+- **[Cache Strategies](guide/cache_strategies.md)**: Choosing the right cache strategy (UNBOUNDED, LRU, TTL).
+- **[Encryption](guide/encryption.md)**: Transparent encryption with AES-GCM, ChaCha20-Poly1305, and Fernet.
+- **[V2 Architecture](guide/v2_architecture.md)**: Non-blocking write-back architecture for write-heavy workloads.
+- **[Security Audit](guide/security_audit.md)**: Security audit findings and recommendations.
+- **[Exceptions](guide/exceptions.md)**: Complete exception class reference and hierarchy.
 
 ---
 
