@@ -175,6 +175,14 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Debug - show downloaded files
+        if: needs.should-run.outputs.run_benchmark == 'true'
+        run: |
+          echo "=== benchmark-results ==="
+          find benchmark-results -type f || echo "directory not found"
+          echo "=== async-benchmark-results ==="
+          find async-benchmark-results -type f || echo "directory not found"
+
       - name: Generate Combined Benchmark Summary
         if: needs.should-run.outputs.run_benchmark == 'true'
         run: |
