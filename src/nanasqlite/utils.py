@@ -58,6 +58,7 @@ class ExpiringDict(collections.abc.MutableMapping):
         self._async_tasks: dict[str, asyncio.Task] = {}
         self._scheduler_thread: threading.Thread | None = None
         self._scheduler_running = False
+        self._stop_event = threading.Event()
         self._lock = threading.RLock()
 
         if self._mode == ExpirationMode.SCHEDULER:
@@ -69,6 +70,7 @@ class ExpiringDict(collections.abc.MutableMapping):
             if self._scheduler_running:
                 return
             self._scheduler_running = True
+            self._stop_event.clear()
             self._scheduler_thread = threading.Thread(target=self._scheduler_loop, daemon=True)
             self._scheduler_thread.start()
 
@@ -101,7 +103,7 @@ class ExpiringDict(collections.abc.MutableMapping):
                 self._evict(key)
 
             if sleep_time > 0:
-                time.sleep(sleep_time)
+                self._stop_event.wait(timeout=sleep_time)
 
     def _evict(self, key: str) -> None:
         """Evict an item and trigger callback."""
@@ -202,6 +204,17 @@ class ExpiringDict(collections.abc.MutableMapping):
             self._data.clear()
             self._exptimes.clear()
             self._scheduler_running = False
+            self._stop_event.set()
+        if self._scheduler_thread and self._scheduler_thread.is_alive():
+            self._scheduler_thread.join(timeout=2.0)
+            if self._scheduler_thread.is_alive():
+                logger.warning("ExpiringDict scheduler thread did not exit within timeout; possible thread leak.")
 
     def __del__(self):
-        self._scheduler_running = False
+        try:
+            self._scheduler_running = False
+            self._stop_event.set()
+            if self._scheduler_thread and self._scheduler_thread.is_alive():
+                self._scheduler_thread.join(timeout=1.0)
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass

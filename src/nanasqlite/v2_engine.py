@@ -98,6 +98,12 @@ class V2Engine:
         self._running = True
         self._flush_event = threading.Event()
         self._timer_thread: threading.Thread | None = None
+        # Guard against unbounded queue growth: only one _perform_flush may be
+        # pending in the executor at any time.  flush() is called on the hot
+        # path (every write in "immediate" mode), so submitting one future per
+        # write would pile up thousands of queued tasks and make
+        # shutdown(wait=True) block for a long time.
+        self._flush_pending = threading.Lock()
 
         # Start timer if time mode
         if self._flush_mode == "time":
@@ -187,8 +193,12 @@ class V2Engine:
         )
         self._strict_queue.put(task)
 
-        if self._flush_mode == "immediate":
-            self.flush()
+        # Strict tasks must always trigger a flush immediately, regardless of
+        # the configured flush_mode.  Both execute() and execute_many() use
+        # event.wait() (with no timeout) to synchronously await the task's
+        # completion callback; if we skip the flush here the caller hangs
+        # forever in count/time/manual modes.
+        self.flush()
 
     # ==================== Flush / Sync API ====================
 
@@ -201,8 +211,19 @@ class V2Engine:
         if self._flush_mode == "time":
             self._flush_event.set()
 
-        # Submit task to worker
-        self._worker.submit(self._perform_flush)
+        # Coalesce concurrent flush requests: only submit one _perform_flush to
+        # the executor at a time.  If a submission is already queued (lock is
+        # held), subsequent calls are no-ops — the already-queued future will
+        # process all pending writes when it runs.
+        if self._flush_pending.acquire(blocking=False):
+            self._worker.submit(self._run_flush)
+
+    def _run_flush(self) -> None:
+        """Executor entry point: release the pending-guard then flush."""
+        # Release the guard *before* the flush so that any writes arriving
+        # during the flush can schedule a follow-up submission.
+        self._flush_pending.release()
+        self._perform_flush()
 
     def _perform_flush(self) -> None:
         """
@@ -383,8 +404,10 @@ class V2Engine:
         # Unregister to avoid multiple calls
         atexit.unregister(self.shutdown)
 
-        # Wait for any currently executing flushes
-        self._worker.shutdown(wait=True)
+        # Cancel any pending (not yet started) futures so that shutdown()
+        # returns promptly.  The final synchronous _perform_flush() below
+        # guarantees all staged data is committed before we return.
+        self._worker.shutdown(wait=True, cancel_futures=True)
 
         # Ensure final data is flushed synchronously on main/exit thread
         self._perform_flush()
