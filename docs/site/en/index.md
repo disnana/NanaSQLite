@@ -18,11 +18,15 @@ hero:
 
 features:
   - title: "Fast Memory Caching"
-    details: "Supports lazy loading and bulk loading. Achieves memory-like access speeds."
+    details: "Choose from UNBOUNDED, LRU, and TTL cache strategies. Supports lazy loading, bulk loading, and optional lru-dict C-extension acceleration."
   - title: "Security & Encryption"
-    details: "Combines strict SQL validation with transparent AES-GCM/ChaCha20 encryption (v1.3+) to fully protect your data."
+    details: "Combines strict SQL validation with transparent AES-GCM/ChaCha20/Fernet encryption (v1.3+) to fully protect your data."
   - title: "Async Support"
     details: "Delivers maximum performance in asynchronous environments like FastAPI with a custom thread pool."
   - title: "Intuitive API"
     details: "Just like a Python dictionary. Persistence without boilerplate code."
+  - title: "V2 Non-blocking Engine"
+    details: "Optional dual-lane write-back architecture with staging buffer, priority queue, and Dead Letter Queue for write-heavy workloads."
+  - title: "Full Documentation"
+    details: "Bilingual (EN/JA) documentation covering cache strategies, encryption, V2 architecture, exceptions, and security audit."
 ---
