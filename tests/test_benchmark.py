@@ -1195,12 +1195,12 @@ class TestV2ArchitectureBenchmarks:
         benchmark(sql_insert_op)
 
     def test_v2_upsert(self, benchmark, v2_dbs):
-        """v2モード (count) での upsert() パフォーマンス"""
+        """v2モード (count) でのKVS upsert パフォーマンス"""
         db = v2_dbs["count"]
         counter = [0]
 
         def upsert_op():
-            db.upsert(f"u_{counter[0]}", {"v": counter[0]})
+            db[f"u_{counter[0]}"] = {"v": counter[0]}
             counter[0] += 1
 
         benchmark(upsert_op)
