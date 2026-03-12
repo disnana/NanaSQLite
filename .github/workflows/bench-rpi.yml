@@ -187,6 +187,8 @@ jobs:
 
       - name: Generate Combined Benchmark Summary
         if: needs.should-run.outputs.run_benchmark == 'true'
+        env:
+          BENCH_DATA_PATH: dev/bench-rpi/data.js
         run: |
           echo "## 📊 Performance Benchmarks (RPI)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
