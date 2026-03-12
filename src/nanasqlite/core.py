@@ -1869,7 +1869,7 @@ class NanaSQLite(MutableMapping):
             # create_table() must support constraint clauses (NOT NULL, DEFAULT,
             # CHECK, REFERENCES, etc.), so a blacklist approach is used here.
             _col_type_str = str(col_type)
-            if re.search(r";|--\s|/\*", _col_type_str):
+            if re.search(r";|--|/\*", _col_type_str):
                 raise NanaSQLiteValidationError(
                     f"Invalid or dangerous column type for '{col_name}': "
                     "must not contain ';', '--', or '/*'"
