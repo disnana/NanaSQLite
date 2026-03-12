@@ -64,6 +64,7 @@ jobs:
 
 
   # Semgrep - 高精度Pythonセマンティック静的解析
+  # 最適化: 1回のJSONスキャン → Python変換でSARIF生成 → 件数チェックでfail
   semgrep:
     name: Semgrep Analysis
     runs-on: ubuntu-latest
@@ -74,13 +75,43 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # SARIF: Security Tab + PRインラインアノテーション用（失敗しても続行）
-    - name: Run Semgrep (SARIF for Security Tab)
-      run: semgrep ci --config="p/python" --sarif -o semgrep-results.sarif || true
+    # 1回のスキャンでJSONを取得（|| true で変換ステップまで必ず進む）
+    - name: Run Semgrep (JSON)
+      run: semgrep ci --config="p/python" --json -o semgrep-report.json || true
 
-    # JSON: サマリー解析用 + findingsがあればここでfailしてPRを止める
-    - name: Run Semgrep (JSON / fail on findings)
-      run: semgrep ci --config="p/python" --json -o semgrep-report.json
+    # JSONからSARIFをPythonで変換（2回目のスキャン不要）
+    - name: Convert Semgrep JSON to SARIF
+      run: |
+        python3 << 'EOF'
+        import json
+        with open('semgrep-report.json') as f:
+            data = json.load(f)
+        results = data.get('results', [])
+        sarif = {
+            "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+            "version": "2.1.0",
+            "runs": [{
+                "tool": {"driver": {"name": "Semgrep", "version": "latest", "rules": []}},
+                "results": [
+                    {
+                        "ruleId": r["check_id"],
+                        "message": {"text": r["extra"]["message"]},
+                        "locations": [{
+                            "physicalLocation": {
+                                "artifactLocation": {"uri": r["path"], "uriBaseId": "%SRCROOT%"},
+                                "region": {"startLine": r["start"]["line"], "startColumn": r["start"]["col"]}
+                            }
+                        }],
+                        "level": "error" if r["extra"].get("severity") in ["ERROR", "CRITICAL"] else "warning"
+                    }
+                    for r in results
+                ]
+            }]
+        }
+        with open('semgrep-results.sarif', 'w') as f:
+            json.dump(sarif, f, indent=2)
+        print(f"Converted {len(results)} findings to SARIF")
+        EOF
 
     - name: Upload Semgrep JSON report
       uses: actions/upload-artifact@v4
@@ -89,13 +120,6 @@ jobs:
         name: semgrep-report
         path: semgrep-report.json
 
-    - name: Upload Semgrep SARIF artifact
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: semgrep-sarif
-        path: semgrep-results.sarif
-
     - name: Upload Semgrep results to GitHub Security Tab
       uses: github/codeql-action/upload-sarif@v4
       if: always()
@@ -103,8 +127,18 @@ jobs:
         sarif_file: semgrep-results.sarif
         category: semgrep
 
+    # findingsがあればここでfailしてPRを止める
+    - name: Fail if Semgrep findings exist
+      run: |
+        COUNT=$(jq '.results | length' semgrep-report.json 2>/dev/null || echo 0)
+        if [ "$COUNT" -gt "0" ]; then
+          echo "❌ Semgrep found ${COUNT} issue(s)."
+          exit 1
+        fi
+
 
   # Trivy - 包括的な脆弱性スキャン
+  # 最適化: 1回のJSONスキャン（fail） → trivy convertでSARIF生成
   trivy:
     name: Trivy Vulnerability Scan
     runs-on: ubuntu-latest
@@ -112,33 +146,8 @@ jobs:
     steps:
     - uses: actions/checkout@v6
 
-    # SARIF: Security Tab用（exit-code:0 で失敗させない）
-    - name: Run Trivy (SARIF for Security Tab, no fail)
-      uses: aquasecurity/trivy-action@master
-      with:
-        scan-type: 'fs'
-        scan-ref: '.'
-        format: 'sarif'
-        output: 'trivy-results.sarif'
-        severity: 'CRITICAL,HIGH,MEDIUM'
-        exit-code: '0'
-
-    - name: Upload Trivy SARIF to Security Tab
-      uses: github/codeql-action/upload-sarif@v4
-      if: always()
-      with:
-        sarif_file: 'trivy-results.sarif'
-        category: trivy
-
-    - name: Upload Trivy SARIF artifact
-      uses: actions/upload-artifact@v7
-      if: always()
-      with:
-        name: trivy-sarif
-        path: trivy-results.sarif
-
-    # JSON: サマリー解析用 + CRITICAL/HIGH/MEDIUM検知でfailしてPRを止める
-    - name: Run Trivy (JSON for summary / fail on findings)
+    # 1回のスキャンでJSONを取得（CRITICAL/HIGH/MEDIUM検知でfailしてPRを止める）
+    - name: Run Trivy (JSON / fail on findings)
       uses: aquasecurity/trivy-action@master
       with:
         scan-type: 'fs'
@@ -147,6 +156,18 @@ jobs:
         output: 'trivy-results.json'
         severity: 'CRITICAL,HIGH,MEDIUM'
         exit-code: '1'
+
+    # trivy convertでJSONからSARIFに変換（2回目のスキャン不要）
+    - name: Convert Trivy JSON to SARIF
+      if: always()
+      run: trivy convert --format sarif --output trivy-results.sarif trivy-results.json || true
+
+    - name: Upload Trivy SARIF to GitHub Security Tab
+      uses: github/codeql-action/upload-sarif@v4
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+        category: trivy
 
     - name: Upload Trivy JSON artifact
       uses: actions/upload-artifact@v7
@@ -175,6 +196,7 @@ jobs:
 
 
   # Grype - 脆弱性スキャン (OS/Python/JS)
+  # 最適化: anchore/scan-actionを廃止しgrype CLIで1回実行 → JSON+SARIFを同時出力
   grype:
     name: Grype Vulnerability Scan
     runs-on: ubuntu-latest
@@ -182,50 +204,34 @@ jobs:
     steps:
     - uses: actions/checkout@v6
 
-    # SARIF: Security Tab用（fail-build:false で失敗させない）
-    - name: Scan for vulnerabilities (SARIF for Security Tab, no fail)
-      uses: anchore/scan-action@v7
-      with:
-        path: "."
-        fail-build: false
-        output-format: sarif
+    - name: Install Grype
+      run: curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
 
-    # 次のJSON実行で上書きされる前にコピーして保持
-    - name: Preserve SARIF before next scan
-      if: always()
-      run: cp results.sarif grype-results.sarif
+    # 1回のスキャンでJSON+SARIFを同時出力（medium以上でfailしてPRを止める）
+    - name: Run Grype (JSON + SARIF / fail on medium+)
+      run: |
+        grype dir:. \
+          -o json=grype-results.json \
+          -o sarif=grype-results.sarif \
+          --fail-on medium
 
-    - name: Upload Grype SARIF to Security Tab
+    - name: Upload Grype SARIF to GitHub Security Tab
       uses: github/codeql-action/upload-sarif@v4
       if: always()
       with:
         sarif_file: grype-results.sarif
         category: grype
 
-    - name: Upload Grype SARIF artifact
-      uses: actions/upload-artifact@v7
-      if: always()
-      with:
-        name: grype-sarif
-        path: grype-results.sarif
-
-    # JSON: サマリー解析用 + findings検知でfailしてPRを止める
-    - name: Scan for vulnerabilities (JSON for summary / fail on findings)
-      uses: anchore/scan-action@v7
-      with:
-        path: "."
-        fail-build: true
-        output-format: json
-
     - name: Upload Grype JSON artifact
       uses: actions/upload-artifact@v7
       if: always()
       with:
         name: grype-json
-        path: results.json
+        path: grype-results.json
 
 
-  # セキュリティサマリー（件数+具体内容 / PRコメント / 合否判定）
+  # セキュリティサマリー
+  # security-reportジョブを統合: 件数+具体内容 / PRコメント / 合否判定 / レポートアーティファクト
   summary:
     name: Security Summary
     needs: [codeql, bandit, semgrep, trivy, bun-audit, grype]
@@ -238,50 +244,51 @@ jobs:
       with:
         path: artifacts
 
-    # 各ツールの結果JSONを解析して件数と具体的な内容をファイルに書き出す
+    # 全ツールのJSONを解析して件数と具体的な内容を抽出
     - name: Parse findings
       id: findings
       run: |
         mkdir -p finding-details
 
-        # --- Bandit (JSON) ---
-        BANDIT_COUNT=0
-        if [ -f artifacts/bandit-report/bandit-report.json ]; then
-          BANDIT_COUNT=$(jq '[.results[]] | length' artifacts/bandit-report/bandit-report.json 2>/dev/null || echo 0)
-          jq -r '.results[] | "[\(.issue_severity)] \(.issue_text)\n  File: \(.filename):\(.line_number)\n"' \
-            artifacts/bandit-report/bandit-report.json 2>/dev/null | head -n 60 \
-            > finding-details/bandit.txt || echo "(parse error)" > finding-details/bandit.txt
-        fi
+        parse_count() {
+          local file=$1 query=$2
+          [ -f "$file" ] && jq "$query" "$file" 2>/dev/null || echo "0"
+        }
+
+        # Bandit
+        BANDIT_COUNT=$(parse_count \
+          artifacts/bandit-report/bandit-report.json \
+          '[.results[]] | length')
+        jq -r '.results[]? | "[\(.issue_severity)] \(.issue_text)\n  File: \(.filename):\(.line_number)\n"' \
+          artifacts/bandit-report/bandit-report.json 2>/dev/null | head -n 80 \
+          > finding-details/bandit.txt || true
         touch finding-details/bandit.txt
 
-        # --- Semgrep (JSON) ---
-        SEMGREP_COUNT=0
-        if [ -f artifacts/semgrep-report/semgrep-report.json ]; then
-          SEMGREP_COUNT=$(jq '[.results[]] | length' artifacts/semgrep-report/semgrep-report.json 2>/dev/null || echo 0)
-          jq -r '.results[] | "[\(.extra.severity)] \(.check_id)\n  \(.extra.message)\n  File: \(.path):\(.start.line)\n"' \
-            artifacts/semgrep-report/semgrep-report.json 2>/dev/null | head -n 60 \
-            > finding-details/semgrep.txt || echo "(parse error)" > finding-details/semgrep.txt
-        fi
+        # Semgrep
+        SEMGREP_COUNT=$(parse_count \
+          artifacts/semgrep-report/semgrep-report.json \
+          '[.results[]] | length')
+        jq -r '.results[]? | "[\(.extra.severity)] \(.check_id)\n  \(.extra.message)\n  File: \(.path):\(.start.line)\n"' \
+          artifacts/semgrep-report/semgrep-report.json 2>/dev/null | head -n 80 \
+          > finding-details/semgrep.txt || true
         touch finding-details/semgrep.txt
 
-        # --- Trivy (JSON) ---
-        TRIVY_COUNT=0
-        if [ -f artifacts/trivy-json/trivy-results.json ]; then
-          TRIVY_COUNT=$(jq '[.Results[].Vulnerabilities // [] | .[]] | length' artifacts/trivy-json/trivy-results.json 2>/dev/null || echo 0)
-          jq -r '.Results[].Vulnerabilities // [] | .[] | "[\(.Severity)] \(.VulnerabilityID) \(.PkgName)@\(.InstalledVersion)\n  \(.Title // "no title")\n"' \
-            artifacts/trivy-json/trivy-results.json 2>/dev/null | head -n 60 \
-            > finding-details/trivy.txt || echo "(parse error)" > finding-details/trivy.txt
-        fi
+        # Trivy
+        TRIVY_COUNT=$(parse_count \
+          artifacts/trivy-json/trivy-results.json \
+          '[.Results[]?.Vulnerabilities // [] | .[]] | length')
+        jq -r '.Results[]?.Vulnerabilities[]? | "[\(.Severity)] \(.VulnerabilityID) \(.PkgName)@\(.InstalledVersion)\n  \(.Title // "no title")\n"' \
+          artifacts/trivy-json/trivy-results.json 2>/dev/null | head -n 80 \
+          > finding-details/trivy.txt || true
         touch finding-details/trivy.txt
 
-        # --- Grype (JSON) ---
-        GRYPE_COUNT=0
-        if [ -f artifacts/grype-json/results.json ]; then
-          GRYPE_COUNT=$(jq '[.matches[]] | length' artifacts/grype-json/results.json 2>/dev/null || echo 0)
-          jq -r '.matches[] | "[\(.vulnerability.severity)] \(.vulnerability.id) \(.artifact.name)@\(.artifact.version)\n"' \
-            artifacts/grype-json/results.json 2>/dev/null | head -n 60 \
-            > finding-details/grype.txt || echo "(parse error)" > finding-details/grype.txt
-        fi
+        # Grype
+        GRYPE_COUNT=$(parse_count \
+          artifacts/grype-json/grype-results.json \
+          '[.matches[]] | length')
+        jq -r '.matches[]? | "[\(.vulnerability.severity)] \(.vulnerability.id) \(.artifact.name)@\(.artifact.version)\n"' \
+          artifacts/grype-json/grype-results.json 2>/dev/null | head -n 80 \
+          > finding-details/grype.txt || true
         touch finding-details/grype.txt
 
         echo "bandit_count=${BANDIT_COUNT}"   >> $GITHUB_OUTPUT
@@ -289,7 +296,7 @@ jobs:
         echo "trivy_count=${TRIVY_COUNT}"     >> $GITHUB_OUTPUT
         echo "grype_count=${GRYPE_COUNT}"     >> $GITHUB_OUTPUT
 
-    # Actionsのステップサマリーに件数テーブル + 具体的な検知内容を出力
+    # Actionsサマリーに件数テーブル + 具体的な内容を出力
     - name: Create summary
       run: |
         echo "## 🛡️ Security Scan Results" >> $GITHUB_STEP_SUMMARY
@@ -304,37 +311,21 @@ jobs:
         echo "| **Grype**     | ${{ needs.grype.result == 'success' && '✅ Passed' || '⚠️ Check logs' }}   | ${{ steps.findings.outputs.grype_count }}件 |" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
 
-        if [ "${{ steps.findings.outputs.bandit_count }}" != "0" ] && [ -s finding-details/bandit.txt ]; then
-          echo "### 🐍 Bandit Findings" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat finding-details/bandit.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-        fi
-
-        if [ "${{ steps.findings.outputs.semgrep_count }}" != "0" ] && [ -s finding-details/semgrep.txt ]; then
-          echo "### 🔎 Semgrep Findings" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat finding-details/semgrep.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-        fi
-
-        if [ "${{ steps.findings.outputs.trivy_count }}" != "0" ] && [ -s finding-details/trivy.txt ]; then
-          echo "### 📦 Trivy Findings" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat finding-details/trivy.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-        fi
-
-        if [ "${{ steps.findings.outputs.grype_count }}" != "0" ] && [ -s finding-details/grype.txt ]; then
-          echo "### 🔍 Grype Findings" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat finding-details/grype.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-        fi
+        declare -A LABELS=(
+          [bandit]="🐍 Bandit Findings"
+          [semgrep]="🔎 Semgrep Findings"
+          [trivy]="📦 Trivy Findings"
+          [grype]="🔍 Grype Findings"
+        )
+        for tool in bandit semgrep trivy grype; do
+          if [ -s "finding-details/${tool}.txt" ]; then
+            echo "### ${LABELS[$tool]}" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat "finding-details/${tool}.txt" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+        done
 
     # PRに件数+具体内容をコメント投稿（再実行時は既存コメントを上書き更新）
     - name: Post PR Comment
@@ -343,6 +334,7 @@ jobs:
       with:
         script: |
           const fs = require('fs');
+
           const icon = (r) => r === 'success' ? '✅' : r === 'skipped' ? '⏭️' : '❌';
           const results = {
             codeql:   '${{ needs.codeql.result }}',
@@ -451,75 +443,10 @@ jobs:
           echo "# ✓ All security checks succeeded 🎉🎉🎉"
         fi
 
-
-  # セキュリティレポート集約（アーティファクトとして保存）
-  security-report:
-    name: Generate Security Report
-    needs: [codeql, bandit, semgrep, trivy, bun-audit, grype]
-    runs-on: ubuntu-latest
-    if: always()
-
-    steps:
-    - uses: actions/checkout@v6
-
-    - name: Download all artifacts
-      uses: actions/download-artifact@v8
-      with:
-        path: artifacts
-
-    - name: Generate Detailed Report
-      run: |
-        echo "# 🛡️ Comprehensive Security Report" > security-report.md
-        echo "Generated at: $(date -u)" >> security-report.md
-        echo "" >> security-report.md
-        echo "## 🔍 Detailed Findings" >> security-report.md
-        echo "*(If any issues are found, they will be listed below)*" >> security-report.md
-        echo "" >> security-report.md
-
-        # Grype
-        if [ -f artifacts/grype-json/results.json ] && jq -e '.matches | length > 0' artifacts/grype-json/results.json > /dev/null 2>&1; then
-          echo "### 🔍 Grype Scan Results" >> security-report.md
-          echo '```' >> security-report.md
-          jq -r '.matches[] | "[\(.vulnerability.severity)] \(.vulnerability.id) \(.artifact.name)@\(.artifact.version)\n  → \(.vulnerability.dataSource)\n---"' \
-            artifacts/grype-json/results.json | head -n 100 >> security-report.md || echo "Parse error" >> security-report.md
-          echo '```' >> security-report.md
-          echo "" >> security-report.md
-        fi
-
-        # Bandit
-        if [ -f artifacts/bandit-report/bandit-report.json ] && jq -e '.results | length > 0' artifacts/bandit-report/bandit-report.json > /dev/null 2>&1; then
-          echo "### 🐍 Bandit Scan Results" >> security-report.md
-          echo '```' >> security-report.md
-          jq -r '.results[] | "[\(.issue_severity)] \(.issue_text)\n  → \(.filename):\(.line_number)\n---"' \
-            artifacts/bandit-report/bandit-report.json | head -n 100 >> security-report.md || echo "Parse error" >> security-report.md
-          echo '```' >> security-report.md
-          echo "" >> security-report.md
-        fi
-
-        # Semgrep
-        if [ -f artifacts/semgrep-report/semgrep-report.json ] && jq -e '.results | length > 0' artifacts/semgrep-report/semgrep-report.json > /dev/null 2>&1; then
-          echo "### 🔎 Semgrep Scan Results" >> security-report.md
-          echo '```' >> security-report.md
-          jq -r '.results[] | "[\(.extra.severity)] \(.check_id)\n  \(.extra.message)\n  → \(.path):\(.start.line)\n---"' \
-            artifacts/semgrep-report/semgrep-report.json | head -n 100 >> security-report.md || echo "Parse error" >> security-report.md
-          echo '```' >> security-report.md
-          echo "" >> security-report.md
-        fi
-
-        # Trivy
-        if [ -f artifacts/trivy-json/trivy-results.json ] && jq -e '[.Results[].Vulnerabilities // []] | flatten | length > 0' artifacts/trivy-json/trivy-results.json > /dev/null 2>&1; then
-          echo "### 📦 Trivy Scan Results" >> security-report.md
-          echo '```' >> security-report.md
-          jq -r '.Results[].Vulnerabilities // [] | .[] | "[\(.Severity)] \(.VulnerabilityID) \(.PkgName)@\(.InstalledVersion)\n  → \(.Title // "no title")\n---"' \
-            artifacts/trivy-json/trivy-results.json | head -n 100 >> security-report.md || echo "Parse error" >> security-report.md
-          echo '```' >> security-report.md
-          echo "" >> security-report.md
-        fi
-
-        cat security-report.md >> $GITHUB_STEP_SUMMARY
-
-    - name: Upload Full Report
-      uses: actions/upload-artifact@v7
+    # security-reportジョブを統合: finding-detailsをアーティファクトとして保存
+    - name: Upload Full Security Report
+      uses: actions/upload-artifact@v4
+      if: always()
       with:
         name: full-security-report
-        path: security-report.md
+        path: finding-details/
