@@ -32,14 +32,9 @@ def async_db_instance(db_path):
 
     db = AsyncNanaSQLite(db_path)
     yield db
-    # 完全にクリーンアップ
+    # 完全にクリーンアップ（_benchmark_loopを使用して確実にclose()を実行する）
     with contextlib.suppress(Exception):
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # 実行中のループがある場合はタスクとして追加
-            loop.create_task(db.close())
-        else:
-            loop.run_until_complete(db.close())
+        run_async(db.close())
 
 
 @pytest.fixture
@@ -53,11 +48,10 @@ def async_db_with_data_instance(db_path):
         await db.batch_update(data)
         return db
 
-    loop = asyncio.get_event_loop()
-    db = loop.run_until_complete(setup())
+    db = run_async(setup())
     yield db
     with contextlib.suppress(Exception):
-        loop.run_until_complete(db.close())
+        run_async(db.close())
 
 
 # ベンチマーク用の永続的イベントループ

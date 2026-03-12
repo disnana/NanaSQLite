@@ -1567,6 +1567,9 @@ class NanaSQLite(MutableMapping):
 
         self._is_closed = True
 
+        # Stop background cache threads (e.g., ExpiringDict scheduler for TTL cache)
+        self._cache.clear()
+
         if self._is_connection_owner:
             try:
                 self._connection.close()
