@@ -29,8 +29,9 @@ def load_previous_benchmark():
     """Load previous benchmark data from gh-pages branch if available."""
     try:
         # Try to get the benchmark data from gh-pages branch
+        bench_path = os.environ.get('BENCH_DATA_PATH', 'dev/bench/data.js')
         result = subprocess.run(
-            ['git', 'show', 'gh-pages:dev/bench/data.js'],
+            ['git', 'show', f'gh-pages:{bench_path}'],
             capture_output=True,
             text=True,
             timeout=10
