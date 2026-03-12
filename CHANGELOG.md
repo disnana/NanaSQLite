@@ -6,6 +6,20 @@
 
 ## 日本語
 
+### [1.4.0] - 2026-03-12
+
+#### セキュリティ修正
+- **[Critical] SEC-01**: `create_table()` のカラム型に対するSQLインジェクション脆弱性を修正。APSW はセミコロン区切りの複数文を一度に実行するため、カラム型定義を通じて任意のSQLを実行可能でした。セミコロン (`;`)、ラインコメント (`--`)、ブロックコメント (`/*`) を含む文字列を拒否するバリデーションを追加しました。
+
+#### バグ修正
+- **[High] BUG-01**: V2Engine の `_process_strict_queue()` で `on_success` コールバックがトランザクション COMMIT 前に呼ばれ、後続タスク失敗時のロールバックで不整合が発生する問題を修正。コールバックを COMMIT 成功後に遅延実行するよう変更しました。
+- **[Medium] BUG-02**: `AsyncNanaSQLite.table()` で子インスタンスに `_v2_mode`, `_cache_strategy`, `_encryption_key` 等の属性が設定されず `AttributeError` が発生する問題を修正。親インスタンスの全設定を正しく継承するよう変更しました。
+- **[Medium] BUG-03**: v2モードで `execute()` 経由の SELECT/PRAGMA/EXPLAIN クエリが常に空結果を返す問題を修正。読み取りクエリをバックグラウンドキューからバイパスして直接実行するよう変更しました。
+
+#### コード品質改善
+- **[Low] BUG-04**: `async_core.py` の `_shared_query_impl()` 内で重複していたエイリアス抽出ロジックを `NanaSQLite._extract_column_aliases()` の呼び出しに置き換えました。
+- **[Low] QUAL-01**: `update()` メソッドの型アノテーションを `dict` から `dict | None` に修正しました。
+
 ### [1.4.0dev2] - 2026-03-12
 
 #### 改善: 非同期 API の完全化
@@ -767,6 +781,20 @@
 
 
 ## English
+
+### [1.4.0] - 2026-03-12
+
+#### Security Fixes
+- **[Critical] SEC-01**: Fixed SQL injection vulnerability in `create_table()` column type definitions. APSW executes all semicolon-separated statements, allowing arbitrary SQL execution through crafted column type strings. Added validation that rejects column types containing `;`, `--`, or `/*`.
+
+#### Bug Fixes
+- **[High] BUG-01**: Fixed V2Engine `_process_strict_queue()` calling `on_success` callbacks before transaction COMMIT. If a later task failed and caused a ROLLBACK, earlier callers would receive false success notifications. Callbacks are now deferred until after COMMIT succeeds.
+- **[Medium] BUG-02**: Fixed `AsyncNanaSQLite.table()` child instances missing `_v2_mode`, `_cache_strategy`, `_encryption_key` and other attributes, causing `AttributeError`. All parent settings are now properly inherited.
+- **[Medium] BUG-03**: Fixed v2 mode `execute()` returning empty results for SELECT/PRAGMA/EXPLAIN queries. Read queries now bypass the background queue and execute directly.
+
+#### Code Quality Improvements
+- **[Low] BUG-04**: Replaced duplicated alias extraction logic in `_shared_query_impl()` with a call to `NanaSQLite._extract_column_aliases()`.
+- **[Low] QUAL-01**: Fixed `update()` method type annotation from `dict` to `dict | None`.
 
 ### [1.4.0dev2] - 2026-03-12
 

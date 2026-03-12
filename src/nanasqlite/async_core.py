@@ -26,7 +26,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import queue
-import re
 import types
 import weakref
 from concurrent.futures import ThreadPoolExecutor

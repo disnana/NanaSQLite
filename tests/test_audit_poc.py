@@ -1,5 +1,5 @@
 """
-POC verification tests for audit findings (v1.3.4).
+POC verification tests for audit findings (v1.3.4 + v1.4.0).
 
 Each test corresponds to a POC in etc/poc/ and verifies that the patched code
 handles the reported vulnerability or bug correctly.
@@ -367,5 +367,235 @@ class TestSec02QuotedFunctionBypass:
             results = db.query("t", where='"name" IS NOT NULL')
             # This should NOT raise because "name" here is not treated as a function
             assert isinstance(results, list)
+        finally:
+            db.close()
+
+
+# ===========================================================================
+# v1.4.0 Audit Findings
+# ===========================================================================
+
+
+# ===========================================================================
+# SEC-01 [Critical]: create_table() column type SQL injection
+# ===========================================================================
+class TestV140Sec01CreateTableInjection:
+    """SEC-01: create_table() must validate column type values to prevent SQL injection."""
+
+    def test_semicolon_injection_blocked(self, db):
+        """Semicolon in column type is blocked."""
+        with pytest.raises((NanaSQLiteValidationError, ValueError)):
+            db.create_table("evil", {"id": 'INTEGER); DELETE FROM "data" WHERE 1=1; --'})
+
+    def test_line_comment_injection_blocked(self, db):
+        """Line comment in column type is blocked."""
+        with pytest.raises((NanaSQLiteValidationError, ValueError)):
+            db.create_table("evil", {"id": "INTEGER -- comment"})
+
+    def test_block_comment_injection_blocked(self, db):
+        """Block comment in column type is blocked."""
+        with pytest.raises((NanaSQLiteValidationError, ValueError)):
+            db.create_table("evil", {"id": "INTEGER /* comment */"})
+
+    def test_data_preserved_after_blocked_injection(self, db):
+        """Injection attempt does not corrupt existing data."""
+        db["key1"] = "value1"
+        with pytest.raises((NanaSQLiteValidationError, ValueError)):
+            db.create_table("evil", {"id": 'TEXT); DELETE FROM "data"; --'})
+        assert db["key1"] == "value1"
+
+    def test_valid_column_types_accepted(self, db):
+        """Standard SQL column types with constraints are still accepted."""
+        valid_types = {
+            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+            "name": "TEXT NOT NULL",
+            "email": "TEXT UNIQUE",
+            "amount": "DECIMAL(10,2) DEFAULT 0",
+            "status": "TEXT DEFAULT 'active'",
+            "ref_id": "INTEGER REFERENCES other(id)",
+        }
+        db.create_table("valid_table", valid_types)
+
+
+# ===========================================================================
+# BUG-01 [High]: V2Engine on_success callback before COMMIT
+# ===========================================================================
+class TestV140Bug01V2OnSuccessDeferred:
+    """BUG-01: V2Engine must call on_success only after COMMIT, not during transaction."""
+
+    def test_on_success_not_called_on_rollback(self, db_path):
+        """If a batch transaction rolls back, earlier tasks must not get on_success."""
+        import apsw
+
+        from nanasqlite.v2_engine import StrictTask, V2Engine
+
+        conn = apsw.Connection(db_path)
+        conn.execute("CREATE TABLE IF NOT EXISTS data (key TEXT PRIMARY KEY, value TEXT)")
+
+        engine = V2Engine(
+            connection=conn,
+            table_name='"data"',
+            flush_mode="manual",
+        )
+
+        callback_log = []
+
+        task1 = StrictTask(
+            priority=10,
+            sequence_id=0,
+            task_type="execute",
+            sql="INSERT INTO data (key, value) VALUES ('k1', 'v1')",
+            parameters=None,
+            on_success=lambda: callback_log.append("task1_success"),
+            on_error=lambda e: callback_log.append("task1_error"),
+        )
+        task2 = StrictTask(
+            priority=10,
+            sequence_id=1,
+            task_type="execute",
+            sql="INVALID SQL",
+            parameters=None,
+            on_success=lambda: callback_log.append("task2_success"),
+            on_error=lambda e: callback_log.append("task2_error"),
+        )
+
+        engine._strict_queue.put(task1)
+        engine._strict_queue.put(task2)
+
+        try:
+            engine._perform_flush()
+        except Exception:
+            pass
+
+        # task1's on_success must NOT have been called since the transaction rolled back
+        assert "task1_success" not in callback_log
+        # task2's on_error must have been called
+        assert "task2_error" in callback_log
+
+        engine.shutdown()
+        conn.close()
+
+    def test_on_success_called_on_commit(self, db_path):
+        """Successful tasks get on_success after COMMIT."""
+        import apsw
+
+        from nanasqlite.v2_engine import StrictTask, V2Engine
+
+        conn = apsw.Connection(db_path)
+        conn.execute("CREATE TABLE IF NOT EXISTS data (key TEXT PRIMARY KEY, value TEXT)")
+
+        engine = V2Engine(
+            connection=conn,
+            table_name='"data"',
+            flush_mode="manual",
+        )
+
+        callback_log = []
+
+        task = StrictTask(
+            priority=10,
+            sequence_id=0,
+            task_type="execute",
+            sql="INSERT INTO data (key, value) VALUES ('k1', 'v1')",
+            parameters=None,
+            on_success=lambda: callback_log.append("success"),
+        )
+
+        engine._strict_queue.put(task)
+        engine._perform_flush()
+
+        assert "success" in callback_log
+        engine.shutdown()
+        conn.close()
+
+
+# ===========================================================================
+# BUG-02 [Medium]: AsyncNanaSQLite.table() missing attributes
+# ===========================================================================
+class TestV140Bug02AsyncTableAttrs:
+    """BUG-02: AsyncNanaSQLite.table() child must inherit all parent attributes."""
+
+    @pytest.mark.asyncio
+    async def test_child_has_v2_attrs(self, db_path):
+        """Child instance has v2-related attributes."""
+        async with AsyncNanaSQLite(db_path) as db:
+            child = await db.table("sub")
+            for attr in [
+                "_v2_mode",
+                "_flush_mode",
+                "_flush_interval",
+                "_flush_count",
+                "_v2_chunk_size",
+            ]:
+                assert hasattr(child, attr), f"Missing attribute: {attr}"
+
+    @pytest.mark.asyncio
+    async def test_child_has_cache_attrs(self, db_path):
+        """Child instance has cache-related attributes."""
+        async with AsyncNanaSQLite(db_path) as db:
+            child = await db.table("sub")
+            for attr in [
+                "_cache_strategy",
+                "_cache_size",
+                "_cache_ttl",
+                "_cache_persistence_ttl",
+            ]:
+                assert hasattr(child, attr), f"Missing attribute: {attr}"
+
+    @pytest.mark.asyncio
+    async def test_child_has_encryption_attrs(self, db_path):
+        """Child instance has encryption-related attributes."""
+        async with AsyncNanaSQLite(db_path) as db:
+            child = await db.table("sub")
+            for attr in ["_encryption_key", "_encryption_mode"]:
+                assert hasattr(child, attr), f"Missing attribute: {attr}"
+
+
+# ===========================================================================
+# BUG-03 [Medium]: v2 mode execute() empty result for SELECTs
+# ===========================================================================
+class TestV140Bug03V2SelectBypass:
+    """BUG-03: Read queries must bypass v2 background queue and return results."""
+
+    def test_query_returns_results_in_v2_mode(self, db_path):
+        """query() returns actual data in v2 mode."""
+        import os
+        os.environ["NANASQLITE_SUPPRESS_MP_WARNING"] = "1"
+        db = NanaSQLite(db_path, v2_mode=True)
+        try:
+            db.create_table("t", {"id": "INTEGER PRIMARY KEY", "name": "TEXT"})
+            db.sql_insert("t", {"id": 1, "name": "test"})
+            db.flush()
+
+            rows = db.query("t")
+            assert len(rows) > 0, "query() returned empty in v2 mode"
+            assert rows[0]["name"] == "test"
+        finally:
+            db.close()
+
+    def test_fetch_one_returns_results_in_v2_mode(self, db_path):
+        """fetch_one() returns data in v2 mode."""
+        import os
+        os.environ["NANASQLITE_SUPPRESS_MP_WARNING"] = "1"
+        db = NanaSQLite(db_path, v2_mode=True)
+        try:
+            db.create_table("t", {"id": "INTEGER PRIMARY KEY", "name": "TEXT"})
+            db.sql_insert("t", {"id": 1, "name": "test"})
+            db.flush()
+
+            row = db.fetch_one("SELECT name FROM t WHERE id = ?", (1,))
+            assert row is not None
+            assert row[0] == "test"
+        finally:
+            db.close()
+
+    def test_pragma_works_in_v2_mode(self, db_path):
+        """PRAGMA queries bypass v2 queue."""
+        import os
+        os.environ["NANASQLITE_SUPPRESS_MP_WARNING"] = "1"
+        db = NanaSQLite(db_path, v2_mode=True)
+        try:
+            mode = db.pragma("journal_mode")
+            assert mode is not None
         finally:
             db.close()
