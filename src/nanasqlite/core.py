@@ -865,11 +865,7 @@ class NanaSQLite(MutableMapping):
             self._delete_from_db(key)
 
         # DB削除成功後にメモリから削除
-        if self._lru_mode:
-            self._cache.delete(key)
-        else:
-            self._data.pop(key, None)
-            self._cached_keys.discard(key)
+        self._cache.delete(key)
 
     def __contains__(self, key: str) -> bool:
         """
@@ -1289,11 +1285,7 @@ class NanaSQLite(MutableMapping):
                 )
                 # キャッシュ更新
                 for key in keys:
-                    if self._lru_mode:
-                        self._cache.delete(key)
-                    else:
-                        self._data.pop(key, None)
-                        self._cached_keys.discard(key)
+                    self._cache.delete(key)
                 cursor.execute("COMMIT")
             except Exception:
                 cursor.execute("ROLLBACK")
