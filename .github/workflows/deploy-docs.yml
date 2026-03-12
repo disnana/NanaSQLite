@@ -50,7 +50,7 @@ jobs:
         working-directory: docs/site
         run: npm run build
 
-      - name: Preserve Benchmark History
+      - name: Preserve Benchmark History and Previews
         run: |
           # Fetch existing gh-pages branch to pull benchmark data (stored in dev/bench)
           git fetch origin gh-pages:gh-pages || echo "gh-pages branch not found, skipping preservation"
@@ -61,6 +61,14 @@ jobs:
             echo "Successfully preserved benchmark history from gh-pages"
           else
             echo "No benchmark history found on gh-pages"
+          fi
+          # Preserve PR preview deployments (stored in preview/pr-*)
+          if git ls-tree -r gh-pages | grep -q 'preview/'; then
+            git checkout gh-pages -- preview
+            cp -r preview docs/site/.vitepress/dist/
+            echo "Successfully preserved PR preview deployments from gh-pages"
+          else
+            echo "No PR preview deployments found on gh-pages"
           fi
 
       - name: Deploy to GitHub Pages
