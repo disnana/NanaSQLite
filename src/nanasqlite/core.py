@@ -1051,7 +1051,7 @@ class NanaSQLite(MutableMapping):
             return args[0]
         raise KeyError(key)
 
-    def update(self, mapping: dict = None, **kwargs) -> None:
+    def update(self, mapping: dict | None = None, **kwargs) -> None:
         """dict.update(mapping) - 一括更新"""
         if mapping:
             for key, value in mapping.items():
@@ -1696,42 +1696,42 @@ class NanaSQLite(MutableMapping):
         """
         self._check_connection()
 
-        # v2 Architecture: Route explicit executes to the strict lane queue
+        # v2 Architecture: Route write operations to the strict lane queue.
+        # Read queries (SELECT, PRAGMA, EXPLAIN) bypass the background queue
+        # and execute directly on the main connection so that results are
+        # immediately available to the caller.
         if self._v2_mode and self._v2_engine:
-            event = threading.Event()
-            exception = None
-
-            def _on_error(e: Exception) -> None:
-                nonlocal exception
-                exception = e
-                event.set()
-
-            def _on_success() -> None:
-                event.set()
-
-            self._v2_engine.enqueue_strict_task(
-                task_type="execute",
-                sql=sql,
-                parameters=parameters,
-                on_success=_on_success,
-                on_error=_on_error
+            _sql_stripped = sql.strip().upper()
+            _is_read_query = (
+                _sql_stripped.startswith("SELECT")
+                or _sql_stripped.startswith("PRAGMA")
+                or _sql_stripped.startswith("EXPLAIN")
             )
-            # Await completion to act synchronously and return a cursor if possible
-            # Note: The returned cursor will be attached to the background connection,
-            # and fetching results from it immediately might be risky if the transaction is closed.
-            # However, execute() is typically used for writes in this context.
-            event.wait()
-            if exception:
-                raise NanaSQLiteDatabaseError(f"Failed to execute SQL in background: {exception}", original_error=exception) from exception
+            if not _is_read_query:
+                event = threading.Event()
+                exception = None
 
-            # Since the transaction in the background is committed immediately after,
-            # returning a usable cursor for SELECTs requires careful handling.
-            # We return a dummy or fresh cursor here for backward compatibility.
-            # For pure read queries, users should arguably not use background execution anyway,
-            # but for writes, this works.
-            with self._acquire_lock():
-                # Provide a cursor to satisfy return type, though it won't have the results of the background query
-                return self._connection.cursor()
+                def _on_error(e: Exception) -> None:
+                    nonlocal exception
+                    exception = e
+                    event.set()
+
+                def _on_success() -> None:
+                    event.set()
+
+                self._v2_engine.enqueue_strict_task(
+                    task_type="execute",
+                    sql=sql,
+                    parameters=parameters,
+                    on_success=_on_success,
+                    on_error=_on_error
+                )
+                event.wait()
+                if exception:
+                    raise NanaSQLiteDatabaseError(f"Failed to execute SQL in background: {exception}", original_error=exception) from exception
+
+                with self._acquire_lock():
+                    return self._connection.cursor()
 
         try:
             with self._acquire_lock():
@@ -1864,6 +1864,16 @@ class NanaSQLite(MutableMapping):
         column_defs = []
         for col_name, col_type in columns.items():
             safe_col_name = self._sanitize_identifier(col_name)
+            # Reject column type definitions containing SQL injection patterns.
+            # Unlike alter_table_add_column() which uses a strict whitelist,
+            # create_table() must support constraint clauses (NOT NULL, DEFAULT,
+            # CHECK, REFERENCES, etc.), so a blacklist approach is used here.
+            _col_type_str = str(col_type)
+            if re.search(r";|--|/\*", _col_type_str):
+                raise NanaSQLiteValidationError(
+                    f"Invalid or dangerous column type for '{col_name}': "
+                    "must not contain ';', '--', or '/*'"
+                )
             column_defs.append(f"{safe_col_name} {col_type}")
 
         if primary_key:

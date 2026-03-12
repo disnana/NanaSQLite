@@ -293,8 +293,8 @@ class V2Engine:
                     deletes
                 )
 
-            # 3. Process Strict Lane
-            self._process_strict_queue(cursor)
+            # 3. Process Strict Lane (callbacks deferred until after COMMIT)
+            succeeded_tasks = self._process_strict_queue(cursor)
 
             # Commit Transaction
             cursor.execute("COMMIT;")
@@ -302,9 +302,26 @@ class V2Engine:
             cursor.execute("ROLLBACK;")
             raise
 
-    def _process_strict_queue(self, cursor: apsw.Cursor) -> None:
-        """Process all pending tasks in the strict priority queue."""
-        # Empty the queue entirely into the transaction
+        # Fire on_success callbacks only after the transaction is committed
+        for task in succeeded_tasks:
+            if task.on_success:
+                try:
+                    task.on_success()
+                except Exception as cb_err:
+                    logger.error("Error in on_success callback: %s", cb_err)
+
+    def _process_strict_queue(self, cursor: apsw.Cursor) -> list[StrictTask]:
+        """Process all pending tasks in the strict priority queue.
+
+        Returns:
+            A list of successfully executed tasks whose ``on_success``
+            callbacks should be invoked **after** the enclosing transaction
+            has been committed.  Callbacks are deliberately *not* fired
+            inside the transaction so that a later task failure + ROLLBACK
+            does not leave earlier callers with a false-positive success
+            notification.
+        """
+        succeeded: list[StrictTask] = []
         while not self._strict_queue.empty():
             task: StrictTask = self._strict_queue.get_nowait()
             try:
@@ -316,8 +333,7 @@ class V2Engine:
                 elif task.task_type == TASK_EXECUTEMANY:
                     cursor.executemany(task.sql, task.parameters) # type: ignore
 
-                if task.on_success:
-                    task.on_success()
+                succeeded.append(task)
 
             except Exception as e:
                 # Individual StrictTask failed. Add to DLQ and re-raise to rollback the transaction
@@ -333,6 +349,7 @@ class V2Engine:
                 # using get_nowait(), the task is already out of the queue (it's in the DLQ).
                 # The next retry of the KVS chunk will NOT include this failed strict task.
                 raise
+        return succeeded
 
     def _recover_chunk_via_dlq(self, failed_kvs_chunk: list[tuple[str, dict[str, Any]]]) -> None:
         """
@@ -351,8 +368,16 @@ class V2Engine:
 
                 # We attempt to drain any NEW strict queue items here per-row as well,
                 # though strictly speaking they should be clean by now.
-                self._process_strict_queue(cursor)
+                succeeded_tasks = self._process_strict_queue(cursor)
                 cursor.execute("COMMIT;")
+
+                # Fire on_success callbacks after commit
+                for task in succeeded_tasks:
+                    if task.on_success:
+                        try:
+                            task.on_success()
+                        except Exception as cb_err:
+                            logger.error("Error in on_success callback: %s", cb_err)
             except Exception as e:
                 cursor.execute("ROLLBACK;")
                 self._add_to_dlq(f"KVS Poison Pill row '{key}' failed: {e}", (key, op))

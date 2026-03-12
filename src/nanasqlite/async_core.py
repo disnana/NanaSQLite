@@ -26,7 +26,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import queue
-import re
 import types
 import weakref
 from concurrent.futures import ThreadPoolExecutor
@@ -1382,6 +1381,20 @@ class AsyncNanaSQLite:
         async_sub_db._validator = resolved_validator
         # coerce 設定を引き継ぐ
         async_sub_db._coerce = resolved_coerce
+        # キャッシュ関連の設定を親インスタンスから継承する
+        async_sub_db._cache_strategy = self._cache_strategy
+        async_sub_db._cache_size = self._cache_size
+        async_sub_db._cache_ttl = self._cache_ttl
+        async_sub_db._cache_persistence_ttl = self._cache_persistence_ttl
+        # 暗号化関連の設定を親インスタンスから継承する
+        async_sub_db._encryption_key = self._encryption_key
+        async_sub_db._encryption_mode = self._encryption_mode
+        # v2アーキテクチャ関連の設定を親インスタンスから継承する
+        async_sub_db._v2_mode = getattr(self, "_v2_mode", False)
+        async_sub_db._flush_mode = getattr(self, "_flush_mode", "immediate")
+        async_sub_db._flush_interval = getattr(self, "_flush_interval", 3.0)
+        async_sub_db._flush_count = getattr(self, "_flush_count", 100)
+        async_sub_db._v2_chunk_size = getattr(self, "_v2_chunk_size", 1000)
         # 子インスタンス管理
         async_sub_db._child_instances = weakref.WeakSet()
         self._child_instances.add(async_sub_db)
@@ -1640,13 +1653,7 @@ class AsyncNanaSQLite:
                         col_names = [row[1] for row in p_cursor]
                     else:
                         # Extract aliases from provided columns list
-                        col_names = []
-                        for col in columns:
-                            parts = re.split(r"\s+as\s+", col, flags=re.IGNORECASE)
-                            if len(parts) > 1:
-                                col_names.append(parts[-1].strip().strip('"').strip("'"))
-                            else:
-                                col_names.append(col.strip())
+                        col_names = NanaSQLite._extract_column_aliases(columns)
 
                 # Convert to dict list
                 return [dict(zip(col_names, row)) for row in cursor]

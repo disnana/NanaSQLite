@@ -113,6 +113,7 @@ db["heavy_key"] = validate_and_compute_data()
 - **Lock Timeout** (v1.3.4b1): Raise `NanaSQLiteLockError` if the lock is held too long, preventing indefinite hangs in multi-threaded apps.
 - **Backup & Restore** (v1.3.4b1): Online backup via APSW's SQLite backup API and one-call restore from any backup file.
 - **Security Audit & Hardening** (v1.3.4): Whitelist-based column type validation, AEAD nonce validation, closed-instance safety on all dict methods. See [CHANGELOG](CHANGELOG.md) for full details.
+- **Security Audit & v2 Bug Fixes** (v1.4.0): Fixed SQL injection in `create_table()` column types, V2Engine callback ordering, async child attribute inheritance, and v2 mode read-query bypass. See [CHANGELOG](CHANGELOG.md) for full details.
 
 ```python
 # Lock Timeout
@@ -311,6 +312,7 @@ db["heavy_key"] = validate_and_compute_data()
 - **ロックタイムアウト** (v1.3.4b1): ロックが一定時間内に取得できない場合に `NanaSQLiteLockError` を送出。マルチスレッドでのハング防止に最適。
 - **バックアップ / リストア** (v1.3.4b1): APSW の SQLite バックアップ API によるオンラインバックアップと、一発でのリストアをサポート。
 - **セキュリティ監査・強化** (v1.3.4): column_type ホワイトリスト検証、AEAD nonce 検証、全 dict メソッドのクローズ済みインスタンス安全性。詳細は [CHANGELOG](CHANGELOG.md) を参照。
+- **セキュリティ監査・v2 バグ修正** (v1.4.0): `create_table()` カラム型SQLインジェクション修正、V2Engineコールバック順序修正、非同期子インスタンス属性継承修正、v2モード読み取りクエリバイパス修正。詳細は [CHANGELOG](CHANGELOG.md) を参照。
 
 ```python
 # ロックタイムアウト
