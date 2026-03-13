@@ -545,3 +545,76 @@ jobs:
         echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
         echo "pip install nanasqlite==${{ needs.check-version.outputs.local_version }}" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================
+  # PR Comment - PR only, always runs
+  # 既存コメントがあれば上書き、なければ新規投稿
+  # ============================================
+  pr-comment:
+    name: Post PR Comment
+    needs: [should-run, lint, type, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    if: always() && github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
+    steps:
+    - name: Post CI results
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const lint = '${{ needs.lint.result }}';
+          const type = '${{ needs.type.result }}';
+          const test = '${{ needs.test.result }}';
+          const runCi = '${{ needs.should-run.outputs.run_ci }}';
+
+          const icon = (r) => ({
+            success:   '✅',
+            skipped:   '⏭️',
+            cancelled: '⚠️',
+          }[r] ?? '❌');
+
+          const allOk = [lint, type, test].every(r => ['success', 'skipped'].includes(r));
+
+          const header = runCi === 'false'
+            ? '⏭️ CI skipped (no src/tests changes)'
+            : allOk
+              ? '✅ All CI checks passed'
+              : '❌ One or more CI checks failed';
+
+          const body = [
+            `## 🔍 CI Results — ${header}`,
+            '',
+            '| Stage | Status |',
+            '|-------|--------|',
+            `| 🧹 Lint (ruff) | ${icon(lint)} \`${lint}\` |`,
+            `| 🔍 Type (mypy) | ${icon(type)} \`${type}\` |`,
+            `| 🧪 Tests       | ${icon(test)} \`${test}\` |`,
+            '',
+            `**Commit:** \`${{ github.sha }}\``,
+            '<!-- ci-results-marker -->',
+          ].join('\n');
+
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+
+          const existing = comments.find(c => c.body.includes('<!-- ci-results-marker -->'));
+
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: existing.id,
+              body,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+          }
