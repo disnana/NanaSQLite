@@ -6,7 +6,7 @@ on:
       - main
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-  workflow_dispatch:  # Manual trigger for other branches
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -20,6 +20,8 @@ env:
 jobs:
   # ============================================
   # Should-Run Check - Determines if CI is needed
+  # main push / workflow_dispatch: 常に実行
+  # PR: src/ tests/ pyproject.toml tox.ini の変更時のみ実行
   # ============================================
   should-run:
     name: Check if CI needed
@@ -48,15 +50,20 @@ jobs:
           exit 0
         fi
 
-        # For PRs: always run
-        if [ "${{ github.event_name }}" == "pull_request" ]; then
-          echo "run_ci=true" >> $GITHUB_OUTPUT
-          echo "PR - CI required"
-          exit 0
-        fi
+        # For PRs: check changed files
+        BASE="${{ github.event.pull_request.base.sha }}"
+        HEAD="${{ github.sha }}"
+        CHANGED=$(git diff --name-only "$BASE" "$HEAD")
+        echo "Changed files:"
+        echo "$CHANGED"
 
-        # Default: run
-        echo "run_ci=true" >> $GITHUB_OUTPUT
+        if echo "$CHANGED" | grep -qE '^(src|tests)/|^pyproject\.toml$|^tox\.ini$'; then
+          echo "run_ci=true" >> $GITHUB_OUTPUT
+          echo "→ src/tests changed: CI required"
+        else
+          echo "run_ci=false" >> $GITHUB_OUTPUT
+          echo "→ no src/tests changes: CI skipped"
+        fi
 
   # ============================================
   # Lint Job - All branches
@@ -118,7 +125,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Main branch: full matrix
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ${{ github.ref == 'refs/heads/main' && fromJSON('["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]') || fromJSON('["3.13"]') }}
         exclude:
@@ -158,7 +164,7 @@ jobs:
     - name: Setup Windows temp directory
       if: runner.os == 'Windows'
       shell: powershell
-      run: New-Item -ItemType Directory -Force -Path D:\temp
+      run: New-Item -ItemType Directory -Force -Path D:\\temp
 
     - name: Install dependencies
       run: |
@@ -169,8 +175,8 @@ jobs:
     - name: Run tests (Windows)
       if: runner.os == 'Windows'
       env:
-        TEMP: 'D:\temp'
-        TMP: 'D:\temp'
+        TEMP: 'D:\\temp'
+        TMP: 'D:\\temp'
       run: |
         pytest tests/ -v --tb=short --junitxml=test-results.xml -n 4 --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py --ignore=tests/test_cache_benchmark.py --ignore=tests/benchmark_encryption.py
 
@@ -190,6 +196,7 @@ jobs:
 
   # ============================================
   # All-Green Summary - Always runs
+  # skipped は正常扱い（src/tests 未変更の場合）
   # ============================================
   summary:
     name: ✅ All Checks
@@ -203,28 +210,31 @@ jobs:
         echo ""
         echo "📝 Job statuses:"
         echo "📝 should-run → run_ci=${{ needs.should-run.outputs.run_ci }}"
-        echo "📝 lint → ${{ needs.lint.result == 'success' && '✓ success' || format('✗ {0}', needs.lint.result) }} [required]"
-        echo "📝 type → ${{ needs.type.result == 'success' && '✓ success' || format('✗ {0}', needs.type.result) }} [required]"
-        echo "📝 test → ${{ needs.test.result == 'success' && '✓ success' || format('✗ {0}', needs.test.result) }} [required]"
+        echo "📝 lint → ${{ needs.lint.result == 'success' && '✓ success' || needs.lint.result == 'skipped' && '⏭ skipped' || format('✗ {0}', needs.lint.result) }} [required]"
+        echo "📝 type → ${{ needs.type.result == 'success' && '✓ success' || needs.type.result == 'skipped' && '⏭ skipped' || format('✗ {0}', needs.type.result) }} [required]"
+        echo "📝 test → ${{ needs.test.result == 'success' && '✓ success' || needs.test.result == 'skipped' && '⏭ skipped' || format('✗ {0}', needs.test.result) }} [required]"
         echo ""
-        
-        # If CI was skipped, all jobs will be 'skipped' - that's OK
-        if [ "${{ needs.should-run.outputs.run_ci }}" == "false" ]; then
-          echo "# ✓ CI was skipped (no relevant changes) 🎉"
-          exit 0
-        fi
-        
-        # Check for failures
+
+        # skipped は正常扱い（src/tests 未変更によるスキップ）
         FAILED=false
-        if [ "${{ needs.lint.result }}" != "success" ]; then FAILED=true; fi
-        if [ "${{ needs.type.result }}" != "success" ]; then FAILED=true; fi
-        if [ "${{ needs.test.result }}" != "success" ]; then FAILED=true; fi
-        
+        for result in \
+          "${{ needs.lint.result }}" \
+          "${{ needs.type.result }}" \
+          "${{ needs.test.result }}"; do
+          if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+            FAILED=true
+          fi
+        done
+
         if [ "$FAILED" = true ]; then
           echo "❌ One or more CI checks failed."
           exit 1
+        fi
+
+        if [ "${{ needs.should-run.outputs.run_ci }}" == "false" ]; then
+          echo "# ⏭️ CI skipped (no src/tests changes) ✓"
         else
-          echo "# ✓ All CI checks succeeded 🎉🎉🎉"
+          echo "# ✅ All CI checks passed 🎉🎉🎉"
         fi
 
     - name: Generate Summary
@@ -234,41 +244,38 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
         echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-        
-        # Lint status
+
         case "${{ needs.lint.result }}" in
-          success) echo "| 🧹 Lint (ruff) | ✅ Passed |" >> $GITHUB_STEP_SUMMARY ;;
+          success)   echo "| 🧹 Lint (ruff) | ✅ Passed |"    >> $GITHUB_STEP_SUMMARY ;;
           cancelled) echo "| 🧹 Lint (ruff) | ⚠️ Cancelled |" >> $GITHUB_STEP_SUMMARY ;;
-          skipped) echo "| 🧹 Lint (ruff) | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY ;;
-          *) echo "| 🧹 Lint (ruff) | ❌ Failed |" >> $GITHUB_STEP_SUMMARY ;;
+          skipped)   echo "| 🧹 Lint (ruff) | ⏭️ Skipped |"   >> $GITHUB_STEP_SUMMARY ;;
+          *)         echo "| 🧹 Lint (ruff) | ❌ Failed |"    >> $GITHUB_STEP_SUMMARY ;;
         esac
-        
-        # Type status
+
         case "${{ needs.type.result }}" in
-          success) echo "| 🔍 Type (mypy) | ✅ Passed |" >> $GITHUB_STEP_SUMMARY ;;
+          success)   echo "| 🔍 Type (mypy) | ✅ Passed |"    >> $GITHUB_STEP_SUMMARY ;;
           cancelled) echo "| 🔍 Type (mypy) | ⚠️ Cancelled |" >> $GITHUB_STEP_SUMMARY ;;
-          skipped) echo "| 🔍 Type (mypy) | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY ;;
-          *) echo "| 🔍 Type (mypy) | ❌ Failed |" >> $GITHUB_STEP_SUMMARY ;;
+          skipped)   echo "| 🔍 Type (mypy) | ⏭️ Skipped |"   >> $GITHUB_STEP_SUMMARY ;;
+          *)         echo "| 🔍 Type (mypy) | ❌ Failed |"    >> $GITHUB_STEP_SUMMARY ;;
         esac
-        
-        # Test status
+
         case "${{ needs.test.result }}" in
-          success) echo "| 🧪 Tests | ✅ Passed |" >> $GITHUB_STEP_SUMMARY ;;
+          success)   echo "| 🧪 Tests | ✅ Passed |"    >> $GITHUB_STEP_SUMMARY ;;
           cancelled) echo "| 🧪 Tests | ⚠️ Cancelled |" >> $GITHUB_STEP_SUMMARY ;;
-          skipped) echo "| 🧪 Tests | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY ;;
-          *) echo "| 🧪 Tests | ❌ Failed |" >> $GITHUB_STEP_SUMMARY ;;
+          skipped)   echo "| 🧪 Tests | ⏭️ Skipped |"   >> $GITHUB_STEP_SUMMARY ;;
+          *)         echo "| 🧪 Tests | ❌ Failed |"    >> $GITHUB_STEP_SUMMARY ;;
         esac
-        
+
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
         echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-        
+
         if [ "${{ github.ref }}" == "refs/heads/main" ]; then
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "🚀 **Main branch** - Ready for release if all checks pass" >> $GITHUB_STEP_SUMMARY
         fi
-        
+
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 📋 Local Commands" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
@@ -290,39 +297,35 @@ jobs:
       local_version: ${{ steps.check.outputs.local_version }}
       pypi_version: ${{ steps.check.outputs.pypi_version }}
       is_prerelease: ${{ steps.check.outputs.is_prerelease }}
-    
+
     steps:
     - uses: actions/checkout@v6
-    
+
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
         python-version: ${{ env.DEFAULT_PYTHON_VERSION }}
-    
+
     - name: Check version difference
       id: check
       run: |
-        # Get local version from __init__.py
         LOCAL_VERSION=$(grep -oP '__version__\s*=\s*"\K[^"]+' src/nanasqlite/__init__.py || echo "0.0.0")
         echo "local_version=$LOCAL_VERSION" >> $GITHUB_OUTPUT
         echo "Local version: $LOCAL_VERSION"
-        
-        # Detect prerelease (alpha/beta/rc/dev)
+
         if [[ "$LOCAL_VERSION" =~ (a|alpha|b|beta|rc|dev) ]]; then
           echo "is_prerelease=true" >> $GITHUB_OUTPUT
           echo "⚠️ Prerelease version detected"
         else
           echo "is_prerelease=false" >> $GITHUB_OUTPUT
         fi
-        
-        # Check if version exists on PyPI
+
         if curl -s "https://pypi.org/pypi/nanasqlite/${LOCAL_VERSION}/json" 2>/dev/null | grep -q '"version"'; then
           PYPI_VERSION="$LOCAL_VERSION"
           echo "PyPI version: $PYPI_VERSION (exact match found)"
           echo "should_publish=false" >> $GITHUB_OUTPUT
           echo "✅ Version $LOCAL_VERSION already on PyPI, skipping publish"
         else
-          # Get latest version
           PYPI_VERSION=$(curl -s https://pypi.org/pypi/nanasqlite/json 2>/dev/null | grep -oP '"version"\s*:\s*"\K[^"]+' | head -1 || echo "0.0.0")
           if [ -z "$PYPI_VERSION" ]; then
             PYPI_VERSION="0.0.0"
@@ -343,33 +346,30 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       hashes: ${{ steps.hash.outputs.hashes }}
-    
+
     steps:
     - uses: actions/checkout@v6
-    
+
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
         enable-cache: true
-    
+
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
         python-version: ${{ env.DEFAULT_PYTHON_VERSION }}
-    
+
     - name: Install build tools
       run: uv pip install --system build
-    
+
     - name: Build package
       run: python -m build
-    
+
     - name: Generate hashes
       id: hash
       shell: bash
       run: |
-        # Generate hashes for the artifacts in dist/
-        # Format: <hash> <filename>
-        # Then base64 encode the whole thing as a single line
         cd dist && echo "hashes=$(sha256sum * | base64 -w0)" >> $GITHUB_OUTPUT
 
     - name: Upload build artifacts
@@ -394,9 +394,9 @@ jobs:
   provenance:
     needs: [build]
     permissions:
-      actions: read    # To read the workflow run.
-      id-token: write  # To sign the provenance (OIDC token).
-      contents: write  # Required by the SLSA generator's internal upload-assets job.
+      actions: read
+      id-token: write
+      contents: write
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
     with:
       base64-subjects: "${{ needs.build.outputs.hashes }}"
@@ -439,8 +439,7 @@ jobs:
             exit 1
           fi
           echo "Verifying artifacts against $PROVENANCE_FILE"
-          
-          # Verify each artifact in dist/
+
           for file in dist/*; do
             echo "Verifying $file..."
             slsa-verifier verify-artifact "$file" \
@@ -460,14 +459,14 @@ jobs:
     environment: pypi
     permissions:
       id-token: write  # Required for PyPI Trusted Publishing.
-    
+
     steps:
     - name: Download build artifacts
       uses: actions/download-artifact@v8
       with:
         name: dist
         path: dist/
-    
+
     # NOTE: The "Generating and uploading digital attestations" notice is expected.
     # pypa/gh-action-pypi-publish@release/v1 automatically generates GitHub Artifact
     # Attestations (PyPI publish/v1 predicate) when id-token: write is present.
@@ -487,10 +486,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    
+
     steps:
     - uses: actions/checkout@v6
-    
+
     - name: Download build artifacts
       uses: actions/download-artifact@v8
       with:
@@ -502,11 +501,11 @@ jobs:
       with:
         name: ${{ needs.provenance.outputs.provenance-name }}
         path: provenance-dir/
-    
+
     - name: Create source zip
       run: |
         zip -r nanasqlite-${{ needs.check-version.outputs.local_version }}-src.zip src/ README.md LICENSE pyproject.toml
-    
+
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
@@ -514,17 +513,17 @@ jobs:
         name: v${{ needs.check-version.outputs.local_version }}
         body: |
           ## NanaSQLite v${{ needs.check-version.outputs.local_version }}
-          
+
           ### インストール / Installation
           ```bash
           pip install nanasqlite==${{ needs.check-version.outputs.local_version }}
           ```
-          
+
           ### ダウンロード / Downloads
           - 📦 **wheel**: ビルド済みパッケージ
           - 📁 **tar.gz**: ソース配布物
           - 🗂️ **src.zip**: ソースコードのみ
-          
+
           詳細は [CHANGELOG.md](CHANGELOG.md) を参照してください。
         files: |
           dist/*
@@ -532,7 +531,7 @@ jobs:
           provenance-dir/${{ needs.provenance.outputs.provenance-name }}
         draft: false
         prerelease: ${{ needs.check-version.outputs.is_prerelease == 'true' }}
-    
+
     - name: Release Summary
       run: |
         echo "## 🎉 Release Complete" >> $GITHUB_STEP_SUMMARY
