@@ -82,6 +82,7 @@ python flask_integration.py
 # Create a post
 curl -X POST http://localhost:5000/posts \
   -H "Content-Type: application/json" \
+  -H "X-Requested-With: XMLHttpRequest" \
   -d '{"title": "My First Post", "content": "Hello World!", "author": "Alice", "tags": ["intro", "blog"]}'
 
 # Get all posts
@@ -93,6 +94,7 @@ curl http://localhost:5000/posts/{post_id}
 # Update post
 curl -X PUT http://localhost:5000/posts/{post_id} \
   -H "Content-Type: application/json" \
+  -H "X-Requested-With: XMLHttpRequest" \
   -d '{"title": "Updated Title"}'
 
 # Search posts
@@ -100,7 +102,8 @@ curl "http://localhost:5000/posts/search?q=hello"
 curl "http://localhost:5000/posts/search?tag=blog"
 
 # Delete post
-curl -X DELETE http://localhost:5000/posts/{post_id}
+curl -X DELETE http://localhost:5000/posts/{post_id} \
+  -H "X-Requested-With: XMLHttpRequest"
 
 # Get stats
 curl http://localhost:5000/stats

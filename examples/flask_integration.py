@@ -15,6 +15,18 @@ from nanasqlite import NanaSQLite
 
 app = Flask(__name__)
 
+# Security: CSRF protection for API
+# In a real production app, use Flask-WTF or similar for robust CSRF protection.
+# For this cookie-less REST API example, we use a custom header check to mitigate CSRF
+# and satisfy security scanners (e.g., SonarCloud python:S4502).
+@app.before_request
+def check_csrf():
+    if request.method in ['POST', 'PUT', 'DELETE']:
+        # Most CSRF attacks rely on standard HTML form submissions which cannot set custom headers.
+        # Requiring a custom header is an effective mitigation for REST APIs.
+        if not request.headers.get('X-Requested-With'):
+            abort(403, description="CSRF protection: X-Requested-With header is missing")
+
 
 # Database initialization
 def get_db():
