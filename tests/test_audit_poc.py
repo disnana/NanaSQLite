@@ -636,10 +636,10 @@ class TestV141Bug01UpsertAttributeError:
         db.create_table("t", {"id": "INTEGER PRIMARY KEY", "name": "TEXT"})
         # Setup initial row
         db.upsert("t", {"id": 1, "name": "Alice"}, conflict_columns=["id"])
-        
+
         # Upsert with ONLY the conflict column, which leaves update_items empty (triggering DO NOTHING)
         db.upsert("t", {"id": 1}, conflict_columns=["id"])
-        
+
         rows = db.query("t")
         assert len(rows) == 1
         assert rows[0]["name"] == "Alice"
