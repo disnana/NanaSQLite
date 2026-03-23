@@ -2374,7 +2374,7 @@ class NanaSQLite(MutableMapping):
 
             update_items = [
                 f"{self._sanitize_identifier(col)} = excluded.{self._sanitize_identifier(col)}"
-                for col in data.keys()
+                for col in target_data.keys()
                 if col not in conflict_columns
             ]
 
