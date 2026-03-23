@@ -110,14 +110,45 @@ db.flush()  # Data is only persisted to disk here
 
 If a background SQL task fails (e.g., type violation, syntax error), it is isolated to the **Dead Letter Queue (DLQ)** instead of halting the entire system. This allows other data to continue being persisted.
 
+Previously, accessing the DLQ required direct interaction with the internal engine. It is now accessible via public APIs.
+
 ```python
 # Inspect DLQ contents
-dlq_items = db._v2_engine.get_dlq()
+dlq_items = db.get_dlq()  # async: await db.aget_dlq()
 for item in dlq_items:
     print(f"Task: {item['task']}, Error: {item['error']}")
 
 # Retry after fixing the issue
-db._v2_engine.retry_dlq()
+db.retry_dlq()  # async: await db.aretry_dlq()
+
+# Clear the DLQ
+db.clear_dlq()  # async: await db.aclear_dlq()
+```
+
+---
+
+## Metrics Collection (Monitoring)
+
+If you need to monitor the engine's health (flush frequency, processing time, error counts, etc.), you can enable the metrics collection feature.
+
+### Enabling Metrics
+Set `v2_enable_metrics=True` when creating the instance. This setting is automatically inherited by child instances created via the `table()` method.
+
+```python
+db = NanaSQLite("mydb.db", v2_mode=True, v2_enable_metrics=True)
+```
+
+### Retrieving Statistics
+Use the `get_v2_metrics()` method to fetch real-time statistics.
+
+```python
+stats = db.get_v2_metrics()  # async: await db.aget_v2_metrics()
+
+print(f"Total Flushes: {stats['flush_count']}")
+print(f"Total Items Flushed: {stats['kvs_items_flushed']}")
+print(f"Total Flush Time: {stats['total_flush_time']:.4f}s")
+print(f"Last Flush Duration: {stats['last_flush_time']:.4f}s")
+print(f"DLQ Error Count: {stats['dlq_errors']}")
 ```
 
 ---

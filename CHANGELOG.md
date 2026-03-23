@@ -6,6 +6,22 @@
 
 ## 日本語
 
+### [1.4.1dev3] - 2026-03-23
+
+#### 新機能: V2エンジンの利便性と観測性の向上 (オプトイン)
+- **デッドレターキュー (DLQ) の可視化**:
+  - `get_dlq()`, `retry_dlq()`, `clear_dlq()` メソッドを同期・非同期（`a*`）両方に追加しました。
+  - バックグラウンドで発生したエラー内容を直接確認し、必要に応じて手動でリトライや消去が可能です。
+- **メトリクス収集機能**:
+  - `v2_enable_metrics=True` を指定することで、エンジンの詳細な統計情報を収集可能になりました。
+  - `get_v2_metrics()` により、総フラッシュ件数、処理時間、DLQ発生数などのメトリクスを取得できます。
+- **設定の継承**:
+  - `table()` メソッドで子インスタンスを作成する際、`v2_enable_metrics` などの V2 固有設定が正しく引き継がれるようになりました。
+
+#### 修正
+- `AsyncNanaSQLite.table()` において、docstring の分断や引数伝搬の不備により発生していた構文エラーおよび初期化の不具合を修正しました。
+- `AsyncNanaSQLite` の一部メソッドにおいて、機能適用時に重複して定義されていた箇所を整理しました。
+
 ### [1.4.0] - 2026-03-12
 
 #### セキュリティ修正
@@ -781,6 +797,22 @@
 
 
 ## English
+
+### [1.4.1dev3] - 2026-03-23
+
+#### New Features: Enhanced V2 Engine Usability and Observability (Opt-in)
+- **Dead Letter Queue (DLQ) Visibility**:
+    - Added `get_dlq()`, `retry_dlq()`, and `clear_dlq()` methods to both synchronous and asynchronous (`a*`) interfaces.
+    - Allows direct inspection, manual retry, or clearing of background operation errors.
+- **Metrics Collection**:
+    - Introduced a `v2_enable_metrics` parameter to enable detailed engine statistics collection.
+    - `get_v2_metrics()` provides metrics such as total flush count, processing time, and DLQ error counts.
+- **Configuration Inheritance**:
+    - Ensured that V2-specific settings like `v2_enable_metrics` are correctly propagated to child instances created via the `table()` method.
+
+#### Fixes
+- Resolved syntax errors and initialization issues in `AsyncNanaSQLite.table()` caused by docstring fragmentation and incomplete argument propagation.
+- Cleaned up duplicate method definitions in `AsyncNanaSQLite` that occurred during feature application.
 
 ### [1.4.0] - 2026-03-12
 

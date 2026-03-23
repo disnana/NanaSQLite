@@ -62,6 +62,7 @@ class V2Engine:
         flush_count: int = 100,
         max_chunk_size: int = 1000,
         serialize_func: Callable[[Any], str | bytes] | None = None,
+        enable_metrics: bool = False,
     ):
         self._connection = connection
         self._table_name = table_name
@@ -98,6 +99,18 @@ class V2Engine:
         self._running = True
         self._flush_event = threading.Event()
         self._timer_thread: threading.Thread | None = None
+
+        # Metrics
+        self._enable_metrics = enable_metrics
+        self._metrics_lock = threading.Lock()
+        self._metrics: dict[str, Any] = {
+            "flush_count": 0,
+            "kvs_items_flushed": 0,
+            "strict_tasks_executed": 0,
+            "dlq_errors": 0,
+            "last_flush_time": None,
+            "total_flush_time_ms": 0.0,
+        }
         # Guard against unbounded queue growth: only one _perform_flush may be
         # pending in the executor at any time.  flush() is called on the hot
         # path (every write in "immediate" mode), so submitting one future per
@@ -133,6 +146,9 @@ class V2Engine:
         """Adds a failed item to the Dead Letter Queue."""
         with self._dlq_lock:
             self.dlq.append((error_msg, item, time.time()))
+        if self._enable_metrics:
+            with self._metrics_lock:
+                self._metrics["dlq_errors"] += 1
         logger.error("NanaSQLite DLQ Entry: %s", error_msg)
 
     # ==================== KVS Lane (Lane 1) Public API ====================
@@ -231,6 +247,8 @@ class V2Engine:
         Combines Lane 1 (KVS) and Lane 2 (Strict Queue) into a single transaction.
         Implements chunking and DLQ error handling.
         """
+        start_time = time.time() if self._enable_metrics else 0.0
+
         # 1. Capture current snapshot of staging buffer
         with self._staging_lock:
             if not self._staging_buffer and self._strict_queue.empty():
@@ -262,6 +280,14 @@ class V2Engine:
                     # If a chunk fails, we enter a recovery mode for that specific chunk
                     logger.warning("NanaSQLite v2 Engine: Chunk transaction failed, entering DLQ recovery. Error: %s", e)
                     self._recover_chunk_via_dlq(chunk)
+
+        if self._enable_metrics:
+            flush_duration_ms = (time.time() - start_time) * 1000
+            current_time = time.time()
+            with self._metrics_lock:
+                self._metrics["flush_count"] += 1
+                self._metrics["last_flush_time"] = current_time
+                self._metrics["total_flush_time_ms"] += flush_duration_ms
 
 
     def _process_transaction_chunk(self, kvs_chunk: list[tuple[str, dict[str, Any]]]) -> None:
@@ -295,6 +321,11 @@ class V2Engine:
 
             # 3. Process Strict Lane (callbacks deferred until after COMMIT)
             succeeded_tasks = self._process_strict_queue(cursor)
+
+            if self._enable_metrics:
+                with self._metrics_lock:
+                    self._metrics["kvs_items_flushed"] += len(sets) + len(deletes)
+                    self._metrics["strict_tasks_executed"] += len(succeeded_tasks)
 
             # Commit Transaction
             cursor.execute("COMMIT;")
@@ -369,6 +400,12 @@ class V2Engine:
                 # We attempt to drain any NEW strict queue items here per-row as well,
                 # though strictly speaking they should be clean by now.
                 succeeded_tasks = self._process_strict_queue(cursor)
+
+                if self._enable_metrics:
+                    with self._metrics_lock:
+                        self._metrics["kvs_items_flushed"] += 1
+                        self._metrics["strict_tasks_executed"] += len(succeeded_tasks)
+
                 cursor.execute("COMMIT;")
 
                 # Fire on_success callbacks after commit
@@ -414,6 +451,23 @@ class V2Engine:
                 logger.warning("NanaSQLite v2 Engine: Unknown item type in DLQ, cannot retry: %s", item)
 
         self._check_auto_flush()
+
+    def clear_dlq(self) -> None:
+        """Clear all items from the Dead Letter Queue."""
+        with self._dlq_lock:
+            self.dlq.clear()
+
+    def get_metrics(self) -> dict[str, Any]:
+        """Return the current metrics if enabled."""
+        if not self._enable_metrics:
+            return {}
+        with self._metrics_lock:
+            metrics = self._metrics.copy()
+            # Dynamic metrics
+            with self._staging_lock:
+                metrics["current_staging_count"] = self._staging_changes
+            metrics["current_strict_queue_size"] = self._strict_queue.qsize()
+            return metrics
 
     def shutdown(self) -> None:
         """Gracefully shutdown the engine, forcing a synchronous final flush."""
