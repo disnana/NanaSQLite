@@ -114,6 +114,7 @@ db["heavy_key"] = validate_and_compute_data()
 - **Backup & Restore** (v1.3.4b1): Online backup via APSW's SQLite backup API and one-call restore from any backup file.
 - **Security Audit & Hardening** (v1.3.4): Whitelist-based column type validation, AEAD nonce validation, closed-instance safety on all dict methods. See [CHANGELOG](CHANGELOG.md) for full details.
 - **Security Audit & v2 Bug Fixes** (v1.4.0): Fixed SQL injection in `create_table()` column types, V2Engine callback ordering, async child attribute inheritance, and v2 mode read-query bypass. See [CHANGELOG](CHANGELOG.md) for full details.
+- **Critical Bug Fix** (v1.4.1): Fixed `AttributeError` in `upsert()` / `aupsert()` when using specific call patterns with `conflict_columns`. Added negative caching for LRU/TTL to improve performance.
 
 ```python
 # Lock Timeout
@@ -313,6 +314,7 @@ db["heavy_key"] = validate_and_compute_data()
 - **バックアップ / リストア** (v1.3.4b1): APSW の SQLite バックアップ API によるオンラインバックアップと、一発でのリストアをサポート。
 - **セキュリティ監査・強化** (v1.3.4): column_type ホワイトリスト検証、AEAD nonce 検証、全 dict メソッドのクローズ済みインスタンス安全性。詳細は [CHANGELOG](CHANGELOG.md) を参照。
 - **セキュリティ監査・v2 バグ修正** (v1.4.0): `create_table()` カラム型SQLインジェクション修正、V2Engineコールバック順序修正、非同期子インスタンス属性継承修正、v2モード読み取りクエリバイパス修正。詳細は [CHANGELOG](CHANGELOG.md) を参照。
+- **致命的バグ修正・性能向上** (v1.4.1): `upsert()` / `aupsert()` における `AttributeError` を修正。LRU/TTL キャッシュへのネガティブキャッシュ導入による性能向上。詳細は [CHANGELOG](CHANGELOG.md) を参照。
 
 ```python
 # ロックタイムアウト
