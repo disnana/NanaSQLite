@@ -607,16 +607,16 @@ class TestV140Bug03V2SelectBypass:
 
 
 # ===========================================================================
-# BUG-01 [High]: upsert() AttributeError when data_dict passed with conflict_columns
+# BUG-01 [High]: upsert(table, data_dict, conflict_columns) raised AttributeError
 # ===========================================================================
 class TestV141Bug01UpsertAttributeError:
-    """BUG-01: upsert(data_dict, conflict_columns) must not raise AttributeError."""
+    """BUG-01: upsert(table_name, data_dict, conflict_columns) must not raise AttributeError."""
 
     def test_upsert_insert_with_conflict_columns(self, db):
-        """upsert() with a data dict and conflict_columns inserts a new row."""
+        """upsert() with table_name, data dict, and conflict_columns inserts a new row."""
         db.create_table("t", {"id": "INTEGER PRIMARY KEY", "name": "TEXT"})
         # This call raised 'AttributeError: NoneType has no attribute keys' before fix
-        db.upsert({"id": 1, "name": "Alice"}, conflict_columns=["id"])
+        db.upsert("t", {"id": 1, "name": "Alice"}, conflict_columns=["id"])
         rows = db.query("t")
         assert len(rows) == 1
         assert rows[0]["name"] == "Alice"
@@ -624,9 +624,9 @@ class TestV141Bug01UpsertAttributeError:
     def test_upsert_update_with_conflict_columns(self, db):
         """upsert() with conflict_columns updates an existing row on conflict."""
         db.create_table("t", {"id": "INTEGER PRIMARY KEY", "name": "TEXT"})
-        db.upsert({"id": 1, "name": "Alice"}, conflict_columns=["id"])
+        db.upsert("t", {"id": 1, "name": "Alice"}, conflict_columns=["id"])
         # Second call should update name, not raise
-        db.upsert({"id": 1, "name": "Bob"}, conflict_columns=["id"])
+        db.upsert("t", {"id": 1, "name": "Bob"}, conflict_columns=["id"])
         rows = db.query("t")
         assert len(rows) == 1
         assert rows[0]["name"] == "Bob"
@@ -634,11 +634,15 @@ class TestV141Bug01UpsertAttributeError:
     def test_upsert_do_nothing_when_all_conflict_columns(self, db):
         """upsert() with all columns as conflict_columns does nothing on conflict."""
         db.create_table("t", {"id": "INTEGER PRIMARY KEY", "name": "TEXT"})
-        db.upsert({"id": 1, "name": "Alice"}, conflict_columns=["id", "name"])
-        # Should not raise and should leave data unchanged
-        db.upsert({"id": 1, "name": "Alice"}, conflict_columns=["id", "name"])
+        # Setup initial row
+        db.upsert("t", {"id": 1, "name": "Alice"}, conflict_columns=["id"])
+        
+        # Upsert with ONLY the conflict column, which leaves update_items empty (triggering DO NOTHING)
+        db.upsert("t", {"id": 1}, conflict_columns=["id"])
+        
         rows = db.query("t")
         assert len(rows) == 1
+        assert rows[0]["name"] == "Alice"
 
     @pytest.mark.asyncio
     async def test_aupsert_with_conflict_columns(self, db_path):
@@ -646,6 +650,6 @@ class TestV141Bug01UpsertAttributeError:
         async with AsyncNanaSQLite(db_path) as db:
             await db.create_table("t", {"id": "INTEGER PRIMARY KEY", "name": "TEXT"})
             # aupsert wraps upsert — same bug would surface here
-            await db.aupsert({"id": 1, "name": "Alice"}, conflict_columns=["id"])
+            await db.aupsert("t", {"id": 1, "name": "Alice"}, conflict_columns=["id"])
             rows = await db.query("t")
             assert rows[0]["name"] == "Alice"
