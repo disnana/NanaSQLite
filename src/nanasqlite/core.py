@@ -124,6 +124,7 @@ class NanaSQLite(MutableMapping):
         flush_interval: float = 3.0,
         flush_count: int = 100,
         v2_chunk_size: int = 1000,
+        v2_enable_metrics: bool = False,
         _shared_connection: apsw.Connection | None = None,
         _shared_lock: threading.RLock | None = None,
     ):
@@ -146,6 +147,7 @@ class NanaSQLite(MutableMapping):
             flush_interval: v2のtimeモード時の秒数
             flush_count: v2のcountモード時の書き込み閾値
             v2_chunk_size: v2フラッシュ時のトランザクション最大件数
+            v2_enable_metrics: True の場合、v2エンジンのフラッシュメトリクスを収集する（オプション）
             _shared_connection: 内部用：共有する接続
             _shared_lock: 内部用：共有するロック
         """
@@ -211,6 +213,7 @@ class NanaSQLite(MutableMapping):
 
         # v2 Architecture Setup
         self._v2_mode = v2_mode
+        self._v2_enable_metrics_raw = v2_enable_metrics
         self._v2_engine: V2Engine | None = None
 
         if self._v2_mode:
@@ -351,6 +354,7 @@ class NanaSQLite(MutableMapping):
                 flush_count=flush_count,
                 max_chunk_size=v2_chunk_size,
                 serialize_func=self._serialize,
+                enable_metrics=self._v2_enable_metrics_raw,
             )
 
         # 一括ロード
@@ -1062,6 +1066,40 @@ class NanaSQLite(MutableMapping):
         """
         if self._v2_mode and self._v2_engine:
             self._v2_engine.flush()
+
+    def get_dlq(self) -> list[dict[str, Any]]:
+        """
+        [v2 Feature] 現在のデッドレターキュー（DLQ）の内容を取得します。
+        v2モードが無効な場合は空のリストを返します。
+        """
+        if self._v2_mode and self._v2_engine:
+            return self._v2_engine.get_dlq()
+        return []
+
+    def retry_dlq(self) -> None:
+        """
+        [v2 Feature] デッドレターキュー（DLQ）内の全アイテムを再試行キューに戻します。
+        v2モードが無効な場合は何もしません。
+        """
+        if self._v2_mode and self._v2_engine:
+            self._v2_engine.retry_dlq()
+
+    def clear_dlq(self) -> None:
+        """
+        [v2 Feature] デッドレターキュー（DLQ）の内容をクリアします。
+        v2モードが無効な場合は何もしません。
+        """
+        if self._v2_mode and self._v2_engine:
+            self._v2_engine.clear_dlq()
+
+    def get_v2_metrics(self) -> dict[str, Any]:
+        """
+        [v2 Feature] 現在のメトリクス情報を取得します（有効な場合）。
+        v2モード自体またはメトリクスが無効な場合は空の辞書を返します。
+        """
+        if self._v2_mode and self._v2_engine:
+            return self._v2_engine.get_metrics()
+        return {}
 
     def clear(self) -> None:
         """dict.clear() - 全削除"""
@@ -2657,25 +2695,6 @@ class NanaSQLite(MutableMapping):
         self.execute_many(sql, parameters_list)
         return len(data_list)
 
-    def get_dlq(self) -> list[dict[str, Any]]:
-        """
-        [v2 Feature] デッドレターキュー (DLQ) の内容を取得します。
-        v2モードが無効な場合は空リストを返します。
-
-        Returns:
-            list[dict]: エラー内容、アイテム、タイムスタンプを含む辞書のリスト
-        """
-        if self._v2_mode and self._v2_engine:
-            return self._v2_engine.get_dlq()
-        return []
-
-    def retry_dlq(self) -> None:
-        """
-        [v2 Feature] デッドレターキュー (DLQ) にあるアイテムをリトライキューに戻します。
-        v2モードが無効な場合は何もしません。
-        """
-        if self._v2_mode and self._v2_engine:
-            self._v2_engine.retry_dlq()
 
     def get_last_insert_rowid(self) -> int:
         """
@@ -2898,6 +2917,7 @@ class NanaSQLite(MutableMapping):
         cache_persistence_ttl: bool | None = None,
         validator: Any | None | types.EllipsisType = _UNSET,
         coerce: bool | types.EllipsisType = _UNSET,
+        v2_enable_metrics: bool | types.EllipsisType = _UNSET,
     ):
         """
         新しいインスタンスを作成しますが、SQLite接続とロックは共有します。
@@ -2961,6 +2981,8 @@ class NanaSQLite(MutableMapping):
         resolved_validator = self._validator if validator is _UNSET else validator
         # coerce が省略された場合は親の設定を継承する
         resolved_coerce = self._coerce if coerce is _UNSET else bool(coerce)
+        # v2_enable_metrics が省略された場合は親の設定を継承する
+        resolved_v2_enable_metrics = self._v2_enable_metrics_raw if v2_enable_metrics is _UNSET else bool(v2_enable_metrics)
 
         # 子インスタンス生成〜WeakSet追加をロックで保護し、
         # restore() の接続差し替えと競合しないようにする
@@ -2975,6 +2997,8 @@ class NanaSQLite(MutableMapping):
                 lock_timeout=self._lock_timeout,
                 validator=resolved_validator,
                 coerce=resolved_coerce,
+                v2_mode=self._v2_mode,
+                v2_enable_metrics=resolved_v2_enable_metrics,
                 _shared_connection=self._connection,
                 _shared_lock=self._lock,
             )

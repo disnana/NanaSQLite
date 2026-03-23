@@ -107,7 +107,8 @@ class AsyncNanaSQLite:
         flush_interval: float = 3.0,
         flush_count: int = 100,
         v2_chunk_size: int = 1000,
-    ):
+        v2_enable_metrics: bool = False,
+    ) -> None:
         """
         Args:
             db_path: SQLiteデータベースファイルのパス
@@ -132,7 +133,8 @@ class AsyncNanaSQLite:
             flush_mode: v2のフラッシュモード (immediate, count, time, manual)
             flush_interval: v2のtimeモード時の秒数
             flush_count: v2のcountモード時の書き込み閾値
-            v2_chunk_size: v2フラッシュ時のトランザクション最大件数
+            v2_chunk_size: v2モード時の1トランザクションあたりの最大アイテム数
+            v2_enable_metrics: True の場合、v2エンジンのフラッシュメトリクスを収集する。
         """
         self._db_path = db_path
         self._table = table
@@ -167,6 +169,7 @@ class AsyncNanaSQLite:
         self._flush_interval = flush_interval
         self._flush_count = flush_count
         self._v2_chunk_size = v2_chunk_size
+        self._v2_enable_metrics = v2_enable_metrics
 
         self._closed = False
         self._child_instances = weakref.WeakSet()  # WeakSetによる弱参照追跡（死んだ参照は自動的にクリーンアップ）
@@ -214,6 +217,7 @@ class AsyncNanaSQLite:
                     flush_interval=self._flush_interval,
                     flush_count=self._flush_count,
                     v2_chunk_size=self._v2_chunk_size,
+                    v2_enable_metrics=self._v2_enable_metrics,
                 ),
             )
 
@@ -458,6 +462,57 @@ class AsyncNanaSQLite:
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(self._executor, self._db.clear)
+
+    # ==================== v2 DLQ / Metrics API ====================
+
+    async def aget_dlq(self) -> list[dict[str, Any]]:
+        """
+        [v2 Feature] 非同期でデッドレターキュー（DLQ）の内容を取得します。
+        v2モードが無効な場合は空のリストを返します。
+
+        Example:
+            >>> failed = await db.aget_dlq()
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self._db.get_dlq)
+
+    async def aretry_dlq(self) -> None:
+        """
+        [v2 Feature] 非同期でDLQ内の全アイテムを再試行キューに戻します。
+        v2モードが無効な場合は何もしません。
+
+        Example:
+            >>> await db.aretry_dlq()
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(self._executor, self._db.retry_dlq)
+
+    async def aclear_dlq(self) -> None:
+        """
+        [v2 Feature] 非同期でDLQの内容をクリアします。
+        v2モードが無効な場合は何もしません。
+
+        Example:
+            >>> await db.aclear_dlq()
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(self._executor, self._db.clear_dlq)
+
+    async def aget_v2_metrics(self) -> dict[str, Any]:
+        """
+        [v2 Feature] 非同期でメトリクス情報を取得します( v2_enable_metrics=True 時のみ有効)。
+        v2モード自体またはメトリクスが無効な場合は空の辞書を返します。
+
+        Example:
+            >>> metrics = await db.aget_v2_metrics()
+            >>> print(metrics["flush_count"])
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self._db.get_v2_metrics)
 
     async def asetdefault(self, key: str, default: Any = None) -> Any:
         """
@@ -1526,24 +1581,6 @@ class AsyncNanaSQLite:
             self._executor, self._db.upsert, table_name, data, conflict_columns
         )
 
-    async def aget_dlq(self) -> list[dict[str, Any]]:
-        """
-        [v2 Feature] 非同期でデッドレターキュー (DLQ) の内容を取得します。
-
-        Returns:
-            list[dict]: エラー内容、アイテム、タイムスタンプを含む辞書のリスト
-        """
-        await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.get_dlq)
-
-    async def aretry_dlq(self) -> None:
-        """
-        [v2 Feature] 非同期でデッドレターキュー (DLQ) アイテムをリトライキューに戻します。
-        """
-        await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.retry_dlq)
 
     acreate_table = create_table
     acreate_index = create_index

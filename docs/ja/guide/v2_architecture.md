@@ -110,14 +110,45 @@ db.flush()  # ここで初めてディスクに書き込まれる
 
 バックグラウンドでの SQL 実行が失敗した場合（型違反、SQL構文エラー等）、failed タスクは **DLQ（Dead Letter Queue）** に隔離されます。これにより、エラーが一件あっても他のデータ永続化が継続されます。
 
+以前は内部エンジンを直接操作する必要がありましたが、現在は公開 API として利用可能です。
+
 ```python
 # DLQ の内容を確認する
-dlq_items = db._v2_engine.get_dlq()
+dlq_items = db.get_dlq()  # 非同期版は await db.aget_dlq()
 for item in dlq_items:
     print(f"Task: {item['task']}, Error: {item['error']}")
 
 # 問題を修正してから再試行する場合
-db._v2_engine.retry_dlq()
+db.retry_dlq()  # 非同期版は await db.aretry_dlq()
+
+# DLQ を空にする場合
+db.clear_dlq()  # 非同期版は await db.aclear_dlq()
+```
+
+---
+
+## メトリクス収集 (モニタリング)
+
+エンジンの稼働状況（フラッシュの頻度、処理時間、エラー発生数など）を詳細に把握したい場合、メトリクス収集機能を有効にできます。
+
+### 有効化
+`v2_enable_metrics=True` を指定してインスタンスを作成します。この設定は `table()` メソッドで作成した子インスタンスにも自動的に引き継がれます。
+
+```python
+db = NanaSQLite("mydb.db", v2_mode=True, v2_enable_metrics=True)
+```
+
+### 統計情報の取得
+`get_v2_metrics()` メソッドで現在の統計データを取得できます。
+
+```python
+stats = db.get_v2_metrics()  # 非同期版は await db.aget_v2_metrics()
+
+print(f"総フラッシュ回数: {stats['flush_count']}")
+print(f"総書き込みアイテム数: {stats['kvs_items_flushed']}")
+print(f"総フラッシュ処理時間: {stats['total_flush_time']:.4f}s")
+print(f"直近のフラッシュ時間: {stats['last_flush_time']:.4f}s")
+print(f"DLQ エラー発生数: {stats['dlq_errors']}")
 ```
 
 ---
