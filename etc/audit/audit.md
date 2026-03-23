@@ -163,3 +163,108 @@ def update(self, mapping: dict = None, **kwargs) -> None:
 |---|---|
 | BUG-04 | エイリアス抽出ロジックの重複解消 |
 | QUAL-01 | `update()` の型アノテーション不整合修正 |
+
+---
+
+# NanaSQLite v1.4.1dev3 プレリリース監査レポート
+
+> 対象バージョン: 1.4.1dev3  
+> 監査日: 2026-03-24  
+> 対象ファイル: src/nanasqlite/ 配下すべて (core.py, async_core.py, cache.py, utils.py, sql_utils.py, exceptions.py)
+
+---
+
+## 総括
+
+| カテゴリ | Critical | High | Medium | Low | 計 |
+|---|---|---|---|---|---|
+| 脆弱性 | — | — | — | — | 0 |
+| 不具合・潜在バグ | — | 1 | — | — | 1 |
+| 高速化の余地 | — | — | — | 1 | 1 |
+| 改善点（コード品質） | — | — | — | 1 | 1 |
+| **合計** | **—** | **1** | **—** | **2** | **3** |
+
+---
+
+## 1. 脆弱性
+
+該当なし。現バージョンにおいて重大なセキュリティ脆弱性は検出されなかった。
+
+---
+
+## 2. 不具合・潜在バグ
+
+### BUG-01 [High] `upsert()` でデータ辞書を第1引数に渡した場合の AttributeError
+
+**ファイル:** `core.py`
+
+```python
+# 問題のある呼び出し例
+db.upsert({"id": 1, "name": "Alice"}, conflict_columns=["id"])
+```
+
+`upsert` メソッドは複数の呼び出しパターンを内部で振り分けるが、`(data_dict, conflict_columns)` パターンで呼ばれた際に、内部変数 `target_data` ではなく元の `data` 変数（この呼び出しパターンでは `None`）の `.keys()` を参照するコードパスが存在する。その結果 `AttributeError: 'NoneType' object has no attribute 'keys'` が発生し、処理が中断する。非同期版 `aupsert` も内部で `core.py` の `upsert` を経由するため同様の影響を受ける。
+
+**POC:** `etc/poc/poc_bug01_v141_upsert_attributeerror.py` — 再現確認済み (exit code 1)
+
+**修正案:** 問題箇所の `data.keys()` を `target_data.keys()` に変更する。
+
+**対処提案:**
+
+```python
+# core.py — upsert() 内の conflict_columns 処理部分
+# Before (バグあり)
+updated_cols = [col for col in data.keys() if col not in conflict_columns]
+
+# After (修正済み)
+updated_cols = [col for col in target_data.keys() if col not in conflict_columns]
+```
+
+修正箇所は1行のみで、後方互換性・パフォーマンスへの影響はない。合わせて `tests/test_audit_poc.py` に以下のテストケースを追加することを推奨する。
+
+```python
+class TestV141Bug01UpsertAttributeError:
+    def test_upsert_with_data_dict_and_conflict_columns(self, db):
+        db.create_table("t", {"id": "INTEGER PRIMARY KEY", "name": "TEXT"})
+        # 修正前はここで AttributeError が発生していた
+        db.upsert({"id": 1, "name": "Alice"}, conflict_columns=["id"])
+        rows = db.query("t")
+        assert rows[0]["name"] == "Alice"
+```
+
+---
+
+## 3. 高速化の余地
+
+### PERF-01 [Low] LRU/TTLキャッシュ使用時のネガティブキャッシュ欠如
+
+`LRU` および `TTL` キャッシュ戦略では、値が存在する場合のみキャッシュされる。`UNBOUNDED` 戦略が `_cached_keys` セットで「存在しないことが確認されたキー」を追跡しているのと異なり、LRU/TTL では存在しないキーへのアクセスのたびに SQLite クエリが発行される。
+
+**修正案:** LRU/TTL でもネガティブキャッシュ（存在しないキーの追跡）を導入する。
+
+---
+
+## 4. 改善点（コード品質）
+
+### QUAL-01 [Low] `ExpiringDict` スケジューラスレッド停止処理の向上
+
+`clear()` および `__del__` における `scheduler_thread.join(timeout=...)` でタイムアウトが発生した場合の後処理が不十分で、警告ログのみで終了する。デーモンスレッドのため致命的ではないが、テスト環境での `ResourceWarning` 発生の原因となり得る。
+
+**修正案:** タイムアウト後のスレッド状態をより適切に管理する。
+
+---
+
+## 推奨対応優先度
+
+### リリース前に修正すべき
+
+| ID | 概要 |
+|---|---|
+| BUG-01 | `upsert()` の AttributeError — 特定パターンで確実にクラッシュ |
+
+### 将来的な改善
+
+| ID | 概要 |
+|---|---|
+| PERF-01 | LRU/TTLキャッシュのネガティブキャッシュ欠如 |
+| QUAL-01 | `ExpiringDict` スケジューラスレッド停止処理の向上 |
