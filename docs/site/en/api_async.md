@@ -50,17 +50,19 @@ and performance in high-load scenarios.
 
 ::: tip Example
 ```python
-    >>> async with AsyncNanaSQLite("mydata.db") as db:
-    ...     await db.aset("config", {"theme": "dark"})
-    ...     config = await db.aget("config")
-    ...     print(config)
-
-    >>> # 高負荷環境向けの設定
-    >>> async with AsyncNanaSQLite("mydata.db", max_workers=10) as db:
-    ...     # 並行処理が多い場合に最適化
-    ...     results = await asyncio.gather(*[db.aget(f"key_{i}") for i in range(100)])
-
+    async with AsyncNanaSQLite("mydata.db") as db:
+        await db.aset("config", {"theme": "dark"})
+        config = await db.aget("config")
+        print(config)
 ```
+
+```python
+    # 高負荷環境向けの設定
+    async with AsyncNanaSQLite("mydata.db", max_workers=10) as db:
+        # 並行処理が多い場合に最適化
+        results = await asyncio.gather(*[db.aget(f"key_{i}") for i in range(100)])
+```
+
 :::
 
 
@@ -78,7 +80,7 @@ def close() -> None
 
 ::: tip Example
 ```python
-    >>> await db.close()
+    await db.close()
 ```
 :::
 
@@ -109,11 +111,11 @@ sub1 = await db.table("users")
 
 ::: tip Example
 ```python
-    >>> async with AsyncNanaSQLite("mydata.db", table="main") as db:
-    ...     users_db = await db.table("users")
-    ...     products_db = await db.table("products")
-    ...     await users_db.aset("user1", {"name": "Alice"})
-    ...     await products_db.aset("prod1", {"name": "Laptop"})
+    async with AsyncNanaSQLite("mydata.db", table="main") as db:
+        users_db = await db.table("users")
+        products_db = await db.table("products")
+        await users_db.aset("user1", {"name": "Alice"})
+        await products_db.aset("prod1", {"name": "Laptop"})
 ```
 :::
 
@@ -138,8 +140,8 @@ def get(key: str, default: Any = None) -> Any
 
 ::: tip Example
 ```python
-    >>> user = await db.aget("user")
-    >>> config = await db.aget("config", {})
+    user = await db.aget("user")
+    config = await db.aget("config", {})
 ```
 :::
 
@@ -158,7 +160,7 @@ def keys() -> list[str]
 
 ::: tip Example
 ```python
-    >>> keys = await db.akeys()
+    keys = await db.akeys()
 ```
 :::
 
@@ -177,7 +179,7 @@ def values() -> list[Any]
 
 ::: tip Example
 ```python
-    >>> values = await db.avalues()
+    values = await db.avalues()
 ```
 :::
 
@@ -196,7 +198,7 @@ def items() -> list[tuple[str, Any]]
 
 ::: tip Example
 ```python
-    >>> items = await db.aitems()
+    items = await db.aitems()
 ```
 :::
 
@@ -215,7 +217,7 @@ def to_dict() -> dict
 
 ::: tip Example
 ```python
-    >>> data = await db.to_dict()
+    data = await db.to_dict()
 ```
 :::
 
@@ -234,7 +236,7 @@ def copy() -> dict
 
 ::: tip Example
 ```python
-    >>> data_copy = await db.copy()
+    data_copy = await db.copy()
 ```
 :::
 
@@ -262,7 +264,7 @@ def load_all() -> None
 
 ::: tip Example
 ```python
-    >>> await db.load_all()
+    await db.load_all()
 ```
 :::
 
@@ -283,8 +285,8 @@ def refresh(key: str = None) -> None
 
 ::: tip Example
 ```python
-    >>> await db.refresh("user")
-    >>> await db.refresh()  # 全キャッシュ更新
+    await db.refresh("user")
+    await db.refresh()  # 全キャッシュ更新
 ```
 :::
 
@@ -309,7 +311,7 @@ def is_cached(key: str) -> bool
 
 ::: tip Example
 ```python
-    >>> cached = await db.is_cached("user")
+    cached = await db.is_cached("user")
 ```
 :::
 
@@ -330,11 +332,11 @@ def batch_update(mapping: dict[str, Any]) -> None
 
 ::: tip Example
 ```python
-    >>> await db.batch_update({
-    ...     "key1": "value1",
-    ...     "key2": "value2",
-    ...     "key3": {"nested": "data"}
-    ... })
+    await db.batch_update({
+        "key1": "value1",
+        "key2": "value2",
+        "key3": {"nested": "data"}
+    })
 ```
 :::
 
@@ -371,7 +373,7 @@ def batch_delete(keys: list[str]) -> None
 
 ::: tip Example
 ```python
-    >>> await db.batch_delete(["key1", "key2", "key3"])
+    await db.batch_delete(["key1", "key2", "key3"])
 ```
 :::
 
@@ -394,7 +396,7 @@ def get_fresh(key: str, default: Any = None) -> Any
 
 ::: tip Example
 ```python
-    >>> value = await db.get_fresh("key")
+    value = await db.get_fresh("key")
 ```
 :::
 
@@ -411,13 +413,13 @@ def begin_transaction() -> None
 
 ::: tip Example
 ```python
-    >>> await db.begin_transaction()
-    >>> try:
-    ...     await db.sql_insert("users", {"name": "Alice"})
-    ...     await db.sql_insert("users", {"name": "Bob"})
-    ...     await db.commit()
-    ... except:
-    ...     await db.rollback()
+    await db.begin_transaction()
+    try:
+        await db.sql_insert("users", {"name": "Alice"})
+        await db.sql_insert("users", {"name": "Bob"})
+        await db.commit()
+    except:
+        await db.rollback()
 ```
 :::
 
@@ -432,7 +434,7 @@ def commit() -> None
 
 ::: tip Example
 ```python
-    >>> await db.commit()
+    await db.commit()
 ```
 :::
 
@@ -447,7 +449,7 @@ def rollback() -> None
 
 ::: tip Example
 ```python
-    >>> await db.rollback()
+    await db.rollback()
 ```
 :::
 
@@ -466,8 +468,8 @@ def in_transaction() -> bool
 
 ::: tip Example
 ```python
-    >>> status = await db.in_transaction()
-    >>> print(f"In transaction: {status}")
+    status = await db.in_transaction()
+    print(f"In transaction: {status}")
 ```
 :::
 
@@ -482,10 +484,10 @@ def transaction()
 
 ::: tip Example
 ```python
-    >>> async with db.transaction():
-    ...     await db.sql_insert("users", {"name": "Alice"})
-    ...     await db.sql_insert("users", {"name": "Bob"})
-    ...     # 自動的にコミット、例外時はロールバック
+    async with db.transaction():
+        await db.sql_insert("users", {"name": "Alice"})
+        await db.sql_insert("users", {"name": "Bob"})
+        # 自動的にコミット、例外時はロールバック
 ```
 :::
 
@@ -513,11 +515,11 @@ def sql_insert(table_name: str, data: dict) -> int
 
 ::: tip Example
 ```python
-    >>> rowid = await db.sql_insert("users", {
-    ...     "name": "Alice",
-    ...     "email": "alice@example.com",
-    ...     "age": 25
-    ... })
+    rowid = await db.sql_insert("users", {
+        "name": "Alice",
+        "email": "alice@example.com",
+        "age": 25
+    })
 ```
 :::
 
@@ -545,11 +547,11 @@ def sql_update(table_name: str, data: dict, where: str, parameters: tuple | None
 
 ::: tip Example
 ```python
-    >>> count = await db.sql_update("users",
-    ...     {"age": 26, "status": "active"},
-    ...     "name = ?",
-    ...     ("Alice",)
-    ... )
+    count = await db.sql_update("users",
+        {"age": 26, "status": "active"},
+        "name = ?",
+        ("Alice",)
+    )
 ```
 :::
 
@@ -576,7 +578,7 @@ def sql_delete(table_name: str, where: str, parameters: tuple | None = None) -> 
 
 ::: tip Example
 ```python
-    >>> count = await db.sql_delete("users", "age < ?", (18,))
+    count = await db.sql_delete("users", "age < ?", (18,))
 ```
 :::
 
@@ -612,14 +614,14 @@ def query(table_name: str = None, columns: list[str] = None, where: str = None, 
 
 ::: tip Example
 ```python
-    >>> results = await db.query(
-    ...     table_name="users",
-    ...     columns=["id", "name", "email"],
-    ...     where="age > ?",
-    ...     parameters=(20,),
-    ...     order_by="name ASC",
-    ...     limit=10
-    ... )
+    results = await db.query(
+        table_name="users",
+        columns=["id", "name", "email"],
+        where="age > ?",
+        parameters=(20,),
+        order_by="name ASC",
+        limit=10
+    )
 ```
 :::
 
@@ -655,15 +657,15 @@ def query_with_pagination(table_name: str = None, columns: list[str] = None, whe
 
 ::: tip Example
 ```python
-    >>> results = await db.query_with_pagination(
-    ...     table_name="users",
-    ...     columns=["id", "name", "email"],
-    ...     where="age > ?",
-    ...     parameters=(20,),
-    ...     order_by="name ASC",
-    ...     limit=10,
-    ...     offset=0
-    ... )
+    results = await db.query_with_pagination(
+        table_name="users",
+        columns=["id", "name", "email"],
+        where="age > ?",
+        parameters=(20,),
+        order_by="name ASC",
+        limit=10,
+        offset=0
+    )
 ```
 :::
 
@@ -694,7 +696,7 @@ def count(table_name: str = None, where: str = None, parameters: tuple | None = 
 
 ::: tip Example
 ```python
-    >>> count = await db.count("users", "age < ?", (18,))
+    count = await db.count("users", "age < ?", (18,))
 ```
 :::
 
@@ -720,7 +722,7 @@ def execute(sql: str, parameters: tuple | None = None) -> Any
 
 ::: tip Example
 ```python
-    >>> cursor = await db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
+    cursor = await db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
 ```
 :::
 
@@ -742,10 +744,10 @@ def execute_many(sql: str, parameters_list: list[tuple]) -> None
 
 ::: tip Example
 ```python
-    >>> await db.execute_many(
-    ...     "INSERT OR REPLACE INTO custom (id, name) VALUES (?, ?)",
-    ...     [(1, "Alice"), (2, "Bob"), (3, "Charlie")]
-    ... )
+    await db.execute_many(
+        "INSERT OR REPLACE INTO custom (id, name) VALUES (?, ?)",
+        [(1, "Alice"), (2, "Bob"), (3, "Charlie")]
+    )
 ```
 :::
 
@@ -771,7 +773,7 @@ def fetch_one(sql: str, parameters: tuple | None = None) -> tuple | None
 
 ::: tip Example
 ```python
-    >>> row = await db.fetch_one("SELECT value FROM data WHERE key = ?", ("user",))
+    row = await db.fetch_one("SELECT value FROM data WHERE key = ?", ("user",))
 ```
 :::
 
@@ -797,7 +799,7 @@ def fetch_all(sql: str, parameters: tuple | None = None) -> list[tuple]
 
 ::: tip Example
 ```python
-    >>> rows = await db.fetch_all("SELECT key, value FROM data WHERE key LIKE ?", ("user%",))
+    rows = await db.fetch_all("SELECT key, value FROM data WHERE key LIKE ?", ("user%",))
 ```
 :::
 
@@ -823,11 +825,11 @@ def create_table(table_name: str, columns: dict, if_not_exists: bool = True, pri
 
 ::: tip Example
 ```python
-    >>> await db.create_table("users", {
-    ...     "id": "INTEGER PRIMARY KEY",
-    ...     "name": "TEXT NOT NULL",
-    ...     "email": "TEXT UNIQUE"
-    ... })
+    await db.create_table("users", {
+        "id": "INTEGER PRIMARY KEY",
+        "name": "TEXT NOT NULL",
+        "email": "TEXT UNIQUE"
+    })
 ```
 :::
 
@@ -852,7 +854,7 @@ def create_index(index_name: str, table_name: str, columns: list[str], unique: b
 
 ::: tip Example
 ```python
-    >>> await db.create_index("idx_users_email", "users", ["email"], unique=True)
+    await db.create_index("idx_users_email", "users", ["email"], unique=True)
 ```
 :::
 
@@ -877,7 +879,7 @@ def table_exists(table_name: str) -> bool
 
 ::: tip Example
 ```python
-    >>> exists = await db.table_exists("users")
+    exists = await db.table_exists("users")
 ```
 :::
 
@@ -896,7 +898,7 @@ def list_tables() -> list[str]
 
 ::: tip Example
 ```python
-    >>> tables = await db.list_tables()
+    tables = await db.list_tables()
 ```
 :::
 
@@ -918,7 +920,7 @@ def drop_table(table_name: str, if_exists: bool = True) -> None
 
 ::: tip Example
 ```python
-    >>> await db.drop_table("old_table")
+    await db.drop_table("old_table")
 ```
 :::
 
@@ -940,7 +942,7 @@ def drop_index(index_name: str, if_exists: bool = True) -> None
 
 ::: tip Example
 ```python
-    >>> await db.drop_index("idx_users_email")
+    await db.drop_index("idx_users_email")
 ```
 :::
 
@@ -957,7 +959,7 @@ def vacuum() -> None
 
 ::: tip Example
 ```python
-    >>> await db.vacuum()
+    await db.vacuum()
 ```
 :::
 
@@ -980,12 +982,12 @@ def set_model(key: str, model: Any) -> None
 
 ::: tip Example
 ```python
-    >>> from pydantic import BaseModel
-    >>> class User(BaseModel):
-    ...     name: str
-    ...     age: int
-    >>> user = User(name="Nana", age=20)
-    >>> await db.set_model("user", user)
+    from pydantic import BaseModel
+    class User(BaseModel):
+        name: str
+        age: int
+    user = User(name="Nana", age=20)
+    await db.set_model("user", user)
 ```
 :::
 
@@ -1009,7 +1011,7 @@ def get_model(key: str, model_class: type = None) -> Any
 
 ::: tip Example
 ```python
-    >>> user = await db.get_model("user", User)
+    user = await db.get_model("user", User)
 ```
 :::
 
@@ -1034,8 +1036,8 @@ def aget(key: str, default: Any = None) -> Any
 
 ::: tip Example
 ```python
-    >>> user = await db.aget("user")
-    >>> config = await db.aget("config", {})
+    user = await db.aget("user")
+    config = await db.aget("config", {})
 ```
 :::
 
@@ -1056,7 +1058,7 @@ def aset(key: str, value: Any) -> None
 
 ::: tip Example
 ```python
-    >>> await db.aset("user", {"name": "Nana", "age": 20})
+    await db.aset("user", {"name": "Nana", "age": 20})
 ```
 :::
 
@@ -1080,7 +1082,7 @@ def adelete(key: str) -> None
 
 ::: tip Example
 ```python
-    >>> await db.adelete("old_data")
+    await db.adelete("old_data")
 ```
 :::
 
@@ -1105,8 +1107,8 @@ def acontains(key: str) -> bool
 
 ::: tip Example
 ```python
-    >>> if await db.acontains("user"):
-    ...     print("User exists")
+    if await db.acontains("user"):
+        print("User exists")
 ```
 :::
 
@@ -1131,8 +1133,8 @@ def contains(key: str) -> bool
 
 ::: tip Example
 ```python
-    >>> if await db.acontains("user"):
-    ...     print("User exists")
+    if await db.acontains("user"):
+        print("User exists")
 ```
 :::
 
@@ -1151,7 +1153,7 @@ def alen() -> int
 
 ::: tip Example
 ```python
-    >>> count = await db.alen()
+    count = await db.alen()
 ```
 :::
 
@@ -1170,7 +1172,7 @@ def akeys() -> list[str]
 
 ::: tip Example
 ```python
-    >>> keys = await db.akeys()
+    keys = await db.akeys()
 ```
 :::
 
@@ -1189,7 +1191,7 @@ def avalues() -> list[Any]
 
 ::: tip Example
 ```python
-    >>> values = await db.avalues()
+    values = await db.avalues()
 ```
 :::
 
@@ -1208,7 +1210,7 @@ def aitems() -> list[tuple[str, Any]]
 
 ::: tip Example
 ```python
-    >>> items = await db.aitems()
+    items = await db.aitems()
 ```
 :::
 
@@ -1231,8 +1233,8 @@ def apop(key: str, *args) -> Any
 
 ::: tip Example
 ```python
-    >>> value = await db.apop("temp_data")
-    >>> value = await db.apop("maybe_missing", "default")
+    value = await db.apop("temp_data")
+    value = await db.apop("maybe_missing", "default")
 ```
 :::
 
@@ -1253,8 +1255,8 @@ def aupdate(mapping: dict = None, **kwargs) -> None
 
 ::: tip Example
 ```python
-    >>> await db.aupdate({"key1": "value1", "key2": "value2"})
-    >>> await db.aupdate(key3="value3", key4="value4")
+    await db.aupdate({"key1": "value1", "key2": "value2"})
+    await db.aupdate(key3="value3", key4="value4")
 ```
 :::
 
@@ -1269,7 +1271,7 @@ def aflush() -> None
 
 ::: tip Example
 ```python
-    >>> await db.aflush()
+    await db.aflush()
 ```
 :::
 
@@ -1284,7 +1286,7 @@ def aclear() -> None
 
 ::: tip Example
 ```python
-    >>> await db.aclear()
+    await db.aclear()
 ```
 :::
 
@@ -1299,7 +1301,7 @@ def aget_dlq() -> list[dict[str, Any]]
 
 ::: tip Example
 ```python
-    >>> failed = await db.aget_dlq()
+    failed = await db.aget_dlq()
 ```
 :::
 
@@ -1314,7 +1316,7 @@ def aretry_dlq() -> None
 
 ::: tip Example
 ```python
-    >>> await db.aretry_dlq()
+    await db.aretry_dlq()
 ```
 :::
 
@@ -1329,7 +1331,7 @@ def aclear_dlq() -> None
 
 ::: tip Example
 ```python
-    >>> await db.aclear_dlq()
+    await db.aclear_dlq()
 ```
 :::
 
@@ -1344,8 +1346,8 @@ def aget_v2_metrics() -> dict[str, Any]
 
 ::: tip Example
 ```python
-    >>> metrics = await db.aget_v2_metrics()
-    >>> print(metrics["flush_count"])
+    metrics = await db.aget_v2_metrics()
+    print(metrics["flush_count"])
 ```
 :::
 
@@ -1368,7 +1370,7 @@ def asetdefault(key: str, default: Any = None) -> Any
 
 ::: tip Example
 ```python
-    >>> value = await db.asetdefault("config", {})
+    value = await db.asetdefault("config", {})
 ```
 :::
 
@@ -1383,7 +1385,7 @@ def aload_all() -> None
 
 ::: tip Example
 ```python
-    >>> await db.load_all()
+    await db.load_all()
 ```
 :::
 
@@ -1404,8 +1406,8 @@ def arefresh(key: str = None) -> None
 
 ::: tip Example
 ```python
-    >>> await db.refresh("user")
-    >>> await db.refresh()  # 全キャッシュ更新
+    await db.refresh("user")
+    await db.refresh()  # 全キャッシュ更新
 ```
 :::
 
@@ -1430,7 +1432,7 @@ def ais_cached(key: str) -> bool
 
 ::: tip Example
 ```python
-    >>> cached = await db.is_cached("user")
+    cached = await db.is_cached("user")
 ```
 :::
 
@@ -1451,11 +1453,11 @@ def abatch_update(mapping: dict[str, Any]) -> None
 
 ::: tip Example
 ```python
-    >>> await db.batch_update({
-    ...     "key1": "value1",
-    ...     "key2": "value2",
-    ...     "key3": {"nested": "data"}
-    ... })
+    await db.batch_update({
+        "key1": "value1",
+        "key2": "value2",
+        "key3": {"nested": "data"}
+    })
 ```
 :::
 
@@ -1492,7 +1494,7 @@ def abatch_delete(keys: list[str]) -> None
 
 ::: tip Example
 ```python
-    >>> await db.batch_delete(["key1", "key2", "key3"])
+    await db.batch_delete(["key1", "key2", "key3"])
 ```
 :::
 
@@ -1511,7 +1513,7 @@ def ato_dict() -> dict
 
 ::: tip Example
 ```python
-    >>> data = await db.to_dict()
+    data = await db.to_dict()
 ```
 :::
 
@@ -1530,7 +1532,7 @@ def acopy() -> dict
 
 ::: tip Example
 ```python
-    >>> data_copy = await db.copy()
+    data_copy = await db.copy()
 ```
 :::
 
@@ -1553,7 +1555,7 @@ def aget_fresh(key: str, default: Any = None) -> Any
 
 ::: tip Example
 ```python
-    >>> value = await db.get_fresh("key")
+    value = await db.get_fresh("key")
 ```
 :::
 
@@ -1578,7 +1580,7 @@ def abatch_get(keys: list[str]) -> dict[str, Any]
 
 ::: tip Example
 ```python
-    >>> results = await db.abatch_get(["key1", "key2"])
+    results = await db.abatch_get(["key1", "key2"])
 ```
 :::
 
@@ -1599,12 +1601,12 @@ def aset_model(key: str, model: Any) -> None
 
 ::: tip Example
 ```python
-    >>> from pydantic import BaseModel
-    >>> class User(BaseModel):
-    ...     name: str
-    ...     age: int
-    >>> user = User(name="Nana", age=20)
-    >>> await db.set_model("user", user)
+    from pydantic import BaseModel
+    class User(BaseModel):
+        name: str
+        age: int
+    user = User(name="Nana", age=20)
+    await db.set_model("user", user)
 ```
 :::
 
@@ -1628,7 +1630,7 @@ def aget_model(key: str, model_class: type = None) -> Any
 
 ::: tip Example
 ```python
-    >>> user = await db.get_model("user", User)
+    user = await db.get_model("user", User)
 ```
 :::
 
@@ -1652,7 +1654,7 @@ def aexecute(sql: str, parameters: tuple | None = None) -> Any
 
 ::: tip Example
 ```python
-    >>> cursor = await db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
+    cursor = await db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
 ```
 :::
 
@@ -1674,10 +1676,10 @@ def aexecute_many(sql: str, parameters_list: list[tuple]) -> None
 
 ::: tip Example
 ```python
-    >>> await db.execute_many(
-    ...     "INSERT OR REPLACE INTO custom (id, name) VALUES (?, ?)",
-    ...     [(1, "Alice"), (2, "Bob"), (3, "Charlie")]
-    ... )
+    await db.execute_many(
+        "INSERT OR REPLACE INTO custom (id, name) VALUES (?, ?)",
+        [(1, "Alice"), (2, "Bob"), (3, "Charlie")]
+    )
 ```
 :::
 
@@ -1703,7 +1705,7 @@ def afetch_one(sql: str, parameters: tuple | None = None) -> tuple | None
 
 ::: tip Example
 ```python
-    >>> row = await db.fetch_one("SELECT value FROM data WHERE key = ?", ("user",))
+    row = await db.fetch_one("SELECT value FROM data WHERE key = ?", ("user",))
 ```
 :::
 
@@ -1729,7 +1731,7 @@ def afetch_all(sql: str, parameters: tuple | None = None) -> list[tuple]
 
 ::: tip Example
 ```python
-    >>> rows = await db.fetch_all("SELECT key, value FROM data WHERE key LIKE ?", ("user%",))
+    rows = await db.fetch_all("SELECT key, value FROM data WHERE key LIKE ?", ("user%",))
 ```
 :::
 
@@ -1753,11 +1755,11 @@ def acreate_table(table_name: str, columns: dict, if_not_exists: bool = True, pr
 
 ::: tip Example
 ```python
-    >>> await db.create_table("users", {
-    ...     "id": "INTEGER PRIMARY KEY",
-    ...     "name": "TEXT NOT NULL",
-    ...     "email": "TEXT UNIQUE"
-    ... })
+    await db.create_table("users", {
+        "id": "INTEGER PRIMARY KEY",
+        "name": "TEXT NOT NULL",
+        "email": "TEXT UNIQUE"
+    })
 ```
 :::
 
@@ -1782,7 +1784,7 @@ def acreate_index(index_name: str, table_name: str, columns: list[str], unique: 
 
 ::: tip Example
 ```python
-    >>> await db.create_index("idx_users_email", "users", ["email"], unique=True)
+    await db.create_index("idx_users_email", "users", ["email"], unique=True)
 ```
 :::
 
@@ -1816,14 +1818,14 @@ def aquery(table_name: str = None, columns: list[str] = None, where: str = None,
 
 ::: tip Example
 ```python
-    >>> results = await db.query(
-    ...     table_name="users",
-    ...     columns=["id", "name", "email"],
-    ...     where="age > ?",
-    ...     parameters=(20,),
-    ...     order_by="name ASC",
-    ...     limit=10
-    ... )
+    results = await db.query(
+        table_name="users",
+        columns=["id", "name", "email"],
+        where="age > ?",
+        parameters=(20,),
+        order_by="name ASC",
+        limit=10
+    )
 ```
 :::
 
@@ -1859,15 +1861,15 @@ def aquery_with_pagination(table_name: str = None, columns: list[str] = None, wh
 
 ::: tip Example
 ```python
-    >>> results = await db.query_with_pagination(
-    ...     table_name="users",
-    ...     columns=["id", "name", "email"],
-    ...     where="age > ?",
-    ...     parameters=(20,),
-    ...     order_by="name ASC",
-    ...     limit=10,
-    ...     offset=0
-    ... )
+    results = await db.query_with_pagination(
+        table_name="users",
+        columns=["id", "name", "email"],
+        where="age > ?",
+        parameters=(20,),
+        order_by="name ASC",
+        limit=10,
+        offset=0
+    )
 ```
 :::
 
@@ -1892,7 +1894,7 @@ def atable_exists(table_name: str) -> bool
 
 ::: tip Example
 ```python
-    >>> exists = await db.table_exists("users")
+    exists = await db.table_exists("users")
 ```
 :::
 
@@ -1911,7 +1913,7 @@ def alist_tables() -> list[str]
 
 ::: tip Example
 ```python
-    >>> tables = await db.list_tables()
+    tables = await db.list_tables()
 ```
 :::
 
@@ -1933,7 +1935,7 @@ def adrop_table(table_name: str, if_exists: bool = True) -> None
 
 ::: tip Example
 ```python
-    >>> await db.drop_table("old_table")
+    await db.drop_table("old_table")
 ```
 :::
 
@@ -1959,11 +1961,11 @@ def asql_insert(table_name: str, data: dict) -> int
 
 ::: tip Example
 ```python
-    >>> rowid = await db.sql_insert("users", {
-    ...     "name": "Alice",
-    ...     "email": "alice@example.com",
-    ...     "age": 25
-    ... })
+    rowid = await db.sql_insert("users", {
+        "name": "Alice",
+        "email": "alice@example.com",
+        "age": 25
+    })
 ```
 :::
 
@@ -1991,11 +1993,11 @@ def asql_update(table_name: str, data: dict, where: str, parameters: tuple | Non
 
 ::: tip Example
 ```python
-    >>> count = await db.sql_update("users",
-    ...     {"age": 26, "status": "active"},
-    ...     "name = ?",
-    ...     ("Alice",)
-    ... )
+    count = await db.sql_update("users",
+        {"age": 26, "status": "active"},
+        "name = ?",
+        ("Alice",)
+    )
 ```
 :::
 
@@ -2022,7 +2024,7 @@ def asql_delete(table_name: str, where: str, parameters: tuple | None = None) ->
 
 ::: tip Example
 ```python
-    >>> count = await db.sql_delete("users", "age < ?", (18,))
+    count = await db.sql_delete("users", "age < ?", (18,))
 ```
 :::
 
@@ -2053,7 +2055,7 @@ def acount(table_name: str = None, where: str = None, parameters: tuple | None =
 
 ::: tip Example
 ```python
-    >>> count = await db.count("users", "age < ?", (18,))
+    count = await db.count("users", "age < ?", (18,))
 ```
 :::
 
@@ -2068,7 +2070,7 @@ def avacuum() -> None
 
 ::: tip Example
 ```python
-    >>> await db.vacuum()
+    await db.vacuum()
 ```
 :::
 
@@ -2110,11 +2112,11 @@ sub1 = await db.table("users")
 
 ::: tip Example
 ```python
-    >>> async with AsyncNanaSQLite("mydata.db", table="main") as db:
-    ...     users_db = await db.table("users")
-    ...     products_db = await db.table("products")
-    ...     await users_db.aset("user1", {"name": "Alice"})
-    ...     await products_db.aset("prod1", {"name": "Laptop"})
+    async with AsyncNanaSQLite("mydata.db", table="main") as db:
+        users_db = await db.table("users")
+        products_db = await db.table("products")
+        await users_db.aset("user1", {"name": "Alice"})
+        await products_db.aset("prod1", {"name": "Laptop"})
 ```
 :::
 

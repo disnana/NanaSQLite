@@ -84,13 +84,13 @@ def table(table_name: str, cache_strategy: CacheType | Literal['unbounded', 'lru
 
 ::: tip Example
 ```python
-    >>> from validkit import v
-    >>> with NanaSQLite("app.db", table="main") as main_db:
-    ...     users_schema = {"name": v.str(), "age": v.int()}
-    ...     users_db = main_db.table("users", validator=users_schema)
-    ...     products_db = main_db.table("products")
-    ...     users_db["user1"] = {"name": "Alice", "age": 30}
-    ...     products_db["prod1"] = {"name": "Laptop"}
+    from validkit import v
+    with NanaSQLite("app.db", table="main") as main_db:
+        users_schema = {"name": v.str(), "age": v.int()}
+        users_db = main_db.table("users", validator=users_schema)
+        products_db = main_db.table("products")
+        users_db["user1"] = {"name": "Alice", "age": 30}
+        products_db["prod1"] = {"name": "Laptop"}
 ```
 :::
 
@@ -308,8 +308,8 @@ def get_fresh(key: str, default: Any = None) -> Any
 
 ::: tip Example
 ```python
-    >>> db.execute("UPDATE data SET value = ? WHERE key = ?", ('"new"', "key"))
-    >>> value = db.get_fresh("key")  # DBから最新値を取得
+    db.execute("UPDATE data SET value = ? WHERE key = ?", ('"new"', "key"))
+    value = db.get_fresh("key")  # DBから最新値を取得
 ```
 :::
 
@@ -336,8 +336,8 @@ def batch_get(keys: list[str]) -> dict[str, Any]
 
 ::: tip Example
 ```python
-    >>> results = db.batch_get(["user1", "user2", "user3"])
-    >>> print(results)  # {"user1": {...}, "user2": {...}}
+    results = db.batch_get(["user1", "user2", "user3"])
+    print(results)  # {"user1": {...}, "user2": {...}}
 ```
 :::
 
@@ -404,7 +404,7 @@ None
 
 ::: tip Example
 ```python
-    >>> db.batch_update({"key1": "value1", "key2": "value2", ...})
+    db.batch_update({"key1": "value1", "key2": "value2", ...})
 ```
 :::
 
@@ -431,8 +431,8 @@ def batch_update_partial(mapping: dict[str, Any]) -> dict[str, str]
 
 ::: tip Example
 ```python
-    >>> failed = db.batch_update_partial({"ok": 1, "bad": object()})
-    >>> print(failed)
+    failed = db.batch_update_partial({"ok": 1, "bad": object()})
+    print(failed)
 ```
 :::
 
@@ -473,13 +473,13 @@ Note:
 
 ::: tip Example
 ```python
-    >>> db.begin_transaction()
-    >>> try:
-    ...     db.sql_insert("users", {"name": "Alice"})
-    ...     db.sql_insert("users", {"name": "Bob"})
-    ...     db.commit()
-    ... except:
-    ...     db.rollback()
+    db.begin_transaction()
+    try:
+        db.sql_insert("users", {"name": "Alice"})
+        db.sql_insert("users", {"name": "Bob"})
+        db.commit()
+    except:
+        db.rollback()
 ```
 :::
 
@@ -514,10 +514,10 @@ def in_transaction() -> bool
 
 ::: tip Example
 ```python
-    >>> db.begin_transaction()
-    >>> print(db.in_transaction())  # True
-    >>> db.commit()
-    >>> print(db.in_transaction())  # False
+    db.begin_transaction()
+    print(db.in_transaction())  # True
+    db.commit()
+    print(db.in_transaction())  # False
 ```
 :::
 
@@ -535,10 +535,10 @@ def transaction()
 
 ::: tip Example
 ```python
-    >>> with db.transaction():
-    ...     db.sql_insert("users", {"name": "Alice"})
-    ...     db.sql_insert("users", {"name": "Bob"})
-    ...     # 自動的にコミット、例外時はロールバック
+    with db.transaction():
+        db.sql_insert("users", {"name": "Alice"})
+        db.sql_insert("users", {"name": "Bob"})
+        # 自動的にコミット、例外時はロールバック
 ```
 :::
 
@@ -566,11 +566,11 @@ def sql_insert(table_name: str, data: dict) -> int
 
 ::: tip Example
 ```python
-    >>> rowid = db.sql_insert("users", {
-    ...     "name": "Alice",
-    ...     "email": "alice@example.com",
-    ...     "age": 25
-    ... })
+    rowid = db.sql_insert("users", {
+        "name": "Alice",
+        "email": "alice@example.com",
+        "age": 25
+    })
 ```
 :::
 
@@ -598,11 +598,11 @@ def sql_update(table_name: str, data: dict, where: str, parameters: tuple = None
 
 ::: tip Example
 ```python
-    >>> count = db.sql_update("users",
-    ...     {"age": 26, "status": "active"},
-    ...     "name = ?",
-    ...     ("Alice",)
-    ... )
+    count = db.sql_update("users",
+        {"age": 26, "status": "active"},
+        "name = ?",
+        ("Alice",)
+    )
 ```
 :::
 
@@ -629,7 +629,7 @@ def sql_delete(table_name: str, where: str, parameters: tuple = None) -> int
 
 ::: tip Example
 ```python
-    >>> count = db.sql_delete("users", "age < ?", (18,))
+    count = db.sql_delete("users", "age < ?", (18,))
 ```
 :::
 
@@ -655,10 +655,10 @@ def upsert(table_name: str | Any = None, data: Any = None, conflict_columns: lis
 
 ::: tip Example
 ```python
-    >>> # テーブル指定（標準）
-    >>> db.upsert("users", {"id": 1, "name": "Alice", "age": 25})
-    >>> # キー/値指定 (v2互換)
-    >>> db.upsert("user:1", {"name": "Nana"})
+    # テーブル指定（標準）
+    db.upsert("users", {"id": 1, "name": "Alice", "age": 25})
+    # キー/値指定 (v2互換)
+    db.upsert("user:1", {"name": "Nana"})
 ```
 :::
 
@@ -694,18 +694,20 @@ def query(table_name: str = None, columns: list[str] = None, where: str = None, 
 
 ::: tip Example
 ```python
-    >>> # デフォルトテーブルから全データ取得
-    >>> results = db.query()
+    # デフォルトテーブルから全データ取得
+    results = db.query()
+```
 
-    >>> # 条件付き検索
-    >>> results = db.query(
-    ...     table_name="users",
-    ...     columns=["id", "name", "email"],
-    ...     where="age > ?",
-    ...     parameters=(20,),
-    ...     order_by="name ASC",
-    ...     limit=10
-    ... )
+```python
+    # 条件付き検索
+    results = db.query(
+        table_name="users",
+        columns=["id", "name", "email"],
+        where="age > ?",
+        parameters=(20,),
+        order_by="name ASC",
+        limit=10
+    )
 ```
 :::
 
@@ -732,8 +734,8 @@ def count(table_name: str = None, where: str = None, parameters: tuple = None, s
 
 ::: tip Example
 ```python
-    >>> total = db.count("users")
-    >>> adults = db.count("users", "age >= ?", (18,))
+    total = db.count("users")
+    adults = db.count("users", "age >= ?", (18,))
 ```
 :::
 
@@ -760,8 +762,8 @@ def exists(table_name: str, where: str, parameters: tuple = None) -> bool
 
 ::: tip Example
 ```python
-    >>> if db.exists("users", "email = ?", ("alice@example.com",)):
-    ...     print("User exists")
+    if db.exists("users", "email = ?", ("alice@example.com",)):
+        print("User exists")
 ```
 :::
 
@@ -797,15 +799,17 @@ def query_with_pagination(table_name: str = None, columns: list[str] = None, whe
 
 ::: tip Example
 ```python
-    >>> # ページネーション
-    >>> page2 = db.query_with_pagination("users",
-    ...     limit=10, offset=10, order_by="id ASC")
+    # ページネーション
+    page2 = db.query_with_pagination("users",
+        limit=10, offset=10, order_by="id ASC")
+```
 
-    >>> # グループ集計
-    >>> stats = db.query_with_pagination("orders",
-    ...     columns=["user_id", "COUNT(*) as order_count"],
-    ...     group_by="user_id"
-    ... )
+```python
+    # グループ集計
+    stats = db.query_with_pagination("orders",
+        columns=["user_id", "COUNT(*) as order_count"],
+        group_by="user_id"
+    )
 ```
 :::
 
@@ -839,12 +843,14 @@ def execute(sql: str, parameters: tuple | None = None) -> apsw.Cursor
 
 ::: tip Example
 ```python
-    >>> cursor = db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
-    >>> for row in cursor:
-    ...     print(row)
+    cursor = db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
+    for row in cursor:
+        print(row)
+```
 
-    >>> db.execute("UPDATE data SET value = ? WHERE key = ?", ('"new"', "key"))
-    >>> db.refresh("key")  # キャッシュを更新
+```python
+    db.execute("UPDATE data SET value = ? WHERE key = ?", ('"new"', "key"))
+    db.refresh("key")  # キャッシュを更新
 ```
 :::
 
@@ -866,10 +872,10 @@ def execute_many(sql: str, parameters_list: list[tuple]) -> None
 
 ::: tip Example
 ```python
-    >>> db.execute_many(
-    ...     "INSERT OR REPLACE INTO custom (id, name) VALUES (?, ?)",
-    ...     [(1, "Alice"), (2, "Bob"), (3, "Charlie")]
-    ... )
+    db.execute_many(
+        "INSERT OR REPLACE INTO custom (id, name) VALUES (?, ?)",
+        [(1, "Alice"), (2, "Bob"), (3, "Charlie")]
+    )
 ```
 :::
 
@@ -895,8 +901,8 @@ def fetch_one(sql: str, parameters: tuple = None) -> tuple | None
 
 ::: tip Example
 ```python
-    >>> row = db.fetch_one("SELECT value FROM data WHERE key = ?", ("user",))
-    >>> print(row[0])
+    row = db.fetch_one("SELECT value FROM data WHERE key = ?", ("user",))
+    print(row[0])
 ```
 :::
 
@@ -922,9 +928,9 @@ def fetch_all(sql: str, parameters: tuple = None) -> list[tuple]
 
 ::: tip Example
 ```python
-    >>> rows = db.fetch_all("SELECT key, value FROM data WHERE key LIKE ?", ("user%",))
-    >>> for key, value in rows:
-    ...     print(key, value)
+    rows = db.fetch_all("SELECT key, value FROM data WHERE key LIKE ?", ("user%",))
+    for key, value in rows:
+        print(key, value)
 ```
 :::
 
@@ -950,17 +956,17 @@ def create_table(table_name: str, columns: dict, if_not_exists: bool = True, pri
 
 ::: tip Example
 ```python
-    >>> db.create_table("users", {
-    ...     "id": "INTEGER PRIMARY KEY",
-    ...     "name": "TEXT NOT NULL",
-    ...     "email": "TEXT UNIQUE",
-    ...     "age": "INTEGER"
-    ... })
-    >>> db.create_table("posts", {
-    ...     "id": "INTEGER",
-    ...     "title": "TEXT",
-    ...     "content": "TEXT"
-    ... }, primary_key="id")
+    db.create_table("users", {
+        "id": "INTEGER PRIMARY KEY",
+        "name": "TEXT NOT NULL",
+        "email": "TEXT UNIQUE",
+        "age": "INTEGER"
+    })
+    db.create_table("posts", {
+        "id": "INTEGER",
+        "title": "TEXT",
+        "content": "TEXT"
+    }, primary_key="id")
 ```
 :::
 
@@ -985,8 +991,8 @@ def create_index(index_name: str, table_name: str, columns: list[str], unique: b
 
 ::: tip Example
 ```python
-    >>> db.create_index("idx_users_email", "users", ["email"], unique=True)
-    >>> db.create_index("idx_posts_user", "posts", ["user_id", "created_at"])
+    db.create_index("idx_users_email", "users", ["email"], unique=True)
+    db.create_index("idx_posts_user", "posts", ["user_id", "created_at"])
 ```
 :::
 
@@ -1011,8 +1017,8 @@ def table_exists(table_name: str) -> bool
 
 ::: tip Example
 ```python
-    >>> if db.table_exists("users"):
-    ...     print("users table exists")
+    if db.table_exists("users"):
+        print("users table exists")
 ```
 :::
 
@@ -1031,8 +1037,8 @@ def list_tables() -> list[str]
 
 ::: tip Example
 ```python
-    >>> tables = db.list_tables()
-    >>> print(tables)  # ['data', 'users', 'posts']
+    tables = db.list_tables()
+    print(tables)  # ['data', 'users', 'posts']
 ```
 :::
 
@@ -1054,8 +1060,8 @@ def drop_table(table_name: str, if_exists: bool = True) -> None
 
 ::: tip Example
 ```python
-    >>> db.drop_table("old_table")
-    >>> db.drop_table("temp", if_exists=True)
+    db.drop_table("old_table")
+    db.drop_table("temp", if_exists=True)
 ```
 :::
 
@@ -1077,7 +1083,7 @@ def drop_index(index_name: str, if_exists: bool = True) -> None
 
 ::: tip Example
 ```python
-    >>> db.drop_index("idx_users_email")
+    db.drop_index("idx_users_email")
 ```
 :::
 
@@ -1100,8 +1106,8 @@ def alter_table_add_column(table_name: str, column_name: str, column_type: str, 
 
 ::: tip Example
 ```python
-    >>> db.alter_table_add_column("users", "phone", "TEXT")
-    >>> db.alter_table_add_column("users", "status", "TEXT", default="'active'")
+    db.alter_table_add_column("users", "phone", "TEXT")
+    db.alter_table_add_column("users", "status", "TEXT", default="'active'")
 ```
 :::
 
@@ -1126,9 +1132,9 @@ def get_table_schema(table_name: str = None) -> list[dict]
 
 ::: tip Example
 ```python
-    >>> schema = db.get_table_schema("users")
-    >>> for col in schema:
-    ...     print(f"{col['name']}: {col['type']}")
+    schema = db.get_table_schema("users")
+    for col in schema:
+        print(f"{col['name']}: {col['type']}")
 ```
 :::
 
@@ -1153,9 +1159,9 @@ def list_indexes(table_name: str = None) -> list[dict]
 
 ::: tip Example
 ```python
-    >>> indexes = db.list_indexes("users")
-    >>> for idx in indexes:
-    ...     print(f"{idx['name']}: {idx['columns']}")
+    indexes = db.list_indexes("users")
+    for idx in indexes:
+        print(f"{idx['name']}: {idx['columns']}")
 ```
 :::
 
@@ -1172,7 +1178,7 @@ def vacuum() -> None
 
 ::: tip Example
 ```python
-    >>> db.vacuum()
+    db.vacuum()
 ```
 :::
 
@@ -1191,8 +1197,8 @@ def get_db_size() -> int
 
 ::: tip Example
 ```python
-    >>> size = db.get_db_size()
-    >>> print(f"DB size: {size / 1024 / 1024:.2f} MB")
+    size = db.get_db_size()
+    print(f"DB size: {size / 1024 / 1024:.2f} MB")
 ```
 :::
 
@@ -1211,8 +1217,8 @@ def get_last_insert_rowid() -> int
 
 ::: tip Example
 ```python
-    >>> db.sql_insert("users", {"name": "Alice"})
-    >>> rowid = db.get_last_insert_rowid()
+    db.sql_insert("users", {"name": "Alice"})
+    rowid = db.get_last_insert_rowid()
 ```
 :::
 
@@ -1235,11 +1241,13 @@ def pragma(pragma_name: str, value: Any = None) -> Any
 
 ::: tip Example
 ```python
-    >>> # 取得
-    >>> mode = db.pragma("journal_mode")
+    # 取得
+    mode = db.pragma("journal_mode")
+```
 
-    >>> # 設定
-    >>> db.pragma("foreign_keys", 1)
+```python
+    # 設定
+    db.pragma("foreign_keys", 1)
 ```
 :::
 
@@ -1296,12 +1304,12 @@ def set_model(key: str, model: Any) -> None
 
 ::: tip Example
 ```python
-    >>> from pydantic import BaseModel
-    >>> class User(BaseModel):
-    ...     name: str
-    ...     age: int
-    >>> user = User(name="Nana", age=20)
-    >>> db.set_model("user", user)
+    from pydantic import BaseModel
+    class User(BaseModel):
+        name: str
+        age: int
+    user = User(name="Nana", age=20)
+    db.set_model("user", user)
 ```
 :::
 
@@ -1325,8 +1333,8 @@ def get_model(key: str, model_class: type = None) -> Any
 
 ::: tip Example
 ```python
-    >>> user = db.get_model("user", User)
-    >>> print(user.name)  # "Nana"
+    user = db.get_model("user", User)
+    print(user.name)  # "Nana"
 ```
 :::
 
@@ -1397,7 +1405,7 @@ def export_table_to_dict(table_name: str) -> list[dict]
 
 ::: tip Example
 ```python
-    >>> all_users = db.export_table_to_dict("users")
+    all_users = db.export_table_to_dict("users")
 ```
 :::
 
@@ -1423,11 +1431,11 @@ def import_from_dict_list(table_name: str, data_list: list[dict]) -> int
 
 ::: tip Example
 ```python
-    >>> users = [
-    ...     {"name": "Alice", "age": 25},
-    ...     {"name": "Bob", "age": 30}
-    ... ]
-    >>> count = db.import_from_dict_list("users", users)
+    users = [
+        {"name": "Alice", "age": 25},
+        {"name": "Bob", "age": 30}
+    ]
+    count = db.import_from_dict_list("users", users)
 ```
 :::
 
