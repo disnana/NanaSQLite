@@ -168,8 +168,8 @@ jobs:
 
     - name: Install dependencies
       run: |
-        uv pip install --system pytest pytest-asyncio pytest-xdist apsw pydantic cryptography
-        uv pip install --system -e .[validation]
+        uv pip install --system pytest pytest-asyncio pytest-xdist pytest-cov apsw pydantic cryptography orjson lru-dict
+        uv pip install --system -e ".[dev]"
 
     # Windows: TEMP optimization + fixed parallelism
     - name: Run tests (Windows)
@@ -178,13 +178,13 @@ jobs:
         TEMP: 'D:\\temp'
         TMP: 'D:\\temp'
       run: |
-        pytest tests/ -v --tb=short --junitxml=test-results.xml --cov=nanasqlite --cov-report=xml:coverage.xml -n 4 --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py --ignore=tests/test_cache_benchmark.py --ignore=tests/benchmark_encryption.py
+        python -m pytest tests/ -v --tb=short --junitxml=test-results.xml --cov=nanasqlite --cov-report=xml:coverage.xml -n 4 --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py --ignore=tests/test_cache_benchmark.py --ignore=tests/benchmark_encryption.py
 
     # Linux/macOS: auto parallelism
     - name: Run tests (Linux/macOS)
       if: runner.os != 'Windows'
       run: |
-        pytest tests/ -v --tb=short --junitxml=test-results.xml --cov=nanasqlite --cov-report=xml:coverage.xml -n auto --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py --ignore=tests/test_cache_benchmark.py --ignore=tests/benchmark_encryption.py
+        python -m pytest tests/ -v --tb=short --junitxml=test-results.xml --cov=nanasqlite --cov-report=xml:coverage.xml -n auto --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py --ignore=tests/test_cache_benchmark.py --ignore=tests/benchmark_encryption.py
 
     - name: Upload coverage to Artifacts
       uses: actions/upload-artifact@v7
