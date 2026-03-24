@@ -12,7 +12,13 @@ class NanaSQLite(db_path: str, table: str = "data", bulk_load: bool = False,
                  strict_sql_validation: bool = True,
                  allowed_sql_functions: list[str] | None = None,
                  forbidden_sql_functions: list[str] | None = None,
-                 max_clause_length: int | None = 1000)
+                 max_clause_length: int | None = 1000,
+                 v2_mode: bool = False,
+                 flush_mode: str = "immediate",
+                 flush_interval: float = 3.0,
+                 flush_count: int = 100,
+                 v2_chunk_size: int = 1000,
+                 v2_enable_metrics: bool = False)
 ```
 
 A wrapper class that provides SQLite persistence with a dict-like interface.
@@ -32,6 +38,10 @@ A wrapper class that provides SQLite persistence with a dict-like interface.
 | `max_clause_length` | `int` | `1000` | Maximum character length for SQL clauses |
 | `v2_mode` | `bool` | `False` | Enable v2 architecture (async background writes) (v1.4.0+) |
 | `flush_mode` | `str` | `"immediate"` | v2 flush mode (`immediate`, `count`, `time`, `manual`) |
+| `flush_interval` | `float` | `3.0` | Flush interval in seconds for `time` mode |
+| `flush_count` | `int` | `100` | Write count threshold for `count` mode |
+| `v2_chunk_size` | `int` | `1000` | Maximum number of records per flush transaction |
+| `v2_enable_metrics` | `bool` | `False` | Collect metrics for v2 engine flushes |
 
 ### Usage Examples
 
