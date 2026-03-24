@@ -114,7 +114,7 @@ jobs:
         EOF
 
     - name: Upload Semgrep JSON report
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: semgrep-report
@@ -330,7 +330,7 @@ jobs:
     # PRに件数+具体内容をコメント投稿（再実行時は既存コメントを上書き更新）
     - name: Post PR Comment
       if: github.event_name == 'pull_request'
-      uses: actions/github-script@v7
+      uses: actions/github-script@v8
       with:
         script: |
           const fs = require('fs');
@@ -445,7 +445,7 @@ jobs:
 
     # security-reportジョブを統合: finding-detailsをアーティファクトとして保存
     - name: Upload Full Security Report
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: full-security-report

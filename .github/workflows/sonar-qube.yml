@@ -20,7 +20,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v6
+        uses: SonarSource/sonarqube-scan-action@v7
         with:
           args: -Dproject.settings=.github/sonar-project.properties
         env:
