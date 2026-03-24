@@ -149,6 +149,32 @@ class TestBasicOperations:
         with pytest.raises(KeyError):
             _ = db["nonexistent"]
 
+    def test_extract_column_aliases(self):
+        """内部メソッド _extract_column_aliases のテスト"""
+        # Note: _extract_column_aliases is a staticmethod
+        columns = [
+            "id",
+            "name AS user_name",
+            "age as user_age",
+            "data  AS  info",
+            "count",
+            "\"quoted\" AS \"alias\"",
+            "'quoted_single' as 'alias_single'"
+        ]
+        expected = [
+            "id",
+            "user_name",
+            "user_age",
+            "info",
+            "count",
+            "alias",
+            "alias_single"
+        ]
+        # Accessing private member for testing purposes
+        # pylint: disable=protected-access
+        result = NanaSQLite._extract_column_aliases(columns)
+        assert result == expected
+
 
 # ==================== ネスト構造テスト ====================
 

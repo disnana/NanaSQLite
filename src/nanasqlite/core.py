@@ -446,9 +446,13 @@ class NanaSQLite(MutableMapping):
         """
         col_names: list[str] = []
         for col in columns:
-            parts = re.split(r"\s+as\s+", col, flags=re.IGNORECASE)
-            if len(parts) > 1:
-                col_names.append(parts[-1].strip().strip('"').strip("'"))
+            # ReDoS-safe way to extract aliases: find the last " AS " case-insensitively.
+            # We look for " AS " with at least one space on each side.
+            col_upper = col.upper()
+            idx = col_upper.rfind(" AS ")
+            if idx != -1:
+                alias = col[idx + 4 :].strip().strip('"').strip("'")
+                col_names.append(alias)
             else:
                 col_names.append(col.strip().strip('"').strip("'"))
         return col_names
