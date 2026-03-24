@@ -30,6 +30,8 @@ A wrapper class that provides SQLite persistence with a dict-like interface.
 | `allowed_sql_functions` | `list` | `None` | List of allowed SQL functions |
 | `forbidden_sql_functions` | `list` | `None` | List of forbidden SQL functions |
 | `max_clause_length` | `int` | `1000` | Maximum character length for SQL clauses |
+| `v2_mode` | `bool` | `False` | Enable v2 architecture (async background writes) (v1.4.0+) |
+| `flush_mode` | `str` | `"immediate"` | v2 flush mode (`immediate`, `count`, `time`, `manual`) |
 
 ### Usage Examples
 
@@ -245,6 +247,17 @@ Check if key is in memory cache.
 if db.is_cached("key"):
     print("Already loaded!")
 ```
+
+---
+
+### `flush() -> None` *(v1.4.0+)*
+
+[v2 Feature] Explicitly flush the background buffer to SQLite. No-op if v2 mode is disabled.
+
+```python
+db.flush()
+```
+
 
 ---
 

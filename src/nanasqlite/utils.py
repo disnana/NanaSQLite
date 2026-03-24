@@ -206,16 +206,21 @@ class ExpiringDict(collections.abc.MutableMapping):
             self._scheduler_running = False
             self._stop_event.set()
         if self._scheduler_thread and self._scheduler_thread.is_alive():
-            self._scheduler_thread.join(timeout=2.0)
-            if self._scheduler_thread.is_alive():
-                logger.warning("ExpiringDict scheduler thread did not exit within timeout; possible thread leak.")
+            # Ensure it's not the current thread trying to join itself
+            if self._scheduler_thread is not threading.current_thread():
+                self._scheduler_thread.join(timeout=2.0)
+                if self._scheduler_thread.is_alive():
+                    logger.warning("ExpiringDict scheduler thread did not exit within timeout; it will continue as daemon.")
+        self._scheduler_thread = None
 
     def __del__(self):
         try:
             self._scheduler_running = False
             self._stop_event.set()
             if self._scheduler_thread and self._scheduler_thread.is_alive():
-                self._scheduler_thread.join(timeout=1.0)
+                if self._scheduler_thread is not threading.current_thread():
+                    self._scheduler_thread.join(timeout=1.0)
+            self._scheduler_thread = None
         except Exception:  # pylint: disable=broad-exception-caught
             # Cleanup at exit/garbage collection is best-effort and should not raise during interpreter shutdown
             pass  # nosec B110

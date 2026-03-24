@@ -205,9 +205,9 @@ db.upsert({"id": 1, "name": "Alice"}, conflict_columns=["id"])
 
 `upsert` メソッドは複数の呼び出しパターンを内部で振り分けるが、`(data_dict, conflict_columns)` パターンで呼ばれた際に、内部変数 `target_data` ではなく元の `data` 変数（この呼び出しパターンでは `None`）の `.keys()` を参照するコードパスが存在する。その結果 `AttributeError: 'NoneType' object has no attribute 'keys'` が発生し、処理が中断する。非同期版 `aupsert` も内部で `core.py` の `upsert` を経由するため同様の影響を受ける。
 
-**POC:** `etc/poc/poc_bug01_v141_upsert_attributeerror.py` — 再現確認済み (exit code 1)
+**POC:** `etc/poc/poc_bug01_v141_upsert_attributeerror.py` — 再現確認済み (exit code 1) -> **FIXED** (exit code 0)
 
-**修正案:** 問題箇所の `data.keys()` を `target_data.keys()` に変更する。
+**修正案:** 問題箇所の `data.keys()` を `target_data.keys()` に変更する。 — **[FIXED]**
 
 **対処提案:**
 
@@ -240,7 +240,7 @@ class TestV141Bug01UpsertAttributeError:
 
 `LRU` および `TTL` キャッシュ戦略では、値が存在する場合のみキャッシュされる。`UNBOUNDED` 戦略が `_cached_keys` セットで「存在しないことが確認されたキー」を追跡しているのと異なり、LRU/TTL では存在しないキーへのアクセスのたびに SQLite クエリが発行される。
 
-**修正案:** LRU/TTL でもネガティブキャッシュ（存在しないキーの追跡）を導入する。
+**修正案:** LRU/TTL でもネガティブキャッシュ（存在しないキーの追跡）を導入する。 — **[FIXED]** (`MISSING` センチネルを使用)
 
 ---
 
@@ -250,21 +250,20 @@ class TestV141Bug01UpsertAttributeError:
 
 `clear()` および `__del__` における `scheduler_thread.join(timeout=...)` でタイムアウトが発生した場合の後処理が不十分で、警告ログのみで終了する。デーモンスレッドのため致命的ではないが、テスト環境での `ResourceWarning` 発生の原因となり得る。
 
-**修正案:** タイムアウト後のスレッド状態をより適切に管理する。
+**修正案:** タイムアウト後のスレッド状態をより適切に管理する。 — **[FIXED]** (`join` 後の参照クリア)
 
 ---
 
 ## 推奨対応優先度
 
-### リリース前に修正すべき
+### 対応済み
 
 | ID | 概要 |
 |---|---|
-| BUG-01 | `upsert()` の AttributeError — 特定パターンで確実にクラッシュ |
+| BUG-01 | `upsert()` の AttributeError — 修正完了 |
+| PERF-01 | LRU/TTLキャッシュのネガティブキャッシュ欠如 — 修正完了 |
+| QUAL-01 | `ExpiringDict` スケジューラスレッド停止処理の向上 — 修正完了 |
 
 ### 将来的な改善
 
-| ID | 概要 |
-|---|---|
-| PERF-01 | LRU/TTLキャッシュのネガティブキャッシュ欠如 |
-| QUAL-01 | `ExpiringDict` スケジューラスレッド停止処理の向上 |
+該当なし（今回の監査で指摘された項目はすべて v1.4.1 で対応済み）

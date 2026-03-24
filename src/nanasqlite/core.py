@@ -37,7 +37,7 @@ try:
 except ImportError:
     HAS_CRYPTOGRAPHY = False
 
-from .cache import CacheStrategy, CacheType, create_cache
+from .cache import MISSING, CacheStrategy, CacheType, create_cache
 from .exceptions import (
     NanaSQLiteClosedError,
     NanaSQLiteConnectionError,
@@ -800,7 +800,8 @@ class NanaSQLite(MutableMapping):
                 return key in self._data
         else:
             if key in self._data:
-                return True
+                # Check for negative cache (known to be missing from DB)
+                return self._cache.get(key) is not MISSING
 
         # DBから読み込み
         value = self._read_from_db(key)
@@ -814,7 +815,10 @@ class NanaSQLite(MutableMapping):
             return True
 
         # Value is not in DB
-        if not self._lru_mode:
+        if self._lru_mode:
+            # Negative caching: mark as missing in LRU/TTL
+            self._cache.mark_cached(key)
+        else:
             self._cached_keys.add(key)
         return False
 
@@ -926,13 +930,13 @@ class NanaSQLite(MutableMapping):
         """全値を取得（一括ロードしてからメモリから）"""
         self._check_connection()
         self.load_all()
-        return list(self._cache.get_data().values())
+        return [v for v in self._cache.get_data().values() if v is not MISSING]
 
     def items(self) -> list:
         """全アイテムを取得（一括ロードしてからメモリから）"""
         self._check_connection()
         self.load_all()
-        return list(self._cache.get_data().items())
+        return [(k, v) for k, v in self._cache.get_data().items() if v is not MISSING]
 
     def get(self, key: str, default: Any = None) -> Any:
         """dict.get(key, default)"""

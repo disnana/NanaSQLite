@@ -19,7 +19,8 @@ export default defineConfig({
                 text: 'はじめに',
                 items: [
                     { text: '導入ガイド', link: '/guide' },
-                    { text: 'クイックリファレンス', link: '/quick_reference' }
+                    { text: 'クイックリファレンス', link: '/quick_reference' },
+                    { text: '変更履歴 (Changelog)', link: '/changelog' }
                 ]
             },
             {
@@ -80,7 +81,8 @@ export default defineConfig({
                         text: 'Getting Started',
                         items: [
                             { text: 'Tutorial', link: '/en/guide' },
-                            { text: 'Quick Reference', link: '/en/quick_reference' }
+                            { text: 'Quick Reference', link: '/en/quick_reference' },
+                            { text: 'Changelog', link: '/en/changelog' }
                         ]
                     },
                     {
