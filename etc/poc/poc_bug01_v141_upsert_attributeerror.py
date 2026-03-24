@@ -58,8 +58,8 @@ def run_poc() -> None:
         for suffix in ("", "-wal", "-shm"):
             try:
                 os.remove(db_path + suffix)
-            except OSError:
-                pass
+            except OSError as e:
+                print(f"Warning: failed to remove {db_path + suffix}: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":
