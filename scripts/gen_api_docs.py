@@ -95,6 +95,28 @@ def get_type_name(annotation):
         return annotation.__name__
     return str(annotation).replace("typing.", "").replace("'", "")
 
+def process_repl_blocks(lines):
+    result = []
+    in_code_block = False
+    for line in lines:
+        clean = line.strip()
+        is_repl = clean.startswith('>>>') or clean.startswith('...')
+        if is_repl:
+            if not in_code_block:
+                result.append("```python")
+                in_code_block = True
+            # Strip prompt but preserve relative indentation
+            stripped_line = re.sub(r'^(\s*)(>>>|\.\.\.)\s?', r'\1', line)
+            result.append(stripped_line)
+        else:
+            if in_code_block:
+                result.append("```")
+                in_code_block = False
+            result.append(line)
+    if in_code_block:
+        result.append("```")
+    return result
+
 def format_docstring(doc, lang='ja', sig=None):
     if not doc:
         return ""
@@ -140,6 +162,9 @@ def format_docstring(doc, lang='ja', sig=None):
         elif current_section == "example":
             example_lines.append(line)
 
+    description_lines = process_repl_blocks(description_lines)
+    returns_lines = process_repl_blocks(returns_lines)
+    
     # Build final markdown
     final_md = []
     
@@ -204,16 +229,14 @@ def format_docstring(doc, lang='ja', sig=None):
         title = "使用例" if lang == 'ja' else "Example"
         final_md.append(f"::: tip {title}")
         
-        in_code_block = False
+        example_lines = process_repl_blocks(example_lines)
         has_code_fences = any("```" in l for l in example_lines)
         
         if not has_code_fences:
              final_md.append("```python")
              
         for e_line in example_lines:
-            # Strip REPL prompts from start of lines
-            stripped_line = re.sub(r'^\s*(>>>|\.\.\.)\s?', '', e_line)
-            final_md.append(stripped_line)
+            final_md.append(e_line)
             
         if not has_code_fences:
              final_md.append("```")
