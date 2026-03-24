@@ -178,13 +178,20 @@ jobs:
         TEMP: 'D:\\temp'
         TMP: 'D:\\temp'
       run: |
-        pytest tests/ -v --tb=short --junitxml=test-results.xml -n 4 --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py --ignore=tests/test_cache_benchmark.py --ignore=tests/benchmark_encryption.py
+        pytest tests/ -v --tb=short --junitxml=test-results.xml --cov=nanasqlite --cov-report=xml:coverage.xml -n 4 --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py --ignore=tests/test_cache_benchmark.py --ignore=tests/benchmark_encryption.py
 
     # Linux/macOS: auto parallelism
     - name: Run tests (Linux/macOS)
       if: runner.os != 'Windows'
       run: |
-        pytest tests/ -v --tb=short --junitxml=test-results.xml -n auto --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py --ignore=tests/test_cache_benchmark.py --ignore=tests/benchmark_encryption.py
+        pytest tests/ -v --tb=short --junitxml=test-results.xml --cov=nanasqlite --cov-report=xml:coverage.xml -n auto --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py --ignore=tests/test_cache_benchmark.py --ignore=tests/benchmark_encryption.py
+
+    - name: Upload coverage to Artifacts
+      uses: actions/upload-artifact@v7
+      with:
+        name: coverage-report-${{ matrix.os }}-py${{ matrix.python-version }}
+        path: coverage.xml
+        retention-days: 7
 
     - name: Upload test results
       uses: actions/upload-artifact@v7
