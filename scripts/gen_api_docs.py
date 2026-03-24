@@ -211,7 +211,9 @@ def format_docstring(doc, lang='ja', sig=None):
              final_md.append("```python")
              
         for e_line in example_lines:
-            final_md.append(e_line)
+            # Strip REPL prompts from start of lines
+            stripped_line = re.sub(r'^\s*(>>>|\.\.\.)\s?', '', e_line)
+            final_md.append(stripped_line)
             
         if not has_code_fences:
              final_md.append("```")
