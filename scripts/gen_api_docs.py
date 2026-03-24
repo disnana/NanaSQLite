@@ -43,9 +43,6 @@ GROUP_HEADERS = {
 }
 
 def extract_lang(text, lang='ja'):
-    """
-    Intelligently extracts the desired language while preserving structure and code.
-    """
     if not text:
         return ""
 
@@ -70,19 +67,13 @@ def extract_lang(text, lang='ja'):
             result_lines.append(line)
             continue
 
-        # We drop the parenthesis split logic because it breaks descriptions like "(default: x)"
-        # Instead, we just rely on presence of Japanese characters to filter Japanese lines
         has_ja = bool(re.search(r'[ぁ-んァ-ヶー一-龠]', line))
-        
-        # Keep lines that start with argument patterns (we don't want to lose English args in Ja mode if they have no jap text, 
-        # but wait, if it's an arg, keep it)
         is_arg = bool(re.match(r'^(\s*[-*]?\s*)([\w_]+:)', line))
 
         if lang == 'ja':
             if has_ja or is_arg or not clean:
                 result_lines.append(line)
         else: # en mode
-            # Ideally we only keep english, but if it has jap, we might drop it.
             if not has_ja or not clean:
                 result_lines.append(line)
 
@@ -182,147 +173,6 @@ def format_docstring(doc, lang='ja', sig=None):
         final_md.append(f"| {th_name} | {th_type} | {th_desc} |")
         final_md.append("|---|---|---|")
         
-        for line in args_lines:
-            m = re.match(r'^\s*([\w_]+):(.*)$', line.strip())
-            if m:
-                p_name, p_desc = m.groups()
-                p_desc = p_desc.strip()
-                p_type = "Any"
-                if p_name in param_dict:
-                    p_type = get_type_name(param_dict[p_name].annotation)
-                # markdown escape
-                p_type_text = f"`{p_type}`" if p_type != "Any" else ""
-                final_md.append(f"| `{p_name}` | {p_type_text} | {p_desc} |")
-            elif line.strip():
-                # Continuation of description or unmatched line
-                final_md.append(f"| | | {line.strip()} |")
-        final_md.append("\n")
-
-    # Returns section
-    if returns_lines:
-        val_name = "戻り値" if lang == 'ja' else "Returns"
-        final_md.append(f"#### {val_name}")
-        ret_type = "Any"
-        if sig and sig.return_annotation != inspect._empty:
-            ret_type = get_type_name(sig.return_annotation)
-        
-        if ret_type != "Any" and ret_type != "None":
-            final_md.append(f"\n**Type:** `{ret_type}`\n")
-        else:
-            final_md.append("\n")
-        final_md.append("\n".join(returns_lines).strip() + "\n")
-
-    # Raises container (VitePress warning)
-    if raises_lines:
-        title = "例外" if lang == 'ja' else "Raises"
-        final_md.append(f"::: warning {title}")
-        # Make bulleted
-        for r_line in raises_lines:
-            if r_line.strip() and not r_line.strip().startswith("-"):
-                final_md.append(f"- {r_line.strip()}")
-            elif r_line.strip():
-                final_md.append(r_line.strip())
-        final_md.append(":::\n")
-        
-    # Example container (VitePress tip)
-    if example_lines:
-        title = "使用例" if lang == 'ja' else "Example"
-        final_md.append(f"::: tip {title}")
-        
-        example_lines = process_repl_blocks(example_lines)
-        has_code_fences = any("```" in l for l in example_lines)
-        
-        if not has_code_fences:
-             final_md.append("```python")
-             
-        for e_line in example_lines:
-            final_md.append(e_line)
-            
-        if not has_code_fences:
-             final_md.append("```")
-             
-        final_md.append(":::\n")
-
-    doc = "\n".join(final_md)
-    doc = re.sub(r'\n{3,}', '\n\n', doc)
-
-    return doc
-
-def clean_signature(sig_str):
-    """Clean the signature string from unnecessary quotes and verbose paths"""
-    # Remove quotes around type hints like `: 'str'` -> `: str`
-    s = re.sub(r": '([^']+)'", r": \1", sig_str)
-    s = re.sub(r"-> '([^']+)'", r"-> \1", s)
-    # Remove quotes around complex type hints like `"Literal['a']"` -> `Literal['a']`
-    s = re.sub(r': "([^"]+)"', r': \1', s)
-    
-    s = s.replace("NoneType", "None")
-    # Simplify common generic types
-    s = re.sub(r'<CacheType\.[A-Z]+:\s*\'[a-z]+\'>', 'CacheType', s)
-    return s
-
-def format_docstring(doc, lang='ja', sig=None):
-    if not doc:
-        return ""
-
-    doc = inspect.cleandoc(doc)
-    doc = extract_lang(doc, lang)
-
-    # Initialize segments
-    description_lines = []
-    args_lines = []
-    returns_lines = []
-    raises_lines = []
-    example_lines = []
-    
-    current_section = "description"
-    
-    # Simple state machine to parse the docstring
-    for line in doc.split('\n'):
-        clean = line.strip()
-        
-        # Detect section changes
-        if re.match(r'^(Args|引数):', clean, re.I):
-            current_section = "args"
-            continue
-        elif re.match(r'^(Returns|戻り値):', clean, re.I):
-            current_section = "returns"
-            continue
-        elif re.match(r'^(Raises|例外):', clean, re.I):
-            current_section = "raises"
-            continue
-        elif re.match(r'^(Example|Examples|使用例):', clean, re.I):
-            current_section = "example"
-            continue
-            
-        if current_section == "description":
-            description_lines.append(line)
-        elif current_section == "args":
-            args_lines.append(line)
-        elif current_section == "returns":
-            returns_lines.append(line)
-        elif current_section == "raises":
-            raises_lines.append(line)
-        elif current_section == "example":
-            example_lines.append(line)
-
-    # Build final markdown
-    final_md = []
-    
-    # Description
-    if description_lines:
-        final_md.append("\n".join(description_lines).strip() + "\n")
-        
-    # Args Table
-    if args_lines and sig:
-        param_dict = dict(sig.parameters)
-        th_name = "引数名" if lang == 'ja' else "Parameter"
-        th_type = "型" if lang == 'ja' else "Type"
-        th_desc = "説明" if lang == 'ja' else "Description"
-        final_md.append(f"#### {th_name}\n")
-        final_md.append(f"| {th_name} | {th_type} | {th_desc} |")
-        final_md.append("|---|---|---|")
-        
         # Parse descriptions into a dict to deduplicate
         parsed_args = {}
         last_arg = None
@@ -381,6 +231,7 @@ def format_docstring(doc, lang='ja', sig=None):
         title = "使用例" if lang == 'ja' else "Example"
         final_md.append(f"::: tip {title}")
         
+        example_lines = process_repl_blocks(example_lines)
         has_code_fences = any("```" in l for l in example_lines)
         if not has_code_fences:
              final_md.append("```python")
@@ -397,6 +248,19 @@ def format_docstring(doc, lang='ja', sig=None):
     doc = re.sub(r'\n{3,}', '\n\n', doc)
 
     return doc
+
+def clean_signature(sig_str):
+    """Clean the signature string from unnecessary quotes and verbose paths"""
+    # Remove quotes around type hints like `: 'str'` -> `: str`
+    s = re.sub(r": '([^']+)'", r": \1", sig_str)
+    s = re.sub(r"-> '([^']+)'", r"-> \1", s)
+    # Remove quotes around complex type hints like `"Literal['a']"` -> `Literal['a']`
+    s = re.sub(r': "([^"]+)"', r': \1', s)
+    
+    s = s.replace("NoneType", "None")
+    # Simplify common generic types
+    s = re.sub(r'<CacheType\.[A-Z]+:\s*\'[a-z]+\'>', 'CacheType', s)
+    return s
 
 def generate_class_md(cls_obj, title, description="", lang='ja'):
     md = f"# {title}\n\n"

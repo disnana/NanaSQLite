@@ -72,7 +72,9 @@
   - **フラッシュモード**: `flush_mode` パラメータで最適なタイミング（`immediate`, `count`, `time`, `manual`）を選択できます。
   - **デッドレターキュー (DLQ)**: バックグラウンドでのSQL実行失敗時に、問題のあるタスクだけを隔離し、他のデータ永続化を継続・保護します。`get_dlq()` で内容確認、`retry_dlq()` で再試行が可能です。
   - **チャンク処理**: 大量データの書き込み時にSQLiteのロックを長時間占有しないよう、バッチを分割（デフォルト 1000件ごと）して少しずつ書き込みます。
-  - **注意**: v2アーキテクチャは「単一プロセス」システム専用です。マルチプロセス環境（FastAPI/Gunicornの複数ワーカーなど）ではデータ破損の原因となるため警告が出力されます。
+  - ::: warning 注意
+    : v2アーキテクチャは「単一プロセス」システム専用です。マルチプロセス環境（FastAPI/Gunicornの複数ワーカーなど）ではデータ破損の原因となるため警告が出力されます。
+    :::
 
 #### 変更
 - `NanaSQLite` および `AsyncNanaSQLite` の `__init__` に `v2_mode`, `flush_mode`, `flush_interval`, `flush_count`, `v2_chunk_size` パラメータを追加。
@@ -268,7 +270,9 @@
 - **`coerce` パラメータの追加（自動変換オプション）**:
   - `NanaSQLite.__init__`、`NanaSQLite.table()`、`AsyncNanaSQLite.__init__`、`AsyncNanaSQLite.table()` に `coerce: bool = False` パラメータを追加。
   - `True` を指定すると、validkit-py のバリデーション後に変換済みの値（例: `"42"` → `42`）をDBに保存します。
-  - **注意**: 自動変換を機能させるには、スキーマの各フィールドバリデーターにも `.coerce()` を呼び出す必要があります（例: `v.int().coerce()`）。フィールドに `.coerce()` がない場合、型が一致しない値はバリデーションエラーになります（NanaSQLite の `coerce=True` だけでは変換されません）。
+  - ::: warning 注意
+    : 自動変換を機能させるには、スキーマの各フィールドバリデーターにも `.coerce()` を呼び出す必要があります（例: `v.int().coerce()`）。フィールドに `.coerce()` がない場合、型が一致しない値はバリデーションエラーになります（NanaSQLite の `coerce=True` だけでは変換されません）。
+    :::
   - `validator` と組み合わせて使用します。`validator` が設定されていない場合は無効。
   - `table()` で省略した場合は親インスタンスの設定を引き継ぐ。
 
@@ -864,7 +868,9 @@
   - **Flush Modes**: Customize flushing behavior using the `flush_mode` parameter (`immediate`, `count`, `time`, or `manual`).
   - **Dead Letter Queue (DLQ)**: If a background SQL execution fails, the problematic task is isolated to a DLQ, allowing the rest of the data persistence pipeline to proceed without halting the system. Use `get_dlq()` to inspect and `retry_dlq()` to re-enqueue failed tasks.
   - **Chunk Flushing**: Automatically splits large write batches (default: 1000 items) to prevent long-held database locks.
-  - **Warning**: The v2 architecture is designed exclusively for SINGLE-PROCESS systems. A warning is emitted if used in multi-process environments (e.g., Gunicorn with multiple workers) as parallel background threads will cause data corruption.
+  - ::: warning Warning
+    : The v2 architecture is designed exclusively for SINGLE-PROCESS systems. A warning is emitted if used in multi-process environments (e.g., Gunicorn with multiple workers) as parallel background threads will cause data corruption.
+    :::
 
 #### Changes
 - Added `v2_mode`, `flush_mode`, `flush_interval`, `flush_count`, and `v2_chunk_size` parameters to `NanaSQLite` and `AsyncNanaSQLite` initialization.
@@ -1067,7 +1073,9 @@
 - **`coerce` parameter (auto-conversion option)**:
   - Added `coerce: bool = False` parameter to `NanaSQLite.__init__`, `NanaSQLite.table()`, `AsyncNanaSQLite.__init__`, and `AsyncNanaSQLite.table()`.
   - When `True`, the coerced value returned by validkit-py (e.g. `"42"` → `42`) is stored instead of the original value.
-  - **Important**: Auto-conversion requires **both** `coerce=True` on `NanaSQLite` AND `.coerce()` on each field validator in the schema (e.g., `v.int().coerce()`). Without `.coerce()` on the field, values whose types don't match the schema will still raise `NanaSQLiteValidationError` even with `coerce=True`.
+  - ::: danger Important
+    : Auto-conversion requires **both** `coerce=True` on `NanaSQLite` AND `.coerce()` on each field validator in the schema (e.g., `v.int().coerce()`). Without `.coerce()` on the field, values whose types don't match the schema will still raise `NanaSQLiteValidationError` even with `coerce=True`.
+    :::
   - Works in conjunction with `validator`; has no effect when no validator is set.
   - When omitted in `table()`, the parent's `coerce` setting is inherited automatically.
 

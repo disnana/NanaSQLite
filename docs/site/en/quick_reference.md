@@ -200,7 +200,9 @@ db.update({"a": 1, "b": 2})
 db.update(c=3, d=4)
 ```
 
-**Note:** `batch_update()` is recommended for bulk updates.
+::: warning Note
+`batch_update()` is recommended for bulk updates.
+:::
 
 ---
 
@@ -290,7 +292,9 @@ Close database connection.
 db.close()
 ```
 
-**Note:** Helper table instances created by `table()` method share the connection, so only the first created instance (owner) closes the connection.
+::: warning Note
+Helper table instances created by `table()` method share the connection, so only the first created instance (owner) closes the connection.
+:::
 
 ---
 

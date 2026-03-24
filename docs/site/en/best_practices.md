@@ -87,7 +87,9 @@ db = NanaSQLite("data.db", cache_size_mb=32)
 - **Medium DB (100MB-1GB)**: 128-256MB SQLite cache
 - **Large DB (>1GB)**: 256-512MB SQLite cache
 
-**Note:** This parameter does NOT affect the memory used by NanaSQLite's internal dictionary cache (`_data`), which stores loaded values in Python memory. To control that, use `bulk_load=False` (default) for lazy loading.
+::: warning Note
+This parameter does NOT affect the memory used by NanaSQLite's internal dictionary cache (`_data`), which stores loaded values in Python memory. To control that, use `bulk_load=False` (default) for lazy loading.
+:::
 
 ### Context Manager for Auto-Cleanup
 
