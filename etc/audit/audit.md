@@ -241,6 +241,8 @@ class TestV141Bug01UpsertAttributeError:
 `LRU` および `TTL` キャッシュ戦略では、値が存在する場合のみキャッシュされる。`UNBOUNDED` 戦略が `_cached_keys` セットで「存在しないことが確認されたキー」を追跡しているのと異なり、LRU/TTL では存在しないキーへのアクセスのたびに SQLite クエリが発行される。
 
 **修正案:** LRU/TTL でもネガティブキャッシュ（存在しないキーの追跡）を導入する。 — **[FIXED]** (`MISSING` センチネルを使用)
+> [!IMPORTANT]
+> **後方互換性の修正:** 導入直後の再監査により、`MISSING` センチネルが `__contains__`, `values()`, `items()`, `batch_get()` から漏洩するリグレッションを発見したため、これらをすべてフィルタリングする修正を適用済み。
 
 ---
 

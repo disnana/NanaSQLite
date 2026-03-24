@@ -888,7 +888,8 @@ class NanaSQLite(MutableMapping):
                 return key in self._data
         else:
             if key in self._data:
-                return True
+                # Value might be MISSING sentinel
+                return self._cache.get(key) is not MISSING
 
         # Lightweight existence check against DB
         with self._acquire_lock():
@@ -1016,7 +1017,9 @@ class NanaSQLite(MutableMapping):
         cache_data = self._cache.get_data()
         for key in keys:
             if key in cache_data:
-                results[key] = cache_data[key]
+                val = cache_data[key]
+                if val is not MISSING:
+                    results[key] = val
             else:
                 missing_keys.append(key)
 
