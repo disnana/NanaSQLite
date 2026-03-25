@@ -358,8 +358,6 @@ print(failed)  # {"key2": "Validation error: ..."}
 db.batch_delete(["key1", "key2", "key3"])
 ```
 
----
-
 ## コンテキストマネージャ
 
 ### `__enter__() / __exit__()`
