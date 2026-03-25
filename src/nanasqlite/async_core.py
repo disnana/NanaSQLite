@@ -180,6 +180,7 @@ class AsyncNanaSQLite:
         self._db: NanaSQLite | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._owns_executor = True  # このインスタンスがエグゼキューターを所有
+        self._init_lock = asyncio.Lock()  # 初期化時の競合を防ぐためのロック
 
     async def _ensure_initialized(self) -> None:
         """Ensure the underlying sync database is initialized"""
@@ -188,7 +189,14 @@ class AsyncNanaSQLite:
                 raise NanaSQLiteClosedError(f"Parent database connection is closed (table: {self._table!r})")
             raise NanaSQLiteClosedError("Database connection is closed")
 
-        if self._db is None:
+        if self._db is not None:
+            return
+
+        async with self._init_lock:
+            # Check again inside lock
+            if self._db is not None:
+                return
+
             # Initialize in thread pool to avoid blocking
             loop = asyncio.get_running_loop()
             self._loop = loop
