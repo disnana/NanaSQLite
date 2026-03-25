@@ -166,10 +166,10 @@ def update(self, mapping: dict = None, **kwargs) -> None:
 
 ---
 
-# NanaSQLite v1.4.1dev3 プレリリース監査レポート
+# NanaSQLite v1.4.1 最終リリース監査レポート
 
-> 対象バージョン: 1.4.1dev3  
-> 監査日: 2026-03-24  
+> 対象バージョン: 1.4.1  
+> 監査日: 2026-03-25  
 > 対象ファイル: src/nanasqlite/ 配下すべて (core.py, async_core.py, cache.py, utils.py, sql_utils.py, exceptions.py)
 
 ---
@@ -178,17 +178,25 @@ def update(self, mapping: dict = None, **kwargs) -> None:
 
 | カテゴリ | Critical | High | Medium | Low | 計 |
 |---|---|---|---|---|---|
-| 脆弱性 | — | — | — | — | 0 |
-| 不具合・潜在バグ | — | 1 | — | — | 1 |
+| 脆弱性 | — | — | 1 | — | 1 |
+| 不具合・潜在バグ | — | 2 | — | — | 2 |
 | 高速化の余地 | — | — | — | 1 | 1 |
-| 改善点（コード品質） | — | — | — | 1 | 1 |
-| **合計** | **—** | **1** | **—** | **2** | **3** |
+| 改善点（コード品質） | — | — | — | 3 | 3 |
+| **合計** | **—** | **2** | **1** | **4** | **7** |
 
 ---
 
 ## 1. 脆弱性
 
-該当なし。現バージョンにおいて重大なセキュリティ脆弱性は検出されなかった。
+### SEC-02 [Medium] `core.py` における `column_type` バリデーションの ReDoS 脆弱性
+
+**ファイル:** `core.py` (v1.4.1)
+
+SonarQubeが指摘していた `column_type` バリデーションにおける `[\w ]*` の正規表現パターンが、評価文字列によってはバックトラッキングを多発させる ReDoS 脆弱性を伴うことを確認。これを利用して `alter_table_add_column` に細工された文字列を入力することで遅延を引き起こすリスクが存在した。
+
+**POC:** `etc/poc/poc_sec02_redos.py` — 時間差を計測して再現確認済み -> **FIXED**
+
+**修正案:** `column_type` のバリデーション正規表現を `^[A-Za-z][a-zA-Z0-9_]*(?:\s+[a-zA-Z0-9_]+)*(\s*\([\d,\s]+\))?$` へ修正し、バックトラッキングを抑制する。 — **[FIXED]**
 
 ---
 
@@ -198,39 +206,13 @@ def update(self, mapping: dict = None, **kwargs) -> None:
 
 **ファイル:** `core.py`
 
-```python
-# 問題のある呼び出し例
-db.upsert({"id": 1, "name": "Alice"}, conflict_columns=["id"])
-```
+`upsert` メソッドで `(data_dict, conflict_columns)` パターンで呼ばれた際に、内部変数 `target_data` ではなく `data` の `.keys()` を参照するコードパスがあり `AttributeError` が発生する問題を修正。 — **[FIXED]**
 
-`upsert` メソッドは複数の呼び出しパターンを内部で振り分けるが、`(data_dict, conflict_columns)` パターンで呼ばれた際に、内部変数 `target_data` ではなく元の `data` 変数（この呼び出しパターンでは `None`）の `.keys()` を参照するコードパスが存在する。その結果 `AttributeError: 'NoneType' object has no attribute 'keys'` が発生し、処理が中断する。非同期版 `aupsert` も内部で `core.py` の `upsert` を経由するため同様の影響を受ける。
+### QUAL-02 [High] `AsyncNanaSQLite` 初期化時のスレッドプール二重初期化（競合状態）
 
-**POC:** `etc/poc/poc_bug01_v141_upsert_attributeerror.py` — 再現確認済み (exit code 1) -> **FIXED** (exit code 0)
+**ファイル:** `async_core.py`
 
-**修正案:** 問題箇所の `data.keys()` を `target_data.keys()` に変更する。 — **[FIXED]**
-
-**対処提案:**
-
-```python
-# core.py — upsert() 内の conflict_columns 処理部分
-# Before (バグあり)
-updated_cols = [col for col in data.keys() if col not in conflict_columns]
-
-# After (修正済み)
-updated_cols = [col for col in target_data.keys() if col not in conflict_columns]
-```
-
-修正箇所は1行のみで、後方互換性・パフォーマンスへの影響はない。合わせて `tests/test_audit_poc.py` に以下のテストケースを追加することを推奨する。
-
-```python
-class TestV141Bug01UpsertAttributeError:
-    def test_upsert_with_data_dict_and_conflict_columns(self, db):
-        db.create_table("t", {"id": "INTEGER PRIMARY KEY", "name": "TEXT"})
-        # 修正前はここで AttributeError が発生していた
-        db.upsert({"id": 1, "name": "Alice"}, conflict_columns=["id"])
-        rows = db.query("t")
-        assert rows[0]["name"] == "Alice"
-```
+`AsyncNanaSQLite` の初期化時（`_ensure_initialized()`）において、複数の非同期タスクが同時にアクセスした場合に `NanaSQLite` とスレッドプールが複数回生成される競合状態のリスクを修正。`asyncio.Lock` を導入して直列化した。 — **[FIXED]**
 
 ---
 
@@ -238,11 +220,8 @@ class TestV141Bug01UpsertAttributeError:
 
 ### PERF-01 [Low] LRU/TTLキャッシュ使用時のネガティブキャッシュ欠如
 
-`LRU` および `TTL` キャッシュ戦略では、値が存在する場合のみキャッシュされる。`UNBOUNDED` 戦略が `_cached_keys` セットで「存在しないことが確認されたキー」を追跡しているのと異なり、LRU/TTL では存在しないキーへのアクセスのたびに SQLite クエリが発行される。
-
-**修正案:** LRU/TTL でもネガティブキャッシュ（存在しないキーの追跡）を導入する。 — **[FIXED]** (`MISSING` センチネルを使用)
-> [!IMPORTANT]
-> **後方互換性の修正:** 導入直後の再監査により、`MISSING` センチネルが `__contains__`, `values()`, `items()`, `batch_get()` から漏洩するリグレッションを発見したため、これらをすべてフィルタリングする修正を適用済み。
+`LRU` および `TTL` キャッシュ戦略に「存在しないキー」を追跡する仕組み（ネガティブキャッシュ）を導入し、存在しないキーへの反復アクセス時のSQLiteクエリ負荷をゼロにした。
+（これに伴い発生した内部センチネル混入バグもリリース前に検知し修正済み） — **[FIXED]**
 
 ---
 
@@ -250,9 +229,15 @@ class TestV141Bug01UpsertAttributeError:
 
 ### QUAL-01 [Low] `ExpiringDict` スケジューラスレッド停止処理の向上
 
-`clear()` および `__del__` における `scheduler_thread.join(timeout=...)` でタイムアウトが発生した場合の後処理が不十分で、警告ログのみで終了する。デーモンスレッドのため致命的ではないが、テスト環境での `ResourceWarning` 発生の原因となり得る。
+`clear()` および `__del__` におけるデーモンスレッドのタイムアウト後処理を改善し、参照を適切にクリアしてResourceWarningを防止した。 — **[FIXED]**
 
-**修正案:** タイムアウト後のスレッド状態をより適切に管理する。 — **[FIXED]** (`join` 後の参照クリア)
+### QUAL-03 [Low] ソースコード内マジックリテラルの定数化
+
+ソースコード内で使用される `"BEGIN IMMEDIATE"` などのマジックリテラルを一元化し、モジュールレベルのプレフィックス定数に置き換えた（保守性向上）。 — **[FIXED]**
+
+### CI-01 [Low] SonarQube Quality Gate の誤検知解消
+
+SonarQube Cloudの解析対象から非Pythonファイルやモック、テストスクリプトを除外し、認知複雑度の誤った低下警告を抑止した（CI/CDの安定化）。 — **[FIXED]**
 
 ---
 
@@ -263,9 +248,13 @@ class TestV141Bug01UpsertAttributeError:
 | ID | 概要 |
 |---|---|
 | BUG-01 | `upsert()` の AttributeError — 修正完了 |
-| PERF-01 | LRU/TTLキャッシュのネガティブキャッシュ欠如 — 修正完了 |
-| QUAL-01 | `ExpiringDict` スケジューラスレッド停止処理の向上 — 修正完了 |
+| QUAL-02 | `AsyncNanaSQLite` の初期化時 Race Condition 修正 — 修正完了 |
+| SEC-02 | `column_type` バリデーションの ReDoS 脆弱性 — 修正完了 |
+| PERF-01 | LRU/TTLのネガティブキャッシュ導入 — 修正完了 |
+| QUAL-01 | `ExpiringDict` 停止処理の向上 — 修正完了 |
+| QUAL-03 | マジックリテラルの共通定数化 — 修正完了 |
+| CI-01 | SonarQube Quality Gate 誤検知解消 — 修正完了 |
 
 ### 将来的な改善
 
-該当なし（今回の監査で指摘された項目はすべて v1.4.1 で対応済み）
+該当なし（v1.4.1リリースにおける全指摘項目は本バージョン内で対応済み）

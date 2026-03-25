@@ -2171,7 +2171,7 @@ class NanaSQLite(MutableMapping):
         # Whitelist-based validation for column_type to prevent SQL injection.
         # Allows standard SQLite type names with optional length/precision specifiers.
         # e.g. "TEXT", "INTEGER", "VARCHAR(255)", "DECIMAL(10,2)", "DOUBLE PRECISION"
-        if not re.match(r"^[A-Za-z][\w ]*(\([\d, ]+\))?$", column_type):
+        if not re.match(r"^[A-Za-z]\w*(?:\s+\w+)*(\s*\([\d,\s]+\))?$", column_type):
             raise ValueError(f"Invalid or dangerous column type: {column_type}")
 
         sql = f"ALTER TABLE {safe_table_name} ADD COLUMN {safe_column_name} {column_type}"

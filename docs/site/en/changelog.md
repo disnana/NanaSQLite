@@ -6,25 +6,22 @@ outline: [2, 3]
 
 ### [1.4.1] - 2026-03-25
 
-#### Quality and Documentation Modernization
+#### Security Fixes
+- **[Medium] SEC-02**: Fixed the `column_type` validation regular expression in `core.py` from a vulnerable pattern (`[\w ]*`) to a safe pattern, completely resolving the ReDoS (Regular Expression Denial of Service) vulnerability warned by SonarQube.
+
+#### Bug Fixes
+- **[High] BUG-01**: Fixed `AttributeError` in `upsert()` and `aupsert()` when passing a data dictionary as the first argument while specifying `conflict_columns`. Improved internal logic to reference the correct keys in `target_data`. (1.4.1rc1)
 - **[High] QUAL-02**: Fixed a potential race condition in `AsyncNanaSQLite` initialization where multiple concurrent async tasks could trigger redundant background initializations. Introduced `asyncio.Lock` to ensure thread-safe startup.
-- **[Medium] SEC-02**: Confirmed that SonarQube's warnings regarding ReDoS (Regular Expression Denial of Service) in `column_type` validation and alias extraction remain valid for the patterns currently in use. Continued monitoring and future improvements are recommended for production security.
+- Resolved syntax errors and initialization issues in `AsyncNanaSQLite.table()` caused by docstring fragmentation and incomplete argument propagation. (1.4.1dev3)
+- Cleaned up duplicate method definitions in `AsyncNanaSQLite` that occurred during feature application. (1.4.1dev3)
+
+#### Performance Improvements
+- **[Low] PERF-01**: Introduced "negative caching" for LRU and TTL cache strategies to store the result of searches for keys that do not exist in the database, reducing I/O load during repeated access. (Also discovered and fixed a breaking bug before release where internal sentinels could leak due to this feature). (1.4.1rc1)
+
+#### Code Quality Improvements
+- **[Low] QUAL-01**: Improved the `ExpiringDict` scheduler thread stop logic to ensure more robust cleanup during instance destruction or clearing. (1.4.1rc1)
 - **[Low] QUAL-03**: Deduplicated magic literals (e.g., `"BEGIN IMMEDIATE"`) into module-level constants to improve maintainability.
 - **[Low] CI-01**: Resolved SonarQube Cloud "Quality Gate" false positives by excluding non-source files (docs, scripts) from coverage and suppressing non-essential maintainability warnings through configuration.
-
-#### Documentation
-- **Enhanced API Documentation Generator**: Overhauled `scripts/gen_api_docs.py` to produce modern, highly readable API references utilizing VitePress tables and custom containers.
-- **Site-wide Documentation Modernization**: Standardized all manual documentation by batch-converting callouts and warnings to the VitePress native format.
-
-### [1.4.1rc1] - 2026-03-24
-
-#### Fixes
-- **[High] BUG-01**: Fixed `AttributeError` in `upsert()` and `aupsert()` when passing a data dictionary as the first argument while specifying `conflict_columns`. Improved internal logic to reference the correct keys in `target_data`.
-- **[Low] PERF-01**: Introduced "negative caching" for LRU and TTL cache strategies to store the result of searches for keys that do not exist in the database, reducing I/O load during repeated access. (Also discovered and fixed a breaking bug before release where internal sentinels could leak into `__contains__` (`in` operator), `values()`, `items()`, and `batch_get()` results due to this feature).
-- **[Low] QUAL-01**: Improved the `ExpiringDict` scheduler thread stop logic to ensure more robust cleanup during instance destruction or clearing.
-
-
-### [1.4.1dev3] - 2026-03-23
 
 #### New Features: Enhanced V2 Engine Usability and Observability (Opt-in)
 - **Dead Letter Queue (DLQ) Visibility**:
@@ -36,9 +33,9 @@ outline: [2, 3]
 - **Configuration Inheritance**:
     - Ensured that V2-specific settings like `v2_enable_metrics` are correctly propagated to child instances created via the `table()` method.
 
-#### Fixes
-- Resolved syntax errors and initialization issues in `AsyncNanaSQLite.table()` caused by docstring fragmentation and incomplete argument propagation.
-- Cleaned up duplicate method definitions in `AsyncNanaSQLite` that occurred during feature application.
+#### Documentation
+- **Enhanced API Documentation Generator**: Overhauled `scripts/gen_api_docs.py` to produce modern, highly readable API references utilizing VitePress tables and custom containers.
+- **Site-wide Documentation Modernization**: Standardized all manual documentation by batch-converting callouts and warnings to the VitePress native format.
 
 ### [1.4.0] - 2026-03-12
 
