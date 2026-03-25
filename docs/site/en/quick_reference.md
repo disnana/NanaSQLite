@@ -57,8 +57,6 @@ db = NanaSQLite("app.db", table="users")
 db = NanaSQLite("mydata.db", cache_size_mb=128)
 ```
 
----
-
 ## Dict Interface
 
 ### `__getitem__(key: str) -> Any`
