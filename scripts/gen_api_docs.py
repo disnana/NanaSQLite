@@ -334,30 +334,6 @@ def generate_class_md(cls_obj, title, description="", lang='ja'):
 
     return md
 
-def add_version_jump(content, lang='ja'):
-    # Find all versions: ### [1.4.1]
-    versions = re.findall(r'### \[(.*?)\]', content)
-    if not versions:
-        return content
-    
-    title = "バージョン選択" if lang == 'ja' else "Select Version"
-    jump_list = [f"::: details {title}"]
-    for v in versions:
-        # Safe ID for VitePress: replace dots with dashes or keep them? 
-        # VitePress usually handles dots, but let's be safe and use dots as is if it works.
-        # Header: ### [v] ... {#v} -> link: #v
-        jump_list.append(f"- [{v}](#{v})")
-    jump_list.append(":::")
-    
-    # Add IDs to headers: ### [1.4.1] -> ### [1.4.1] {#1.4.1}
-    def add_id(match):
-        v = match.group(2)
-        return f"{match.group(1)} {{#{v}}}"
-        
-    new_content = re.sub(r'(### \[(.*?)\])', add_id, content)
-    
-    return "\n".join(jump_list) + "\n\n" + new_content
-
 def generate_changelog_md():
     root_dir = Path(__file__).parent.parent
     docs_dir = root_dir / "docs" / "site"
@@ -369,19 +345,22 @@ def generate_changelog_md():
 
     content = changelog_path.read_text(encoding="utf-8")
     
+    # VitePress frontmatter to show H3 in the right outline
+    frontmatter = "---\noutline: [2, 3]\n---\n\n"
+    
     # Simple parsing logic for JA and EN sections
     ja_match = re.search(r'## 日本語\n(.*?)(?=\n## English|$)', content, re.S)
     en_match = re.search(r'## English\n(.*)$', content, re.S)
     
     if ja_match:
         ja_raw = ja_match.group(1).strip()
-        ja_content = "# 更新履歴\n\n" + add_version_jump(ja_raw, 'ja')
+        ja_content = frontmatter + "# 更新履歴\n\n" + ja_raw
         (docs_dir / "changelog.md").write_text(ja_content, encoding="utf-8")
         print("Japanese changelog generated.")
         
     if en_match:
         en_raw = en_match.group(1).strip()
-        en_content = "# Changelog\n\n" + add_version_jump(en_raw, 'en')
+        en_content = frontmatter + "# Changelog\n\n" + en_raw
         (docs_dir / "en" / "changelog.md").write_text(en_content, encoding="utf-8")
         print("English changelog generated.")
 
