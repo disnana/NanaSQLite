@@ -334,6 +334,37 @@ def generate_class_md(cls_obj, title, description="", lang='ja'):
 
     return md
 
+def generate_changelog_md():
+    root_dir = Path(__file__).parent.parent
+    docs_dir = root_dir / "docs" / "site"
+    changelog_path = root_dir / "CHANGELOG.md"
+    
+    if not changelog_path.exists():
+        print(f"Warning: {changelog_path} not found.")
+        return
+
+    content = changelog_path.read_text(encoding="utf-8")
+    
+    # Simple parsing logic for JA and EN sections
+    # Expected structure:
+    # ## 日本語
+    # ...
+    # ## English
+    # ...
+    
+    ja_match = re.search(r'## 日本語\n(.*?)(?=\n## English|$)', content, re.S)
+    en_match = re.search(r'## English\n(.*)$', content, re.S)
+    
+    if ja_match:
+        ja_content = "# 更新履歴\n\n" + ja_match.group(1).strip()
+        (docs_dir / "changelog.md").write_text(ja_content, encoding="utf-8")
+        print("Japanese changelog generated.")
+        
+    if en_match:
+        en_content = "# Changelog\n\n" + en_match.group(1).strip()
+        (docs_dir / "en" / "changelog.md").write_text(en_content, encoding="utf-8")
+        print("English changelog generated.")
+
 def main():
     root_dir = Path(__file__).parent.parent / "docs" / "site"
     ja_dir, en_dir = root_dir, root_dir / "en"
@@ -346,7 +377,11 @@ def main():
     (ja_dir / "api_async.md").write_text(generate_class_md(AsyncNanaSQLite, "非同期 API リファレンス", "AsyncNanaSQLiteクラスの非同期メソッド一覧です。", 'ja'), encoding="utf-8")
     (en_dir / "api_sync.md").write_text(generate_class_md(NanaSQLite, "Synchronous API Reference", "Reference for the synchronous NanaSQLite class.", 'en'), encoding="utf-8")
     (en_dir / "api_async.md").write_text(generate_class_md(AsyncNanaSQLite, "Asynchronous API Reference", "Reference for the asynchronous AsyncNanaSQLite class.", 'en'), encoding="utf-8")
-    print("API docs regenerated with modern styling.")
+    
+    # Generate split changelogs
+    generate_changelog_md()
+    
+    print("API docs and changelogs regenerated with modern styling.")
 
 if __name__ == "__main__":
     main()

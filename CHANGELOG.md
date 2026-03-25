@@ -6,7 +6,19 @@
 
 ## 日本語
 
-### [1.4.1] - 2026-03-24
+### [1.4.1] - 2026-03-25
+
+#### 品質とドキュメントの近代化
+- **[High] QUAL-02**: `AsyncNanaSQLite` の初期化時において、複数の非同期タスクが同時にアクセスした場合に発生する可能性があった競合状態（Race Condition）を修正。`asyncio.Lock` を導入し、スレッドプールの二重初期化を防止しました。
+- **[Medium] SEC-02**: `core.py` における `column_type` バリデーションおよびエイリアス抽出ロジックについて、SonarQube が警告する ReDoS（正規表現によるサービス拒否）の脆弱性を伴うパターンが残存していることを確認。安全性の観点から、引き続き監視と将来的な改善を推奨します。
+- **[Low] QUAL-03**: ソースコード内のマジックリテラル（`"BEGIN IMMEDIATE"` 等）の共通定数化を行い、保守性を向上させました。
+- **[Low] CI-01**: SonarQube Cloud の「Quality Gate」における誤検知（ドキュメントやスクリプトがカバレッジに含まれる問題）を解消し、認知複雑度などの非本質的な警告を抑制する設定を導入しました。
+
+#### ドキュメント
+- **APIリファレンス自動生成の刷新**: `scripts/gen_api_docs.py` を大幅に改修し、VitePress のコールアウトやテーブルを活用した、より美しく使いやすい API ドキュメントの自動生成を実現しました。
+- **全ドキュメントのモダン化**: 既存の Markdown ドキュメント内の太字警告等を、VitePress 標準のカスタムコンテナ（`::: warning` 等）へ一括変換し、サイト全体のデザインを統一しました。
+
+### [1.4.1rc1] - 2026-03-24
 
 #### 修正
 - **[High] BUG-01**: `upsert()` および `aupsert()` において、データ辞書を第1引数に渡しつつ `conflict_columns` を指定した場合に `AttributeError` が発生する問題を修正。解決済みの `target_data` のキーを参照するよう内部ロジックを改善しました。
@@ -804,6 +816,26 @@
 
 
 ## English
+
+### [1.4.1] - 2026-03-25
+
+#### Quality and Documentation Modernization
+- **[High] QUAL-02**: Fixed a potential race condition in `AsyncNanaSQLite` initialization where multiple concurrent async tasks could trigger redundant background initializations. Introduced `asyncio.Lock` to ensure thread-safe startup.
+- **[Medium] SEC-02**: Confirmed that SonarQube's warnings regarding ReDoS (Regular Expression Denial of Service) in `column_type` validation and alias extraction remain valid for the patterns currently in use. Continued monitoring and future improvements are recommended for production security.
+- **[Low] QUAL-03**: Deduplicated magic literals (e.g., `"BEGIN IMMEDIATE"`) into module-level constants to improve maintainability.
+- **[Low] CI-01**: Resolved SonarQube Cloud "Quality Gate" false positives by excluding non-source files (docs, scripts) from coverage and suppressing non-essential maintainability warnings through configuration.
+
+#### Documentation
+- **Enhanced API Documentation Generator**: Overhauled `scripts/gen_api_docs.py` to produce modern, highly readable API references utilizing VitePress tables and custom containers.
+- **Site-wide Documentation Modernization**: Standardized all manual documentation by batch-converting callouts and warnings to the VitePress native format.
+
+### [1.4.1rc1] - 2026-03-24
+
+#### Fixes
+- **[High] BUG-01**: Fixed `AttributeError` in `upsert()` and `aupsert()` when passing a data dictionary as the first argument while specifying `conflict_columns`. Improved internal logic to reference the correct keys in `target_data`.
+- **[Low] PERF-01**: Introduced "negative caching" for LRU and TTL cache strategies to store the result of searches for keys that do not exist in the database, reducing I/O load during repeated access. (Also discovered and fixed a breaking bug before release where internal sentinels could leak into `__contains__` (`in` operator), `values()`, `items()`, and `batch_get()` results due to this feature).
+- **[Low] QUAL-01**: Improved the `ExpiringDict` scheduler thread stop logic to ensure more robust cleanup during instance destruction or clearing.
+
 
 ### [1.4.1dev3] - 2026-03-23
 

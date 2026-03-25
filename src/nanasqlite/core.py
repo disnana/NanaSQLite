@@ -77,6 +77,9 @@ _UNSET = ...
 # Sentinel object for missing keys in DB
 _NOT_FOUND = object()
 
+# SQL literals to avoid duplication
+_BEGIN_IMMEDIATE = "BEGIN IMMEDIATE"
+
 
 class NanaSQLite(MutableMapping):
     """
@@ -446,12 +449,11 @@ class NanaSQLite(MutableMapping):
         """
         col_names: list[str] = []
         for col in columns:
-            # ReDoS-safe way to extract aliases: find the last " AS " case-insensitively.
-            # We look for " AS " with at least one space on each side.
-            col_upper = col.upper()
-            idx = col_upper.rfind(" AS ")
-            if idx != -1:
-                alias = col[idx + 4 :].strip().strip('"').strip("'")
+            # Robust and ReDoS-safe extraction of aliases.
+            # Splitting by whitespace and looking for 'as' handles multiple spaces/tabs safely.
+            parts = col.split()
+            if len(parts) >= 3 and parts[-2].lower() == "as":
+                alias = parts[-1].strip().strip('"').strip("'")
                 col_names.append(alias)
             else:
                 col_names.append(col.strip().strip('"').strip("'"))
@@ -1213,7 +1215,7 @@ class NanaSQLite(MutableMapping):
 
         with self._acquire_lock():
             cursor = self._connection.cursor()
-            cursor.execute("BEGIN IMMEDIATE")
+            cursor.execute(_BEGIN_IMMEDIATE)
             try:
                 # 事前にシリアライズしてexecutemany用のタプルリストを作成
                 params = [(key, self._serialize(value)) for key, value in mapping.items()]
@@ -1287,7 +1289,7 @@ class NanaSQLite(MutableMapping):
 
         with self._acquire_lock():
             cursor = self._connection.cursor()
-            cursor.execute("BEGIN IMMEDIATE")
+            cursor.execute(_BEGIN_IMMEDIATE)
             try:
                 cursor.executemany(
                     f"INSERT OR REPLACE INTO {self._safe_table} (key, value) VALUES (?, ?)",  # nosec
@@ -1324,7 +1326,7 @@ class NanaSQLite(MutableMapping):
 
         with self._acquire_lock():
             cursor = self._connection.cursor()
-            cursor.execute("BEGIN IMMEDIATE")
+            cursor.execute(_BEGIN_IMMEDIATE)
             try:
                 # executemany用のタプルリストを作成
                 params = [(key,) for key in keys]
@@ -1828,7 +1830,7 @@ class NanaSQLite(MutableMapping):
 
         with self._acquire_lock():
             cursor = self._connection.cursor()
-            cursor.execute("BEGIN IMMEDIATE")
+            cursor.execute(_BEGIN_IMMEDIATE)
             try:
                 for parameters in parameters_list:
                     cursor.execute(sql, parameters)
@@ -2169,7 +2171,7 @@ class NanaSQLite(MutableMapping):
         # Whitelist-based validation for column_type to prevent SQL injection.
         # Allows standard SQLite type names with optional length/precision specifiers.
         # e.g. "TEXT", "INTEGER", "VARCHAR(255)", "DECIMAL(10,2)", "DOUBLE PRECISION"
-        if not re.match(r"^[A-Za-z][A-Za-z0-9_ ]*(?:\(\s*\d+\s*(?:,\s*\d+\s*)?\))?$", column_type):
+        if not re.match(r"^[A-Za-z][\w ]*(\([\d, ]+\))?$", column_type):
             raise ValueError(f"Invalid or dangerous column type: {column_type}")
 
         sql = f"ALTER TABLE {safe_table_name} ADD COLUMN {safe_column_name} {column_type}"
