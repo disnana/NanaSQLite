@@ -318,8 +318,6 @@ config_db["theme"] = "dark"
 - **Memory efficient**: Reuses SQLite connection
 - **Cache isolation**: Independent memory cache for each table
 
----
-
 ## Batch Operations
 
 ### `batch_update(mapping: dict) -> None`
@@ -344,8 +342,6 @@ Bulk delete in transaction.
 db.batch_delete(["key1", "key2", "key3"])
 ```
 
----
-
 ## Context Manager
 
 ### `__enter__() / __exit__()`
@@ -357,8 +353,6 @@ with NanaSQLite("mydata.db") as db:
     db["key"] = "value"
 # Automatically closed
 ```
-
----
 
 ## Performance Notes
 

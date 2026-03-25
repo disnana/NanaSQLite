@@ -318,8 +318,6 @@ config_db["theme"] = "dark"
 - **メモリ効率**: SQLiteの接続を再利用
 - **キャッシュの分離**: テーブルごとに独立したメモリキャッシュを保持
 
----
-
 ## 一括操作 (Batch Operations)
 
 ### `batch_update(mapping: dict) -> None`
