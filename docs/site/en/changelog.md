@@ -41,7 +41,7 @@
 - [1.0.0](#1.0.0)
 :::
 
-### [1.4.1] {#### [1.4.1]} - 2026-03-25
+### [1.4.1] {#1.4.1} - 2026-03-25
 
 #### Quality and Documentation Modernization
 - **[High] QUAL-02**: Fixed a potential race condition in `AsyncNanaSQLite` initialization where multiple concurrent async tasks could trigger redundant background initializations. Introduced `asyncio.Lock` to ensure thread-safe startup.
@@ -53,7 +53,7 @@
 - **Enhanced API Documentation Generator**: Overhauled `scripts/gen_api_docs.py` to produce modern, highly readable API references utilizing VitePress tables and custom containers.
 - **Site-wide Documentation Modernization**: Standardized all manual documentation by batch-converting callouts and warnings to the VitePress native format.
 
-### [1.4.1rc1] {#### [1.4.1rc1]} - 2026-03-24
+### [1.4.1rc1] {#1.4.1rc1} - 2026-03-24
 
 #### Fixes
 - **[High] BUG-01**: Fixed `AttributeError` in `upsert()` and `aupsert()` when passing a data dictionary as the first argument while specifying `conflict_columns`. Improved internal logic to reference the correct keys in `target_data`.
@@ -61,7 +61,7 @@
 - **[Low] QUAL-01**: Improved the `ExpiringDict` scheduler thread stop logic to ensure more robust cleanup during instance destruction or clearing.
 
 
-### [1.4.1dev3] {#### [1.4.1dev3]} - 2026-03-23
+### [1.4.1dev3] {#1.4.1dev3} - 2026-03-23
 
 #### New Features: Enhanced V2 Engine Usability and Observability (Opt-in)
 - **Dead Letter Queue (DLQ) Visibility**:
@@ -77,7 +77,7 @@
 - Resolved syntax errors and initialization issues in `AsyncNanaSQLite.table()` caused by docstring fragmentation and incomplete argument propagation.
 - Cleaned up duplicate method definitions in `AsyncNanaSQLite` that occurred during feature application.
 
-### [1.4.0] {#### [1.4.0]} - 2026-03-12
+### [1.4.0] {#1.4.0} - 2026-03-12
 
 #### Security Fixes
 - **[Critical] SEC-01**: Fixed SQL injection vulnerability in `create_table()` column type definitions. APSW executes all semicolon-separated statements, allowing arbitrary SQL execution through crafted column type strings. Added validation that rejects column types containing `;`, `--`, or `/*`.
@@ -91,7 +91,7 @@
 - **[Low] BUG-04**: Replaced duplicated alias extraction logic in `_shared_query_impl()` with a call to `NanaSQLite._extract_column_aliases()`.
 - **[Low] QUAL-01**: Fixed `update()` method type annotation from `dict` to `dict | None`.
 
-### [1.4.0dev2] {#### [1.4.0dev2]} - 2026-03-12
+### [1.4.0dev2] {#1.4.0dev2} - 2026-03-12
 
 #### Improvements: Async API Completion
 - Implemented and exposed all key methods in `AsyncNanaSQLite` as asynchronous versions (`abackup`, `arestore`, `apragma`, `aget_table_schema`, `alist_indexes`, `aalter_table_add_column`, `aupsert`, `aget_dlq`, `aretry_dlq`, etc.) to achieve full feature parity with the synchronous version.
@@ -109,7 +109,7 @@
 - Fixed `get_table_schema` to accept an optional `table_name` argument (defaulting to the current table) and handle cases where the `table` property is missing.
 - Resolved all project-wide `ruff` linting errors (31 items) and `mypy` type check issues.
 
-### [1.4.0dev1] {#### [1.4.0dev1]} - 2026-03-12
+### [1.4.0dev1] {#1.4.0dev1} - 2026-03-12
 
 #### New Features: v2 Architecture (Optional)
 - **Non-blocking Background Persistence**:
@@ -131,7 +131,7 @@
 - Fixed a race condition when accessing the Dead Letter Queue (DLQ) concurrently in the v2 engine.
 - Fixed a bug where strict queue tasks were not processed if the KVS staging buffer was empty.
 
-### [1.3.4] {#### [1.3.4]} - 2026-03-10
+### [1.3.4] {#1.3.4} - 2026-03-10
 
 #### Security Fixes
 
@@ -167,7 +167,7 @@
 - Added 20 POC verification tests in `tests/test_audit_poc.py`.
 - Updated `audit_prompt.md` to 6-phase workflow (audit → POC → patch → pytest → CI verification → release preparation).
 
-### [1.3.4rc4] {#### [1.3.4rc4]} - 2026-03-08
+### [1.3.4rc4] {#1.3.4rc4} - 2026-03-08
 
 #### CI Fixes
 
@@ -178,7 +178,7 @@
   - Added inline comments explaining the two expected CI annotations (`go.sum not found` warning and PyPI attestation notice) to prevent confusion.
   - Synced `CHANGELOG.md` from the latest `main` branch.
 
-### [1.3.4rc3] {#### [1.3.4rc3]} - 2026-03-08
+### [1.3.4rc3] {#1.3.4rc3} - 2026-03-08
 
 #### CI Fixes
 
@@ -187,7 +187,7 @@
   - Constructed the expected provenance filename from the `provenance-name` output and now fail fast if the file is missing.
   - Updated GitHub Release asset upload to reference the exact generated provenance file instead of a wildcard, preventing release-time artifact mismatches.
 
-### [1.3.4rc2] {#### [1.3.4rc2]} - 2026-03-08
+### [1.3.4rc2] {#1.3.4rc2} - 2026-03-08
 
 #### Security Fixes
 
@@ -219,7 +219,7 @@
 - **Fixed docs inconsistencies, broken links, and factual errors** (PR [#115](https://github.com/disnana/NanaSQLite/pull/115)):
   - Resolved inconsistencies between English and Japanese documentation, fixed broken links, corrected factual errors, and added missing documentation.
 
-### [1.3.4rc1] {#### [1.3.4rc1]} - 2026-03-07
+### [1.3.4rc1] {#1.3.4rc1} - 2026-03-07
 
 #### New Features
 
@@ -247,7 +247,7 @@
 - **Extended `examples/test_examples.py`** with validkit batch operation validation:
   - Atomic rollback verification, partial write verification, coerce mode verification.
 
-### [1.3.4b3] {#### [1.3.4b3]} - 2026-03-05
+### [1.3.4b3] {#1.3.4b3} - 2026-03-05
 
 #### Bug Fixes & Stability Improvements
 
@@ -303,7 +303,7 @@
   - Replaced `importlib.util.find_spec` with a `try/except import` check so broken installations
     are also correctly detected.
 
-### [1.3.4b2] {#### [1.3.4b2]} - 2026-03-04
+### [1.3.4b2] {#1.3.4b2} - 2026-03-04
 
 #### New Features
 
@@ -340,7 +340,7 @@
   - The same issue was present in `AsyncNanaSQLite.table()` where `_validator` was never
     assigned to `async_sub_db`; this is now fixed.
 
-### [1.3.4b1] {#### [1.3.4b1]} - 2026-03-04
+### [1.3.4b1] {#1.3.4b1} - 2026-03-04
 
 #### New Features
 
@@ -365,7 +365,7 @@
 - **Added `_check_connection()` to `__delitem__`**:
   - `del db[key]` on a closed connection now raises `NanaSQLiteClosedError` consistently, matching the behaviour of `__setitem__`, `pop()`, and `clear()`.
 
-### [1.3.4b0] {#### [1.3.4b0]} - 2026-03-04
+### [1.3.4b0] {#1.3.4b0} - 2026-03-04
 
 #### Code Quality Improvements
 - **Async pool cleanup log level fix**:
@@ -390,7 +390,7 @@
   - Updated `vue` from v3.5.27 to v3.5.29. ([#107](https://github.com/disnana/NanaSQLite/pull/107))
   - Updated `tailwindcss` / `@tailwindcss/postcss` from v4.1.18 to v4.2.1. ([#108](https://github.com/disnana/NanaSQLite/pull/108))
 
-### [1.3.4dev0] {#### [1.3.4dev0]} - 2026-03-02
+### [1.3.4dev0] {#1.3.4dev0} - 2026-03-02
 
 #### CI / Development Environment
 - **SLSA provenance cache restore warning — investigation and revert**:
@@ -400,7 +400,7 @@
 #### Other
 - Bumped version to `1.3.4dev0` (development snapshot following the `1.3.3` release).
 
-### [1.3.3] {#### [1.3.3]} - 2026-03-02
+### [1.3.3] {#1.3.3} - 2026-03-02
 
 #### Security
 - **docs/site dependency vulnerability fixes**:
@@ -420,7 +420,7 @@
 #### Notes
 - This release is primarily a maintenance update (security/CI/dependency bumps) and does not include breaking changes to the public API.
 
-### [1.3.2] {#### [1.3.2]} - 2026-01-17
+### [1.3.2] {#1.3.2} - 2026-01-17
 
 #### Performance Optimization
 - **orjson Integration Refinement**:
@@ -439,7 +439,7 @@
   - Verified compatibility in both orjson-available and fallback environments.
   - Confirmed automatic JSON backend switching (HAS_ORJSON flag) functions correctly.
 
-### [1.3.1] {#### [1.3.1]} - 2025-12-28
+### [1.3.1] {#1.3.1} - 2025-12-28
 
 #### New Features: Optional Data Encryption
 - **Multi-mode Encryption**: Transparent encryption using `cryptography`.
@@ -462,7 +462,7 @@
 - **Unified Benchmarks**: Consolidated encryption and cache strategy benchmarks into `tests/test_benchmark.py` (Sync) and `tests/test_async_benchmark.py` (Async).
 - **Test Coverage**: Added `tests/test_async_cache.py` to verify async cache behaviors (LRU eviction, TTL expiration).
 
-### [1.3.0dev0] {#### [1.3.0dev0]} - 2025-12-27
+### [1.3.0dev0] {#1.3.0dev0} - 2025-12-27
 
 #### New Features: Flexible Cache Strategy
 - **Added `CacheType` Enum**: Choose between `UNBOUNDED` (infinite, legacy behavior) and `LRU` (eviction-based).
@@ -474,7 +474,7 @@
 #### New Tests
 - `tests/test_cache.py`: Comprehensive test suite for cache strategies (eviction, persistence, per-table configuration).
 
-### [1.2.2b1] {#### [1.2.2b1]} - 2025-12-27
+### [1.2.2b1] {#1.2.2b1} - 2025-12-27
 
 #### Documentation & Brand Overhaul
 - **Ultra-Modern Documentation Site**:
@@ -492,7 +492,7 @@
   - Strict re-sorting of imports in `core.py` and `gen_api_docs.py` to comply with the latest `ruff` linting rules.
   - Enhanced dependency management for documentation builds.
 
-### [1.2.2a1] {#### [1.2.2a1]} - 2025-12-26
+### [1.2.2a1] {#1.2.2a1} - 2025-12-26
 
 #### Development Tools (Benchmarks & CI/CD)
 - **Fixed Benchmark Comparison Logic**:
@@ -507,7 +507,7 @@
   - Simplified `should-run` check logic.
 
 
-### [1.2.1b2] {#### [1.2.1b2]} - 2025-12-25
+### [1.2.1b2] {#1.2.1b2} - 2025-12-25
 
 #### Development Tools
 - **CI/CD Workflow Consolidation**:
@@ -532,7 +532,7 @@
   - Added B904 (raise without from) and B017 (assert raises Exception) to ignore list.
   - Adjusted mypy configuration for practical use (156 errors → 0 errors).
 
-### [1.2.0b1] {#### [1.2.0b1]} - 2025-12-24
+### [1.2.0b1] {#1.2.0b1} - 2025-12-24
 
 #### Security & Robustness
 - **Enhanced `ORDER BY` Parsing**:
@@ -562,7 +562,7 @@
   - Clarified comments in security tests regarding validation timing (PR #35).
   - Removed duplicate `pytest` imports and cleaned up temporary test files (`temp_test_parser.py`).
 
-### [1.2.0a2] {#### [1.2.0a2]} - 2025-12-23
+### [1.2.0a2] {#1.2.0a2} - 2025-12-23
 
 - **Enhanced Async Security Features**:
   - Fixed `AsyncNanaSQLite.query` and `query_with_pagination` to correctly pass `allowed_sql_functions`, `forbidden_sql_functions`, and `override_allowed` to `_validate_expression`.
@@ -572,7 +572,7 @@
   - Improved child instance invalidation: sub-instances created via `table()` are now immediately marked as closed when the parent is closed.
   - Fixed `close()` behavior to ensure that even uninitialized instances correctly transition to a closed state, raising `NanaSQLiteClosedError` on subsequent operations.
 
-### [1.2.0a1] {#### [1.2.0a1]} - 2025-12-23
+### [1.2.0a1] {#1.2.0a1} - 2025-12-23
 
 - **Async Read-Only Connection Pool**:
   - Added `read_pool_size` logic to `AsyncNanaSQLite`.
@@ -582,7 +582,7 @@
   - Fixed `apsw.ExecutionCompleteError` occurring in `query` and `query_with_pagination` when results are empty (0 rows).
   - Aligned column metadata extraction with sync implementation using `PRAGMA table_info` and manual parsing instead of relying on `cursor.description`.
 
-### [1.2.0dev1] {#### [1.2.0dev1]} - 2025-12-23
+### [1.2.0dev1] {#1.2.0dev1} - 2025-12-23
 
 #### Fixed
 - **Async API Consistency**:
@@ -599,7 +599,7 @@
 - **Edge Case Tests Added**:
   - Created `tests/test_edge_cases_v120.py` with tests for empty `batch_*` operations and pagination boundary conditions.
 
-### [1.2.0dev0] {#### [1.2.0dev0]} - 2025-12-22
+### [1.2.0dev0] {#1.2.0dev0} - 2025-12-22
 
 #### Added
 - **Security Enhancements (Phase 1)**:
@@ -613,7 +613,7 @@
   - Created `DEVELOPMENT_GUIDE.md` (Bilingual).
   - Codified environment sync rule: `pip install -e . -U`.
 
-### [1.1.0] {#### [1.1.0]} - 2025-12-19
+### [1.1.0] {#1.1.0} - 2025-12-19
 
 #### Added
 - **Custom Exception Classes**:
@@ -686,7 +686,7 @@
 
 ---
 
-### [1.1.0a3] {#### [1.1.0a3]} - 2025-12-17
+### [1.1.0a3] {#1.1.0a3} - 2025-12-17
 
 #### Documentation Improvements
 - **Added usage notes for `table()` method**:
@@ -716,13 +716,13 @@
 
 ---
 
-### [1.1.0dev2] {#### [1.1.0dev2]} - 2025-12-16
+### [1.1.0dev2] {#1.1.0dev2} - 2025-12-16
 
 #### Current Development Status
 - Development version in progress
 - Testing in progress (all 15 tests in `test_concurrent_table_writes.py` passing)
 
-### [1.1.0dev1] {#### [1.1.0dev1]} - 2025-12-15
+### [1.1.0dev1] {#1.1.0dev1} - 2025-12-15
 
 #### Added
 - **Multi-table Support (`table()` method)**: Safely operate on multiple tables within the same database
@@ -758,7 +758,7 @@
 - **Full backward compatibility**: No impact on existing code
 - All new parameters are optional (internal use)
 
-### [1.0.3rc7] {#### [1.0.3rc7]} - 2025-12-10
+### [1.0.3rc7] {#1.0.3rc7} - 2025-12-10
 
 #### Added
 - **Async Support (AsyncNanaSQLite)**: Complete async interface for async applications
@@ -783,14 +783,14 @@
 - Optimal performance with APSW + thread pool combination
 - Tunable max_workers for high-load environments (5-50)
 
-### [1.0.3rc6] {#### [1.0.3rc6]} - 2025-12-10
+### [1.0.3rc6] {#1.0.3rc6} - 2025-12-10
 
 #### Added
 - **`get_fresh(key, default=None)` method**: Read directly from DB, update cache, and return value
   - Useful for cache synchronization after direct DB changes via `execute()`
   - Uses `_read_from_db` directly to minimize overhead
 
-### [1.0.3rc5] {#### [1.0.3rc5]} - 2025-12-10
+### [1.0.3rc5] {#1.0.3rc5} - 2025-12-10
 
 #### Performance Improvements
 - **`batch_update()` optimization**: 10-30% faster with `executemany`
@@ -810,7 +810,7 @@
 - Resolved Git merge conflicts (order_by regex validation)
 - Fixed ReDoS vulnerability (switched to comma-split approach)
 
-### [1.0.3rc4] {#### [1.0.3rc4]} - 2025-12-09
+### [1.0.3rc4] {#1.0.3rc4} - 2025-12-09
 
 #### Added
 - **22 new SQLite wrapper functions**
@@ -822,7 +822,7 @@
 - 35 new test cases (all passing)
 - Complete backward compatibility maintained
 
-### [1.0.3rc3] {#### [1.0.3rc3]} - 2025-12-09
+### [1.0.3rc3] {#1.0.3rc3} - 2025-12-09
 
 #### Added
 - **Pydantic compatibility**
@@ -838,7 +838,7 @@
 - Updated English/Japanese documentation
 - Async support consultation document
 
-### [1.0.0] {#### [1.0.0]} - 2025-12-09
+### [1.0.0] {#1.0.0} - 2025-12-09
 
 #### Added
 - Initial release
