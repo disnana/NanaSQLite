@@ -125,8 +125,6 @@ for key in db:
     print(key)
 ```
 
----
-
 ## Dict Methods
 
 ### `keys() -> list[str]`
@@ -220,8 +218,6 @@ Remove all keys.
 db.clear()
 assert len(db) == 0
 ```
-
----
 
 ## Special Methods
 

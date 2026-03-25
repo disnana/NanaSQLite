@@ -125,8 +125,6 @@ for key in db:
     print(key)
 ```
 
----
-
 ## Dictメソッド
 
 ### `keys() -> list[str]`
@@ -220,8 +218,6 @@ value = db.setdefault("key", "default")
 db.clear()
 assert len(db) == 0
 ```
-
----
 
 ## 特殊メソッド
 
@@ -377,8 +373,6 @@ with NanaSQLite("mydata.db") as db:
     db["key"] = "value"
 # 自動的に close() が呼ばれます
 ```
-
----
 
 ## パフォーマンス
 
