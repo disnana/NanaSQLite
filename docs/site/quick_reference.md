@@ -2,8 +2,6 @@
 
 NanaSQLiteの主要な機能を素早く確認するためのチートシートです。
 
----
-
 ## クラス: NanaSQLite
 
 ```python
