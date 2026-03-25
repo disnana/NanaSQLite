@@ -49,7 +49,7 @@ from .exceptions import (
 from .sql_utils import fast_validate_sql_chars, sanitize_sql_for_function_scan
 
 # 識別子バリデーション用の正規表現パターン（英数字とアンダースコアのみ、数字で開始しない）
-IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_]\w*$")
 
 logger = logging.getLogger(__name__)
 
@@ -650,7 +650,7 @@ class NanaSQLite(MutableMapping):
         # Note: sanitize_sql_for_function_scan() preserves double-quoted identifier
         # content so that "FUNC"() patterns are detected.
         sanitized_expr = sanitize_sql_for_function_scan(expr)
-        matches = re.findall(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", sanitized_expr)
+        matches = re.findall(r"([a-zA-Z_]\w*)\s*\(", sanitized_expr)
 
         for func in matches:
             func_upper = func.upper()
