@@ -2,8 +2,6 @@
 
 Complete API cheat sheet for NanaSQLite.
 
----
-
 ## Class: NanaSQLite
 
 ```python
