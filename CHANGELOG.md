@@ -858,6 +858,7 @@
 - **[High] QUAL-07**: Added V2 management methods to the synchronous `NanaSQLite` class, achieving full feature parity between sync and async engines.
 - **[High] QUAL-05**: Added guards to forbid explicit transaction operations (`begin_transaction`, etc.) in V2 mode, preventing fatal conflicts with the engine's automated background flushing.
 - **[High] QUAL-06**: Fixed a bug where `v2_enable_metrics` setting was not inherited by child instances in `AsyncNanaSQLite.table()`.
+- **[Medium] SEC-01 (Hardened)**: Upgraded `create_table()` column type validation from a blacklist approach to a strict whitelist-based regular expression for enhanced security.
 
 #### Performance Improvements
 - **[Low] PERF-01**: Introduced "negative caching" for LRU and TTL cache strategies to store the result of searches for keys that do not exist in the database, reducing I/O load during repeated access. (Also discovered and fixed a breaking bug before release where internal sentinels could leak due to this feature). (1.4.1rc1)
