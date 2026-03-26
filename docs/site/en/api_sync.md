@@ -344,18 +344,6 @@ def batch_get(keys: list[str]) -> dict[str, Any]
 
 ---
 
-### `flush`
-
-```python
-def flush() -> None
-```
-
-[v2 Feature] Explicitly flush the v2 engine's background buffer and queue to SQLite.
-If v2_mode is False, this operates as a no-op.
-
-
----
-
 ### `load_all`
 
 ```python
@@ -454,6 +442,61 @@ def batch_delete(keys: list[str]) -> None
 #### Returns
 
 None
+
+
+---
+
+### `flush`
+
+```python
+def flush() -> None
+```
+
+
+
+
+---
+
+### `get_dlq`
+
+```python
+def get_dlq() -> list[dict[str, Any]]
+```
+
+
+
+
+---
+
+### `retry_dlq`
+
+```python
+def retry_dlq() -> None
+```
+
+
+
+
+---
+
+### `clear_dlq`
+
+```python
+def clear_dlq() -> None
+```
+
+
+
+
+---
+
+### `get_v2_metrics`
+
+```python
+def get_v2_metrics() -> dict[str, Any]
+```
+
+
 
 
 ---
@@ -1342,50 +1385,6 @@ def get_model(key: str, model_class: type = None) -> Any
 ---
 
 ## Other Methods
-
-### `get_dlq`
-
-```python
-def get_dlq() -> list[dict[str, Any]]
-```
-
-
-
-
----
-
-### `retry_dlq`
-
-```python
-def retry_dlq() -> None
-```
-
-
-
-
----
-
-### `clear_dlq`
-
-```python
-def clear_dlq() -> None
-```
-
-
-
-
----
-
-### `get_v2_metrics`
-
-```python
-def get_v2_metrics() -> dict[str, Any]
-```
-
-
-
-
----
 
 ### `export_table_to_dict`
 

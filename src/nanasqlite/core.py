@@ -358,6 +358,7 @@ class NanaSQLite(MutableMapping):
                 max_chunk_size=v2_chunk_size,
                 serialize_func=self._serialize,
                 enable_metrics=self._v2_enable_metrics_raw,
+                shared_lock=self._lock,
             )
 
         # 一括ロード
@@ -795,6 +796,14 @@ class NanaSQLite(MutableMapping):
             )
             return [row[0] for row in cursor]
 
+    def _update_cache(self, key: str, value: Any) -> None:
+        """キャッシュメモリを同期的に更新（呼び出し元でロック取得推奨）"""
+        if self._lru_mode or (hasattr(self._cache, "_max_size") and self._cache._max_size):
+            self._cache.set(key, value)
+        else:
+            self._data[key] = value
+            self._cached_keys.add(key)
+
     def _ensure_cached(self, key: str) -> bool:
         """
         キーがキャッシュにない場合、DBから読み込む（遅延ロード）
@@ -809,23 +818,39 @@ class NanaSQLite(MutableMapping):
                 # Check for negative cache (known to be missing from DB)
                 return self._cache.get(key) is not MISSING
 
+        # V2 staging buffer check (Stale Read prevention)
+        if self._v2_mode and self._v2_engine:
+            staging = self._v2_engine.kvs_get_staging(key)
+            if staging is not None:
+                if staging["action"] == "set":
+                    value = self._deserialize(staging["value"])
+                    with self._acquire_lock():
+                        self._update_cache(key, value)
+                    return True
+                elif staging["action"] == "delete":
+                    with self._acquire_lock():
+                        if self._lru_mode:
+                            self._cache.mark_cached(key)
+                        else:
+                            self._data.pop(key, None)
+                            self._cached_keys.add(key)
+                    return False
+
         # DBから読み込み
         value = self._read_from_db(key)
 
         if value is not _NOT_FOUND:
-            if self._lru_mode or (hasattr(self._cache, "_max_size") and self._cache._max_size):
-                self._cache.set(key, value)
-            else:
-                self._data[key] = value
-                self._cached_keys.add(key)
+            with self._acquire_lock():
+                self._update_cache(key, value)
             return True
 
         # Value is not in DB
-        if self._lru_mode:
-            # Negative caching: mark as missing in LRU/TTL
-            self._cache.mark_cached(key)
-        else:
-            self._cached_keys.add(key)
+        with self._acquire_lock():
+            if self._lru_mode:
+                self._cache.mark_cached(key)
+            else:
+                self._data.pop(key, None)
+                self._cached_keys.add(key)
         return False
 
     # ==================== Dict Interface ====================
@@ -854,16 +879,17 @@ class NanaSQLite(MutableMapping):
         # v2 Architecture: Route to background staging buffer instead of blocking DB write
         if self._v2_mode and self._v2_engine:
             self._v2_engine.kvs_set(key, value)
+            with self._acquire_lock():
+                self._update_cache(key, value)
         else:
-            # DB書き込みを先に行い、ロックタイムアウト時のキャッシュ不整合を防止
-            self._write_to_db(key, value)
-
-        # DB書き込み（またはv2バッファ格納）成功後にメモリ更新
-        if self._lru_mode or (hasattr(self._cache, "_max_size") and self._cache._max_size):
-            self._cache.set(key, value)
-        else:
-            self._data[key] = value
-            self._cached_keys.add(key)
+            # DB書き込みとキャッシュ更新をアトミックに実行
+            serialized = self._serialize(value)
+            with self._acquire_lock():
+                self._connection.execute(
+                    f"INSERT OR REPLACE INTO {self._safe_table} (key, value) VALUES (?, ?)",  # nosec
+                    (key, serialized),
+                )
+                self._update_cache(key, value)
 
     def __delitem__(self, key: str) -> None:
         """del dict[key] - 即時削除"""
@@ -874,12 +900,18 @@ class NanaSQLite(MutableMapping):
         # v2 Architecture: Route to background staging buffer
         if self._v2_mode and self._v2_engine:
             self._v2_engine.kvs_delete(key)
+            with self._acquire_lock():
+                self._cache.delete(key)
+                if not self._lru_mode:
+                    self._data.pop(key, None)
+                    self._cached_keys.add(key)
         else:
-            # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
-            self._delete_from_db(key)
-
-        # DB削除成功後にメモリから削除
-        self._cache.delete(key)
+            with self._acquire_lock():
+                self._connection.execute(f"DELETE FROM {self._safe_table} WHERE key = ?", (key,))  # nosec
+                self._cache.delete(key)
+                if not self._lru_mode:
+                    self._data.pop(key, None)
+                    self._cached_keys.add(key)
 
     def __contains__(self, key: str) -> bool:
         """
@@ -978,19 +1010,15 @@ class NanaSQLite(MutableMapping):
         value = self._read_from_db(key)
 
         if value is not _NOT_FOUND:
-            # キャッシュを更新
-            if self._lru_mode:
-                self._cache.set(key, value)
-            else:
-                self._data[key] = value
-                self._cached_keys.add(key)
+            with self._acquire_lock():
+                self._update_cache(key, value)
             return value
-        # 存在しない場合はキャッシュからも削除
-        if self._lru_mode:
-            self._cache.delete(key)
-        else:
-            self._data.pop(key, None)
-            self._cached_keys.add(key)  # 「存在しない」ことをマーク
+        with self._acquire_lock():
+            if self._lru_mode:
+                self._cache.delete(key)
+            else:
+                self._data.pop(key, None)
+                self._cached_keys.add(key)
         return default
 
     def batch_get(self, keys: list[str]) -> dict[str, Any]:
@@ -1909,13 +1937,12 @@ class NanaSQLite(MutableMapping):
             safe_col_name = self._sanitize_identifier(col_name)
             # Reject column type definitions containing SQL injection patterns.
             # Unlike alter_table_add_column() which uses a strict whitelist,
-            # create_table() must support constraint clauses (NOT NULL, DEFAULT,
-            # CHECK, REFERENCES, etc.), so a blacklist approach is used here.
+            # create_table() uses a whitelist subset for permitted characters.
             _col_type_str = str(col_type)
-            if re.search(r";|--|/\*", _col_type_str):
+            if not re.match(r"^[\w\s(),.+*'\"]+$", _col_type_str):
                 raise NanaSQLiteValidationError(
                     f"Invalid or dangerous column type for '{col_name}': "
-                    "must not contain ';', '--', or '/*'"
+                    "contains unauthorized characters. Permitted: alphanumeric, spaces, parentheses, quotes, and basic operators."
                 )
             column_defs.append(f"{safe_col_name} {col_type}")
 
@@ -2818,6 +2845,12 @@ class NanaSQLite(MutableMapping):
         """
         self._check_connection()
 
+        if self._v2_mode:
+            raise NanaSQLiteTransactionError(
+                "Explicit transactions (begin_transaction/commit/rollback) are not supported in V2 mode. "
+                "The V2 Engine automatically manages transactional flushing."
+            )
+
         if self._in_transaction:
             raise NanaSQLiteTransactionError(
                 "Transaction already in progress. "
@@ -2920,6 +2953,44 @@ class NanaSQLite(MutableMapping):
             ...     # 自動的にコミット、例外時はロールバック
         """
         return _TransactionContext(self)
+
+    def flush(self) -> None:
+        """
+        [v2 Feature] v2 エンジンのバックグラウンドバッファを SQLite に強制的にフラッシュします。
+        v2モードが無効な場合は何もしません。
+        """
+        if self._v2_engine:
+            self._v2_engine.flush()
+
+    def get_dlq(self) -> list[dict[str, Any]]:
+        """
+        [v2 Feature] デッドレターキュー（DLQ）の内容を取得します。
+        """
+        if self._v2_engine:
+            return self._v2_engine.get_dlq()
+        return []
+
+    def retry_dlq(self) -> None:
+        """
+        [v2 Feature] デッドレターキュー（DLQ）内の全アイテムを再試行キューに戻します。
+        """
+        if self._v2_engine:
+            self._v2_engine.retry_dlq()
+
+    def clear_dlq(self) -> None:
+        """
+        [v2 Feature] デッドレターキュー（DLQ）の内容をクリアします。
+        """
+        if self._v2_engine:
+            self._v2_engine.clear_dlq()
+
+    def get_v2_metrics(self) -> dict[str, Any]:
+        """
+        [v2 Feature] 現在の v2 メトリクス情報を取得します。
+        """
+        if self._v2_engine:
+            return self._v2_engine.get_metrics()
+        return {}
 
     def table(
         self,

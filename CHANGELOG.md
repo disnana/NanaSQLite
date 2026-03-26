@@ -13,9 +13,21 @@
 
 #### バグ修正
 - **[High] BUG-01**: `upsert()` および `aupsert()` において、データ辞書を第1引数に渡しつつ `conflict_columns` を指定した場合に `AttributeError` が発生する問題を修正。解決済みの `target_data` のキーを参照するよう内部ロジックを改善しました。（1.4.1rc1）
-- **[High] QUAL-02**: `AsyncNanaSQLite` の初期化時において、複数の非同期タスクが同時にアクセスした場合に発生する可能性があった競合状態（Race Condition）を修正。`asyncio.Lock` を導入し、スレッドプールの二重初期化を防止しました。
+- **[High] Qual-02**: `AsyncNanaSQLite` の初期化時において、複数の非同期タスクが同時にアクセスした場合に発生する可能性があった競合状態（Race Condition）を修正。`asyncio.Lock` を導入し、スレッドプールの二重初期化を防止しました。
 - `AsyncNanaSQLite.table()` において、docstring の分断や引数伝搬の不備により発生していた構文エラーおよび初期化の不具合を修正しました。（1.4.1dev3）
 - `AsyncNanaSQLite` の一部メソッドにおいて、機能適用時に重複して定義されていた箇所を整理しました。（1.4.1dev3）
+
+#### 最終監査（Deep Audit）による重要修正
+- **[Critical] BUG-02**: V2モードにおいて、書き込み直後に `get()` や `__getitem__` でデータを取得すると古い値が返る「不整合（Stale Read）」バグを修正。バックグラウンドのステージングバッファを優先的に参照するように改善しました。
+- **[Critical] QUAL-04**: `AsyncNanaSQLite` の `__init__` 内で `asyncio.Lock()` を初期化していたため、イベントループ外でインスタンス化した際にエラーが発生する問題を修正。ロックを遅延初期化（Lazy Initialization）するように変更しました。
+- **[Critical] LOCK-01**: `ExpiringDict` の TTL 失効処理（`on_expire`）が DB ロックを保持したまま呼び出され、通常の書き込み処理と競合してデッドロックが発生する問題を修正。コールバックをロックの外側で実行するように改善しました。
+- **[Critical] CONC-01**: `NanaSQLite` の内部キャッシュ更新処理が DB ロックの外側で行われていたため、マルチスレッド環境（`AsyncNanaSQLite` 等）で `RuntimeError` やキャッシュ破損、TOCTOU 競合が発生する問題を修正。キャッシュ操作を DB ロックの保護下に移動しました。
+- **[Critical] CONC-02**: V2モードで `table()` を使用して子インスタンスを作成した際、同じ SQLite 接続に対して複数のスレッドが同時にトランザクションを開始しようとしてクラッシュする問題を修正。親子の V2Engine 間で `shared_lock` を共有し、排他制御を強化しました。
+- **[Critical] ASYNC-01**: `AsyncNanaSQLite` において V2 モード用のメソッド（`aflush`, `aget_dlq` 等）が未実装であった問題を修正。同期版と同等のすべての管理機能を非同期 API として追加しました。
+- **[High] QUAL-07**: 同期版 `NanaSQLite` にも V2 管理メソッドを追加し、非同期版との完全な機能パリティを実現。
+- **[High] QUAL-05**: V2モードにおいて `begin_transaction()` 等の明示的なトランザクション操作を行うと V2 エンジンのバックグラウンド処理と衝突するため、V2モード時は明示的なトランザクションを禁止（例外送出）するようにガードを追加しました。
+- **[High] QUAL-06**: `AsyncNanaSQLite.table()` において `v2_enable_metrics` 設定が子インスタンスに継承されない不具合を修正しました。
+- **[Medium] SEC-01 (強化)**: `create_table()` のカラム型バリデーションをブラックリスト方式からホワイトリスト方式（正規表現による記号制限）へ移行し、検知パターンを強化しました。
 
 #### パフォーマンス改善
 - **[Low] PERF-01**: LRU および TTL キャッシュ戦略において、データベースに存在しないキーの検索結果を記憶する「ネガティブキャッシュ」を導入し、繰り返しアクセス時の I/O 負荷を削減しました。（同時に、本機能によってセンチネルが混入する破壊的バグを早期発見し修正済みです）（1.4.1rc1）
@@ -825,6 +837,19 @@
 - **[High] QUAL-02**: Fixed a potential race condition in `AsyncNanaSQLite` initialization where multiple concurrent async tasks could trigger redundant background initializations. Introduced `asyncio.Lock` to ensure thread-safe startup.
 - Resolved syntax errors and initialization issues in `AsyncNanaSQLite.table()` caused by docstring fragmentation and incomplete argument propagation. (1.4.1dev3)
 - Cleaned up duplicate method definitions in `AsyncNanaSQLite` that occurred during feature application. (1.4.1dev3)
+
+#### Critical Fixes from Deep Audit
+- **[Critical] BUG-02**: Resolved a "Stale Read" inconsistency in V2 mode where reading data via `get()` or `__getitem__` immediately after a write could return outdated values. Optimized the read path to prioritize the background staging buffer.
+- **[Critical] QUAL-04**: Fixed a crash in `AsyncNanaSQLite` when instantiated outside an event loop due to unsafe `asyncio.Lock()` initialization in `__init__`. Implemented lazy initialization for the lock within the event loop context.
+- **[Critical] LOCK-01**: Resolved a deadlock scenario in `ExpiringDict` where the TTL expiration callback (`on_expire`) was executed while holding the DB lock, conflicting with concurrent write operations. Callbacks are now executed outside the locking scope.
+- **[Critical] CONC-01**: Fixed potential `RuntimeError`, cache corruption, and TOCTOU races in multi-threaded environments (e.g., `AsyncNanaSQLite`) by moving internal cache mutations into the scope of the database lock.
+- **[Critical] CONC-02**: Resolved a crash when using `table()` in V2 mode where multiple background engines sharing the same SQLite connection would attempt to start overlapping transactions. Implemented `shared_lock` propagation across parent/child V2 engines.
+- **[Critical] ASYNC-01**: Implemented missing V2 management methods (`aflush`, `aget_dlq`, `aretry_dlq`, `aclear_dlq`, `aget_v2_metrics`) in `AsyncNanaSQLite`.
+- **[High] QUAL-07**: Added V2 management methods to the synchronous `NanaSQLite` class, achieving full feature parity between sync and async engines.
+- **[High] QUAL-05**: Added guards to forbid explicit transaction operations (`begin_transaction`, etc.) in V2 mode, preventing fatal conflicts with the engine's automated background flushing.
+- **[High] QUAL-06**: Fixed a bug where `v2_enable_metrics` setting was not inherited by child instances in `AsyncNanaSQLite.table()`.
+- **[Medium] SEC-01 (Hardened)**: Upgraded `create_table()` column type validation from a blacklist approach to a strict whitelist-based regular expression for enhanced security.
+- **[Medium] SEC-02**: Resolved a sonar-reported ReDoS vulnerability in `core.py` by replacing the loose `[\w ]*` regex with a safe pattern for column type validation.
 
 #### Performance Improvements
 - **[Low] PERF-01**: Introduced "negative caching" for LRU and TTL cache strategies to store the result of searches for keys that do not exist in the database, reducing I/O load during repeated access. (Also discovered and fixed a breaking bug before release where internal sentinels could leak due to this feature). (1.4.1rc1)

@@ -63,12 +63,14 @@ class V2Engine:
         max_chunk_size: int = 1000,
         serialize_func: Callable[[Any], str | bytes] | None = None,
         enable_metrics: bool = False,
+        shared_lock: threading.RLock | None = None,
     ):
         self._connection = connection
         self._table_name = table_name
 
         # Serialization function injected from core.py
         self._serialize = serialize_func if serialize_func else str
+        self._shared_lock = shared_lock
 
         # Flush Settings
         if flush_mode not in ("immediate", "count", "time", "manual"):
@@ -172,6 +174,11 @@ class V2Engine:
             self._staging_changes += 1
 
         self._check_auto_flush()
+
+    def kvs_get_staging(self, key: str) -> dict[str, Any] | None:
+        """Read a single item from the staging buffer."""
+        with self._staging_lock:
+            return self._staging_buffer.get(key)
 
     def _check_auto_flush(self) -> None:
         """Trigger auto-flush based on the current mode."""
@@ -302,36 +309,45 @@ class V2Engine:
 
         cursor = self._connection.cursor()
 
-        # Start Transaction
-        cursor.execute("BEGIN IMMEDIATE TRANSACTION;")
+        lock_acquired = False
+        if self._shared_lock is not None:
+            self._shared_lock.acquire()
+            lock_acquired = True
+
         try:
-            # 1. Process KVS sets (UPSERT)
-            if sets:
-                cursor.executemany(
-                    f"INSERT OR REPLACE INTO {self._table_name} (key, value) VALUES (?, ?)",  # nosec
-                    sets
-                )
+            # Start Transaction
+            cursor.execute("BEGIN IMMEDIATE TRANSACTION;")
+            try:
+                # 1. Process KVS sets (UPSERT)
+                if sets:
+                    cursor.executemany(
+                        f"INSERT OR REPLACE INTO {self._table_name} (key, value) VALUES (?, ?)",  # nosec
+                        sets
+                    )
 
-            # 2. Process KVS deletes
-            if deletes:
-                cursor.executemany(
-                    f"DELETE FROM {self._table_name} WHERE key = ?",  # nosec
-                    deletes
-                )
+                # 2. Process KVS deletes
+                if deletes:
+                    cursor.executemany(
+                        f"DELETE FROM {self._table_name} WHERE key = ?",  # nosec
+                        deletes
+                    )
 
-            # 3. Process Strict Lane (callbacks deferred until after COMMIT)
-            succeeded_tasks = self._process_strict_queue(cursor)
+                # 3. Process Strict Lane (callbacks deferred until after COMMIT)
+                succeeded_tasks = self._process_strict_queue(cursor)
 
-            if self._enable_metrics:
-                with self._metrics_lock:
-                    self._metrics["kvs_items_flushed"] += len(sets) + len(deletes)
-                    self._metrics["strict_tasks_executed"] += len(succeeded_tasks)
+                if self._enable_metrics:
+                    with self._metrics_lock:
+                        self._metrics["kvs_items_flushed"] += len(sets) + len(deletes)
+                        self._metrics["strict_tasks_executed"] += len(succeeded_tasks)
 
-            # Commit Transaction
-            cursor.execute("COMMIT;")
-        except Exception:
-            cursor.execute("ROLLBACK;")
-            raise
+                # Commit Transaction
+                cursor.execute("COMMIT;")
+            except Exception:
+                cursor.execute("ROLLBACK;")
+                raise
+        finally:
+            if lock_acquired and self._shared_lock is not None:
+                self._shared_lock.release()
 
         # Fire on_success callbacks only after the transaction is committed
         for task in succeeded_tasks:
@@ -389,36 +405,41 @@ class V2Engine:
         """
         cursor = self._connection.cursor()
 
-        for key, op in failed_kvs_chunk:
-            try:
-                cursor.execute("BEGIN IMMEDIATE TRANSACTION;")
-                if op["action"] == "set":
-                    cursor.execute(f"INSERT OR REPLACE INTO {self._table_name} (key, value) VALUES (?, ?)", (key, op["value"])) # nosec
-                elif op["action"] == "delete":
-                    cursor.execute(f"DELETE FROM {self._table_name} WHERE key = ?", (key,)) # nosec
+        lock_acquired = False
+        if self._shared_lock is not None:
+            self._shared_lock.acquire()
+            lock_acquired = True
 
-                # We attempt to drain any NEW strict queue items here per-row as well,
-                # though strictly speaking they should be clean by now.
-                succeeded_tasks = self._process_strict_queue(cursor)
+        try:
+            for key, op in failed_kvs_chunk:
+                try:
+                    cursor.execute("BEGIN IMMEDIATE TRANSACTION;")
+                    if op["action"] == "set":
+                        cursor.execute(f"INSERT OR REPLACE INTO {self._table_name} (key, value) VALUES (?, ?)", (key, op["value"])) # nosec
+                    elif op["action"] == "delete":
+                        cursor.execute(f"DELETE FROM {self._table_name} WHERE key = ?", (key,)) # nosec
 
-                if self._enable_metrics:
-                    with self._metrics_lock:
-                        self._metrics["kvs_items_flushed"] += 1
-                        self._metrics["strict_tasks_executed"] += len(succeeded_tasks)
+                    succeeded_tasks = self._process_strict_queue(cursor)
 
-                cursor.execute("COMMIT;")
+                    if self._enable_metrics:
+                        with self._metrics_lock:
+                            self._metrics["kvs_items_flushed"] += 1
+                            self._metrics["strict_tasks_executed"] += len(succeeded_tasks)
 
-                # Fire on_success callbacks after commit
-                for task in succeeded_tasks:
-                    if task.on_success:
-                        try:
-                            task.on_success()
-                        except Exception as cb_err:
-                            logger.error("Error in on_success callback: %s", cb_err)
-            except Exception as e:
-                cursor.execute("ROLLBACK;")
-                self._add_to_dlq(f"KVS Poison Pill row '{key}' failed: {e}", (key, op))
-                # Row is skipped, system continues processing
+                    cursor.execute("COMMIT;")
+
+                    for task in succeeded_tasks:
+                        if task.on_success:
+                            try:
+                                task.on_success()
+                            except Exception as cb_err:
+                                logger.error("Error in on_success callback: %s", cb_err)
+                except Exception as e:
+                    cursor.execute("ROLLBACK;")
+                    self._add_to_dlq(f"KVS Poison Pill row '{key}' failed: {e}", (key, op))
+        finally:
+            if lock_acquired and self._shared_lock is not None:
+                self._shared_lock.release()
 
     def get_dlq(self) -> list[dict[str, Any]]:
         """Return a copy of the Dead Letter Queue for inspection."""

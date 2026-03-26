@@ -180,7 +180,8 @@ class AsyncNanaSQLite:
         self._db: NanaSQLite | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._owns_executor = True  # このインスタンスがエグゼキューターを所有
-        self._init_lock = asyncio.Lock()  # 初期化時の競合を防ぐためのロック
+        # _init_lock はイベントループ内で初めて使われる時に生成する（__init__はループ外から呼ばれる可能性があるため）
+        self._init_lock: asyncio.Lock | None = None
 
     async def _ensure_initialized(self) -> None:
         """Ensure the underlying sync database is initialized"""
@@ -191,6 +192,10 @@ class AsyncNanaSQLite:
 
         if self._db is not None:
             return
+
+        # _init_lock はイベントループ内で最初に呼ばれた時に生成する（イベントループ安全）
+        if self._init_lock is None:
+            self._init_lock = asyncio.Lock()
 
         async with self._init_lock:
             # Check again inside lock
@@ -1274,6 +1279,47 @@ class AsyncNanaSQLite:
         """aclear_cache のエイリアス"""
         await self.aclear_cache()
 
+    async def aflush(self) -> None:
+        """
+        [v2 Feature] 非同期で v2 エンジンのバックグラウンドバッファを SQLite にフラッシュします。
+        v2モードが無効な場合は何もしません。
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(self._executor, self._db.flush)
+
+    async def aget_dlq(self) -> list[dict[str, Any]]:
+        """
+        [v2 Feature] 非同期でデッドレターキュー（DLQ）の内容を取得します。
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self._db.get_dlq)
+
+    async def aretry_dlq(self) -> None:
+        """
+        [v2 Feature] デッドレターキュー（DLQ）内の全アイテムを再試行キューに戻します。
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(self._executor, self._db.retry_dlq)
+
+    async def aclear_dlq(self) -> None:
+        """
+        [v2 Feature] デッドレターキュー（DLQ）の内容をクリアします。
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(self._executor, self._db.clear_dlq)
+
+    async def aget_v2_metrics(self) -> dict[str, Any]:
+        """
+        [v2 Feature] 現在の v2 メトリクス情報を取得します。
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self._db.get_v2_metrics)
+
     async def close(self) -> None:
         """
         非同期でデータベース接続を閉じる
@@ -1459,6 +1505,7 @@ class AsyncNanaSQLite:
         async_sub_db._flush_interval = getattr(self, "_flush_interval", 3.0)
         async_sub_db._flush_count = getattr(self, "_flush_count", 100)
         async_sub_db._v2_chunk_size = getattr(self, "_v2_chunk_size", 1000)
+        async_sub_db._v2_enable_metrics = getattr(self, "_v2_enable_metrics", False)
         # 子インスタンス管理
         async_sub_db._child_instances = weakref.WeakSet()
         self._child_instances.add(async_sub_db)
@@ -1711,6 +1758,11 @@ class AsyncNanaSQLite:
     keys = akeys
     values = avalues
     items = aitems
+    flush = aflush
+    get_dlq = aget_dlq
+    retry_dlq = aretry_dlq
+    clear_dlq = aclear_dlq
+    get_v2_metrics = aget_v2_metrics
 
 
 class _AsyncTransactionContext:

@@ -15,7 +15,10 @@ METHOD_GROUPS = {
         "__getitem__", "__setitem__", "__delitem__", "__contains__", "__len__", "__iter__",
         "get", "setdefault", "pop", "update", "clear", "clear_cache", "keys", "values", "items", "to_dict", "copy"
     ],
-    "Data Management": ["load_all", "refresh", "get_fresh", "batch_get", "batch_update", "batch_update_partial", "batch_delete", "is_cached", "flush"],
+    "Data Management": [
+        "load_all", "refresh", "get_fresh", "batch_get", "batch_update", "batch_update_partial", "batch_delete", "is_cached",
+        "flush", "aflush", "get_dlq", "aget_dlq", "retry_dlq", "aretry_dlq", "clear_dlq", "aclear_dlq", "get_v2_metrics", "aget_v2_metrics"
+    ],
     "Transaction Control": ["begin_transaction", "commit", "rollback", "in_transaction", "transaction"],
     "SQL Wrapper": ["sql_insert", "sql_update", "sql_delete", "upsert"],
     "Query": ["query", "query_with_pagination", "count", "exists"],

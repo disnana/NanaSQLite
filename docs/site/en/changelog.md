@@ -15,6 +15,18 @@ outline: [2, 3]
 - Resolved syntax errors and initialization issues in `AsyncNanaSQLite.table()` caused by docstring fragmentation and incomplete argument propagation. (1.4.1dev3)
 - Cleaned up duplicate method definitions in `AsyncNanaSQLite` that occurred during feature application. (1.4.1dev3)
 
+#### Critical Fixes from Deep Audit
+- **[Critical] BUG-02**: Resolved a "Stale Read" inconsistency in V2 mode where reading data via `get()` or `__getitem__` immediately after a write could return outdated values. Optimized the read path to prioritize the background staging buffer.
+- **[Critical] QUAL-04**: Fixed a crash in `AsyncNanaSQLite` when instantiated outside an event loop due to unsafe `asyncio.Lock()` initialization in `__init__`. Implemented lazy initialization for the lock within the event loop context.
+- **[Critical] LOCK-01**: Resolved a deadlock scenario in `ExpiringDict` where the TTL expiration callback (`on_expire`) was executed while holding the DB lock, conflicting with concurrent write operations. Callbacks are now executed outside the locking scope.
+- **[Critical] CONC-01**: Fixed potential `RuntimeError`, cache corruption, and TOCTOU races in multi-threaded environments (e.g., `AsyncNanaSQLite`) by moving internal cache mutations into the scope of the database lock.
+- **[Critical] CONC-02**: Resolved a crash when using `table()` in V2 mode where multiple background engines sharing the same SQLite connection would attempt to start overlapping transactions. Implemented `shared_lock` propagation across parent/child V2 engines.
+- **[Critical] ASYNC-01**: Implemented missing V2 management methods (`aflush`, `aget_dlq`, `aretry_dlq`, `aclear_dlq`, `aget_v2_metrics`) in `AsyncNanaSQLite`.
+- **[High] QUAL-05**: Added guards to forbid explicit transaction operations (`begin_transaction`, etc.) in V2 mode, preventing fatal conflicts with the engine's automated background flushing.
+- **[High] QUAL-06**: Fixed a bug where `v2_enable_metrics` setting was not inherited by child instances in `AsyncNanaSQLite.table()`.
+- **[Medium] SEC-01 (Hardened)**: Upgraded `create_table()` column type validation from a blacklist approach to a strict whitelist-based regular expression for enhanced security.
+- **[Medium] SEC-02**: Resolved a sonar-reported ReDoS vulnerability in `core.py` by replacing the loose `[\w ]*` regex with a safe pattern for column type validation.
+
 #### Performance Improvements
 - **[Low] PERF-01**: Introduced "negative caching" for LRU and TTL cache strategies to store the result of searches for keys that do not exist in the database, reducing I/O load during repeated access. (Also discovered and fixed a breaking bug before release where internal sentinels could leak due to this feature). (1.4.1rc1)
 

@@ -376,17 +376,6 @@ def batch_get(keys: list[str]) -> dict[str, Any]
 
 ---
 
-### `flush`
-
-```python
-def flush() -> None
-```
-
-
-
-
----
-
 ### `load_all`
 
 ```python
@@ -506,6 +495,62 @@ v1.0.3rc5でexecutemanyによる最適化を追加。
 |---|---|---|
 | `keys` | `list[str]` | 削除するキーのリスト |
 
+
+
+---
+
+### `flush`
+
+```python
+def flush() -> None
+```
+
+[v2 Feature] v2 エンジンのバックグラウンドバッファを SQLite に強制的にフラッシュします。
+v2モードが無効な場合は何もしません。
+
+
+---
+
+### `get_dlq`
+
+```python
+def get_dlq() -> list[dict[str, Any]]
+```
+
+[v2 Feature] デッドレターキュー（DLQ）の内容を取得します。
+
+
+---
+
+### `retry_dlq`
+
+```python
+def retry_dlq() -> None
+```
+
+[v2 Feature] デッドレターキュー（DLQ）内の全アイテムを再試行キューに戻します。
+
+
+---
+
+### `clear_dlq`
+
+```python
+def clear_dlq() -> None
+```
+
+[v2 Feature] デッドレターキュー（DLQ）の内容をクリアします。
+
+
+---
+
+### `get_v2_metrics`
+
+```python
+def get_v2_metrics() -> dict[str, Any]
+```
+
+[v2 Feature] 現在の v2 メトリクス情報を取得します。
 
 
 ---
@@ -1572,54 +1617,6 @@ Pydanticモデルのインスタンス
 ---
 
 ## その他のメソッド
-
-### `get_dlq`
-
-```python
-def get_dlq() -> list[dict[str, Any]]
-```
-
-[v2 Feature] 現在のデッドレターキュー（DLQ）の内容を取得します。
-v2モードが無効な場合は空のリストを返します。
-
-
----
-
-### `retry_dlq`
-
-```python
-def retry_dlq() -> None
-```
-
-[v2 Feature] デッドレターキュー（DLQ）内の全アイテムを再試行キューに戻します。
-v2モードが無効な場合は何もしません。
-
-
----
-
-### `clear_dlq`
-
-```python
-def clear_dlq() -> None
-```
-
-[v2 Feature] デッドレターキュー（DLQ）の内容をクリアします。
-v2モードが無効な場合は何もしません。
-
-
----
-
-### `get_v2_metrics`
-
-```python
-def get_v2_metrics() -> dict[str, Any]
-```
-
-[v2 Feature] 現在のメトリクス情報を取得します（有効な場合）。
-v2モード自体またはメトリクスが無効な場合は空の辞書を返します。
-
-
----
 
 ### `export_table_to_dict`
 

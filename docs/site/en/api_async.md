@@ -403,6 +403,116 @@ def get_fresh(key: str, default: Any = None) -> Any
 
 ---
 
+### `aflush`
+
+```python
+def aflush() -> None
+```
+
+
+
+
+---
+
+### `flush`
+
+```python
+def flush() -> None
+```
+
+
+
+
+---
+
+### `aget_dlq`
+
+```python
+def aget_dlq() -> list[dict[str, Any]]
+```
+
+
+
+
+---
+
+### `get_dlq`
+
+```python
+def get_dlq() -> list[dict[str, Any]]
+```
+
+
+
+
+---
+
+### `aretry_dlq`
+
+```python
+def aretry_dlq() -> None
+```
+
+
+
+
+---
+
+### `retry_dlq`
+
+```python
+def retry_dlq() -> None
+```
+
+
+
+
+---
+
+### `aclear_dlq`
+
+```python
+def aclear_dlq() -> None
+```
+
+
+
+
+---
+
+### `clear_dlq`
+
+```python
+def clear_dlq() -> None
+```
+
+
+
+
+---
+
+### `aget_v2_metrics`
+
+```python
+def aget_v2_metrics() -> dict[str, Any]
+```
+
+
+
+
+---
+
+### `get_v2_metrics`
+
+```python
+def get_v2_metrics() -> dict[str, Any]
+```
+
+
+
+
+---
+
 ## Transaction Control
 
 ### `begin_transaction`
@@ -1263,21 +1373,6 @@ def aupdate(mapping: dict = None, **kwargs) -> None
 
 ---
 
-### `aflush`
-
-```python
-def aflush() -> None
-```
-
-::: tip Example
-```python
-    await db.aflush()
-```
-:::
-
-
----
-
 ### `aclear`
 
 ```python
@@ -1287,67 +1382,6 @@ def aclear() -> None
 ::: tip Example
 ```python
     await db.aclear()
-```
-:::
-
-
----
-
-### `aget_dlq`
-
-```python
-def aget_dlq() -> list[dict[str, Any]]
-```
-
-::: tip Example
-```python
-    failed = await db.aget_dlq()
-```
-:::
-
-
----
-
-### `aretry_dlq`
-
-```python
-def aretry_dlq() -> None
-```
-
-::: tip Example
-```python
-    await db.aretry_dlq()
-```
-:::
-
-
----
-
-### `aclear_dlq`
-
-```python
-def aclear_dlq() -> None
-```
-
-::: tip Example
-```python
-    await db.aclear_dlq()
-```
-:::
-
-
----
-
-### `aget_v2_metrics`
-
-```python
-def aget_v2_metrics() -> dict[str, Any]
-```
-
-::: tip Example
-```python
-    metrics = await db.aget_v2_metrics()
-    print(metrics["flush_count"])
 ```
 :::
 

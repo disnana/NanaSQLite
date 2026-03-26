@@ -472,6 +472,118 @@ DBから取得した最新の値
 
 ---
 
+### `aflush`
+
+```python
+def aflush() -> None
+```
+
+[v2 Feature] 非同期で v2 エンジンのバックグラウンドバッファを SQLite にフラッシュします。
+v2モードが無効な場合は何もしません。
+
+
+---
+
+### `flush`
+
+```python
+def flush() -> None
+```
+
+[v2 Feature] 非同期で v2 エンジンのバックグラウンドバッファを SQLite にフラッシュします。
+v2モードが無効な場合は何もしません。
+
+
+---
+
+### `aget_dlq`
+
+```python
+def aget_dlq() -> list[dict[str, Any]]
+```
+
+[v2 Feature] 非同期でデッドレターキュー（DLQ）の内容を取得します。
+
+
+---
+
+### `get_dlq`
+
+```python
+def get_dlq() -> list[dict[str, Any]]
+```
+
+[v2 Feature] 非同期でデッドレターキュー（DLQ）の内容を取得します。
+
+
+---
+
+### `aretry_dlq`
+
+```python
+def aretry_dlq() -> None
+```
+
+[v2 Feature] デッドレターキュー（DLQ）内の全アイテムを再試行キューに戻します。
+
+
+---
+
+### `retry_dlq`
+
+```python
+def retry_dlq() -> None
+```
+
+[v2 Feature] デッドレターキュー（DLQ）内の全アイテムを再試行キューに戻します。
+
+
+---
+
+### `aclear_dlq`
+
+```python
+def aclear_dlq() -> None
+```
+
+[v2 Feature] デッドレターキュー（DLQ）の内容をクリアします。
+
+
+---
+
+### `clear_dlq`
+
+```python
+def clear_dlq() -> None
+```
+
+[v2 Feature] デッドレターキュー（DLQ）の内容をクリアします。
+
+
+---
+
+### `aget_v2_metrics`
+
+```python
+def aget_v2_metrics() -> dict[str, Any]
+```
+
+[v2 Feature] 現在の v2 メトリクス情報を取得します。
+
+
+---
+
+### `get_v2_metrics`
+
+```python
+def get_v2_metrics() -> dict[str, Any]
+```
+
+[v2 Feature] 現在の v2 メトリクス情報を取得します。
+
+
+---
+
 ## トランザクション制御
 
 ### `begin_transaction`
@@ -1448,24 +1560,6 @@ def aupdate(mapping: dict = None, **kwargs) -> None
 
 ---
 
-### `aflush`
-
-```python
-def aflush() -> None
-```
-
-[v2 Feature] 非同期でv2エンジンのバックグラウンドバッファとキューをSQLiteに明示的にフラッシュする。
-v2_modeがFalseの場合は何もしない。
-
-::: tip 使用例
-```python
-    await db.aflush()
-```
-:::
-
-
----
-
 ### `aclear`
 
 ```python
@@ -1477,79 +1571,6 @@ def aclear() -> None
 ::: tip 使用例
 ```python
     await db.aclear()
-```
-:::
-
-
----
-
-### `aget_dlq`
-
-```python
-def aget_dlq() -> list[dict[str, Any]]
-```
-
-[v2 Feature] 非同期でデッドレターキュー（DLQ）の内容を取得します。
-v2モードが無効な場合は空のリストを返します。
-
-::: tip 使用例
-```python
-    failed = await db.aget_dlq()
-```
-:::
-
-
----
-
-### `aretry_dlq`
-
-```python
-def aretry_dlq() -> None
-```
-
-[v2 Feature] 非同期でDLQ内の全アイテムを再試行キューに戻します。
-v2モードが無効な場合は何もしません。
-
-::: tip 使用例
-```python
-    await db.aretry_dlq()
-```
-:::
-
-
----
-
-### `aclear_dlq`
-
-```python
-def aclear_dlq() -> None
-```
-
-[v2 Feature] 非同期でDLQの内容をクリアします。
-v2モードが無効な場合は何もしません。
-
-::: tip 使用例
-```python
-    await db.aclear_dlq()
-```
-:::
-
-
----
-
-### `aget_v2_metrics`
-
-```python
-def aget_v2_metrics() -> dict[str, Any]
-```
-
-[v2 Feature] 非同期でメトリクス情報を取得します( v2_enable_metrics=True 時のみ有効)。
-v2モード自体またはメトリクスが無効な場合は空の辞書を返します。
-
-::: tip 使用例
-```python
-    metrics = await db.aget_v2_metrics()
-    print(metrics["flush_count"])
 ```
 :::
 
