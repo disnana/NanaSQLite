@@ -1279,46 +1279,6 @@ class AsyncNanaSQLite:
         """aclear_cache のエイリアス"""
         await self.aclear_cache()
 
-    async def aflush(self) -> None:
-        """
-        [v2 Feature] 非同期で v2 エンジンのバックグラウンドバッファを SQLite にフラッシュします。
-        v2モードが無効な場合は何もしません。
-        """
-        await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.flush)
-
-    async def aget_dlq(self) -> list[dict[str, Any]]:
-        """
-        [v2 Feature] 非同期でデッドレターキュー（DLQ）の内容を取得します。
-        """
-        await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.get_dlq)
-
-    async def aretry_dlq(self) -> None:
-        """
-        [v2 Feature] デッドレターキュー（DLQ）内の全アイテムを再試行キューに戻します。
-        """
-        await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.retry_dlq)
-
-    async def aclear_dlq(self) -> None:
-        """
-        [v2 Feature] デッドレターキュー（DLQ）の内容をクリアします。
-        """
-        await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.clear_dlq)
-
-    async def aget_v2_metrics(self) -> dict[str, Any]:
-        """
-        [v2 Feature] 現在の v2 メトリクス情報を取得します。
-        """
-        await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.get_v2_metrics)
 
     async def close(self) -> None:
         """

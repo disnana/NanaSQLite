@@ -122,7 +122,7 @@ class ExpiringDict(collections.abc.MutableMapping):
                 logger.debug("Key '%s' expired and removed.", key)
 
         # Fire callback outside lock to prevent deadlock
-        if callback_args is not None:
+        if callback_args is not None and self._on_expire is not None:
             try:
                 self._on_expire(*callback_args)
             except Exception as e:  # pylint: disable=broad-exception-caught
@@ -146,7 +146,7 @@ class ExpiringDict(collections.abc.MutableMapping):
                     self._exptimes.pop(key, None)
 
         # Fire callback OUTSIDE the lock to prevent cross-lock deadlock
-        if callback_args is not None:
+        if callback_args is not None and self._on_expire is not None:
             try:
                 self._on_expire(*callback_args)
             except Exception as e:  # pylint: disable=broad-exception-caught

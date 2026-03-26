@@ -217,6 +217,10 @@ class NanaSQLite(MutableMapping):
         # v2 Architecture Setup
         self._v2_mode = v2_mode
         self._v2_enable_metrics_raw = v2_enable_metrics
+        self._v2_flush_mode = flush_mode
+        self._v2_flush_interval = flush_interval
+        self._v2_flush_count = flush_count
+        self._v2_chunk_size = v2_chunk_size
         self._v2_engine: V2Engine | None = None
 
         if self._v2_mode:
@@ -1145,6 +1149,11 @@ class NanaSQLite(MutableMapping):
     def clear(self) -> None:
         """dict.clear() - 全削除"""
         self._check_connection()
+
+        # v2 Architecture: Flush background buffer before clearing to prevent "ghost" re-inserts
+        if self._v2_mode and self._v2_engine:
+            self._v2_engine.flush()
+
         # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
         with self._acquire_lock():
             self._connection.execute(f"DELETE FROM {self._safe_table}")  # nosec
@@ -1164,6 +1173,10 @@ class NanaSQLite(MutableMapping):
         """一括読み込み: 全データをメモリに展開"""
         if self._all_loaded:
             return
+
+        # v2 Architecture: Flush background buffer to ensure we load the latest state
+        if self._v2_mode and self._v2_engine:
+            self._v2_engine.flush()
 
         with self._acquire_lock():
             cursor = self._connection.execute(
@@ -1515,6 +1528,11 @@ class NanaSQLite(MutableMapping):
                 # 少なくとも src_path がオープン可能かどうかを、接続クローズ前に確認する
                 # 事前の isfile/access チェックは TOCTOU になるため行わず、open() の成否で判断する
                 with open(src_path, "rb") as src_f:
+                    # v2 Architecture: Shutdown background engine before closing connection
+                    if self._v2_mode and self._v2_engine:
+                        self._v2_engine.shutdown()
+                        # We don't set to None yet, we'll recreate later
+
                     self._connection.close()
                     # 一時ファイルへコピー→fsync→os.replace() で原子的に置き換える
                     # open()/コピー中の OSError は外側の except (apsw.Error, OSError) で捕捉して
@@ -1578,8 +1596,39 @@ class NanaSQLite(MutableMapping):
                 self._connection = apsw.Connection(self._db_path)
                 if self._optimize:
                     self._apply_optimizations(self._cache_size_mb)
+
+                # v2 Architecture: Re-initialize engine with new connection
+                if self._v2_mode:
+                    self._v2_engine = V2Engine(
+                        connection=self._connection,
+                        table_name=self._safe_table,
+                        flush_mode=self._v2_flush_mode,
+                        flush_interval=self._v2_flush_interval,
+                        flush_count=self._v2_flush_count,
+                        max_chunk_size=self._v2_chunk_size,
+                        serialize_func=self._serialize,
+                        enable_metrics=self._v2_enable_metrics_raw,
+                        shared_lock=self._lock,
+                    )
+
                 for child in children:
                     child._connection = self._connection
+                    # Child instances also need their engines re-initialized if in V2 mode
+                    if child._v2_mode:
+                        if child._v2_engine:
+                            child._v2_engine.shutdown()
+                        child._v2_engine = V2Engine(
+                            connection=child._connection,
+                            table_name=child._safe_table,
+                            flush_mode=child._v2_flush_mode,
+                            flush_interval=child._v2_flush_interval,
+                            flush_count=child._v2_flush_count,
+                            max_chunk_size=child._v2_chunk_size,
+                            serialize_func=child._serialize,
+                            enable_metrics=child._v2_enable_metrics_raw,
+                            shared_lock=child._lock,
+                        )
+
                 self.clear_cache()
                 for child in children:
                     child.clear_cache()
@@ -2954,43 +3003,6 @@ class NanaSQLite(MutableMapping):
         """
         return _TransactionContext(self)
 
-    def flush(self) -> None:
-        """
-        [v2 Feature] v2 エンジンのバックグラウンドバッファを SQLite に強制的にフラッシュします。
-        v2モードが無効な場合は何もしません。
-        """
-        if self._v2_engine:
-            self._v2_engine.flush()
-
-    def get_dlq(self) -> list[dict[str, Any]]:
-        """
-        [v2 Feature] デッドレターキュー（DLQ）の内容を取得します。
-        """
-        if self._v2_engine:
-            return self._v2_engine.get_dlq()
-        return []
-
-    def retry_dlq(self) -> None:
-        """
-        [v2 Feature] デッドレターキュー（DLQ）内の全アイテムを再試行キューに戻します。
-        """
-        if self._v2_engine:
-            self._v2_engine.retry_dlq()
-
-    def clear_dlq(self) -> None:
-        """
-        [v2 Feature] デッドレターキュー（DLQ）の内容をクリアします。
-        """
-        if self._v2_engine:
-            self._v2_engine.clear_dlq()
-
-    def get_v2_metrics(self) -> dict[str, Any]:
-        """
-        [v2 Feature] 現在の v2 メトリクス情報を取得します。
-        """
-        if self._v2_engine:
-            return self._v2_engine.get_metrics()
-        return {}
 
     def table(
         self,

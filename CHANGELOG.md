@@ -6,9 +6,14 @@
 
 ## 日本語
 
-### [1.4.1] - 2026-03-25
+### [1.4.1] - 2026-03-26
 
 #### セキュリティ修正
+- QUAL-07 [High] 同期版 `NanaSQLite` クラスに V2 エンジンの管理メソッドを追加し、完全な機能パリティを実現しました。
+- CORE [Critical] `clear()`、`load_all()`、`restore()` メソッドにおける V2 エンジンの整合性を強化し、データの不整合や「幽霊書き込み」を防止しました。
+- SEC-01/02 [Critical] `column_type` バリデーションに ReDoS 対策を施したホワイトリスト方式を導入し、セキュリティを強化しました。
+- CONC-01/02 [High] V2 エンジンと `ExpiringDict` におけるマルチスレッド実行時のレースコンディションおよびデッドロックを修正しました。
+- QUAL-05 [Medium] V2 モードでの明示的な `begin_transaction()` 呼び出しに対するガードを追加し、バックグラウンドフラッシュとの衝突を防止しました。
 - **[Medium] SEC-02**: `core.py` における `column_type` バリデーションの正規表現を脆弱性パターン（`[\w ]*`）から安全なパターンに修正し、SonarQube が警告していた ReDoS（正規表現によるサービス拒否）の脆弱性を完全に解消しました。
 
 #### バグ修正
@@ -827,9 +832,14 @@
 
 ## English
 
-### [1.4.1] - 2026-03-25
+### [1.4.1] - 2026-03-26
 
 #### Security Fixes
+- **QUAL-07 [High]**: Added V2 engine management methods to the synchronous `NanaSQLite` class, achieving full feature parity between sync and async versions.
+- **CORE [Critical]**: Hardened V2 engine consistency in `clear()`, `load_all()`, and `restore()` methods to prevent data desynchronization and "ghost writes" during state transitions.
+- **SEC-01/02 [Critical]**: Introduced whitelist-based validation for `column_type` with ReDoS-safe patterns, enhancing protection against SQL injection and denial-of-service.
+- **CONC-01/02 [High]**: Fixed race conditions and deadlocks in the V2 engine and `ExpiringDict` during multi-threaded execution.
+- **QUAL-05 [Medium]**: Added guards against explicit `begin_transaction()` calls in V2 mode to prevent conflicts with background flushing operations.
 - **[Medium] SEC-02**: Fixed the `column_type` validation regular expression in `core.py` from a vulnerable pattern (`[\w ]*`) to a safe pattern, completely resolving the ReDoS (Regular Expression Denial of Service) vulnerability warned by SonarQube.
 
 #### Bug Fixes
@@ -848,8 +858,6 @@
 - **[High] QUAL-07**: Added V2 management methods to the synchronous `NanaSQLite` class, achieving full feature parity between sync and async engines.
 - **[High] QUAL-05**: Added guards to forbid explicit transaction operations (`begin_transaction`, etc.) in V2 mode, preventing fatal conflicts with the engine's automated background flushing.
 - **[High] QUAL-06**: Fixed a bug where `v2_enable_metrics` setting was not inherited by child instances in `AsyncNanaSQLite.table()`.
-- **[Medium] SEC-01 (Hardened)**: Upgraded `create_table()` column type validation from a blacklist approach to a strict whitelist-based regular expression for enhanced security.
-- **[Medium] SEC-02**: Resolved a sonar-reported ReDoS vulnerability in `core.py` by replacing the loose `[\w ]*` regex with a safe pattern for column type validation.
 
 #### Performance Improvements
 - **[Low] PERF-01**: Introduced "negative caching" for LRU and TTL cache strategies to store the result of searches for keys that do not exist in the database, reducing I/O load during repeated access. (Also discovered and fixed a breaking bug before release where internal sentinels could leak due to this feature). (1.4.1rc1)
