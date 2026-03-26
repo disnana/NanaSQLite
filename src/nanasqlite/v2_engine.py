@@ -509,7 +509,7 @@ class V2Engine:
         except Exception: # pragma: no cover
             pass
 
-        # Shutdown worker executor. 
+        # Shutdown worker executor.
         # cancel_futures=True ensures we don't start new flushes if they were already queued.
         # wait=True ensures the current flush (if any) is finished before we do the final sync flush.
         try:
