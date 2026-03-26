@@ -841,6 +841,8 @@
 - **CORE [Critical]**: Hardened V2 engine consistency in `clear()`, `load_all()`, and `restore()` methods to prevent data desynchronization and "ghost writes" during state transitions.
 - **SEC-01/02 [Critical]**: Introduced whitelist-based validation for `column_type` with ReDoS-safe patterns, enhancing protection against SQL injection and denial-of-service.
 - **CONC-01/02 [High]**: Fixed race conditions and deadlocks in the V2 engine and `ExpiringDict` during multi-threaded execution.
+- **[Critical] PERF-02**: Improved `table()` method to share the parent's `V2Engine` instance. This resolves resource leaks (thread and `atexit` handler accumulation) that caused hangs during process exit.
+- **[High] QUAL-08**: Enhanced `V2Engine.shutdown()` robustness with double-invocation prevention, reliable `atexit` unregistration, and safer final flush logic.
 - **QUAL-05 [Medium]**: Added guards against explicit `begin_transaction()` calls in V2 mode to prevent conflicts with background flushing operations.
 - **[Medium] SEC-02**: Fixed the `column_type` validation regular expression in `core.py` from a vulnerable pattern (`[\w ]*`) to a safe pattern, completely resolving the ReDoS (Regular Expression Denial of Service) vulnerability warned by SonarQube.
 
