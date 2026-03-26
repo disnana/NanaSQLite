@@ -130,6 +130,7 @@ class NanaSQLite(MutableMapping):
         v2_enable_metrics: bool = False,
         _shared_connection: apsw.Connection | None = None,
         _shared_lock: threading.RLock | None = None,
+        _shared_v2_engine: Any = None,
     ):
         """
         Args:
@@ -351,19 +352,24 @@ class NanaSQLite(MutableMapping):
             """)
 
         # Initialize V2 Engine if enabled and we own the connection (or even if shared, engine owns the queue)
-        # Note: If multiple tables share a connection, each gets its own V2Engine but they use the same underlying SQLite.
+        # Note: We now share the V2Engine instance if provided (from table() call)
+        # to avoid thread/atexit leaks.
+        self._v2_engine = None
         if self._v2_mode:
-            self._v2_engine = V2Engine(
-                connection=self._connection,
-                table_name=self._safe_table,
-                flush_mode=flush_mode,
-                flush_interval=flush_interval,
-                flush_count=flush_count,
-                max_chunk_size=v2_chunk_size,
-                serialize_func=self._serialize,
-                enable_metrics=self._v2_enable_metrics_raw,
-                shared_lock=self._lock,
-            )
+            if _shared_v2_engine is not None:
+                self._v2_engine = _shared_v2_engine
+            else:
+                self._v2_engine = V2Engine(
+                    connection=self._connection,
+                    table_name=self._safe_table,
+                    flush_mode=flush_mode,
+                    flush_interval=flush_interval,
+                    flush_count=flush_count,
+                    max_chunk_size=v2_chunk_size,
+                    serialize_func=self._serialize,
+                    enable_metrics=self._v2_enable_metrics_raw,
+                    shared_lock=self._lock,
+                )
 
         # 一括ロード
         if bulk_load:
@@ -3097,6 +3103,7 @@ class NanaSQLite(MutableMapping):
                 v2_enable_metrics=resolved_v2_enable_metrics,
                 _shared_connection=self._connection,
                 _shared_lock=self._lock,
+                _shared_v2_engine=self._v2_engine,
             )
 
             # If the parent is the connection owner, the child is not.

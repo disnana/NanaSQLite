@@ -492,22 +492,34 @@ class V2Engine:
 
     def shutdown(self) -> None:
         """Gracefully shutdown the engine, forcing a synchronous final flush."""
-        if not self._running:
-            return
+        # Use a lock to ensure only one thread performs shutdown
+        with self._staging_lock:
+            if not self._running:
+                return
+            self._running = False
 
-        self._running = False
+        # Wake up the timer thread to let it exit
         if self._timer_thread:
-            # Wake up the timer thread to let it exit
             self._flush_event.set()
             # Do not join timer thread here to avoid deadlocks in atexit, let it die daemonically if needed
 
-        # Unregister to avoid multiple calls
-        atexit.unregister(self.shutdown)
+        # Unregister to avoid multiple calls from atexit and manual close()
+        try:
+            atexit.unregister(self.shutdown)
+        except Exception: # pragma: no cover
+            pass
 
-        # Cancel any pending (not yet started) futures so that shutdown()
-        # returns promptly.  The final synchronous _perform_flush() below
-        # guarantees all staged data is committed before we return.
-        self._worker.shutdown(wait=True, cancel_futures=True)
+        # Shutdown worker executor. 
+        # cancel_futures=True ensures we don't start new flushes if they were already queued.
+        # wait=True ensures the current flush (if any) is finished before we do the final sync flush.
+        try:
+            self._worker.shutdown(wait=True, cancel_futures=True)
+        except Exception as e:
+            logger.warning("NanaSQLite v2 Engine: Error during worker shutdown: %s", e)
 
-        # Ensure final data is flushed synchronously on main/exit thread
-        self._perform_flush()
+        # Ensure final data is flushed synchronously on main/exit thread.
+        # This is safe because the worker thread is now finished.
+        try:
+            self._perform_flush()
+        except Exception as e:
+            logger.error("NanaSQLite v2 Engine: Final flush failed during shutdown: %s", e)
