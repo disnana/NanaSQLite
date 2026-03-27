@@ -7,6 +7,7 @@ fails (e.g., wrong package version). NanaSQLite's HAS_VALIDKIT is set by
 trying `from validkit import validate`, so tests should use HAS_VALIDKIT as
 the skip sentinel to accurately reflect whether integration is available.
 """
+
 import inspect
 import re
 
@@ -56,7 +57,6 @@ def test_integration_file_does_not_use_bare_import_validkit_for_detection():
 def test_has_validkit_consistency_with_integration_skip_flag():
     """nanasqlite.HAS_VALIDKIT と test_validkit_integration.validkit_installed が一致すること。"""
     import test_validkit_integration as mod
-
     from nanasqlite import HAS_VALIDKIT
 
     assert mod.validkit_installed is HAS_VALIDKIT, (
