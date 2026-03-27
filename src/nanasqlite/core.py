@@ -33,6 +33,7 @@ try:
     from cryptography.exceptions import InvalidTag
     from cryptography.fernet import Fernet
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
+
     HAS_CRYPTOGRAPHY = True
 except ImportError:
     HAS_CRYPTOGRAPHY = False
@@ -227,6 +228,7 @@ class NanaSQLite(MutableMapping):
         if self._v2_mode:
             # Check for multiprocess environment to emit warning (Gunicorn, Uvicorn workers etc)
             import multiprocessing
+
             current_proc = multiprocessing.current_process()
             proc_name = getattr(current_proc, "name", "")
             pid = os.getpid()
@@ -235,10 +237,10 @@ class NanaSQLite(MutableMapping):
             # Heuristic detection for common multi-process web servers running under a master process
             # E.g. gunicorn workers, uvicorn workers, celery workers
             is_worker_heuristic = (
-                "worker" in proc_name.lower() or
-                "spawnProcess" in proc_name or
-                "ForkProcess" in proc_name or
-                (ppid is not None and ppid != 1 and ppid != 0)
+                "worker" in proc_name.lower()
+                or "spawnProcess" in proc_name
+                or "ForkProcess" in proc_name
+                or (ppid is not None and ppid != 1 and ppid != 0)
             )
 
             # We warn if we suspect it's a multiprocess environment and v2 is explicitly enabled
@@ -477,9 +479,7 @@ class NanaSQLite(MutableMapping):
         if lock_timeout is not None:
             acquired = self._lock.acquire(timeout=lock_timeout)
             if not acquired:
-                raise NanaSQLiteLockError(
-                    f"Failed to acquire lock within {lock_timeout}s"
-                )
+                raise NanaSQLiteLockError(f"Failed to acquire lock within {lock_timeout}s")
             try:
                 yield
             finally:
@@ -728,8 +728,7 @@ class NanaSQLite(MutableMapping):
         if self._aead:
             if not isinstance(value, bytes):
                 logger.warning(
-                    "AEAD encryption is enabled but received non-bytes data; "
-                    "treating as unencrypted legacy value"
+                    "AEAD encryption is enabled but received non-bytes data; treating as unencrypted legacy value"
                 )
                 if HAS_ORJSON:
                     return orjson.loads(value)
@@ -1443,15 +1442,11 @@ class NanaSQLite(MutableMapping):
         self._check_connection()
         # dest_path がインメモリDB文字列の場合、バックアップが永続化されないため拒否する
         if self._is_in_memory_path(dest_path):
-            raise NanaSQLiteValidationError(
-                "dest_path must be a file path, not an in-memory database string"
-            )
+            raise NanaSQLiteValidationError("dest_path must be a file path, not an in-memory database string")
         # dest_path が DB ファイル自身と同一の場合は自己コピーになり破損する恐れがあるため拒否する
         try:
             if os.path.samefile(dest_path, self._db_path):
-                raise NanaSQLiteValidationError(
-                    "dest_path must not be the same as the current database file"
-                )
+                raise NanaSQLiteValidationError("dest_path must not be the same as the current database file")
         except FileNotFoundError:
             pass  # dest_path がまだ存在しない場合は問題なし
         except OSError as e:
@@ -1507,9 +1502,7 @@ class NanaSQLite(MutableMapping):
         self._check_connection()
         # DB がインメモリの場合はファイル置換ができないため拒否する（早期失敗）
         if self._is_in_memory_path(self._db_path):
-            raise NanaSQLiteValidationError(
-                "restore() cannot be used with an in-memory database"
-            )
+            raise NanaSQLiteValidationError("restore() cannot be used with an in-memory database")
         if not self._is_connection_owner:
             raise NanaSQLiteConnectionError(
                 "restore() can only be called on the primary (connection-owning) instance. "
@@ -1846,15 +1839,13 @@ class NanaSQLite(MutableMapping):
                     event.set()
 
                 self._v2_engine.enqueue_strict_task(
-                    task_type="execute",
-                    sql=sql,
-                    parameters=parameters,
-                    on_success=_on_success,
-                    on_error=_on_error
+                    task_type="execute", sql=sql, parameters=parameters, on_success=_on_success, on_error=_on_error
                 )
                 event.wait()
                 if exception:
-                    raise NanaSQLiteDatabaseError(f"Failed to execute SQL in background: {exception}", original_error=exception) from exception
+                    raise NanaSQLiteDatabaseError(
+                        f"Failed to execute SQL in background: {exception}", original_error=exception
+                    ) from exception
 
                 with self._acquire_lock():
                     return self._connection.cursor()
@@ -1900,15 +1891,13 @@ class NanaSQLite(MutableMapping):
                 event.set()
 
             self._v2_engine.enqueue_strict_task(
-                task_type="executemany",
-                sql=sql,
-                parameters=parameters_list,
-                on_success=_on_success,
-                on_error=_on_error
+                task_type="executemany", sql=sql, parameters=parameters_list, on_success=_on_success, on_error=_on_error
             )
             event.wait()
             if exception:
-                raise NanaSQLiteDatabaseError(f"Failed to execute_many in background: {exception}", original_error=exception) from exception
+                raise NanaSQLiteDatabaseError(
+                    f"Failed to execute_many in background: {exception}", original_error=exception
+                ) from exception
             return
 
         with self._acquire_lock():
@@ -2447,12 +2436,12 @@ class NanaSQLite(MutableMapping):
         elif table_name is not None and data is None:
             # table_name に dict が渡された場合の安全策 (もしあれば)
             if isinstance(table_name, dict):
-                 # self.upsert(data_dict) のような呼び出しは現時点では非サポートとするか
-                 # デフォルトテーブルへの挿入とみなす
-                 target_table = self._table
-                 target_data = table_name
+                # self.upsert(data_dict) のような呼び出しは現時点では非サポートとするか
+                # デフォルトテーブルへの挿入とみなす
+                target_table = self._table
+                target_data = table_name
             else:
-                 raise ValueError("Invalid arguments for upsert")
+                raise ValueError("Invalid arguments for upsert")
         else:
             raise ValueError("upsert requires at least table_name and data")
 
@@ -2790,7 +2779,6 @@ class NanaSQLite(MutableMapping):
         self.execute_many(sql, parameters_list)
         return len(data_list)
 
-
     def get_last_insert_rowid(self) -> int:
         """
         最後に挿入されたROWIDを取得
@@ -2847,9 +2835,7 @@ class NanaSQLite(MutableMapping):
         }
 
         if pragma_name not in allowed_pragmas:
-            raise ValueError(
-                f"PRAGMA '{pragma_name}' is not allowed. Allowed: {', '.join(sorted(allowed_pragmas))}"
-            )
+            raise ValueError(f"PRAGMA '{pragma_name}' is not allowed. Allowed: {', '.join(sorted(allowed_pragmas))}")
 
         if value is None:
             cursor = self.execute(f"PRAGMA {pragma_name}")
@@ -3009,7 +2995,6 @@ class NanaSQLite(MutableMapping):
         """
         return _TransactionContext(self)
 
-
     def table(
         self,
         table_name: str,
@@ -3075,16 +3060,15 @@ class NanaSQLite(MutableMapping):
         size = cache_size if cache_size is not None else self._cache_size_raw
         # TTL 戦略の場合は cache_ttl と cache_persistence_ttl も継承する（省略時）
         ttl = cache_ttl if cache_ttl is not None else self._cache_ttl_raw
-        persist_ttl = (
-            cache_persistence_ttl if cache_persistence_ttl is not None
-            else self._cache_persistence_ttl_raw
-        )
+        persist_ttl = cache_persistence_ttl if cache_persistence_ttl is not None else self._cache_persistence_ttl_raw
         # validator が省略された場合は親のスキーマを継承し、None 明示指定は無効化とする
         resolved_validator = self._validator if validator is _UNSET else validator
         # coerce が省略された場合は親の設定を継承する
         resolved_coerce = self._coerce if coerce is _UNSET else bool(coerce)
         # v2_enable_metrics が省略された場合は親の設定を継承する
-        resolved_v2_enable_metrics = self._v2_enable_metrics_raw if v2_enable_metrics is _UNSET else bool(v2_enable_metrics)
+        resolved_v2_enable_metrics = (
+            self._v2_enable_metrics_raw if v2_enable_metrics is _UNSET else bool(v2_enable_metrics)
+        )
 
         # 子インスタンス生成〜WeakSet追加をロックで保護し、
         # restore() の接続差し替えと競合しないようにする

@@ -34,9 +34,11 @@ logger = logging.getLogger(__name__)
 TASK_EXECUTE = "execute"
 TASK_EXECUTEMANY = "executemany"
 
+
 @dataclass(order=True)
 class StrictTask:
     """A single task for the strict/raw SQL lane (Lane 2)."""
+
     priority: int
     sequence_id: int
     task_type: str = field(compare=False)
@@ -84,7 +86,7 @@ class V2Engine:
         # Structure: {(table_name, key): {"action": "set"|"delete", "value": ...}}
         self._staging_lock = threading.Lock()
         self._staging_buffer: dict[tuple[str, str], dict[str, Any]] = {}
-        self._staging_changes = 0 # Track number of mutations since last flush
+        self._staging_changes = 0  # Track number of mutations since last flush
 
         # Lane 2: Strict / Raw SQL Lane (Priority Queue)
         self._strict_queue: queue.PriorityQueue[StrictTask] = queue.PriorityQueue()
@@ -129,6 +131,7 @@ class V2Engine:
 
     def _start_timer(self) -> None:
         """Starts the background timer thread for 'time' mode."""
+
         def _timer_loop() -> None:
             while self._running:
                 # wait returns True if event is set, False if timeout.
@@ -275,7 +278,9 @@ class V2Engine:
                     self._process_kvs_chunk(chunk)
                 except Exception as e:
                     # If a chunk fails, we enter a recovery mode for that specific chunk
-                    logger.warning("NanaSQLite v2 Engine: Chunk transaction failed, entering DLQ recovery. Error: %s", e)
+                    logger.warning(
+                        "NanaSQLite v2 Engine: Chunk transaction failed, entering DLQ recovery. Error: %s", e
+                    )
                     self._recover_chunk_via_dlq(chunk)
 
         # Process all remaining Strict Lane tasks
@@ -317,12 +322,12 @@ class V2Engine:
                     if sets:
                         cursor.executemany(
                             f"INSERT OR REPLACE INTO {table_name} (key, value) VALUES (?, ?)",  # nosec
-                            sets
+                            sets,
                         )
                     if deletes:
                         cursor.executemany(
                             f"DELETE FROM {table_name} WHERE key = ?",  # nosec
-                            deletes
+                            deletes,
                         )
                     flushed_count += len(sets) + len(deletes)
 
@@ -346,7 +351,7 @@ class V2Engine:
                 task: StrictTask = self._strict_queue.get_nowait()
             except queue.Empty:
                 break
-                
+
             lock_acquired = False
             if self._shared_lock is not None:
                 self._shared_lock.acquire()
@@ -361,7 +366,7 @@ class V2Engine:
                         else:
                             cursor.execute(task.sql)
                     elif task.task_type == TASK_EXECUTEMANY:
-                        cursor.executemany(task.sql, task.parameters) # type: ignore
+                        cursor.executemany(task.sql, task.parameters)  # type: ignore
 
                     if self._enable_metrics:
                         with self._metrics_lock:
@@ -413,9 +418,11 @@ class V2Engine:
                 try:
                     cursor.execute("BEGIN IMMEDIATE TRANSACTION;")
                     if op["action"] == "set":
-                        cursor.execute(f"INSERT OR REPLACE INTO {table_name} (key, value) VALUES (?, ?)", (key, op["value"])) # nosec
+                        cursor.execute(
+                            f"INSERT OR REPLACE INTO {table_name} (key, value) VALUES (?, ?)", (key, op["value"])
+                        )  # nosec
                     elif op["action"] == "delete":
-                        cursor.execute(f"DELETE FROM {table_name} WHERE key = ?", (key,)) # nosec
+                        cursor.execute(f"DELETE FROM {table_name} WHERE key = ?", (key,))  # nosec
 
                     if self._enable_metrics:
                         with self._metrics_lock:
@@ -432,10 +439,7 @@ class V2Engine:
     def get_dlq(self) -> list[dict[str, Any]]:
         """Return a copy of the Dead Letter Queue for inspection."""
         with self._dlq_lock:
-            return [
-                {"error": err, "item": item, "timestamp": ts}
-                for err, item, ts in self.dlq
-            ]
+            return [{"error": err, "item": item, "timestamp": ts} for err, item, ts in self.dlq]
 
     def retry_dlq(self) -> None:
         """
@@ -494,7 +498,7 @@ class V2Engine:
         # Unregister to avoid multiple calls from atexit and manual close()
         try:
             atexit.unregister(self.shutdown)
-        except Exception: # pragma: no cover
+        except Exception:  # pragma: no cover
             pass
 
         # Shutdown worker executor.
@@ -515,6 +519,7 @@ class V2Engine:
         # Clear any remaining strict tasks to prevent deadlocks (e.g., if _perform_flush failed entirely)
         if not self._strict_queue.empty():
             from .exceptions import NanaSQLiteClosedError
+
             shutdown_err = NanaSQLiteClosedError("V2Engine shut down before task could complete.")
             while not self._strict_queue.empty():
                 try:
@@ -526,4 +531,3 @@ class V2Engine:
                             pass
                 except queue.Empty:
                     break
-

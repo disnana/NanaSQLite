@@ -6,7 +6,7 @@
 
 ## 日本語
 
-### [1.4.1] - 2026-03-26
+### [1.4.1] - 2026-03-27
 
 #### セキュリティ修正
 - QUAL-07 [High] 同期版 `NanaSQLite` クラスに V2 エンジンの管理メソッドを追加し、完全な機能パリティを実現しました。
@@ -14,6 +14,8 @@
 - SEC-01/02 [Critical] `column_type` バリデーションに ReDoS 対策を施したホワイトリスト方式を導入し、セキュリティを強化しました。
 - CONC-01/02 [High] V2 エンジンと `ExpiringDict` におけるマルチスレッド実行時のレースコンディションおよびデッドロックを修正しました。
 - **[Critical] PERF-02**: `table()` メソッドで作成された子インスタンスが親の `V2Engine` を共有するように改善。これにより、テーブルごとにスレッドや `atexit` ハンドラが生成されるリソースリーク（およびプロセス終了時のハングアップ）を解消しました。
+- **[Critical] DEADLOCK-01**: `V2Engine` において `StrictTask` の処理中にデッドロックが発生し、`pytest` 等の並列実行中にプロセスがハングアップする問題を修正しました。タスク処理のトランザクション分離と、`shutdown` 時の確実なイベント解放を実装しました。
+- **[Critical] MULTI-TENANT-01**: `V2Engine` が単一のテーブル名に依存していた不具合を修正。複数のテーブルインスタンスが一つのエンジンを共有しても、データが混同されないマルチテナント（テーブル単位の分離）に対応しました。
 - **[High] QUAL-08**: `V2Engine.shutdown()` の堅牢性を強化。二重実行の防止、`atexit` ハンドラの確実な解除、およびシャットダウン時のフラッシュ処理の安全性を向上させました。
 - QUAL-05 [Medium] V2 モードでの明示的な `begin_transaction()` 呼び出しに対するガードを追加し、バックグラウンドフラッシュとの衝突を防止しました。
 - **[Medium] SEC-02**: `core.py` における `column_type` バリデーションの正規表現を脆弱性パターン（`[\w ]*`）から安全なパターンに修正し、SonarQube が警告していた ReDoS（正規表現によるサービス拒否）の脆弱性を完全に解消しました。
@@ -834,7 +836,7 @@
 
 ## English
 
-### [1.4.1] - 2026-03-26
+### [1.4.1] - 2026-03-27
 
 #### Security Fixes
 - **QUAL-07 [High]**: Added V2 engine management methods to the synchronous `NanaSQLite` class, achieving full feature parity between sync and async versions.
@@ -842,6 +844,8 @@
 - **SEC-01/02 [Critical]**: Introduced whitelist-based validation for `column_type` with ReDoS-safe patterns, enhancing protection against SQL injection and denial-of-service.
 - **CONC-01/02 [High]**: Fixed race conditions and deadlocks in the V2 engine and `ExpiringDict` during multi-threaded execution.
 - **[Critical] PERF-02**: Improved `table()` method to share the parent's `V2Engine` instance. This resolves resource leaks (thread and `atexit` handler accumulation) that caused hangs during process exit.
+- **[Critical] DEADLOCK-01**: Resolved deadlocks in `V2Engine` during `StrictTask` processing that caused processes to hang during parallel execution (e.g., `pytest-xdist`). Implemented transaction isolation for task processing and reliable event release during `shutdown`.
+- **[Critical] MULTI-TENANT-01**: Fixed a bug where `V2Engine` was tied to a single table name. Refactored the engine to support multi-tenancy (table-level isolation), ensuring data is not mixed when multiple table instances share the same engine.
 - **[High] QUAL-08**: Enhanced `V2Engine.shutdown()` robustness with double-invocation prevention, reliable `atexit` unregistration, and safer final flush logic.
 - **QUAL-05 [Medium]**: Added guards against explicit `begin_transaction()` calls in V2 mode to prevent conflicts with background flushing operations.
 - **[Medium] SEC-02**: Fixed the `column_type` validation regular expression in `core.py` from a vulnerable pattern (`[\w ]*`) to a safe pattern, completely resolving the ReDoS (Regular Expression Denial of Service) vulnerability warned by SonarQube.
