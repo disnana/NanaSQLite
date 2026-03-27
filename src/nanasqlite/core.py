@@ -23,6 +23,7 @@ import warnings
 import weakref
 from collections.abc import Iterator, MutableMapping
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import apsw
@@ -82,6 +83,26 @@ _NOT_FOUND = object()
 _BEGIN_IMMEDIATE = "BEGIN IMMEDIATE"
 
 
+@dataclass
+class V2Config:
+    """
+    v2エンジンの設定をまとめたコンフィグクラス。
+    NanaSQLite と AsyncNanaSQLite の ``v2_config`` 引数に渡すことで、
+    v2 関連のパラメータをひとまとめにできます。
+
+    Example:
+        >>> from nanasqlite import NanaSQLite, V2Config
+        >>> cfg = V2Config(flush_mode="time", flush_interval=5.0, enable_metrics=True)
+        >>> db = NanaSQLite("mydata.db", v2_mode=True, v2_config=cfg)
+    """
+
+    flush_mode: Literal["immediate", "count", "time", "manual"] = "immediate"
+    flush_interval: float = 3.0
+    flush_count: int = 100
+    chunk_size: int = 1000
+    enable_metrics: bool = False
+
+
 class NanaSQLite(MutableMapping):
     """
     APSW SQLite-backed dict wrapper with Security and Connection Enhancements (v1.2.0).
@@ -129,6 +150,7 @@ class NanaSQLite(MutableMapping):
         flush_count: int = 100,
         v2_chunk_size: int = 1000,
         v2_enable_metrics: bool = False,
+        v2_config: V2Config | None = None,
         _shared_connection: apsw.Connection | None = None,
         _shared_lock: threading.RLock | None = None,
         _shared_v2_engine: Any = None,
@@ -217,6 +239,14 @@ class NanaSQLite(MutableMapping):
         self._coerce: bool = bool(coerce)
 
         # v2 Architecture Setup
+        # v2_config が渡された場合はその値を優先し、個別パラメータより上書きする（後方互換のため個別引数も維持）
+        if v2_config is not None:
+            flush_mode = v2_config.flush_mode
+            flush_interval = v2_config.flush_interval
+            flush_count = v2_config.flush_count
+            v2_chunk_size = v2_config.chunk_size
+            v2_enable_metrics = v2_config.enable_metrics
+
         self._v2_mode = v2_mode
         self._v2_enable_metrics_raw = v2_enable_metrics
         self._v2_flush_mode = flush_mode

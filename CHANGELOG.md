@@ -45,6 +45,15 @@
 - **[Low] QUAL-01**: `ExpiringDict` のスケジューラスレッド停止処理を改善し、インスタンス破棄時やクリア時のクリーンアップをより堅牢にしました。（1.4.1rc1）
 - **[Low] QUAL-03**: ソースコード内のマジックリテラル（`"BEGIN IMMEDIATE"` 等）の共通定数化を行い、保守性を向上させました。
 - **[Low] CI-01**: SonarQube Cloud の「Quality Gate」における誤検知（ドキュメントやスクリプトがカバレッジに含まれる問題）を解消し、認知複雑度などの非本質的な警告を抑制する設定を導入しました。
+- **[Low] QUAL-09**: `utils.py` の `list(dict.keys())` を `list(dict)` に変更し、不要な `.keys()` 呼び出しを削除しました（SonarCloud指摘対応）。
+- **[Low] QUAL-10 (新機能)**: `V2Config` データクラスを追加し、v2関連パラメータ（`flush_mode`, `flush_interval`, `flush_count`, `chunk_size`, `enable_metrics`）をひとまとめにして渡せるようにしました。既存の個別引数は後方互換のためすべて維持されます。SonarCloud の「パラメータが多すぎる（brain-overload）」警告への対応です。
+  ```python
+  from nanasqlite import NanaSQLite, V2Config
+  cfg = V2Config(flush_mode="time", flush_interval=5.0, enable_metrics=True)
+  db = NanaSQLite("mydata.db", v2_mode=True, v2_config=cfg)
+  ```
+- **[Low] CI-02**: `bench-rpi.yml` において、`docker run` 実行前に `docker rm -f` を追加し、キャンセル後の再実行時にコンテナ名が競合するエラー（`"Conflict. The container name is already in use"`）を解消しました。
+
 
 #### 新機能: V2エンジンの利便性と観測性の向上 (オプトイン)
 - **デッドレターキュー (DLQ) の可視化**:
@@ -875,6 +884,14 @@
 - **[Low] QUAL-01**: Improved the `ExpiringDict` scheduler thread stop logic to ensure more robust cleanup during instance destruction or clearing. (1.4.1rc1)
 - **[Low] QUAL-03**: Deduplicated magic literals (e.g., `"BEGIN IMMEDIATE"`) into module-level constants to improve maintainability.
 - **[Low] CI-01**: Resolved SonarQube Cloud "Quality Gate" false positives by excluding non-source files (docs, scripts) from coverage and suppressing non-essential maintainability warnings through configuration.
+- **[Low] QUAL-09**: Removed unnecessary `.keys()` calls in `utils.py` (`list(dict.keys())` → `list(dict)`) to address SonarCloud code smell warnings.
+- **[Low] QUAL-10 (New Feature)**: Introduced `V2Config` dataclass to group v2-related parameters (`flush_mode`, `flush_interval`, `flush_count`, `chunk_size`, `enable_metrics`) into a single object. All existing individual parameters remain available for full backward compatibility. This addresses SonarCloud's "brain-overload" warning for the `__init__` method having too many parameters.
+  ```python
+  from nanasqlite import NanaSQLite, V2Config
+  cfg = V2Config(flush_mode="time", flush_interval=5.0, enable_metrics=True)
+  db = NanaSQLite("mydata.db", v2_mode=True, v2_config=cfg)
+  ```
+- **[Low] CI-02**: Added `docker rm -f` before `docker run` in `bench-rpi.yml` to resolve container name conflicts (`"Conflict. The container name is already in use"`) that occurred when a prior workflow run was cancelled.
 
 #### New Features: Enhanced V2 Engine Usability and Observability (Opt-in)
 - **Dead Letter Queue (DLQ) Visibility**:

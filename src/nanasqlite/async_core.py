@@ -35,7 +35,7 @@ from typing import Any, Literal
 import apsw
 
 from .cache import CacheType
-from .core import _UNSET, HAS_VALIDKIT, IDENTIFIER_PATTERN, NanaSQLite
+from .core import _UNSET, HAS_VALIDKIT, IDENTIFIER_PATTERN, NanaSQLite, V2Config
 from .exceptions import NanaSQLiteClosedError, NanaSQLiteDatabaseError
 
 
@@ -108,6 +108,7 @@ class AsyncNanaSQLite:
         flush_count: int = 100,
         v2_chunk_size: int = 1000,
         v2_enable_metrics: bool = False,
+        v2_config: V2Config | None = None,
     ) -> None:
         """
         Args:
@@ -164,6 +165,14 @@ class AsyncNanaSQLite:
         self._coerce: bool = bool(coerce)
 
         # v2 Architecture Setup
+        # v2_config が渡された場合はその値を優先し、個別パラメータより上書きする（後方互換のため個別引数も維持）
+        if v2_config is not None:
+            flush_mode = v2_config.flush_mode
+            flush_interval = v2_config.flush_interval
+            flush_count = v2_config.flush_count
+            v2_chunk_size = v2_config.chunk_size
+            v2_enable_metrics = v2_config.enable_metrics
+
         self._v2_mode = v2_mode
         self._flush_mode = flush_mode
         self._flush_interval = flush_interval

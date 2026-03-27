@@ -205,7 +205,7 @@ class ExpiringDict(collections.abc.MutableMapping):
 
     def __iter__(self) -> Iterator[str]:
         # Clean up expired items during iteration to stay accurate
-        keys = list(self._data.keys())
+        keys = list(self._data)
         for key in keys:
             if not self._check_expiry(key):
                 yield key
@@ -226,7 +226,7 @@ class ExpiringDict(collections.abc.MutableMapping):
 
     def clear(self) -> None:
         with self._lock:
-            for key in list(self._timers.keys()):
+            for key in list(self._timers):
                 self._cancel_timer(key)
             self._data.clear()
             self._exptimes.clear()

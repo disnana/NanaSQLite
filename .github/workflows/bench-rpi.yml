@@ -83,11 +83,12 @@ jobs:
       - name: Run sync benchmarks (no network)
         run: |
           mkdir -p output
+          docker rm -f bench-sync || true
           docker run --name bench-sync --network none \
             ${{ needs.build.outputs.image_tag }} \
             bash -c "mkdir -p /output && pytest tests/test_benchmark.py -v --benchmark-only --benchmark-json=/output/benchmark.json || true"
           docker cp bench-sync:/output/benchmark.json output/benchmark.json || true
-          docker rm bench-sync
+          docker rm bench-sync || true
 
       - uses: actions/upload-artifact@v7
         with:
@@ -109,11 +110,12 @@ jobs:
       - name: Run async benchmarks (no network)
         run: |
           mkdir -p output
+          docker rm -f bench-async || true
           docker run --name bench-async --network none \
             ${{ needs.build.outputs.image_tag }} \
             bash -c "mkdir -p /output && pytest tests/test_async_benchmark.py -v --benchmark-only --benchmark-json=/output/async-benchmark.json || true"
           docker cp bench-async:/output/async-benchmark.json output/async-benchmark.json || true
-          docker rm bench-async
+          docker rm bench-async || true
 
       - uses: actions/upload-artifact@v7
         with:
