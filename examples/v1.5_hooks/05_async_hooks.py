@@ -26,12 +26,12 @@ from nanasqlite.exceptions import NanaSQLiteValidationError
 # ==============================================================================
 class AsyncLoggingHook(NanaHook):
     def before_write(self, db: Any, key: str, value: Any) -> Any:
-        print(f"[Async LOG: WRITE] 準備中 -> '{key}': {value}")
+        print(f"[Async LOG: WRITE] '{key}': {value}")
         # 時間のかかるバリデーションなどの処理があっても、裏側で別スレッドで実行されます
         return value
 
     def after_read(self, db: Any, key: str, value: Any) -> Any:
-        print(f"[Async LOG: READ] 取得完了 -> '{key}': {value}")
+        print(f"[Async LOG: READ] '{key}': {value}")
         return value
 
 
@@ -67,9 +67,9 @@ async def main():
         try:
             # aset は非同期で書き込みを行います。内部でフックが自動実行されます。
             await db.aset(user_id, {"username": f"Player_{user_id}", "point": point})
-            print(f"  [Task] ✅ {user_id} の保存に成功しました")
+            print(f"  [Task] [OK] {user_id} の保存に成功しました")
         except NanaSQLiteValidationError as e:
-            print(f"  [Task] ❌ {user_id} の保存がフックによってブロックされました: {e}")
+            print(f"  [Task] [FAIL] {user_id} の保存がフックによってブロックされました: {e}")
 
     # 正常なデータ2件と、無効なデータ(-10ポイント)1件を同時に走らせる
     await asyncio.gather(
@@ -93,8 +93,7 @@ async def main():
     # ==============================================================================
     # 5. 非同期削除の実行
     # ==============================================================================
-    # adelete（あるいは __delitem__）で削除する際にも before_delete が発火しますが、
-    # このサンプルでは before_delete を実装していないため、そのまま消去されます。
+    # adelete で削除する際にも before_delete が発火します
     await db.adelete("user:101")
     print(f"\n>> user:101 を削除しました")
 
