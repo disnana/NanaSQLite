@@ -1294,7 +1294,7 @@ class NanaSQLite(MutableMapping):
 
         self._all_loaded = True
 
-    def refresh(self, key: str = None) -> None:
+    def refresh(self, key: str | None = None) -> None:
         """
         キャッシュを更新（DBから再読み込み）
 
@@ -2135,15 +2135,15 @@ class NanaSQLite(MutableMapping):
 
     def query(
         self,
-        table_name: str = None,
-        columns: list[str] = None,
-        where: str = None,
-        parameters: tuple = None,
-        order_by: str = None,
-        limit: int = None,
-        strict_sql_validation: bool = None,
-        allowed_sql_functions: list[str] = None,
-        forbidden_sql_functions: list[str] = None,
+        table_name: str | None = None,
+        columns: list[str] | None = None,
+        where: str | None = None,
+        parameters: tuple | None = None,
+        order_by: str | None = None,
+        limit: int | None = None,
+        strict_sql_validation: bool | None = None,
+        allowed_sql_functions: list[str] | None = None,
+        forbidden_sql_functions: list[str] | None = None,
         override_allowed: bool = False,
     ) -> list[dict]:
         """
@@ -2395,7 +2395,7 @@ class NanaSQLite(MutableMapping):
             )
         return columns
 
-    def list_indexes(self, table_name: str = None) -> list[dict]:
+    def list_indexes(self, table_name: str | None = None) -> list[dict]:
         """
         インデックス一覧を取得
 
@@ -2590,12 +2590,12 @@ class NanaSQLite(MutableMapping):
 
     def count(
         self,
-        table_name: str = None,
-        where: str = None,
-        parameters: tuple = None,
-        strict_sql_validation: bool = None,
-        allowed_sql_functions: list[str] = None,
-        forbidden_sql_functions: list[str] = None,
+        table_name: str | None = None,
+        where: str | None = None,
+        parameters: tuple | None = None,
+        strict_sql_validation: bool | None = None,
+        allowed_sql_functions: list[str] | None = None,
+        forbidden_sql_functions: list[str] | None = None,
         override_allowed: bool = False,
     ) -> int:
         """
@@ -2656,17 +2656,17 @@ class NanaSQLite(MutableMapping):
 
     def query_with_pagination(
         self,
-        table_name: str = None,
-        columns: list[str] = None,
-        where: str = None,
-        parameters: tuple = None,
-        order_by: str = None,
-        limit: int = None,
-        offset: int = None,
-        group_by: str = None,
-        strict_sql_validation: bool = None,
-        allowed_sql_functions: list[str] = None,
-        forbidden_sql_functions: list[str] = None,
+        table_name: str | None = None,
+        columns: list[str] | None = None,
+        where: str | None = None,
+        parameters: tuple | None = None,
+        order_by: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        group_by: str | None = None,
+        strict_sql_validation: bool | None = None,
+        allowed_sql_functions: list[str] | None = None,
+        forbidden_sql_functions: list[str] | None = None,
         override_allowed: bool = False,
     ) -> list[dict]:
         """

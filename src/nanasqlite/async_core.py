@@ -504,7 +504,7 @@ class AsyncNanaSQLite:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self._db.pop, key, *args)
 
-    async def aupdate(self, mapping: dict = None, **kwargs) -> None:
+    async def aupdate(self, mapping: dict | None = None, **kwargs) -> None:
         """
         非同期で複数のキーを更新
 
@@ -630,7 +630,7 @@ class AsyncNanaSQLite:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(self._executor, self._db.load_all)
 
-    async def refresh(self, key: str = None) -> None:
+    async def refresh(self, key: str | None = None) -> None:
         """
         非同期でキャッシュを更新
 
@@ -1492,7 +1492,7 @@ class AsyncNanaSQLite:
         )
 
         # 新しいAsyncNanaSQLiteラッパーを作成（__init__をバイパス）
-        async_sub_db = object.__new__(AsyncNanaSQLite)
+        async_sub_db: AsyncNanaSQLite = object.__new__(AsyncNanaSQLite)
         async_sub_db._db_path = self._db_path
         async_sub_db._table = table_name
         async_sub_db._bulk_load = self._bulk_load
@@ -1596,7 +1596,7 @@ class AsyncNanaSQLite:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self._db.pragma, pragma_name, value)
 
-    async def aget_table_schema(self, table_name: str = None) -> list[dict]:
+    async def aget_table_schema(self, table_name: str | None = None) -> list[dict]:
         """
         非同期でテーブルのスキーマ情報を取得します。
 
@@ -1610,7 +1610,7 @@ class AsyncNanaSQLite:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self._db.get_table_schema, table_name)
 
-    async def alist_indexes(self, table_name: str = None) -> list[str]:
+    async def alist_indexes(self, table_name: str | None = None) -> list[str]:
         """
         非同期でテーブルのインデックス一覧を取得します。
 

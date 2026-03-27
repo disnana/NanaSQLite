@@ -1,11 +1,12 @@
-"""
-Hooks and Constraints system for NanaSQLite.
-"""
+from __future__ import annotations
 
-from typing import Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 from .compat import HAS_VALIDKIT
 from .exceptions import NanaSQLiteValidationError
+
+if TYPE_CHECKING:
+    from .core import NanaSQLite
 
 
 class NanaHook(Protocol):
@@ -13,15 +14,15 @@ class NanaHook(Protocol):
     Protocol for NanaSQLite hooks that can intercept and mutate read/write/delete operations.
     """
 
-    def before_write(self, db: "NanaSQLite", key: str, value: Any) -> Any:
+    def before_write(self, db: NanaSQLite, key: str, value: Any) -> Any:
         """Called before writing. Can validate or mutate the value."""
         pass
 
-    def after_read(self, db: "NanaSQLite", key: str, value: Any) -> Any:
+    def after_read(self, db: NanaSQLite, key: str, value: Any) -> Any:
         """Called after reading. Can mutate the value."""
         pass
 
-    def before_delete(self, db: "NanaSQLite", key: str) -> None:
+    def before_delete(self, db: NanaSQLite, key: str) -> None:
         """Called before deleting. Can abort the deletion."""
         pass
 
@@ -29,13 +30,13 @@ class NanaHook(Protocol):
 class BaseHook:
     """Base class providing default pass-through implementations for NanaHook."""
 
-    def before_write(self, db: "NanaSQLite", key: str, value: Any) -> Any:
+    def before_write(self, db: NanaSQLite, key: str, value: Any) -> Any:
         return value
 
-    def after_read(self, db: "NanaSQLite", key: str, value: Any) -> Any:
+    def after_read(self, db: NanaSQLite, key: str, value: Any) -> Any:
         return value
 
-    def before_delete(self, db: "NanaSQLite", key: str) -> None:
+    def before_delete(self, db: NanaSQLite, key: str) -> None:
         pass
 
 
@@ -46,7 +47,7 @@ class CheckHook(BaseHook):
         self.check_func = check_func
         self.error_msg = error_msg
 
-    def before_write(self, db: "NanaSQLite", key: str, value: Any) -> Any:
+    def before_write(self, db: NanaSQLite, key: str, value: Any) -> Any:
         if not self.check_func(key, value):
             raise NanaSQLiteValidationError(self.error_msg)
         return value
@@ -58,7 +59,7 @@ class UniqueHook(BaseHook):
     def __init__(self, field: str):
         self.field = field
 
-    def before_write(self, db: "NanaSQLite", key: str, value: Any) -> Any:
+    def before_write(self, db: NanaSQLite, key: str, value: Any) -> Any:
         if isinstance(value, dict) and self.field in value:
             check_val = value[self.field]
             # O(N) iteration over cached/DB values to ensure uniqueness
@@ -74,11 +75,11 @@ class UniqueHook(BaseHook):
 class ForeignKeyHook(BaseHook):
     """Ensures a specific field refers to an existing key in a target table."""
 
-    def __init__(self, field: str, target_table: "NanaSQLite"):
+    def __init__(self, field: str, target_table: NanaSQLite):
         self.field = field
         self.target_table = target_table
 
-    def before_write(self, db: "NanaSQLite", key: str, value: Any) -> Any:
+    def before_write(self, db: NanaSQLite, key: str, value: Any) -> Any:
         if isinstance(value, dict) and self.field in value:
             ref_key = value[self.field]
             if ref_key not in self.target_table:
@@ -105,7 +106,7 @@ class ValidkitHook(BaseHook):
         from .compat import validkit_validate
         self._validate_func = validkit_validate
 
-    def before_write(self, db: "NanaSQLite", key: str, value: Any) -> Any:
+    def before_write(self, db: NanaSQLite, key: str, value: Any) -> Any:
         try:
             if self.coerce:
                 return self._validate_func(value, self.schema)
@@ -125,7 +126,7 @@ class PydanticHook(BaseHook):
     def __init__(self, model_class: type):
         self.model_class = model_class
 
-    def before_write(self, db: "NanaSQLite", key: str, value: Any) -> Any:
+    def before_write(self, db: NanaSQLite, key: str, value: Any) -> Any:
         if isinstance(value, self.model_class):
             if hasattr(value, "model_dump"):
                 return value.model_dump()
@@ -143,7 +144,7 @@ class PydanticHook(BaseHook):
         except Exception as exc:
             raise NanaSQLiteValidationError(f"Pydantic validation failed for key '{key}': {exc}") from exc
 
-    def after_read(self, db: "NanaSQLite", key: str, value: Any) -> Any:
+    def after_read(self, db: NanaSQLite, key: str, value: Any) -> Any:
         try:
             if hasattr(self.model_class, "model_validate"):
                 return self.model_class.model_validate(value)
