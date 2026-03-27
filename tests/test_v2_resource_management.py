@@ -1,6 +1,5 @@
 import threading
 import time
-import pytest
 from nanasqlite import NanaSQLite
 
 def test_v2_engine_sharing_leak_fix(tmp_path):
