@@ -28,25 +28,14 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import apsw
 
-from .v2_engine import V2Engine
-
-try:
-    from cryptography.exceptions import InvalidTag
-    from cryptography.fernet import Fernet
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
-
-    HAS_CRYPTOGRAPHY = True
-except ImportError:
-    HAS_CRYPTOGRAPHY = False
-
 from .cache import MISSING, CacheStrategy, CacheType, create_cache
 from .compat import (
-    _UNSET,
-    HAS_ORJSON,
-    HAS_VALIDKIT,
+    HAS_ORJSON as HAS_ORJSON,
+    HAS_VALIDKIT as HAS_VALIDKIT,
     IDENTIFIER_PATTERN,
-    orjson,
-    validkit_validate,
+    _UNSET,
+    orjson as orjson,
+    validkit_validate as validkit_validate,
 )
 from .exceptions import (
     NanaSQLiteClosedError,
@@ -57,12 +46,18 @@ from .exceptions import (
     NanaSQLiteValidationError,
 )
 from .sql_utils import fast_validate_sql_chars, sanitize_sql_for_function_scan
+from .v2_engine import V2Engine
 
-# Re-exports for backward compatibility and tests
-from .compat import HAS_ORJSON as HAS_ORJSON  # noqa: F401
-from .compat import HAS_VALIDKIT as HAS_VALIDKIT  # noqa: F401
-from .compat import validkit_validate as validkit_validate  # noqa: F401
+try:
+    from cryptography.exceptions import InvalidTag  # noqa: F401
+    from cryptography.fernet import Fernet  # noqa: F401
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305  # noqa: F401
 
+    HAS_CRYPTOGRAPHY = True
+except ImportError:
+    HAS_CRYPTOGRAPHY = False
+
+# Hooks type stub for type checking only
 if TYPE_CHECKING:
     from .hooks import NanaHook, ValidkitHook  # noqa: F401
 

@@ -29,4 +29,4 @@ except ImportError:
 IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_]\w*$")
 
 # Sentinel for unset parameters
-_UNSET = ...
+_UNSET = ...  # noqa: F401

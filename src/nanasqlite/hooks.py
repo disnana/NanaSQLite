@@ -7,8 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable, Protocol
 from .compat import HAS_VALIDKIT
 from .exceptions import NanaSQLiteValidationError
 
-if TYPE_CHECKING:
-    from .core import NanaSQLite
+
 
 
 class NanaHook(Protocol):

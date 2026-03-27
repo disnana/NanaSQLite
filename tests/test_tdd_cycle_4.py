@@ -12,8 +12,8 @@ import pytest
 
 from nanasqlite import AsyncNanaSQLite, NanaSQLite
 from nanasqlite import async_core as async_core_module
-from nanasqlite import core as core_module
 from nanasqlite import compat as compat_module
+from nanasqlite import core as core_module
 from nanasqlite.exceptions import NanaSQLiteValidationError
 
 

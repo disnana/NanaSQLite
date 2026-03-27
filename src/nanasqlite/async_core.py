@@ -35,6 +35,11 @@ from typing import Any, Literal
 import apsw
 
 from .cache import CacheType
+from .compat import (
+    HAS_ORJSON as HAS_ORJSON,  # noqa: F401
+    HAS_VALIDKIT as HAS_VALIDKIT,  # noqa: F401
+    validkit_validate as validkit_validate,  # noqa: F401
+)
 from .core import (
     IDENTIFIER_PATTERN,
     _UNSET,
@@ -43,11 +48,6 @@ from .core import (
 )
 from .exceptions import NanaSQLiteClosedError, NanaSQLiteDatabaseError
 from .hooks import NanaHook
-
-# Re-exports for backward compatibility and tests
-from .compat import HAS_ORJSON as HAS_ORJSON  # noqa: F401
-from .compat import HAS_VALIDKIT as HAS_VALIDKIT  # noqa: F401
-from .compat import validkit_validate as validkit_validate  # noqa: F401
 
 
 class AsyncNanaSQLite:
