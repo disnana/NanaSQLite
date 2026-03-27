@@ -30,7 +30,7 @@ import types
 import weakref
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from typing import Any, Literal
+from typing import Any
 
 import apsw
 
@@ -51,7 +51,7 @@ from .core import (
     V2Config,
 )
 from .exceptions import NanaSQLiteClosedError, NanaSQLiteDatabaseError
-from .hooks import NanaHook
+from .protocols import NanaHook
 
 
 class AsyncNanaSQLite:
@@ -103,28 +103,12 @@ class AsyncNanaSQLite:
         optimize: bool = True,
         cache_size_mb: int = 64,
         max_workers: int = 5,
-        thread_name_prefix: str = "AsyncNanaSQLite",
         strict_sql_validation: bool = True,
-        allowed_sql_functions: list[str] | None = None,
-        forbidden_sql_functions: list[str] | None = None,
-        max_clause_length: int | None = 1000,
-        read_pool_size: int = 0,
-        cache_strategy: CacheType | str = CacheType.UNBOUNDED,
-        cache_size: int | None = None,
-        cache_ttl: float | None = None,
-        cache_persistence_ttl: bool = False,
-        encryption_key: str | bytes | None = None,
-        encryption_mode: Literal["aes-gcm", "chacha20", "fernet"] = "aes-gcm",
         validator: Any | None = None,
         coerce: bool = False,
-        hooks: list[NanaHook] | None = None,
         v2_mode: bool = False,
-        flush_mode: Literal["immediate", "count", "time", "manual"] = "immediate",
-        flush_interval: float = 3.0,
-        flush_count: int = 100,
-        v2_chunk_size: int = 1000,
-        v2_enable_metrics: bool = False,
         v2_config: V2Config | None = None,
+        **kwargs: Any,
     ) -> None:
         """
         Args:
@@ -136,23 +120,34 @@ class AsyncNanaSQLite:
             max_workers: スレッドプール内の最大ワーカー数（デフォルト: 5）
             thread_name_prefix: スレッド名のプレフィックス（デフォルト: "AsyncNanaSQLite"）
             strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否 (v1.2.0)
-            allowed_sql_functions: 追加で許可するSQL関数のリスト (v1.2.0)
-            forbidden_sql_functions: 明示的に禁止するSQL関数のリスト (v1.2.0)
-            max_clause_length: SQL句の最大長（ReDoS対策）。Noneで制限なし (v1.2.0)
-            read_pool_size: 読み取り専用プールサイズ (デフォルト: 0 = 無効) (v1.1.0)
+            cache_strategy: キャッシュ戦略 (v1.1.0)
             encryption_key: 暗号化キー (v1.3.1)
-            validator: validkit-py のスキーマ（辞書または Schema オブジェクト）。
-                       指定すると、値の書き込み時にバリデーションを実行する。
-                       ``pip install nanasqlite[validation]`` が必要。
-            coerce: ``True`` の場合、validkit-py の自動変換機能を有効にする。
-                    バリデーション後、変換済みの値をDBに書き込む。デフォルト: ``False``。
-            v2_mode: True の場合、新アーキテクチャ（バックグラウンド非同期書き込み）を有効化
-            flush_mode: v2のフラッシュモード (immediate, count, time, manual)
-            flush_interval: v2のtimeモード時の秒数
-            flush_count: v2のcountモード時の書き込み閾値
-            v2_chunk_size: v2モード時の1トランザクションあたりの最大アイテム数
-            v2_enable_metrics: True の場合、v2エンジンのフラッシュメトリクスを収集する。
+            validator: バリデーション用スキーマ
+            v2_mode: Trueの場合、新しいV2エンジンの試験的機能を使用する
+            v2_config: V2エンジンの構成オブジェクト
+            **kwargs: その他の設定項目のための可変引数 (allowed_sql_functions, cache_ttl 等)
         """
+        # Extract parameters from kwargs for backward compatibility and internal use
+        thread_name_prefix = kwargs.get("thread_name_prefix", "AsyncNanaSQLite")
+        cache_strategy = kwargs.get("cache_strategy", CacheType.UNBOUNDED)
+        encryption_key = kwargs.get("encryption_key")
+        allowed_sql_functions = kwargs.get("allowed_sql_functions")
+        forbidden_sql_functions = kwargs.get("forbidden_sql_functions")
+        max_clause_length = kwargs.get("max_clause_length", 1000)
+        read_pool_size = kwargs.get("read_pool_size", 0)
+        cache_size = kwargs.get("cache_size")
+        cache_ttl = kwargs.get("cache_ttl")
+        cache_persistence_ttl = kwargs.get("cache_persistence_ttl", False)
+        encryption_mode = kwargs.get("encryption_mode", "aes-gcm")
+        # override coerce from kwargs if provided (v1 signature compatibility)
+        coerce = kwargs.get("coerce", coerce)
+        hooks = kwargs.get("hooks")
+        flush_mode = kwargs.get("flush_mode", "immediate")
+        flush_interval = kwargs.get("flush_interval", 3.0)
+        flush_count = kwargs.get("flush_count", 100)
+        v2_chunk_size = kwargs.get("v2_chunk_size", 1000)
+        v2_enable_metrics = kwargs.get("v2_enable_metrics", False)
+
         self._db_path = db_path
         self._table = table
         self._bulk_load = bulk_load
@@ -209,51 +204,37 @@ class AsyncNanaSQLite:
         """後方互換性とテストのためのプロパティ"""
         if self._db is not None:
             return self._db._validator
-        return self._validator_raw
+        return getattr(self, "_validator_raw", None)
 
     @property
     def _coerce(self) -> bool:
         """後方互換性とテストのためのプロパティ"""
         if self._db is not None:
             return self._db._coerce
-        return self._coerce_raw
+        return getattr(self, "_coerce_raw", False)
+
+    @property
+    def _hooks(self) -> list[NanaHook]:
+        """設定されているフックのリストを返します。"""
+        if self._db is not None:
+            return self._db._hooks
+        return getattr(self, "_hooks_raw", [])
 
     async def add_hook(self, hook: NanaHook) -> None:
         """
         [v1.5.0 Feature] Add a hook/constraint to intercept read, write, and delete operations.
 
         Args:
-            hook: Instantiated hook (e.g., CheckHook, UniqueHook, PydanticHook).
+            hook: Any object implementing the NanaHook protocol.
         """
         if self._db is not None:
-            # If already initialized, we need to add directly to the inner DB
-            # We can use run_in_executor but it's just appending to a list so it's instantaneous
-            self._db.add_hook(hook)
+            await self._run_in_executor(self._db.add_hook, hook)
         else:
             if not hasattr(self, "_hooks_raw"):
                 self._hooks_raw = []
             self._hooks_raw.append(hook)
 
-    @property
-    def _validator(self) -> Any:
-        """後方互換性とテストのためのプロパティ。内部の同期DBインスタンスから取得します。"""
-        if self._db is None:
-            return getattr(self, "_validator_raw", None)
-        return self._db._validator
 
-    @property
-    def _coerce(self) -> bool:
-        """後方互換性とテストのためのプロパティ。内部の同期DBインスタンスから取得します。"""
-        if self._db is None:
-            return getattr(self, "_coerce_raw", False)
-        return self._db._coerce
-
-    @property
-    def _hooks(self) -> list[NanaHook]:
-        """設定されているフックのリストを返します。"""
-        if self._db is None:
-            return getattr(self, "_hooks_raw", [])
-        return self._db._hooks
 
     async def _ensure_initialized(self) -> None:
         """Ensure the underlying sync database is initialized"""

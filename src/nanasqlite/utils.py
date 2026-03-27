@@ -225,7 +225,8 @@ class ExpiringDict(collections.abc.MutableMapping):
 
     def clear(self) -> None:
         with self._lock:
-            for key in list(self._timers):
+            # Use tuple() to create a copy of keys for safe iteration while modifying the original dict
+            for key in tuple(self._timers):
                 self._cancel_timer(key)
             self._data.clear()
             self._exptimes.clear()

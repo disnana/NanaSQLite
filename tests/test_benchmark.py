@@ -1291,9 +1291,12 @@ class TestExtendedBenchmarks:
         """alter_table_add_column() の実行"""
         from nanasqlite import NanaSQLite
         counter = [0]
+        # 使用するDBを事前に開く
         with NanaSQLite(db_path) as db:
             def alter_op():
-                db.alter_table_add_column("data", f"new_col_{counter[0]}", "TEXT")
+                table_name = f"alter_test_ext_{counter[0]}"
+                db.create_table(table_name, {"id": "INTEGER"})
+                db.alter_table_add_column(table_name, "new_col", "TEXT")
                 counter[0] += 1
             benchmark(alter_op)
 

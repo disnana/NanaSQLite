@@ -67,7 +67,8 @@ except ImportError:
 
 # Hooks type stub for type checking only
 if TYPE_CHECKING:
-    from .hooks import NanaHook, ValidkitHook  # noqa: F401
+    from .hooks import ValidkitHook  # noqa: F401
+    from .protocols import NanaHook
 
 logger = logging.getLogger(__name__)
 
@@ -127,29 +128,11 @@ class NanaSQLite(MutableMapping):
         optimize: bool = True,
         cache_size_mb: int = 64,
         strict_sql_validation: bool = True,
-        allowed_sql_functions: list[str] | None = None,
-        forbidden_sql_functions: list[str] | None = None,
-        max_clause_length: int | None = 1000,
-        cache_strategy: CacheType | Literal["unbounded", "lru", "ttl"] = CacheType.UNBOUNDED,
-        cache_size: int | None = None,
-        cache_ttl: float | None = None,
-        cache_persistence_ttl: bool = False,
-        encryption_key: str | bytes | None = None,
-        encryption_mode: Literal["aes-gcm", "chacha20", "fernet"] = "aes-gcm",
-        lock_timeout: float | None = None,
         validator: Any | None = None,
         coerce: bool = False,
-        hooks: list[NanaHook] | None = None,
         v2_mode: bool = False,
-        flush_mode: Literal["immediate", "count", "time", "manual"] = "immediate",
-        flush_interval: float = 3.0,
-        flush_count: int = 100,
-        v2_chunk_size: int = 1000,
-        v2_enable_metrics: bool = False,
         v2_config: V2Config | None = None,
-        _shared_connection: apsw.Connection | None = None,
-        _shared_lock: threading.RLock | None = None,
-        _shared_v2_engine: Any = None,
+        **kwargs: Any,
     ):
         """
         Args:
@@ -175,6 +158,27 @@ class NanaSQLite(MutableMapping):
             _shared_lock: 内部用：共有するロック
         """
         self._db_path: str = db_path
+        # Extract parameters from kwargs for backward compatibility and internal use
+        encryption_key = kwargs.get("encryption_key")
+        encryption_mode = kwargs.get("encryption_mode", "aes-gcm")
+        hooks = kwargs.get("hooks")
+        cache_strategy = kwargs.get("cache_strategy", CacheType.UNBOUNDED)
+        lock_timeout = kwargs.get("lock_timeout")
+        flush_mode = kwargs.get("flush_mode", "immediate")
+        flush_interval = kwargs.get("flush_interval", 3.0)
+        flush_count = kwargs.get("flush_count", 100)
+        v2_chunk_size = kwargs.get("v2_chunk_size", 1000)
+        v2_enable_metrics = kwargs.get("v2_enable_metrics", False)
+        cache_size = kwargs.get("cache_size")
+        cache_ttl = kwargs.get("cache_ttl")
+        cache_persistence_ttl = kwargs.get("cache_persistence_ttl", False)
+        allowed_sql_functions = kwargs.get("allowed_sql_functions")
+        forbidden_sql_functions = kwargs.get("forbidden_sql_functions")
+        max_clause_length = kwargs.get("max_clause_length", 1000)
+        _shared_connection = kwargs.get("_shared_connection")
+        _shared_lock = kwargs.get("_shared_lock")
+        _shared_v2_engine = kwargs.get("_shared_v2_engine")
+
         # Sanitize and quote table name once; reuse the result for all SQL
         sanitized_table = NanaSQLite._sanitize_identifier(table)
         # Preserve the original name for informational / debugging purposes

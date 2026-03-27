@@ -35,7 +35,8 @@ from .exceptions import (
     NanaSQLiteTransactionError,
     NanaSQLiteValidationError,
 )
-from .hooks import CheckHook, ForeignKeyHook, NanaHook, PydanticHook, UniqueHook, ValidkitHook
+from .hooks import CheckHook, ForeignKeyHook, PydanticHook, UniqueHook, ValidkitHook
+from .protocols import NanaHook
 
 __version__ = "1.5.0dev1"
 __author__ = "Disnana"
