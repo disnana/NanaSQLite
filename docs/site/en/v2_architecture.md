@@ -132,6 +132,30 @@ for item in dlq:
 db.retry_dlq()
 ```
 
+### Clearing the DLQ
+
+```python
+# Clear all entries in the DLQ
+db.clear_dlq()
+```
+
+## Metrics Collection
+
+The V2 engine can collect detailed metrics such as processing latency, flush counts, and DLQ tracking. This is an opt-in feature.
+
+```python
+db = NanaSQLite(
+    "app.db",
+    v2_mode=True,
+    v2_enable_metrics=True,  # Enable metrics collection
+)
+
+# Get current metrics
+metrics = db.get_v2_metrics()
+print(f"Total Flushes: {metrics['total_flushes']}")
+print(f"DLQ Count: {metrics['dlq_count']}")
+```
+
 ## StrictTask
 
 You can enqueue custom tasks into the Strict lane:
@@ -161,6 +185,7 @@ db._v2_engine.enqueue_strict_task(task)
 | `flush_interval` | `float` | `3.0` | Interval for time mode (seconds) |
 | `flush_count` | `int` | `100` | Threshold for count mode |
 | `v2_chunk_size` | `int` | `1000` | Transaction chunk size |
+| `v2_enable_metrics` | `bool` | `False` | Enable detailed metrics collection |
 
 ## Async V2 Usage
 

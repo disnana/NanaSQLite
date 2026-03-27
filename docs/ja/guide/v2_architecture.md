@@ -67,6 +67,24 @@ user = db["user:1"]
 db.close()  # シャットダウン時に残っているバッファを SQLite へフラッシュ
 ```
 
+### V2Config による一括設定 (v1.4.1+)
+
+引数が多すぎる問題を解消するため、v2 関連の設定をまとめるための `V2Config` データクラスが導入されました。
+
+```python
+from nanasqlite import NanaSQLite, V2Config
+
+# V2Config で設定をまとめる
+cfg = V2Config(
+    flush_mode="time",
+    flush_interval=1.0,
+    v2_chunk_size=500,
+    v2_enable_metrics=True
+)
+
+db = NanaSQLite("mydb.db", v2_mode=True, v2_config=cfg)
+```
+
 ### 非同期 (AsyncNanaSQLite)
 
 ```python

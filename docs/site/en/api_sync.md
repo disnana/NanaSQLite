@@ -1,258 +1,503 @@
-# NanaSQLite API Reference
+# Synchronous API Reference
 
-Complete documentation for the synchronous `NanaSQLite` class.
+Reference for the synchronous NanaSQLite class.
 
-## Class: `NanaSQLite`
+## NanaSQLite
 
 ```python
-class NanaSQLite(MutableMapping)
+class NanaSQLite(db_path: str, table: str = 'data', bulk_load: bool = False, optimize: bool = True, cache_size_mb: int = 64, strict_sql_validation: bool = True, allowed_sql_functions: list[str] | None = None, forbidden_sql_functions: list[str] | None = None, max_clause_length: int | None = 1000, cache_strategy: CacheType | Literal['unbounded', 'lru', 'ttl'] = <CacheType.UNBOUNDED: unbounded>, cache_size: int | None = None, cache_ttl: float | None = None, cache_persistence_ttl: bool = False, encryption_key: str | bytes | None = None, encryption_mode: Literal['aes-gcm', 'chacha20', 'fernet'] = 'aes-gcm', lock_timeout: float | None = None, validator: Any | None = None, coerce: bool = False, v2_mode: bool = False, flush_mode: Literal['immediate', 'count', 'time', 'manual'] = 'immediate', flush_interval: float = 3.0, flush_count: int = 100, v2_chunk_size: int = 1000, v2_enable_metrics: bool = False, _shared_connection: apsw.Connection | None = None, _shared_lock: threading.RLock | None = None)
 ```
 
-A dictionary-like wrapper for SQLite with instant persistence and intelligent caching.
-Designed for use cases where you want the simplicity of a dictionary but the persistence and querying power of SQLite.
+APSW SQLite-backed dict wrapper with Security and Connection Enhancements (v1.2.0).
+
+Internally maintains a Python dict and synchronizes with SQLite during operations.
+In v1.2.0, enhanced dynamic SQL validation, ReDoS protection, and strict connection management are introduced.
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `db_path` | `str` |  |
+| `table` | `str` |  |
+| `bulk_load` | `bool` |  |
+| `optimize` | `bool` |  |
+| `cache_size_mb` | `int` |  |
+| `strict_sql_validation` | `bool` |  |
+| `allowed_sql_functions` | `list[str] | None` |  |
+| `forbidden_sql_functions` | `list[str] | None` |  |
+| `max_clause_length` | `int | None` |  |
+| `cache_strategy` | `CacheType | Literal[unbounded, lru, ttl]` |  |
+| `cache_size` | `int | None` |  |
+| `cache_ttl` | `float | None` |  |
+| `cache_persistence_ttl` | `bool` |  |
+| `encryption_key` | `str | bytes | None` |  |
+| `encryption_mode` | `Literal[aes-gcm, chacha20, fernet]` |  |
+| `lock_timeout` | `float | None` |  |
+| `validator` | `Any | None` |  |
+| `coerce` | `bool` | ``True`` の場合、validkit-py の自動変換（コアース）機能を有効にする。 |
+| `v2_mode` | `bool` |  |
+| `flush_mode` | `Literal[immediate, count, time, manual]` |  |
+| `flush_interval` | `float` |  |
+| `flush_count` | `int` |  |
+| `v2_chunk_size` | `int` |  |
+| `v2_enable_metrics` | `bool` |  |
+| `_shared_connection` | `apsw.Connection | None` |  |
+| `_shared_lock` | `threading.RLock | None` |  |
+
+
 
 ---
 
 ## Constructor
-
-### `__init__`
-
-```python
-def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
-             optimize: bool = True, cache_size_mb: int = 64,
-             cache_strategy: CacheType = CacheType.UNBOUNDED,
-             cache_size: int = 0,
-             cache_ttl: float | None = None,
-             cache_persistence_ttl: bool = False,
-             encryption_key: str | bytes | None = None,
-             encryption_mode: str = "aes-gcm",
-             strict_sql_validation: bool = True,
-             allowed_sql_functions: list[str] | None = None,
-             forbidden_sql_functions: list[str] | None = None,
-             max_clause_length: int | None = 1000,
-             lock_timeout: float | None = None)
-```
-
-Initializes the NanaSQLite database connection.
-
-**Parameters:**
-
-- `db_path` (str): Path to the SQLite database file.
-- `table` (str, optional): Table name to use for storage. Defaults to `"data"`.
-- `bulk_load` (bool, optional): If `True`, loads all data into memory at initialization. Useful for smaller datasets requiring fast read access. Defaults to `False`.
-- `optimize` (bool, optional): If `True`, applies performance optimizations such as WAL mode and memory-mapped I/O. Defaults to `True`.
-- `cache_strategy` (CacheType, optional): `CacheType.UNBOUNDED` or `LRU` or `TTL`. (v1.3.0+)
-- `cache_size` (int, optional): Max items for `LRU`/`FIFO`.
-- `cache_ttl` (float, optional): Expiration time in seconds for `TTL`.
-- `cache_persistence_ttl` (bool, optional): If `True`, delete from DB on expiration.
-- `encryption_key` (str | bytes, optional): Encryption key. (v1.3.1+)
-- `encryption_mode` (str, optional): `"aes-gcm"` (default), `"chacha20"`, `"fernet"`.
-- `strict_sql_validation` (bool, optional): If `True`, rejects queries containing unknown SQL functions to prevent potential injection vectors. Defaults to `True` (v1.2.0+).
-- `allowed_sql_functions` (list[str] | None, optional): List of additional SQL functions to allow.
-- `forbidden_sql_functions` (list[str] | None, optional): List of SQL functions to explicitly forbid.
-- `max_clause_length` (int | None, optional): Maximum length for SQL clauses (ReDoS protection). Defaults to `1000`.
-- `lock_timeout` (float | None, optional): Maximum seconds to wait for the internal lock. Raises `NanaSQLiteLockError` if the lock cannot be acquired in time. `None` (default) means wait indefinitely. (v1.3.4b1+)
-
----
 
 ## Core Methods
 
 ### `close`
 
 ```python
-def close(self) -> None
+def close() -> None
 ```
 
-Closes the database connection.
-
-**Raises:**
-- `NanaSQLiteTransactionError`: If called while a transaction is in progress.
-
-**Note:** If the instance was created via `.table()`, only the original connection owner will close the database.
+---
 
 ### `table`
 
 ```python
-def table(self, table_name: str, cache_strategy: CacheType = None,
-          cache_size: int = None) -> NanaSQLite
+def table(table_name: str, cache_strategy: CacheType | Literal['unbounded', 'lru', 'ttl'] | None = None, cache_size: int | None = None, cache_ttl: float | None = None, cache_persistence_ttl: bool | None = None, validator: Any | None | types.EllipsisType = Ellipsis, coerce: bool | types.EllipsisType = Ellipsis, v2_enable_metrics: bool | types.EllipsisType = Ellipsis)
 ```
 
-Returns a new `NanaSQLite` instance for a specific sub-table.
+#### Parameter
 
-The new instance shares the same underlying connection and lock as the parent, ensuring thread safety and preventing database locking issues.
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `cache_strategy` | `CacheType | Literal[unbounded, lru, ttl] | None` |  |
+| `cache_size` | `int | None` |  |
+| `cache_ttl` | `float | None` |  |
+| `cache_persistence_ttl` | `bool | None` |  |
+| `validator` | `Any | None | types.EllipsisType` |  |
+| `coerce` | `bool | types.EllipsisType` | ``True`` の場合、validkit-py の自動変換機能を有効にする。 sub1 = db.table("users") users_db = db.table("users") |
+| `v2_enable_metrics` | `bool | types.EllipsisType` |  |
 
-**Parameters:**
-- `table_name` (str): The name of the sub-table.
-- `cache_strategy` (CacheType, optional): Cache strategy for this table. Inherits from parent if not specified.
-- `cache_size` (int, optional): Cache size for this table. Inherits from parent if not specified.
+::: warning Raises
+:::
 
-**Returns:**
-- `NanaSQLite`: A new instance targeting the specified table.
+::: tip Example
+```python
+    from validkit import v
+    with NanaSQLite("app.db", table="main") as main_db:
+        users_schema = {"name": v.str(), "age": v.int()}
+        users_db = main_db.table("users", validator=users_schema)
+        products_db = main_db.table("products")
+        users_db["user1"] = {"name": "Alice", "age": 30}
+        products_db["prod1"] = {"name": "Laptop"}
+```
+:::
+
 
 ---
 
 ## Dictionary Interface
 
-NanaSQLite implements the `MutableMapping` interface, so it behaves like a standard Python `dict`.
-
 ### `__getitem__`
+
 ```python
-db["key"]
+def __getitem__(key: str) -> Any
 ```
-Gets a value. Uses lazy loading (reads from DB if not in memory). Raises `KeyError` if missing.
+
+
+
+
+---
 
 ### `__setitem__`
+
 ```python
-db["key"] = value
+def __setitem__(key: str, value: Any) -> None
 ```
-Sets a value. Immediately persists to SQLite and updates the in-memory cache.
+
+
+
+
+---
 
 ### `__delitem__`
+
 ```python
-del db["key"]
+def __delitem__(key: str) -> None
 ```
-Deletes a key from both memory and SQLite. Raises `KeyError` if missing.
+
+
+
+
+---
 
 ### `__contains__`
+
 ```python
-"key" in db
+def __contains__(key: str) -> bool
 ```
-Checks existence. Uses an optimized `SELECT 1` query if the key is not in memory.
+
+
+
+
+---
 
 ### `__len__`
-```python
-len(db)
-```
-Returns the total number of keys in the database.
 
-### `get`
 ```python
-def get(self, key: str, default: Any = None) -> Any
+def __len__() -> int
 ```
-Returns the value for `key` if it exists, else `default`.
 
-### `setdefault`
-```python
-def setdefault(self, key: str, default: Any = None) -> Any
-```
-If `key` is in the database, returns its value. If not, inserts `key` with a value of `default` and returns `default`.
 
-### `pop`
-```python
-def pop(self, key: str, *args) -> Any
-```
-Removes `key` and returns its value. If `key` is not found, returns `default` if provided, otherwise raises `KeyError`.
 
-### `update`
-```python
-def update(self, mapping: dict = None, **kwargs) -> None
-```
-Updates the database with keys and values from `mapping` or keywords. For bulk updates, consider using `batch_update()` for better performance.
 
-### `clear`
-```python
-def clear(self) -> None
-```
-Removes all items from the database (truncates the table) and clears the memory cache.
+---
 
-### `clear_cache`
+### `__iter__`
+
 ```python
-def clear_cache(self) -> None
+def __iter__() -> Iterator[str]
 ```
-Clears only the in-memory cache without affecting the database.
+
+for key in dict
+
+
+---
 
 ### `keys`
+
 ```python
-def keys(self) -> list[str]
+def keys() -> list
 ```
-Returns a list of all keys in the database.
+
+
+
+
+---
 
 ### `values`
+
 ```python
-def values(self) -> list[Any]
+def values() -> list
 ```
-Returns a list of all values. **Triggers a full bulk load.**
+
+
+
+
+---
 
 ### `items`
+
 ```python
-def items(self) -> list[tuple[str, Any]]
+def items() -> list
 ```
-Returns a list of all (key, value) pairs. **Triggers a full bulk load.**
+
+
+
+
+---
+
+### `get`
+
+```python
+def get(key: str, default: Any = None) -> Any
+```
+
+dict.get(key, default)
+
+
+---
+
+### `pop`
+
+```python
+def pop(key: str, *args) -> Any
+```
+
+dict.pop(key[, default])
+
+
+---
+
+### `update`
+
+```python
+def update(mapping: dict | None = None, **kwargs) -> None
+```
+
+
+
+
+---
+
+### `clear`
+
+```python
+def clear() -> None
+```
+
+
+
+
+---
+
+### `setdefault`
+
+```python
+def setdefault(key: str, default: Any = None) -> Any
+```
+
+dict.setdefault(key, default)
+
+
+---
 
 ### `to_dict`
+
 ```python
-def to_dict(self) -> dict
+def to_dict() -> dict
 ```
-Converts the entire database to a standard Python dictionary.
+
+
+
+
+---
 
 ### `copy`
+
 ```python
-def copy(self) -> dict
+def copy() -> dict
 ```
-Returns a shallow copy of the database as a dictionary (alias for `to_dict()`).
+
+
+
+
+---
+
+### `clear_cache`
+
+```python
+def clear_cache() -> None
+```
+
+
+
 
 ---
 
 ## Data Management
 
-### `load_all`
-
-```python
-def load_all(self) -> None
-```
-
-Loads all data from the database into the memory cache. Subsequent reads will be memory-only (fast).
-
-### `refresh`
-
-```python
-def refresh(self, key: str = None) -> None
-```
-
-Refreshes the internal cache from the database.
-
-**Parameters:**
-- `key` (str, optional): If provided, refreshes only that specific key. If `None`, clears and reloads the entire cache state.
-
 ### `get_fresh`
 
 ```python
-def get_fresh(self, key: str, default: Any = None) -> Any
+def get_fresh(key: str, default: Any = None) -> Any
 ```
 
-Accesses the database directly to get the latest value, bypassing the cache, and then updates the cache.
+`execute()`でDBを直接変更した後などに使用。
+
+通常の`get()`よりオーバーヘッドがあるため、
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `key` | `str` |  |
+
+#### Returns
+
+::: tip Example
+```python
+    db.execute("UPDATE data SET value = ? WHERE key = ?", ('"new"', "key"))
+    value = db.get_fresh("key")  # DBから最新値を取得
+```
+:::
+
+
+---
 
 ### `batch_get`
 
 ```python
-def batch_get(self, keys: list[str]) -> dict[str, Any]
+def batch_get(keys: list[str]) -> dict[str, Any]
 ```
 
-Efficiently retrieves multiple keys in a single query.
+1回の `SELECT IN (...)` クエリで複数のキーをDBから取得する。
 
-### `batch_update`
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `keys` | `list[str]` |  |
+
+#### Returns
+
+**Type:** `dict[str, Any]`
+
+::: tip Example
+```python
+    results = db.batch_get(["user1", "user2", "user3"])
+    print(results)  # {"user1": {...}, "user2": {...}}
+```
+:::
+
+
+---
+
+### `load_all`
 
 ```python
-def batch_update(self, mapping: dict[str, Any]) -> None
+def load_all() -> None
 ```
 
-Performs a bulk write operation using a single transaction. Significantly faster (10-100x) than individual updates.
 
-### `batch_delete`
+
+
+---
+
+### `refresh`
 
 ```python
-def batch_delete(self, keys: list[str]) -> None
+def refresh(key: str = None) -> None
 ```
 
-Performs a bulk delete operation using a single transaction.
+---
 
 ### `is_cached`
 
 ```python
-def is_cached(self, key: str) -> bool
+def is_cached(key: str) -> bool
 ```
 
-Checks if a key is currently loaded in the memory cache.
+
+
+
+---
+
+### `batch_update`
+
+```python
+def batch_update(mapping: dict[str, Any]) -> None
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `mapping` | `dict[str, Any]` |  |
+
+#### Returns
+
+None
+
+::: tip Example
+```python
+    db.batch_update({"key1": "value1", "key2": "value2", ...})
+```
+:::
+
+
+---
+
+### `batch_update_partial`
+
+```python
+def batch_update_partial(mapping: dict[str, Any]) -> dict[str, str]
+```
+
+`batch_update()` のアトミック契約は維持したまま、各キーを個別に準備し、
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `mapping` | `dict[str, Any]` |  |
+
+#### Returns
+
+**Type:** `dict[str, str]`
+
+::: tip Example
+```python
+    failed = db.batch_update_partial({"ok": 1, "bad": object()})
+    print(failed)
+```
+:::
+
+
+---
+
+### `batch_delete`
+
+```python
+def batch_delete(keys: list[str]) -> None
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `keys` | `list[str]` |  |
+
+#### Returns
+
+None
+
+
+---
+
+### `flush`
+
+```python
+def flush() -> None
+```
+
+
+
+
+---
+
+### `get_dlq`
+
+```python
+def get_dlq() -> list[dict[str, Any]]
+```
+
+
+
+
+---
+
+### `retry_dlq`
+
+```python
+def retry_dlq() -> None
+```
+
+
+
+
+---
+
+### `clear_dlq`
+
+```python
+def clear_dlq() -> None
+```
+
+
+
+
+---
+
+### `get_v2_metrics`
+
+```python
+def get_v2_metrics() -> dict[str, Any]
+```
+
+
+
 
 ---
 
@@ -261,129 +506,356 @@ Checks if a key is currently loaded in the memory cache.
 ### `begin_transaction`
 
 ```python
-def begin_transaction(self) -> None
+def begin_transaction() -> None
 ```
-Starts a manual transaction (`BEGIN IMMEDIATE`).
-**Raises:** `NanaSQLiteTransactionError` if a transaction is already in progress.
+
+Note:
+
+::: warning Raises
+:::
+
+::: tip Example
+```python
+    db.begin_transaction()
+    try:
+        db.sql_insert("users", {"name": "Alice"})
+        db.sql_insert("users", {"name": "Bob"})
+        db.commit()
+    except:
+        db.rollback()
+```
+:::
+
+
+---
 
 ### `commit`
 
 ```python
-def commit(self) -> None
+def commit() -> None
 ```
-Commits the current transaction.
+
+---
 
 ### `rollback`
 
 ```python
-def rollback(self) -> None
+def rollback() -> None
 ```
-Rolls back the current transaction.
+
+---
 
 ### `in_transaction`
 
 ```python
-def in_transaction(self) -> bool
+def in_transaction() -> bool
 ```
-Returns `True` if a transaction is currently in progress.
+
+#### Returns
+
+**Type:** `bool`
+
+::: tip Example
+```python
+    db.begin_transaction()
+    print(db.in_transaction())  # True
+    db.commit()
+    print(db.in_transaction())  # False
+```
+:::
+
+
+---
 
 ### `transaction`
 
 ```python
-def transaction(self)
+def transaction()
 ```
-Context manager for automatic transaction handling.
-Commits on success, rolls back on exception.
 
+::: warning Raises
+:::
+
+::: tip Example
 ```python
-with db.transaction():
-    db["a"] = 1
-    db["b"] = 2
+    with db.transaction():
+        db.sql_insert("users", {"name": "Alice"})
+        db.sql_insert("users", {"name": "Bob"})
+        # 自動的にコミット、例外時はロールバック
 ```
+:::
+
 
 ---
 
-## SQL Wrappers (CRUD)
-
-Helper methods for executing common SQL operations safely without writing raw SQL.
+## SQL Wrapper (CRUD)
 
 ### `sql_insert`
 
 ```python
-def sql_insert(self, table_name: str, data: dict) -> int
+def sql_insert(table_name: str, data: dict) -> int
 ```
-Inserts a new row into the specified table.
-**Returns:** The `ROWID` of the inserted row.
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `data` | `dict` |  |
+
+#### Returns
+
+**Type:** `int`
+
+::: tip Example
+```python
+    rowid = db.sql_insert("users", {
+        "name": "Alice",
+        "email": "alice@example.com",
+        "age": 25
+    })
+```
+:::
+
+
+---
 
 ### `sql_update`
 
 ```python
-def sql_update(self, table_name: str, data: dict, where: str, parameters: tuple = None) -> int
+def sql_update(table_name: str, data: dict, where: str, parameters: tuple = None) -> int
 ```
-Updates rows matching the `where` clause.
-**Returns:** The number of affected rows.
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `data` | `dict` |  |
+| `where` | `str` |  |
+| `parameters` | `tuple` |  |
+
+#### Returns
+
+**Type:** `int`
+
+::: tip Example
+```python
+    count = db.sql_update("users",
+        {"age": 26, "status": "active"},
+        "name = ?",
+        ("Alice",)
+    )
+```
+:::
+
+
+---
 
 ### `sql_delete`
 
 ```python
-def sql_delete(self, table_name: str, where: str, parameters: tuple = None) -> int
+def sql_delete(table_name: str, where: str, parameters: tuple = None) -> int
 ```
-Deletes rows matching the `where` clause.
-**Returns:** The number of affected rows.
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `where` | `str` |  |
+| `parameters` | `tuple` |  |
+
+#### Returns
+
+**Type:** `int`
+
+::: tip Example
+```python
+    count = db.sql_delete("users", "age < ?", (18,))
+```
+:::
+
+
+---
 
 ### `upsert`
 
 ```python
-def upsert(self, table_name: str, data: dict, conflict_columns: list[str] = None) -> int
+def upsert(table_name: str | Any = None, data: Any = None, conflict_columns: list[str] = None) -> int | None
 ```
-Performs an "Insert or Replace" or "Insert ... ON CONFLICT DO UPDATE" operation.
 
-**Parameters:**
-- `conflict_columns`: If provided, generates `ON CONFLICT (...) DO UPDATE`. If `None`, uses `INSERT OR REPLACE`.
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str | Any` |  |
+| `conflict_columns` | `list[str]` |  |
+
+#### Returns
+
+**Type:** `int | None`
+
+::: tip Example
+```python
+    # テーブル指定（標準）
+    db.upsert("users", {"id": 1, "name": "Alice", "age": 25})
+    # キー/値指定 (v2互換)
+    db.upsert("user:1", {"name": "Nana"})
+```
+:::
+
 
 ---
 
-## Querying
+## Query
 
 ### `query`
 
 ```python
-def query(self, table_name: str = None, columns: list[str] = None,
-          where: str = None, parameters: tuple = None,
-          order_by: str = None, limit: int = None,
-          strict_sql_validation: bool = None, ...) -> list[dict]
+def query(table_name: str = None, columns: list[str] = None, where: str = None, parameters: tuple = None, order_by: str = None, limit: int = None, strict_sql_validation: bool = None, allowed_sql_functions: list[str] = None, forbidden_sql_functions: list[str] = None, override_allowed: bool = False) -> list[dict]
 ```
 
-Executes a `SELECT` query and returns the results as a list of dictionaries.
+#### Parameter
 
-**Parameters:**
-- `table_name`: Target table. Defaults to the main data table.
-- `columns`: List of columns to select. Defaults to `*`.
-- `where`: SQL `WHERE` clause (without the word "WHERE").
-- `parameters`: Tuple of values for placeholders in the `where` clause.
-- `limit`: Maximum number of rows to return.
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `columns` | `list[str]` |  |
+| `where` | `str` |  |
+| `parameters` | `tuple` |  |
+| `order_by` | `str` |  |
+| `limit` | `int` |  |
+| `strict_sql_validation` | `bool` |  |
+| `allowed_sql_functions` | `list[str]` |  |
+| `forbidden_sql_functions` | `list[str]` |  |
+| `override_allowed` | `bool` |  |
 
-### `query_with_pagination`
+#### Returns
+
+**Type:** `list[dict]`
+
+::: tip Example
+```python
+    # デフォルトテーブルから全データ取得
+    results = db.query()
+```
 
 ```python
-def query_with_pagination(self, table_name: str = None, ..., offset: int = None, group_by: str = None) -> list[dict]
+    # 条件付き検索
+    results = db.query(
+        table_name="users",
+        columns=["id", "name", "email"],
+        where="age > ?",
+        parameters=(20,),
+        order_by="name ASC",
+        limit=10
+    )
 ```
+:::
 
-Extended version of `query` that supports `offset` (pagination) and `group_by`.
+
+---
 
 ### `count`
 
 ```python
-def count(self, table_name: str = None, where: str = None, parameters: tuple = None, ...) -> int
+def count(table_name: str = None, where: str = None, parameters: tuple = None, strict_sql_validation: bool = None, allowed_sql_functions: list[str] = None, forbidden_sql_functions: list[str] = None, override_allowed: bool = False) -> int
 ```
-Returns the count of rows matching the criteria.
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `where` | `str` |  |
+| `parameters` | `tuple` |  |
+| `strict_sql_validation` | `bool` |  |
+| `allowed_sql_functions` | `list[str]` |  |
+| `forbidden_sql_functions` | `list[str]` |  |
+| `override_allowed` | `bool` |  |
+
+::: tip Example
+```python
+    total = db.count("users")
+    adults = db.count("users", "age >= ?", (18,))
+```
+:::
+
+
+---
 
 ### `exists`
 
 ```python
-def exists(self, table_name: str, where: str, parameters: tuple = None) -> bool
+def exists(table_name: str, where: str, parameters: tuple = None) -> bool
 ```
-Checks efficiently if any row matches the criteria (uses `SELECT 1 ... LIMIT 1`).
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `where` | `str` |  |
+| `parameters` | `tuple` |  |
+
+#### Returns
+
+**Type:** `bool`
+
+::: tip Example
+```python
+    if db.exists("users", "email = ?", ("alice@example.com",)):
+        print("User exists")
+```
+:::
+
+
+---
+
+### `query_with_pagination`
+
+```python
+def query_with_pagination(table_name: str = None, columns: list[str] = None, where: str = None, parameters: tuple = None, order_by: str = None, limit: int = None, offset: int = None, group_by: str = None, strict_sql_validation: bool = None, allowed_sql_functions: list[str] = None, forbidden_sql_functions: list[str] = None, override_allowed: bool = False) -> list[dict]
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `columns` | `list[str]` |  |
+| `where` | `str` |  |
+| `parameters` | `tuple` |  |
+| `order_by` | `str` |  |
+| `limit` | `int` |  |
+| `offset` | `int` |  |
+| `group_by` | `str` |  |
+| `strict_sql_validation` | `bool` |  |
+| `allowed_sql_functions` | `list[str]` |  |
+| `forbidden_sql_functions` | `list[str]` |  |
+| `override_allowed` | `bool` |  |
+
+#### Returns
+
+**Type:** `list[dict]`
+
+::: tip Example
+```python
+    # ページネーション
+    page2 = db.query_with_pagination("users",
+        limit=10, offset=10, order_by="id ASC")
+```
+
+```python
+    # グループ集計
+    stats = db.query_with_pagination("orders",
+        columns=["user_id", "COUNT(*) as order_count"],
+        group_by="user_id"
+    )
+```
+:::
+
 
 ---
 
@@ -392,31 +864,119 @@ Checks efficiently if any row matches the criteria (uses `SELECT 1 ... LIMIT 1`)
 ### `execute`
 
 ```python
-def execute(self, sql: str, parameters: tuple | None = None) -> apsw.Cursor
+def execute(sql: str, parameters: tuple | None = None) -> apsw.Cursor
 ```
-Executes a raw SQL statement.
-**Returns:** `apsw.Cursor` object.
+
+.. warning::
+    キャッシュを更新するには `refresh()` を呼び出してください。
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `sql` | `str` |  |
+| `parameters` | `tuple | None` |  |
+
+#### Returns
+
+**Type:** `apsw.Cursor`
+
+::: warning Raises
+:::
+
+::: tip Example
+```python
+    cursor = db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
+    for row in cursor:
+        print(row)
+```
+
+```python
+    db.execute("UPDATE data SET value = ? WHERE key = ?", ('"new"', "key"))
+    db.refresh("key")  # キャッシュを更新
+```
+:::
+
+
+---
 
 ### `execute_many`
 
 ```python
-def execute_many(self, sql: str, parameters_list: list[tuple]) -> None
+def execute_many(sql: str, parameters_list: list[tuple]) -> None
 ```
-Executes the same SQL statement multiple times with different parameters (bulk execution).
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `sql` | `str` |  |
+| `parameters_list` | `list[tuple]` |  |
+
+::: tip Example
+```python
+    db.execute_many(
+        "INSERT OR REPLACE INTO custom (id, name) VALUES (?, ?)",
+        [(1, "Alice"), (2, "Bob"), (3, "Charlie")]
+    )
+```
+:::
+
+
+---
 
 ### `fetch_one`
 
 ```python
-def fetch_one(self, sql: str, parameters: tuple = None) -> tuple | None
+def fetch_one(sql: str, parameters: tuple = None) -> tuple | None
 ```
-Executes SQL and returns the first row (or `None`).
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `sql` | `str` |  |
+| `parameters` | `tuple` |  |
+
+#### Returns
+
+**Type:** `tuple | None`
+
+::: tip Example
+```python
+    row = db.fetch_one("SELECT value FROM data WHERE key = ?", ("user",))
+    print(row[0])
+```
+:::
+
+
+---
 
 ### `fetch_all`
 
 ```python
-def fetch_all(self, sql: str, parameters: tuple = None) -> list[tuple]
+def fetch_all(sql: str, parameters: tuple = None) -> list[tuple]
 ```
-Executes SQL and returns all rows.
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `sql` | `str` |  |
+| `parameters` | `tuple` |  |
+
+#### Returns
+
+**Type:** `list[tuple]`
+
+::: tip Example
+```python
+    rows = db.fetch_all("SELECT key, value FROM data WHERE key LIKE ?", ("user%",))
+    for key, value in rows:
+        print(key, value)
+```
+:::
+
 
 ---
 
@@ -425,66 +985,229 @@ Executes SQL and returns all rows.
 ### `create_table`
 
 ```python
-def create_table(self, table_name: str, columns: dict, if_not_exists: bool = True, primary_key: str = None) -> None
+def create_table(table_name: str, columns: dict, if_not_exists: bool = True, primary_key: str = None) -> None
 ```
-Creates a new table.
-**Example:** `db.create_table("users", {"id": "INTEGER", "name": "TEXT"}, primary_key="id")`
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `columns` | `dict` |  |
+| `if_not_exists` | `bool` |  |
+| `primary_key` | `str` |  |
+
+::: tip Example
+```python
+    db.create_table("users", {
+        "id": "INTEGER PRIMARY KEY",
+        "name": "TEXT NOT NULL",
+        "email": "TEXT UNIQUE",
+        "age": "INTEGER"
+    })
+    db.create_table("posts", {
+        "id": "INTEGER",
+        "title": "TEXT",
+        "content": "TEXT"
+    }, primary_key="id")
+```
+:::
+
+
+---
 
 ### `create_index`
 
 ```python
-def create_index(self, index_name: str, table_name: str, columns: list[str], unique: bool = False, if_not_exists: bool = True) -> None
+def create_index(index_name: str, table_name: str, columns: list[str], unique: bool = False, if_not_exists: bool = True) -> None
 ```
-Creates an index on a table.
 
-### `alter_table_add_column`
+#### Parameter
 
+| Parameter | Type | Description |
+|---|---|---|
+| `index_name` | `str` |  |
+| `table_name` | `str` |  |
+| `columns` | `list[str]` |  |
+| `unique` | `bool` |  |
+| `if_not_exists` | `bool` |  |
+
+::: tip Example
 ```python
-def alter_table_add_column(self, table_name: str, column_name: str, column_type: str, default: Any = None) -> None
+    db.create_index("idx_users_email", "users", ["email"], unique=True)
+    db.create_index("idx_posts_user", "posts", ["user_id", "created_at"])
 ```
-Adds a column to an existing table.
+:::
 
-### `drop_table`
 
-```python
-def drop_table(self, table_name: str, if_exists: bool = True) -> None
-```
-Drops (deletes) a table.
-
-### `drop_index`
-
-```python
-def drop_index(self, index_name: str, if_exists: bool = True) -> None
-```
-Drops an index.
-
-### `list_tables`
-
-```python
-def list_tables(self) -> list[str]
-```
-Returns a list of all tables in the database.
-
-### `list_indexes`
-
-```python
-def list_indexes(self, table_name: str = None) -> list[dict]
-```
-Returns a list of indexes (optionally filtered by table).
-
-### `get_table_schema`
-
-```python
-def get_table_schema(self, table_name: str) -> list[dict]
-```
-Returns detailed schema information for a table.
+---
 
 ### `table_exists`
 
 ```python
-def table_exists(self, table_name: str) -> bool
+def table_exists(table_name: str) -> bool
 ```
-Checks if a table exists.
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+
+#### Returns
+
+**Type:** `bool`
+
+::: tip Example
+```python
+    if db.table_exists("users"):
+        print("users table exists")
+```
+:::
+
+
+---
+
+### `list_tables`
+
+```python
+def list_tables() -> list[str]
+```
+
+#### Returns
+
+**Type:** `list[str]`
+
+::: tip Example
+```python
+    tables = db.list_tables()
+    print(tables)  # ['data', 'users', 'posts']
+```
+:::
+
+
+---
+
+### `drop_table`
+
+```python
+def drop_table(table_name: str, if_exists: bool = True) -> None
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `if_exists` | `bool` |  |
+
+::: tip Example
+```python
+    db.drop_table("old_table")
+    db.drop_table("temp", if_exists=True)
+```
+:::
+
+
+---
+
+### `drop_index`
+
+```python
+def drop_index(index_name: str, if_exists: bool = True) -> None
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `index_name` | `str` |  |
+| `if_exists` | `bool` |  |
+
+::: tip Example
+```python
+    db.drop_index("idx_users_email")
+```
+:::
+
+
+---
+
+### `alter_table_add_column`
+
+```python
+def alter_table_add_column(table_name: str, column_name: str, column_type: str, default: Any = None) -> None
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `column_name` | `str` |  |
+| `column_type` | `str` |  |
+
+::: tip Example
+```python
+    db.alter_table_add_column("users", "phone", "TEXT")
+    db.alter_table_add_column("users", "status", "TEXT", default="'active'")
+```
+:::
+
+
+---
+
+### `get_table_schema`
+
+```python
+def get_table_schema(table_name: str = None) -> list[dict]
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+
+#### Returns
+
+**Type:** `list[dict]`
+
+::: tip Example
+```python
+    schema = db.get_table_schema("users")
+    for col in schema:
+        print(f"{col['name']}: {col['type']}")
+```
+:::
+
+
+---
+
+### `list_indexes`
+
+```python
+def list_indexes(table_name: str = None) -> list[dict]
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+
+#### Returns
+
+**Type:** `list[dict]`
+
+::: tip Example
+```python
+    indexes = db.list_indexes("users")
+    for idx in indexes:
+        print(f"{idx['name']}: {idx['columns']}")
+```
+:::
+
 
 ---
 
@@ -493,94 +1216,118 @@ Checks if a table exists.
 ### `vacuum`
 
 ```python
-def vacuum(self) -> None
+def vacuum() -> None
 ```
-Optimizes the database file to reduce size (runs `VACUUM`).
+
+::: tip Example
+```python
+    db.vacuum()
+```
+:::
+
+
+---
 
 ### `get_db_size`
 
 ```python
-def get_db_size(self) -> int
+def get_db_size() -> int
 ```
-Returns the database file size in bytes.
 
-### `pragma`
+#### Returns
 
+**Type:** `int`
+
+::: tip Example
 ```python
-def pragma(self, pragma_name: str, value: Any = None) -> Any
+    size = db.get_db_size()
+    print(f"DB size: {size / 1024 / 1024:.2f} MB")
 ```
-Gets or sets a SQLite PRAGMA value.
+:::
+
+
+---
 
 ### `get_last_insert_rowid`
 
 ```python
-def get_last_insert_rowid(self) -> int
+def get_last_insert_rowid() -> int
 ```
-Returns the `ROWID` of the last inserted row.
+
+#### Returns
+
+**Type:** `int`
+
+::: tip Example
+```python
+    db.sql_insert("users", {"name": "Alice"})
+    rowid = db.get_last_insert_rowid()
+```
+:::
+
 
 ---
 
-## Backup & Restore (v1.3.4b1+)
+### `pragma`
+
+```python
+def pragma(pragma_name: str, value: Any = None) -> Any
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `pragma_name` | `str` |  |
+
+#### Returns
+
+::: tip Example
+```python
+    # 取得
+    mode = db.pragma("journal_mode")
+```
+
+```python
+    # 設定
+    db.pragma("foreign_keys", 1)
+```
+:::
+
+
+---
+
+## Backup & Restore
 
 ### `backup`
 
 ```python
-def backup(self, dest_path: str) -> None
+def backup(dest_path: str) -> None
 ```
 
-Backs up the current database to a file using APSW's SQLite online backup API.
-The backup is performed page-by-page so it is safe even during concurrent reads/writes by other SQLite connections.
-NanaSQLite's internal lock is **not** held during the actual backup, so other NanaSQLite operations in the same process are not blocked.
+#### Parameter
 
-**Parameters:**
-- `dest_path` (str): Destination file path for the backup.
+| Parameter | Type | Description |
+|---|---|---|
+| `dest_path` | `str` |  |
 
-**Raises:**
-- `NanaSQLiteClosedError`: If the connection is already closed.
-- `NanaSQLiteValidationError`: If `dest_path` is the same as the database file (self-copy prevention), or if `dest_path` is an in-memory database string (e.g., `':memory:'` or `'file::memory:...'`), which cannot be persisted.
-- `NanaSQLiteDatabaseError`: If an error occurs during the backup.
-- `NanaSQLiteLockError`: If `lock_timeout` is set and the internal lock cannot be acquired in time.
 
-**Example:**
-```python
-db = NanaSQLite("app.db")
-db["user"] = {"name": "Nana"}
-db.backup("app_backup.db")
-# app_backup.db now contains a complete copy of app.db
-```
+
+---
 
 ### `restore`
 
 ```python
-def restore(self, src_path: str) -> None
+def restore(src_path: str) -> None
 ```
 
-Restores the database from a backup file.
-Closes the current connection, copies the backup file over the database file,
-removes any stale WAL/SHM/journal sidecar files (`-wal`/`-shm`/`-journal`),
-and then re-establishes the connection. The in-memory cache is cleared after restore.
+#### Parameter
 
-**Parameters:**
-- `src_path` (str): Path to the backup file to restore from.
+| Parameter | Type | Description |
+|---|---|---|
+| `src_path` | `str` |  |
 
-**Raises:**
-- `NanaSQLiteClosedError`: If the connection is already closed.
-- `NanaSQLiteConnectionError`: If called on an instance obtained via `.table()` (not the connection owner).
-- `NanaSQLiteTransactionError`: If called while a transaction is in progress. Commit or rollback before calling `restore()`.
-- `NanaSQLiteValidationError`: If the current database is an in-memory database (e.g., `':memory:'` or `'file::memory:...'`), which cannot be replaced by a file-based restore.
-- `NanaSQLiteDatabaseError`: If an error occurs during the restore (e.g., file not found, or stale WAL sidecar file cannot be removed).
-- `NanaSQLiteLockError`: If `lock_timeout` is set and the internal lock cannot be acquired in time.
 
-**Example:**
-```python
-db = NanaSQLite("app.db")
-db["user"] = {"name": "Nana"}
-db.backup("snapshot.db")
-
-db["user"] = {"name": "Modified"}
-db.restore("snapshot.db")
-print(db["user"])  # {'name': 'Nana'}
-```
 
 ---
 
@@ -589,13 +1336,120 @@ print(db["user"])  # {'name': 'Nana'}
 ### `set_model`
 
 ```python
-def set_model(self, key: str, model: Any) -> None
+def set_model(key: str, model: Any) -> None
 ```
-Serializes and stores a Pydantic model.
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `key` | `str` |  |
+
+::: tip Example
+```python
+    from pydantic import BaseModel
+    class User(BaseModel):
+        name: str
+        age: int
+    user = User(name="Nana", age=20)
+    db.set_model("user", user)
+```
+:::
+
+
+---
 
 ### `get_model`
 
 ```python
-def get_model(self, key: str, model_class: type = None) -> Any
+def get_model(key: str, model_class: type = None) -> Any
 ```
-Retrieves and deserializes a Pydantic model.
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `key` | `str` |  |
+| `model_class` | `type` |  |
+
+#### Returns
+
+::: tip Example
+```python
+    user = db.get_model("user", User)
+    print(user.name)  # "Nana"
+```
+:::
+
+
+---
+
+## Other Methods
+
+### `export_table_to_dict`
+
+```python
+def export_table_to_dict(table_name: str) -> list[dict]
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+
+#### Returns
+
+**Type:** `list[dict]`
+
+::: tip Example
+```python
+    all_users = db.export_table_to_dict("users")
+```
+:::
+
+
+---
+
+### `import_from_dict_list`
+
+```python
+def import_from_dict_list(table_name: str, data_list: list[dict]) -> int
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `data_list` | `list[dict]` |  |
+
+#### Returns
+
+**Type:** `int`
+
+::: tip Example
+```python
+    users = [
+        {"name": "Alice", "age": 25},
+        {"name": "Bob", "age": 30}
+    ]
+    count = db.import_from_dict_list("users", users)
+```
+:::
+
+
+---
+
+### `popitem`
+
+```python
+def popitem()
+```
+
+D.popitem() -> (k, v), remove and return some (key, value) pair
+as a 2-tuple; but raise KeyError if D is empty.
+
+
+---
+

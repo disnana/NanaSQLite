@@ -163,3 +163,98 @@ def update(self, mapping: dict = None, **kwargs) -> None:
 |---|---|
 | BUG-04 | エイリアス抽出ロジックの重複解消 |
 | QUAL-01 | `update()` の型アノテーション不整合修正 |
+
+---
+
+# NanaSQLite v1.4.1 最終リリース監査レポート
+
+> 対象バージョン: 1.4.1  
+> 監査日: 2026-03-25  
+> 対象ファイル: src/nanasqlite/ 配下すべて (core.py, async_core.py, cache.py, utils.py, sql_utils.py, exceptions.py)
+
+---
+
+## 総括
+
+| カテゴリ | Critical | High | Medium | Low | 計 |
+|---|---|---|---|---|---|
+| 脆弱性 | — | — | 1 | — | 1 |
+| 不具合・潜在バグ | — | 2 | — | — | 2 |
+| 高速化の余地 | — | — | — | 1 | 1 |
+| 改善点（コード品質） | — | — | — | 3 | 3 |
+| **合計** | **—** | **2** | **1** | **4** | **7** |
+
+---
+
+## 1. 脆弱性
+
+### SEC-02 [Medium] `core.py` における `column_type` バリデーションの ReDoS 脆弱性
+
+**ファイル:** `core.py` (v1.4.1)
+
+SonarQubeが指摘していた `column_type` バリデーションにおける `[\w ]*` の正規表現パターンが、評価文字列によってはバックトラッキングを多発させる ReDoS 脆弱性を伴うことを確認。これを利用して `alter_table_add_column` に細工された文字列を入力することで遅延を引き起こすリスクが存在した。
+
+**POC:** `etc/poc/poc_sec02_redos.py` — 時間差を計測して再現確認済み -> **FIXED**
+
+**修正案:** `column_type` のバリデーション正規表現を `^[A-Za-z][a-zA-Z0-9_]*(?:\s+[a-zA-Z0-9_]+)*(\s*\([\d,\s]+\))?$` へ修正し、バックトラッキングを抑制する。 — **[FIXED]**
+
+---
+
+## 2. 不具合・潜在バグ
+
+### BUG-01 [High] `upsert()` でデータ辞書を第1引数に渡した場合の AttributeError
+
+**ファイル:** `core.py`
+
+`upsert` メソッドで `(data_dict, conflict_columns)` パターンで呼ばれた際に、内部変数 `target_data` ではなく `data` の `.keys()` を参照するコードパスがあり `AttributeError` が発生する問題を修正。 — **[FIXED]**
+
+### QUAL-02 [High] `AsyncNanaSQLite` 初期化時のスレッドプール二重初期化（競合状態）
+
+**ファイル:** `async_core.py`
+
+`AsyncNanaSQLite` の初期化時（`_ensure_initialized()`）において、複数の非同期タスクが同時にアクセスした場合に `NanaSQLite` とスレッドプールが複数回生成される競合状態のリスクを修正。`asyncio.Lock` を導入して直列化した。 — **[FIXED]**
+
+---
+
+## 3. 高速化の余地
+
+### PERF-01 [Low] LRU/TTLキャッシュ使用時のネガティブキャッシュ欠如
+
+`LRU` および `TTL` キャッシュ戦略に「存在しないキー」を追跡する仕組み（ネガティブキャッシュ）を導入し、存在しないキーへの反復アクセス時のSQLiteクエリ負荷をゼロにした。
+（これに伴い発生した内部センチネル混入バグもリリース前に検知し修正済み） — **[FIXED]**
+
+---
+
+## 4. 改善点（コード品質）
+
+### QUAL-01 [Low] `ExpiringDict` スケジューラスレッド停止処理の向上
+
+`clear()` および `__del__` におけるデーモンスレッドのタイムアウト後処理を改善し、参照を適切にクリアしてResourceWarningを防止した。 — **[FIXED]**
+
+### QUAL-03 [Low] ソースコード内マジックリテラルの定数化
+
+ソースコード内で使用される `"BEGIN IMMEDIATE"` などのマジックリテラルを一元化し、モジュールレベルのプレフィックス定数に置き換えた（保守性向上）。 — **[FIXED]**
+
+### CI-01 [Low] SonarQube Quality Gate の誤検知解消
+
+SonarQube Cloudの解析対象から非Pythonファイルやモック、テストスクリプトを除外し、認知複雑度の誤った低下警告を抑止した（CI/CDの安定化）。 — **[FIXED]**
+
+---
+
+## 推奨対応優先度
+
+### 対応済み
+
+| ID | 概要 |
+|---|---|
+| BUG-01 | `upsert()` の AttributeError — 修正完了 |
+| QUAL-02 | `AsyncNanaSQLite` の初期化時 Race Condition 修正 — 修正完了 |
+| SEC-02 | `column_type` バリデーションの ReDoS 脆弱性 — 修正完了 |
+| PERF-01 | LRU/TTLのネガティブキャッシュ導入 — 修正完了 |
+| QUAL-01 | `ExpiringDict` 停止処理の向上 — 修正完了 |
+| QUAL-03 | マジックリテラルの共通定数化 — 修正完了 |
+| CI-01 | SonarQube Quality Gate 誤検知解消 — 修正完了 |
+
+### 将来的な改善
+
+該当なし（v1.4.1リリースにおける全指摘項目は本バージョン内で対応済み）

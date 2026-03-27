@@ -26,6 +26,10 @@ except ImportError:
     HAS_FAST_LRU = False
 
 
+# Sentinel for negative caching (key known to be absent in DB)
+MISSING = object()
+
+
 class CacheType(str, Enum):
     """Available cache strategies"""
 
@@ -171,14 +175,10 @@ class StdLRUCache(CacheStrategy):
         return key in self._data
 
     def mark_cached(self, key: str) -> None:
-        # In strict LRU, we can't just "mark" likely.
-        # But to support the logic of "key is known to exist",
-        # we might need to store it. For now, we only store actual values.
-        pass
+        """Mark as known-missing by storing the MISSING sentinel."""
+        self.set(key, MISSING)
 
     def is_cached(self, key: str) -> bool:
-        # In LRU mode, if it's in the map, it's cached.
-        # If it's not, we consider it "not cached" (needs DB fetch)
         return key in self._data
 
     def clear(self) -> None:
@@ -219,7 +219,7 @@ class FastLRUCache(CacheStrategy):
         return key in self._data
 
     def mark_cached(self, key: str) -> None:
-        pass
+        self.set(key, MISSING)
 
     def is_cached(self, key: str) -> bool:
         return key in self._data
@@ -281,9 +281,10 @@ class TTLCache(CacheStrategy):
         self._cached_keys.clear()
 
     def mark_cached(self, key: str) -> None:
-        self._cached_keys.add(key)
+        self.set(key, MISSING)
 
     def is_cached(self, key: str) -> bool:
+        # Check both the real data (which might contain MISSING) and the separate set if used
         return key in self._data or key in self._cached_keys
 
     def invalidate(self, key: str) -> None:

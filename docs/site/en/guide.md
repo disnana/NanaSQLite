@@ -101,7 +101,9 @@ with NanaSQLite("tutorial.db") as db:
     db["dict"] = {"nested": {"deeply": {"value": 123}}}
 ```
 
-**Note:** NanaSQLite automatically serializes complex Python objects to JSON.
+::: warning Note
+NanaSQLite automatically serializes complex Python objects to JSON.
+:::
 
 ## Lesson 3: Dictionary Operations
 

@@ -19,6 +19,18 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest pytest-cov pytest-asyncio pytest-xdist apsw pydantic cryptography orjson lru-dict
+          python -m pip install -e ".[dev]"
+      - name: Run tests for coverage
+        run: |
+          python -m pytest --cov=nanasqlite --cov-report=xml:coverage.xml --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py --ignore=tests/test_cache_benchmark.py --ignore=tests/benchmark_encryption.py
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v7
         with:

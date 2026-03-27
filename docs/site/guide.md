@@ -101,7 +101,9 @@ with NanaSQLite("tutorial.db") as db:
     db["dict"] = {"nested": {"deeply": {"value": 123}}}
 ```
 
-**注意:** NanaSQLiteは複雑なPythonオブジェクトを自動的にJSONにシリアライズします。
+::: warning 注意
+NanaSQLiteは複雑なPythonオブジェクトを自動的にJSONにシリアライズします。
+:::
 
 ## レッスン3: 辞書操作
 

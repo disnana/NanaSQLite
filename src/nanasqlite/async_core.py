@@ -35,7 +35,7 @@ from typing import Any, Literal
 import apsw
 
 from .cache import CacheType
-from .core import _UNSET, HAS_VALIDKIT, IDENTIFIER_PATTERN, NanaSQLite
+from .core import _UNSET, HAS_VALIDKIT, IDENTIFIER_PATTERN, NanaSQLite, V2Config
 from .exceptions import NanaSQLiteClosedError, NanaSQLiteDatabaseError
 
 
@@ -108,6 +108,7 @@ class AsyncNanaSQLite:
         flush_count: int = 100,
         v2_chunk_size: int = 1000,
         v2_enable_metrics: bool = False,
+        v2_config: V2Config | None = None,
     ) -> None:
         """
         Args:
@@ -164,6 +165,14 @@ class AsyncNanaSQLite:
         self._coerce: bool = bool(coerce)
 
         # v2 Architecture Setup
+        # v2_config が渡された場合はその値を優先し、個別パラメータより上書きする（後方互換のため個別引数も維持）
+        if v2_config is not None:
+            flush_mode = v2_config.flush_mode
+            flush_interval = v2_config.flush_interval
+            flush_count = v2_config.flush_count
+            v2_chunk_size = v2_config.chunk_size
+            v2_enable_metrics = v2_config.enable_metrics
+
         self._v2_mode = v2_mode
         self._flush_mode = flush_mode
         self._flush_interval = flush_interval
@@ -180,6 +189,8 @@ class AsyncNanaSQLite:
         self._db: NanaSQLite | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._owns_executor = True  # このインスタンスがエグゼキューターを所有
+        # _init_lock はイベントループ内で初めて使われる時に生成する（__init__はループ外から呼ばれる可能性があるため）
+        self._init_lock: asyncio.Lock | None = None
 
     async def _ensure_initialized(self) -> None:
         """Ensure the underlying sync database is initialized"""
@@ -188,7 +199,18 @@ class AsyncNanaSQLite:
                 raise NanaSQLiteClosedError(f"Parent database connection is closed (table: {self._table!r})")
             raise NanaSQLiteClosedError("Database connection is closed")
 
-        if self._db is None:
+        if self._db is not None:
+            return
+
+        # _init_lock はイベントループ内で最初に呼ばれた時に生成する（イベントループ安全）
+        if self._init_lock is None:
+            self._init_lock = asyncio.Lock()
+
+        async with self._init_lock:
+            # Check again inside lock
+            if self._db is not None:
+                return
+
             # Initialize in thread pool to avoid blocking
             loop = asyncio.get_running_loop()
             self._loop = loop
@@ -1266,6 +1288,7 @@ class AsyncNanaSQLite:
         """aclear_cache のエイリアス"""
         await self.aclear_cache()
 
+
     async def close(self) -> None:
         """
         非同期でデータベース接続を閉じる
@@ -1451,6 +1474,7 @@ class AsyncNanaSQLite:
         async_sub_db._flush_interval = getattr(self, "_flush_interval", 3.0)
         async_sub_db._flush_count = getattr(self, "_flush_count", 100)
         async_sub_db._v2_chunk_size = getattr(self, "_v2_chunk_size", 1000)
+        async_sub_db._v2_enable_metrics = getattr(self, "_v2_enable_metrics", False)
         # 子インスタンス管理
         async_sub_db._child_instances = weakref.WeakSet()
         self._child_instances.add(async_sub_db)
@@ -1703,6 +1727,11 @@ class AsyncNanaSQLite:
     keys = akeys
     values = avalues
     items = aitems
+    flush = aflush
+    get_dlq = aget_dlq
+    retry_dlq = aretry_dlq
+    clear_dlq = aclear_dlq
+    get_v2_metrics = aget_v2_metrics
 
 
 class _AsyncTransactionContext:

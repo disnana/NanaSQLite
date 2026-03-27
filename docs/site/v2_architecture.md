@@ -132,6 +132,30 @@ for item in dlq:
 db.retry_dlq()
 ```
 
+### DLQ の消去
+
+```python
+# DLQ のエントリをすべて消去
+db.clear_dlq()
+```
+
+## メトリクス機能 (Metrics)
+
+V2エンジンでは、処理遅延やフラッシュ回数、DLQの発生状況などの詳細なメトリクスを収集できます。メトリクス収集はオプトイン機能です。
+
+```python
+db = NanaSQLite(
+    "app.db",
+    v2_mode=True,
+    v2_enable_metrics=True,  # メトリクス収集を有効化
+)
+
+# メトリクスの取得
+metrics = db.get_v2_metrics()
+print(f"Total Flushes: {metrics['total_flushes']}")
+print(f"DLQ Count: {metrics['dlq_count']}")
+```
+
 ## StrictTask
 
 Strict レーンにカスタムタスクをエンキューできます:
@@ -161,6 +185,7 @@ db._v2_engine.enqueue_strict_task(task)
 | `flush_interval` | `float` | `3.0` | time モードの間隔（秒） |
 | `flush_count` | `int` | `100` | count モードの件数閾値 |
 | `v2_chunk_size` | `int` | `1000` | トランザクションチャンクサイズ |
+| `v2_enable_metrics` | `bool` | `False` | 詳細なメトリクス収集を有効化 |
 
 ## 非同期での V2 利用
 

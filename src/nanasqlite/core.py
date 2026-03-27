@@ -23,6 +23,7 @@ import warnings
 import weakref
 from collections.abc import Iterator, MutableMapping
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import apsw
@@ -33,11 +34,12 @@ try:
     from cryptography.exceptions import InvalidTag
     from cryptography.fernet import Fernet
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
+
     HAS_CRYPTOGRAPHY = True
 except ImportError:
     HAS_CRYPTOGRAPHY = False
 
-from .cache import CacheStrategy, CacheType, create_cache
+from .cache import MISSING, CacheStrategy, CacheType, create_cache
 from .exceptions import (
     NanaSQLiteClosedError,
     NanaSQLiteConnectionError,
@@ -49,7 +51,7 @@ from .exceptions import (
 from .sql_utils import fast_validate_sql_chars, sanitize_sql_for_function_scan
 
 # 識別子バリデーション用の正規表現パターン（英数字とアンダースコアのみ、数字で開始しない）
-IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_]\w*$")
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +78,29 @@ _UNSET = ...
 
 # Sentinel object for missing keys in DB
 _NOT_FOUND = object()
+
+# SQL literals to avoid duplication
+_BEGIN_IMMEDIATE = "BEGIN IMMEDIATE"
+
+
+@dataclass
+class V2Config:
+    """
+    v2エンジンの設定をまとめたコンフィグクラス。
+    NanaSQLite と AsyncNanaSQLite の ``v2_config`` 引数に渡すことで、
+    v2 関連のパラメータをひとまとめにできます。
+
+    Example:
+        >>> from nanasqlite import NanaSQLite, V2Config
+        >>> cfg = V2Config(flush_mode="time", flush_interval=5.0, enable_metrics=True)
+        >>> db = NanaSQLite("mydata.db", v2_mode=True, v2_config=cfg)
+    """
+
+    flush_mode: Literal["immediate", "count", "time", "manual"] = "immediate"
+    flush_interval: float = 3.0
+    flush_count: int = 100
+    chunk_size: int = 1000
+    enable_metrics: bool = False
 
 
 class NanaSQLite(MutableMapping):
@@ -125,8 +150,10 @@ class NanaSQLite(MutableMapping):
         flush_count: int = 100,
         v2_chunk_size: int = 1000,
         v2_enable_metrics: bool = False,
+        v2_config: V2Config | None = None,
         _shared_connection: apsw.Connection | None = None,
         _shared_lock: threading.RLock | None = None,
+        _shared_v2_engine: Any = None,
     ):
         """
         Args:
@@ -212,13 +239,26 @@ class NanaSQLite(MutableMapping):
         self._coerce: bool = bool(coerce)
 
         # v2 Architecture Setup
+        # v2_config が渡された場合はその値を優先し、個別パラメータより上書きする（後方互換のため個別引数も維持）
+        if v2_config is not None:
+            flush_mode = v2_config.flush_mode
+            flush_interval = v2_config.flush_interval
+            flush_count = v2_config.flush_count
+            v2_chunk_size = v2_config.chunk_size
+            v2_enable_metrics = v2_config.enable_metrics
+
         self._v2_mode = v2_mode
         self._v2_enable_metrics_raw = v2_enable_metrics
+        self._v2_flush_mode = flush_mode
+        self._v2_flush_interval = flush_interval
+        self._v2_flush_count = flush_count
+        self._v2_chunk_size = v2_chunk_size
         self._v2_engine: V2Engine | None = None
 
         if self._v2_mode:
             # Check for multiprocess environment to emit warning (Gunicorn, Uvicorn workers etc)
             import multiprocessing
+
             current_proc = multiprocessing.current_process()
             proc_name = getattr(current_proc, "name", "")
             pid = os.getpid()
@@ -227,10 +267,10 @@ class NanaSQLite(MutableMapping):
             # Heuristic detection for common multi-process web servers running under a master process
             # E.g. gunicorn workers, uvicorn workers, celery workers
             is_worker_heuristic = (
-                "worker" in proc_name.lower() or
-                "spawnProcess" in proc_name or
-                "ForkProcess" in proc_name or
-                (ppid is not None and ppid != 1 and ppid != 0)
+                "worker" in proc_name.lower()
+                or "spawnProcess" in proc_name
+                or "ForkProcess" in proc_name
+                or (ppid is not None and ppid != 1 and ppid != 0)
             )
 
             # We warn if we suspect it's a multiprocess environment and v2 is explicitly enabled
@@ -344,18 +384,24 @@ class NanaSQLite(MutableMapping):
             """)
 
         # Initialize V2 Engine if enabled and we own the connection (or even if shared, engine owns the queue)
-        # Note: If multiple tables share a connection, each gets its own V2Engine but they use the same underlying SQLite.
+        # Note: We now share the V2Engine instance if provided (from table() call)
+        # to avoid thread/atexit leaks.
+        self._v2_engine = None
         if self._v2_mode:
-            self._v2_engine = V2Engine(
-                connection=self._connection,
-                table_name=self._safe_table,
-                flush_mode=flush_mode,
-                flush_interval=flush_interval,
-                flush_count=flush_count,
-                max_chunk_size=v2_chunk_size,
-                serialize_func=self._serialize,
-                enable_metrics=self._v2_enable_metrics_raw,
-            )
+            if _shared_v2_engine is not None:
+                self._v2_engine = _shared_v2_engine
+            else:
+                self._v2_engine = V2Engine(
+                    connection=self._connection,
+                    table_name=self._safe_table,
+                    flush_mode=flush_mode,
+                    flush_interval=flush_interval,
+                    flush_count=flush_count,
+                    max_chunk_size=v2_chunk_size,
+                    serialize_func=self._serialize,
+                    enable_metrics=self._v2_enable_metrics_raw,
+                    shared_lock=self._lock,
+                )
 
         # 一括ロード
         if bulk_load:
@@ -446,9 +492,12 @@ class NanaSQLite(MutableMapping):
         """
         col_names: list[str] = []
         for col in columns:
-            parts = re.split(r"\s+as\s+", col, flags=re.IGNORECASE)
-            if len(parts) > 1:
-                col_names.append(parts[-1].strip().strip('"').strip("'"))
+            # Robust and ReDoS-safe extraction of aliases.
+            # Splitting by whitespace and looking for 'as' handles multiple spaces/tabs safely.
+            parts = col.split()
+            if len(parts) >= 3 and parts[-2].lower() == "as":
+                alias = parts[-1].strip().strip('"').strip("'")
+                col_names.append(alias)
             else:
                 col_names.append(col.strip().strip('"').strip("'"))
         return col_names
@@ -460,9 +509,7 @@ class NanaSQLite(MutableMapping):
         if lock_timeout is not None:
             acquired = self._lock.acquire(timeout=lock_timeout)
             if not acquired:
-                raise NanaSQLiteLockError(
-                    f"Failed to acquire lock within {lock_timeout}s"
-                )
+                raise NanaSQLiteLockError(f"Failed to acquire lock within {lock_timeout}s")
             try:
                 yield
             finally:
@@ -644,7 +691,7 @@ class NanaSQLite(MutableMapping):
         # Note: sanitize_sql_for_function_scan() preserves double-quoted identifier
         # content so that "FUNC"() patterns are detected.
         sanitized_expr = sanitize_sql_for_function_scan(expr)
-        matches = re.findall(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", sanitized_expr)
+        matches = re.findall(r"([a-zA-Z_]\w*)\s*\(", sanitized_expr)
 
         for func in matches:
             func_upper = func.upper()
@@ -711,8 +758,7 @@ class NanaSQLite(MutableMapping):
         if self._aead:
             if not isinstance(value, bytes):
                 logger.warning(
-                    "AEAD encryption is enabled but received non-bytes data; "
-                    "treating as unencrypted legacy value"
+                    "AEAD encryption is enabled but received non-bytes data; treating as unencrypted legacy value"
                 )
                 if HAS_ORJSON:
                     return orjson.loads(value)
@@ -789,6 +835,14 @@ class NanaSQLite(MutableMapping):
             )
             return [row[0] for row in cursor]
 
+    def _update_cache(self, key: str, value: Any) -> None:
+        """キャッシュメモリを同期的に更新（呼び出し元でロック取得推奨）"""
+        if self._lru_mode or (hasattr(self._cache, "_max_size") and self._cache._max_size):
+            self._cache.set(key, value)
+        else:
+            self._data[key] = value
+            self._cached_keys.add(key)
+
     def _ensure_cached(self, key: str) -> bool:
         """
         キーがキャッシュにない場合、DBから読み込む（遅延ロード）
@@ -800,22 +854,42 @@ class NanaSQLite(MutableMapping):
                 return key in self._data
         else:
             if key in self._data:
-                return True
+                # Check for negative cache (known to be missing from DB)
+                return self._cache.get(key) is not MISSING
+
+        # V2 staging buffer check (Stale Read prevention)
+        if self._v2_mode and self._v2_engine:
+            staging = self._v2_engine.kvs_get_staging(self._safe_table, key)
+            if staging is not None:
+                if staging["action"] == "set":
+                    value = self._deserialize(staging["value"])
+                    with self._acquire_lock():
+                        self._update_cache(key, value)
+                    return True
+                elif staging["action"] == "delete":
+                    with self._acquire_lock():
+                        if self._lru_mode:
+                            self._cache.mark_cached(key)
+                        else:
+                            self._data.pop(key, None)
+                            self._cached_keys.add(key)
+                    return False
 
         # DBから読み込み
         value = self._read_from_db(key)
 
         if value is not _NOT_FOUND:
-            if self._lru_mode or (hasattr(self._cache, "_max_size") and self._cache._max_size):
-                self._cache.set(key, value)
-            else:
-                self._data[key] = value
-                self._cached_keys.add(key)
+            with self._acquire_lock():
+                self._update_cache(key, value)
             return True
 
         # Value is not in DB
-        if not self._lru_mode:
-            self._cached_keys.add(key)
+        with self._acquire_lock():
+            if self._lru_mode:
+                self._cache.mark_cached(key)
+            else:
+                self._data.pop(key, None)
+                self._cached_keys.add(key)
         return False
 
     # ==================== Dict Interface ====================
@@ -843,17 +917,18 @@ class NanaSQLite(MutableMapping):
 
         # v2 Architecture: Route to background staging buffer instead of blocking DB write
         if self._v2_mode and self._v2_engine:
-            self._v2_engine.kvs_set(key, value)
+            self._v2_engine.kvs_set(self._safe_table, key, value)
+            with self._acquire_lock():
+                self._update_cache(key, value)
         else:
-            # DB書き込みを先に行い、ロックタイムアウト時のキャッシュ不整合を防止
-            self._write_to_db(key, value)
-
-        # DB書き込み（またはv2バッファ格納）成功後にメモリ更新
-        if self._lru_mode or (hasattr(self._cache, "_max_size") and self._cache._max_size):
-            self._cache.set(key, value)
-        else:
-            self._data[key] = value
-            self._cached_keys.add(key)
+            # DB書き込みとキャッシュ更新をアトミックに実行
+            serialized = self._serialize(value)
+            with self._acquire_lock():
+                self._connection.execute(
+                    f"INSERT OR REPLACE INTO {self._safe_table} (key, value) VALUES (?, ?)",  # nosec
+                    (key, serialized),
+                )
+                self._update_cache(key, value)
 
     def __delitem__(self, key: str) -> None:
         """del dict[key] - 即時削除"""
@@ -863,13 +938,19 @@ class NanaSQLite(MutableMapping):
 
         # v2 Architecture: Route to background staging buffer
         if self._v2_mode and self._v2_engine:
-            self._v2_engine.kvs_delete(key)
+            self._v2_engine.kvs_delete(self._safe_table, key)
+            with self._acquire_lock():
+                self._cache.delete(key)
+                if not self._lru_mode:
+                    self._data.pop(key, None)
+                    self._cached_keys.add(key)
         else:
-            # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
-            self._delete_from_db(key)
-
-        # DB削除成功後にメモリから削除
-        self._cache.delete(key)
+            with self._acquire_lock():
+                self._connection.execute(f"DELETE FROM {self._safe_table} WHERE key = ?", (key,))  # nosec
+                self._cache.delete(key)
+                if not self._lru_mode:
+                    self._data.pop(key, None)
+                    self._cached_keys.add(key)
 
     def __contains__(self, key: str) -> bool:
         """
@@ -884,7 +965,8 @@ class NanaSQLite(MutableMapping):
                 return key in self._data
         else:
             if key in self._data:
-                return True
+                # Value might be MISSING sentinel
+                return self._cache.get(key) is not MISSING
 
         # Lightweight existence check against DB
         with self._acquire_lock():
@@ -926,13 +1008,13 @@ class NanaSQLite(MutableMapping):
         """全値を取得（一括ロードしてからメモリから）"""
         self._check_connection()
         self.load_all()
-        return list(self._cache.get_data().values())
+        return [v for v in self._cache.get_data().values() if v is not MISSING]
 
     def items(self) -> list:
         """全アイテムを取得（一括ロードしてからメモリから）"""
         self._check_connection()
         self.load_all()
-        return list(self._cache.get_data().items())
+        return [(k, v) for k, v in self._cache.get_data().items() if v is not MISSING]
 
     def get(self, key: str, default: Any = None) -> Any:
         """dict.get(key, default)"""
@@ -967,19 +1049,15 @@ class NanaSQLite(MutableMapping):
         value = self._read_from_db(key)
 
         if value is not _NOT_FOUND:
-            # キャッシュを更新
-            if self._lru_mode:
-                self._cache.set(key, value)
-            else:
-                self._data[key] = value
-                self._cached_keys.add(key)
+            with self._acquire_lock():
+                self._update_cache(key, value)
             return value
-        # 存在しない場合はキャッシュからも削除
-        if self._lru_mode:
-            self._cache.delete(key)
-        else:
-            self._data.pop(key, None)
-            self._cached_keys.add(key)  # 「存在しない」ことをマーク
+        with self._acquire_lock():
+            if self._lru_mode:
+                self._cache.delete(key)
+            else:
+                self._data.pop(key, None)
+                self._cached_keys.add(key)
         return default
 
     def batch_get(self, keys: list[str]) -> dict[str, Any]:
@@ -1012,7 +1090,9 @@ class NanaSQLite(MutableMapping):
         cache_data = self._cache.get_data()
         for key in keys:
             if key in cache_data:
-                results[key] = cache_data[key]
+                val = cache_data[key]
+                if val is not MISSING:
+                    results[key] = val
             else:
                 missing_keys.append(key)
 
@@ -1104,6 +1184,11 @@ class NanaSQLite(MutableMapping):
     def clear(self) -> None:
         """dict.clear() - 全削除"""
         self._check_connection()
+
+        # v2 Architecture: Flush background buffer before clearing to prevent "ghost" re-inserts
+        if self._v2_mode and self._v2_engine:
+            self._v2_engine.flush()
+
         # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
         with self._acquire_lock():
             self._connection.execute(f"DELETE FROM {self._safe_table}")  # nosec
@@ -1123,6 +1208,10 @@ class NanaSQLite(MutableMapping):
         """一括読み込み: 全データをメモリに展開"""
         if self._all_loaded:
             return
+
+        # v2 Architecture: Flush background buffer to ensure we load the latest state
+        if self._v2_mode and self._v2_engine:
+            self._v2_engine.flush()
 
         with self._acquire_lock():
             cursor = self._connection.execute(
@@ -1202,7 +1291,7 @@ class NanaSQLite(MutableMapping):
 
         with self._acquire_lock():
             cursor = self._connection.cursor()
-            cursor.execute("BEGIN IMMEDIATE")
+            cursor.execute(_BEGIN_IMMEDIATE)
             try:
                 # 事前にシリアライズしてexecutemany用のタプルリストを作成
                 params = [(key, self._serialize(value)) for key, value in mapping.items()]
@@ -1276,7 +1365,7 @@ class NanaSQLite(MutableMapping):
 
         with self._acquire_lock():
             cursor = self._connection.cursor()
-            cursor.execute("BEGIN IMMEDIATE")
+            cursor.execute(_BEGIN_IMMEDIATE)
             try:
                 cursor.executemany(
                     f"INSERT OR REPLACE INTO {self._safe_table} (key, value) VALUES (?, ?)",  # nosec
@@ -1313,7 +1402,7 @@ class NanaSQLite(MutableMapping):
 
         with self._acquire_lock():
             cursor = self._connection.cursor()
-            cursor.execute("BEGIN IMMEDIATE")
+            cursor.execute(_BEGIN_IMMEDIATE)
             try:
                 # executemany用のタプルリストを作成
                 params = [(key,) for key in keys]
@@ -1383,15 +1472,11 @@ class NanaSQLite(MutableMapping):
         self._check_connection()
         # dest_path がインメモリDB文字列の場合、バックアップが永続化されないため拒否する
         if self._is_in_memory_path(dest_path):
-            raise NanaSQLiteValidationError(
-                "dest_path must be a file path, not an in-memory database string"
-            )
+            raise NanaSQLiteValidationError("dest_path must be a file path, not an in-memory database string")
         # dest_path が DB ファイル自身と同一の場合は自己コピーになり破損する恐れがあるため拒否する
         try:
             if os.path.samefile(dest_path, self._db_path):
-                raise NanaSQLiteValidationError(
-                    "dest_path must not be the same as the current database file"
-                )
+                raise NanaSQLiteValidationError("dest_path must not be the same as the current database file")
         except FileNotFoundError:
             pass  # dest_path がまだ存在しない場合は問題なし
         except OSError as e:
@@ -1447,14 +1532,17 @@ class NanaSQLite(MutableMapping):
         self._check_connection()
         # DB がインメモリの場合はファイル置換ができないため拒否する（早期失敗）
         if self._is_in_memory_path(self._db_path):
-            raise NanaSQLiteValidationError(
-                "restore() cannot be used with an in-memory database"
-            )
+            raise NanaSQLiteValidationError("restore() cannot be used with an in-memory database")
         if not self._is_connection_owner:
             raise NanaSQLiteConnectionError(
                 "restore() can only be called on the primary (connection-owning) instance. "
                 "Use the original NanaSQLite instance, not one obtained via table()."
             )
+
+        # v2 Architecture: Shutdown background engine before acquiring lock
+        # to prevent deadlock with background flush thread (which also needs the lock).
+        if self._v2_mode and getattr(self, "_v2_engine", None):
+            self._v2_engine.shutdown()
 
         with self._acquire_lock():
             # ロック取得後にトランザクション中かを再チェック（ロック外チェックとの競合を防ぐ）
@@ -1537,8 +1625,39 @@ class NanaSQLite(MutableMapping):
                 self._connection = apsw.Connection(self._db_path)
                 if self._optimize:
                     self._apply_optimizations(self._cache_size_mb)
+
+                # v2 Architecture: Re-initialize engine with new connection
+                if self._v2_mode:
+                    self._v2_engine = V2Engine(
+                        connection=self._connection,
+                        table_name=self._safe_table,
+                        flush_mode=self._v2_flush_mode,
+                        flush_interval=self._v2_flush_interval,
+                        flush_count=self._v2_flush_count,
+                        max_chunk_size=self._v2_chunk_size,
+                        serialize_func=self._serialize,
+                        enable_metrics=self._v2_enable_metrics_raw,
+                        shared_lock=self._lock,
+                    )
+
                 for child in children:
                     child._connection = self._connection
+                    # Child instances also need their engines re-initialized if in V2 mode
+                    if child._v2_mode:
+                        if child._v2_engine:
+                            child._v2_engine.shutdown()
+                        child._v2_engine = V2Engine(
+                            connection=child._connection,
+                            table_name=child._safe_table,
+                            flush_mode=child._v2_flush_mode,
+                            flush_interval=child._v2_flush_interval,
+                            flush_count=child._v2_flush_count,
+                            max_chunk_size=child._v2_chunk_size,
+                            serialize_func=child._serialize,
+                            enable_metrics=child._v2_enable_metrics_raw,
+                            shared_lock=child._lock,
+                        )
+
                 self.clear_cache()
                 for child in children:
                     child.clear_cache()
@@ -1750,15 +1869,13 @@ class NanaSQLite(MutableMapping):
                     event.set()
 
                 self._v2_engine.enqueue_strict_task(
-                    task_type="execute",
-                    sql=sql,
-                    parameters=parameters,
-                    on_success=_on_success,
-                    on_error=_on_error
+                    task_type="execute", sql=sql, parameters=parameters, on_success=_on_success, on_error=_on_error
                 )
                 event.wait()
                 if exception:
-                    raise NanaSQLiteDatabaseError(f"Failed to execute SQL in background: {exception}", original_error=exception) from exception
+                    raise NanaSQLiteDatabaseError(
+                        f"Failed to execute SQL in background: {exception}", original_error=exception
+                    ) from exception
 
                 with self._acquire_lock():
                     return self._connection.cursor()
@@ -1804,20 +1921,18 @@ class NanaSQLite(MutableMapping):
                 event.set()
 
             self._v2_engine.enqueue_strict_task(
-                task_type="executemany",
-                sql=sql,
-                parameters=parameters_list,
-                on_success=_on_success,
-                on_error=_on_error
+                task_type="executemany", sql=sql, parameters=parameters_list, on_success=_on_success, on_error=_on_error
             )
             event.wait()
             if exception:
-                raise NanaSQLiteDatabaseError(f"Failed to execute_many in background: {exception}", original_error=exception) from exception
+                raise NanaSQLiteDatabaseError(
+                    f"Failed to execute_many in background: {exception}", original_error=exception
+                ) from exception
             return
 
         with self._acquire_lock():
             cursor = self._connection.cursor()
-            cursor.execute("BEGIN IMMEDIATE")
+            cursor.execute(_BEGIN_IMMEDIATE)
             try:
                 for parameters in parameters_list:
                     cursor.execute(sql, parameters)
@@ -1896,13 +2011,12 @@ class NanaSQLite(MutableMapping):
             safe_col_name = self._sanitize_identifier(col_name)
             # Reject column type definitions containing SQL injection patterns.
             # Unlike alter_table_add_column() which uses a strict whitelist,
-            # create_table() must support constraint clauses (NOT NULL, DEFAULT,
-            # CHECK, REFERENCES, etc.), so a blacklist approach is used here.
+            # create_table() uses a whitelist subset for permitted characters.
             _col_type_str = str(col_type)
-            if re.search(r";|--|/\*", _col_type_str):
+            if not re.match(r"^[\w\s(),.+*'\"]+$", _col_type_str):
                 raise NanaSQLiteValidationError(
                     f"Invalid or dangerous column type for '{col_name}': "
-                    "must not contain ';', '--', or '/*'"
+                    "contains unauthorized characters. Permitted: alphanumeric, spaces, parentheses, quotes, and basic operators."
                 )
             column_defs.append(f"{safe_col_name} {col_type}")
 
@@ -2158,7 +2272,7 @@ class NanaSQLite(MutableMapping):
         # Whitelist-based validation for column_type to prevent SQL injection.
         # Allows standard SQLite type names with optional length/precision specifiers.
         # e.g. "TEXT", "INTEGER", "VARCHAR(255)", "DECIMAL(10,2)", "DOUBLE PRECISION"
-        if not re.match(r"^[A-Za-z][A-Za-z0-9_ ]*(?:\(\s*\d+\s*(?:,\s*\d+\s*)?\))?$", column_type):
+        if not re.match(r"^[A-Za-z]\w*(?:\s+\w+)*(\s*\([\d,\s]+\))?$", column_type):
             raise ValueError(f"Invalid or dangerous column type: {column_type}")
 
         sql = f"ALTER TABLE {safe_table_name} ADD COLUMN {safe_column_name} {column_type}"
@@ -2352,12 +2466,12 @@ class NanaSQLite(MutableMapping):
         elif table_name is not None and data is None:
             # table_name に dict が渡された場合の安全策 (もしあれば)
             if isinstance(table_name, dict):
-                 # self.upsert(data_dict) のような呼び出しは現時点では非サポートとするか
-                 # デフォルトテーブルへの挿入とみなす
-                 target_table = self._table
-                 target_data = table_name
+                # self.upsert(data_dict) のような呼び出しは現時点では非サポートとするか
+                # デフォルトテーブルへの挿入とみなす
+                target_table = self._table
+                target_data = table_name
             else:
-                 raise ValueError("Invalid arguments for upsert")
+                raise ValueError("Invalid arguments for upsert")
         else:
             raise ValueError("upsert requires at least table_name and data")
 
@@ -2374,7 +2488,7 @@ class NanaSQLite(MutableMapping):
 
             update_items = [
                 f"{self._sanitize_identifier(col)} = excluded.{self._sanitize_identifier(col)}"
-                for col in data.keys()
+                for col in target_data.keys()
                 if col not in conflict_columns
             ]
 
@@ -2695,7 +2809,6 @@ class NanaSQLite(MutableMapping):
         self.execute_many(sql, parameters_list)
         return len(data_list)
 
-
     def get_last_insert_rowid(self) -> int:
         """
         最後に挿入されたROWIDを取得
@@ -2752,9 +2865,7 @@ class NanaSQLite(MutableMapping):
         }
 
         if pragma_name not in allowed_pragmas:
-            raise ValueError(
-                f"PRAGMA '{pragma_name}' is not allowed. Allowed: {', '.join(sorted(allowed_pragmas))}"
-            )
+            raise ValueError(f"PRAGMA '{pragma_name}' is not allowed. Allowed: {', '.join(sorted(allowed_pragmas))}")
 
         if value is None:
             cursor = self.execute(f"PRAGMA {pragma_name}")
@@ -2804,6 +2915,12 @@ class NanaSQLite(MutableMapping):
             ...     db.rollback()
         """
         self._check_connection()
+
+        if self._v2_mode:
+            raise NanaSQLiteTransactionError(
+                "Explicit transactions (begin_transaction/commit/rollback) are not supported in V2 mode. "
+                "The V2 Engine automatically manages transactional flushing."
+            )
 
         if self._in_transaction:
             raise NanaSQLiteTransactionError(
@@ -2973,16 +3090,15 @@ class NanaSQLite(MutableMapping):
         size = cache_size if cache_size is not None else self._cache_size_raw
         # TTL 戦略の場合は cache_ttl と cache_persistence_ttl も継承する（省略時）
         ttl = cache_ttl if cache_ttl is not None else self._cache_ttl_raw
-        persist_ttl = (
-            cache_persistence_ttl if cache_persistence_ttl is not None
-            else self._cache_persistence_ttl_raw
-        )
+        persist_ttl = cache_persistence_ttl if cache_persistence_ttl is not None else self._cache_persistence_ttl_raw
         # validator が省略された場合は親のスキーマを継承し、None 明示指定は無効化とする
         resolved_validator = self._validator if validator is _UNSET else validator
         # coerce が省略された場合は親の設定を継承する
         resolved_coerce = self._coerce if coerce is _UNSET else bool(coerce)
         # v2_enable_metrics が省略された場合は親の設定を継承する
-        resolved_v2_enable_metrics = self._v2_enable_metrics_raw if v2_enable_metrics is _UNSET else bool(v2_enable_metrics)
+        resolved_v2_enable_metrics = (
+            self._v2_enable_metrics_raw if v2_enable_metrics is _UNSET else bool(v2_enable_metrics)
+        )
 
         # 子インスタンス生成〜WeakSet追加をロックで保護し、
         # restore() の接続差し替えと競合しないようにする
@@ -3001,6 +3117,7 @@ class NanaSQLite(MutableMapping):
                 v2_enable_metrics=resolved_v2_enable_metrics,
                 _shared_connection=self._connection,
                 _shared_lock=self._lock,
+                _shared_v2_engine=self._v2_engine,
             )
 
             # If the parent is the connection owner, the child is not.

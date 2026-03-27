@@ -1,280 +1,557 @@
-# NanaSQLite API リファレンス
+# 同期 API リファレンス
 
-同期版 `NanaSQLite` クラスの完全なドキュメントです。
+NanaSQLiteクラスの同期メソッド一覧です。
 
-## クラス: `NanaSQLite`
+## NanaSQLite
 
 ```python
-class NanaSQLite(MutableMapping)
+class NanaSQLite(db_path: str, table: str = 'data', bulk_load: bool = False, optimize: bool = True, cache_size_mb: int = 64, strict_sql_validation: bool = True, allowed_sql_functions: list[str] | None = None, forbidden_sql_functions: list[str] | None = None, max_clause_length: int | None = 1000, cache_strategy: CacheType | Literal['unbounded', 'lru', 'ttl'] = <CacheType.UNBOUNDED: unbounded>, cache_size: int | None = None, cache_ttl: float | None = None, cache_persistence_ttl: bool = False, encryption_key: str | bytes | None = None, encryption_mode: Literal['aes-gcm', 'chacha20', 'fernet'] = 'aes-gcm', lock_timeout: float | None = None, validator: Any | None = None, coerce: bool = False, v2_mode: bool = False, flush_mode: Literal['immediate', 'count', 'time', 'manual'] = 'immediate', flush_interval: float = 3.0, flush_count: int = 100, v2_chunk_size: int = 1000, v2_enable_metrics: bool = False, _shared_connection: apsw.Connection | None = None, _shared_lock: threading.RLock | None = None)
 ```
 
-SQLiteを使用した、dict互換のラッパーです。即時永続化とインテリジェントなキャッシュを提供します。
-辞書のシンプルさとSQLiteの永続性・クエリ能力を両立させたい用途に最適です。
+(APSW SQLiteをバックエンドとした、セキュリティ・接続管理強化版の辞書型ラッパー (v1.2.0))
+
+内部でPython dictを保持し、操作時にSQLiteとの同期を行います。
+v1.2.0では、動的SQLのバリデーション強化、ReDoS対策、および厳格な接続管理が導入されています。
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `db_path` | `str` | SQLiteデータベースファイルのパス |
+| `table` | `str` | 使用するテーブル名 (デフォルト: "data") |
+| `bulk_load` | `bool` | Trueの場合、初期化時に全データをメモリに読み込む |
+| `optimize` | `bool` | Trueの場合、WALモードなど高速化設定を適用 |
+| `cache_size_mb` | `int` | SQLiteキャッシュサイズ（MB）、デフォルト64MB |
+| `strict_sql_validation` | `bool` | Trueの場合、未許可の関数等を含むクエリを拒否 |
+| `allowed_sql_functions` | `list[str] | None` | 追加で許可するSQL関数のリスト |
+| `forbidden_sql_functions` | `list[str] | None` | 明示的に禁止するSQL関数のリスト |
+| `max_clause_length` | `int | None` | SQL句の最大長（ReDoS対策）。Noneで制限なし |
+| `cache_strategy` | `CacheType | Literal[unbounded, lru, ttl]` |  |
+| `cache_size` | `int | None` |  |
+| `cache_ttl` | `float | None` |  |
+| `cache_persistence_ttl` | `bool` |  |
+| `encryption_key` | `str | bytes | None` |  |
+| `encryption_mode` | `Literal[aes-gcm, chacha20, fernet]` |  |
+| `lock_timeout` | `float | None` | ロック取得のタイムアウト秒数。Noneで無制限待機 |
+| `validator` | `Any | None` | validkit-py のスキーマ（辞書または Schema オブジェクト）。 |
+| `coerce` | `bool` | ``True`` の場合、validkit-py の自動変換（コアース）機能を有効にする。 |
+| `v2_mode` | `bool` | True の場合、新アーキテクチャ（バックグラウンド非同期書き込み）を有効化 |
+| `flush_mode` | `Literal[immediate, count, time, manual]` | v2のフラッシュモード (immediate, count, time, manual) |
+| `flush_interval` | `float` | v2のtimeモード時の秒数 |
+| `flush_count` | `int` | v2のcountモード時の書き込み閾値 |
+| `v2_chunk_size` | `int` | v2フラッシュ時のトランザクション最大件数 |
+| `v2_enable_metrics` | `bool` | True の場合、v2エンジンのフラッシュメトリクスを収集する（オプション） |
+| `_shared_connection` | `apsw.Connection | None` | 内部用：共有する接続 |
+| `_shared_lock` | `threading.RLock | None` | 内部用：共有するロック |
+
+
 
 ---
 
 ## コンストラクタ
-
-### `__init__`
-
-```python
-def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
-             optimize: bool = True, cache_size_mb: int = 64,
-             cache_strategy: CacheType = CacheType.UNBOUNDED,
-             cache_size: int = 0,
-             cache_ttl: float | None = None,
-             cache_persistence_ttl: bool = False,
-             encryption_key: str | bytes | None = None,
-             encryption_mode: str = "aes-gcm",
-             strict_sql_validation: bool = True,
-             allowed_sql_functions: list[str] | None = None,
-             forbidden_sql_functions: list[str] | None = None,
-             max_clause_length: int | None = 1000,
-             lock_timeout: float | None = None)
-```
-
-NanaSQLiteデータベース接続を初期化します。
-
-**パラメータ:**
-
-- `db_path` (str): SQLiteデータベースファイルのパス。
-- `table` (str, 任意): ストレージに使用するテーブル名。デフォルトは `"data"`。
-- `bulk_load` (bool, 任意): `True` の場合、初期化時に全データをメモリに読み込みます。デフォルトは `False`。
-- `optimize` (bool, 任意): `True` の場合、WALモードなどの最適化を適用します。デフォルトは `True`。
-- `cache_size_mb` (int, 任意): SQLiteキャッシュサイズ（MB）。デフォルトは `64`。
-- `cache_strategy` (CacheType, 任意): `CacheType.UNBOUNDED` or `LRU` or `TTL`. v1.3.0以降。
-- `cache_size` (int, 任意): `LRU`/`FIFO` 戦略時の最大項目数。
-- `cache_ttl` (float, 任意): `TTL` 戦略時の有効期限（秒）。
-- `cache_persistence_ttl` (bool, 任意): `True` の場合、期限切れ時にDBからも削除。
-- `encryption_key` (str | bytes, 任意): 暗号化キー。 v1.3.1以降。
-- `encryption_mode` (str, 任意): `"aes-gcm"` (標準), `"chacha20"`, `"fernet"`。
-- `strict_sql_validation` (bool, 任意): SQLインジェクション防止。デフォルトは `True`。
-- `allowed_sql_functions` (list[str], 任意): 許可するSQL関数。
-- `forbidden_sql_functions` (list[str], 任意): 禁止するSQL関数。
-- `max_clause_length` (int, 任意): SQL句の最大長。デフォルトは `1000`。
-- `lock_timeout` (float | None, 任意): 内部ロック取得の最大待機秒数。指定時間内にロックを取得できない場合は `NanaSQLiteLockError` を送出します。`None`（デフォルト）は無制限待機。(v1.3.4b1以降)
-
----
 
 ## コアメソッド
 
 ### `close`
 
 ```python
-def close(self) -> None
+def close() -> None
 ```
 
-データベース接続を閉じます。
+データベース接続を閉じる
 
-**例外:**
-- `NanaSQLiteTransactionError`: トランザクション中に呼び出された場合。
+注意: table()メソッドで作成されたインスタンスは接続を共有しているため、
+接続の所有者（最初に作成されたインスタンス）のみが接続を閉じます。
 
-**注意:** `.table()` で作成されたインスタンスの場合、元の接続所有者のみがデータベースを閉じます。
+::: warning 例外
+- NanaSQLiteTransactionError: トランザクション中にクローズを試みた場合
+:::
+
+
+---
 
 ### `table`
 
 ```python
-def table(self, table_name: str, cache_strategy: CacheType = None,
-          cache_size: int = None) -> NanaSQLite
+def table(table_name: str, cache_strategy: CacheType | Literal['unbounded', 'lru', 'ttl'] | None = None, cache_size: int | None = None, cache_ttl: float | None = None, cache_persistence_ttl: bool | None = None, validator: Any | None | types.EllipsisType = Ellipsis, coerce: bool | types.EllipsisType = Ellipsis, v2_enable_metrics: bool | types.EllipsisType = Ellipsis)
 ```
 
-指定したサブテーブル用の新しい `NanaSQLite` インスタンスを返します。
+新しいインスタンスを作成しますが、SQLite接続とロックは共有します。
+これにより、複数のテーブルインスタンスが同じ接続を使用して
+スレッドセーフに動作します。
 
-新しいインスタンスは親と同じ接続とロックを共有するため、スレッドセーフであり、データベースロックの問題を防ぎます。
+#### 引数名
 
-**パラメータ:**
-- `table_name` (str): サブテーブルの名前。
-- `cache_strategy` (CacheType, 任意): このテーブル専用のキャッシュ戦略。指定しない場合は親の設定を継承。
-- `cache_size` (int, 任意): このテーブル専用のキャッシュサイズ。
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `table_name` | `str` | テーブル名 |
+| `cache_strategy` | `CacheType | Literal[unbounded, lru, ttl] | None` | このテーブル用のキャッシュ戦略 (デフォルト: 親と同じ) |
+| `cache_size` | `int | None` | このテーブル用のキャッシュサイズ (デフォルト: 親と同じ) |
+| `cache_ttl` | `float | None` | TTL 戦略使用時のキャッシュ有効期限（秒）。省略時は親の設定を継承する。 親が非TTLの場合に TTL 戦略を指定する際は必須。 |
+| `cache_persistence_ttl` | `bool | None` | TTL 戦略使用時に期限切れキーを DB に永続化するか。 省略時は親の設定を継承する。 |
+| `validator` | `Any | None | types.EllipsisType` | このテーブル用の validkit-py スキーマ。 指定しない場合は親インスタンスのスキーマを引き継ぐ。 ``None`` を明示的に渡すとバリデーションなしで使用できる。 |
+| `coerce` | `bool | types.EllipsisType` | ``True`` の場合、validkit-py の自動変換機能を有効にする。 指定しない場合は親インスタンスの設定を引き継ぐ。 ⚠️ 重要な注意事項: - 同じテーブルに対して複数のインスタンスを作成しないでください 各インスタンスは独立したキャッシュを持つため、キャッシュ不整合が発生します - 推奨: テーブルインスタンスを変数に保存して再利用してください |
+| `v2_enable_metrics` | `bool | types.EllipsisType` |  |
 
-**戻り値:**
-- `NanaSQLite`: 指定したテーブルを操作する新しいインスタンス。
+::: warning 例外
+- NanaSQLiteConnectionError: 接続が閉じられている場合
+:::
+
+::: tip 使用例
+```python
+    from validkit import v
+    with NanaSQLite("app.db", table="main") as main_db:
+        users_schema = {"name": v.str(), "age": v.int()}
+        users_db = main_db.table("users", validator=users_schema)
+        products_db = main_db.table("products")
+        users_db["user1"] = {"name": "Alice", "age": 30}
+        products_db["prod1"] = {"name": "Laptop"}
+```
+:::
+
 
 ---
 
 ## 辞書インターフェース
 
-NanaSQLiteは `MutableMapping` を実装しているため、標準のPython `dict` のように動作します。
-
 ### `__getitem__`
+
 ```python
-db["key"]
+def __getitem__(key: str) -> Any
 ```
-値を取得します。遅延ロード（メモリにない場合はDBから読み込み）を使用します。
+
+dict[key] - 遅延ロード後、メモリから取得
+
+
+---
 
 ### `__setitem__`
+
 ```python
-db["key"] = value
+def __setitem__(key: str, value: Any) -> None
 ```
-値を設定します。即座にSQLiteに永続化し、メモリキャッシュを更新します。
+
+dict[key] = value - 即時書き込み + メモリ更新
+
+
+---
 
 ### `__delitem__`
+
 ```python
-del db["key"]
+def __delitem__(key: str) -> None
 ```
-キーを削除します。メモリとSQLiteの両方から即座に削除されます。
+
+del dict[key] - 即時削除
+
+
+---
 
 ### `__contains__`
+
 ```python
-"key" in db
+def __contains__(key: str) -> bool
 ```
-存在確認を行います。メモリにない場合は最適化された `SELECT 1` クエリを使用します。
+
+key in dict - キーの存在確認
+
+軽量な SELECT 1 ... LIMIT 1 クエリで存在確認を行う。
+値の読み込みは __getitem__ の _ensure_cached に委譲する。
+
+
+---
 
 ### `__len__`
-```python
-len(db)
-```
-データベース内の総キー数を返します。
 
-### `get`
 ```python
-def get(self, key: str, default: Any = None) -> Any
+def __len__() -> int
 ```
-キーが存在すればその値を、なければ `default` を返します。
 
-### `setdefault`
-```python
-def setdefault(self, key: str, default: Any = None) -> Any
-```
-キーが存在すればその値を返します。なければ `default` で挿入し、その値を返します。
+len(dict) - DBの実際の件数を返す
 
-### `pop`
-```python
-def pop(self, key: str, *args) -> Any
-```
-キーを削除してその値を返します。キーがない場合、`default` があればそれを返し、なければ `KeyError` を発生させます。
 
-### `update`
-```python
-def update(self, mapping: dict = None, **kwargs) -> None
-```
-辞書やキーワード引数でデータベースを更新します。大量の更新には `batch_update()` を推奨します。
+---
 
-### `clear`
-```python
-def clear(self) -> None
-```
-データベースから全アイテムを削除（テーブルを空にする）し、メモリキャッシュもクリアします。
+### `__iter__`
 
-### `clear_cache`
 ```python
-def clear_cache(self) -> None
+def __iter__() -> Iterator[str]
 ```
-データベースには影響を与えず、メモリ上のキャッシュのみを完全にクリアします。
+
+
+
+
+---
 
 ### `keys`
+
 ```python
-def keys(self) -> list[str]
+def keys() -> list
 ```
-全キーのリストを返します。
+
+全キーを取得（DBから）
+
+
+---
 
 ### `values`
+
 ```python
-def values(self) -> list[Any]
+def values() -> list
 ```
-全値のリストを返します。**一括ロード（全データのメモリ読み込み）が発生します。**
+
+全値を取得（一括ロードしてからメモリから）
+
+
+---
 
 ### `items`
+
 ```python
-def items(self) -> list[tuple[str, Any]]
+def items() -> list
 ```
-全キー・値ペアのリストを返します。**一括ロードが発生します。**
+
+全アイテムを取得（一括ロードしてからメモリから）
+
+
+---
+
+### `get`
+
+```python
+def get(key: str, default: Any = None) -> Any
+```
+
+
+
+
+---
+
+### `pop`
+
+```python
+def pop(key: str, *args) -> Any
+```
+
+
+
+
+---
+
+### `update`
+
+```python
+def update(mapping: dict | None = None, **kwargs) -> None
+```
+
+dict.update(mapping) - 一括更新
+
+
+---
+
+### `clear`
+
+```python
+def clear() -> None
+```
+
+dict.clear() - 全削除
+
+
+---
+
+### `setdefault`
+
+```python
+def setdefault(key: str, default: Any = None) -> Any
+```
+
+
+
+
+---
 
 ### `to_dict`
+
 ```python
-def to_dict(self) -> dict
+def to_dict() -> dict
 ```
-データベース全体を標準のPython辞書に変換します。
+
+全データをPython dictとして取得
+
+
+---
 
 ### `copy`
+
 ```python
-def copy(self) -> dict
+def copy() -> dict
 ```
-`to_dict()` のエイリアスです。
+
+浅いコピーを作成（標準dictを返す）
+
+
+---
+
+### `clear_cache`
+
+```python
+def clear_cache() -> None
+```
+
+メモリキャッシュをクリア
+
+DBのデータは削除せず、メモリ上のキャッシュのみ破棄します。
+
 
 ---
 
 ## データ管理
 
-### `load_all`
-
-```python
-def load_all(self) -> None
-```
-
-データベースの全データをメモリキャッシュに読み込みます。以降の読み込みはメモリのみとなるため高速です。
-
-### `refresh`
-
-```python
-def refresh(self, key: str = None) -> None
-```
-
-内部キャッシュをデータベースから更新します。
-
-**パラメータ:**
-- `key` (str, 任意): 指定された場合、そのキーのみ更新します。`None` の場合、キャッシュ全体をクリアして再読み込みします。
-
 ### `get_fresh`
 
 ```python
-def get_fresh(self, key: str, default: Any = None) -> Any
+def get_fresh(key: str, default: Any = None) -> Any
 ```
 
-キャッシュをバイパスしてDBから最新の値を直接取得し、キャッシュを更新します。
+DBから直接読み込み、キャッシュを更新して値を返す
+
+キャッシュをバイパスしてDBから最新の値を取得する。
+`execute()`でDBを直接変更した後などに使用。
+
+通常の`get()`よりオーバーヘッドがあるため、
+キャッシュとDBの不整合が想定される場合のみ使用推奨。
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `key` | `str` | 取得するキー |
+| `default` |  | キーが存在しない場合のデフォルト値 |
+
+#### 戻り値
+
+DBから取得した最新の値（存在しない場合はdefault）
+
+::: tip 使用例
+```python
+    db.execute("UPDATE data SET value = ? WHERE key = ?", ('"new"', "key"))
+    value = db.get_fresh("key")  # DBから最新値を取得
+```
+:::
+
+
+---
 
 ### `batch_get`
 
 ```python
-def batch_get(self, keys: list[str]) -> dict[str, Any]
+def batch_get(keys: list[str]) -> dict[str, Any]
 ```
 
-複数のキーを1回のクエリで効率的に取得します。
+複数のキーを一度に取得（効率的な一括ロード）
 
-### `batch_update`
+1回の `SELECT IN (...)` クエリで複数のキーをDBから取得する。
+取得した値は自動的にキャッシュに保存される。
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `keys` | `list[str]` | 取得するキーのリスト |
+
+#### 戻り値
+
+**Type:** `dict[str, Any]`
+
+取得に成功したキーと値の dict
+
+::: tip 使用例
+```python
+    results = db.batch_get(["user1", "user2", "user3"])
+    print(results)  # {"user1": {...}, "user2": {...}}
+```
+:::
+
+
+---
+
+### `load_all`
 
 ```python
-def batch_update(self, mapping: dict[str, Any]) -> None
+def load_all() -> None
 ```
 
-単一のトランザクションを使用して一括書き込みを行います。個別の更新より大幅に（10〜100倍）高速です。
+一括読み込み: 全データをメモリに展開
 
-バリデーターが設定されている場合、全値を事前検証し、1件でも失敗すると全件が拒否されます（アトミック動作）。
 
-### `batch_update_partial`
+---
+
+### `refresh`
 
 ```python
-def batch_update_partial(self, mapping: dict[str, Any]) -> dict[str, str]
+def refresh(key: str = None) -> None
 ```
 
-一括書き込み（部分成功モード）。バリデーションまたはシリアライズに失敗したキーのみを拒否し、正常なキーは一括保存します。
+キャッシュを更新（DBから再読み込み）
 
-**戻り値:** 拒否されたキーとエラーメッセージの辞書
+#### 引数名
 
-**使用例:**
-```python
-failed = db.batch_update_partial({
-    "key1": {"valid": "data"},
-    "key2": "invalid data that fails validation"
-})
-print(failed)  # {"key2": "Validation error: ..."}
-```
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `key` | `str` | 特定のキーのみ更新。Noneの場合は全キャッシュをクリアして再読み込み |
 
-### `batch_delete`
 
-```python
-def batch_delete(self, keys: list[str]) -> None
-```
 
-単一のトランザクションを使用して一括削除を行います。
+---
 
 ### `is_cached`
 
 ```python
-def is_cached(self, key: str) -> bool
+def is_cached(key: str) -> bool
 ```
 
-キーが現在メモリキャッシュに読み込まれているかを確認します。
+キーがキャッシュ済みかどうか
+
+
+---
+
+### `batch_update`
+
+```python
+def batch_update(mapping: dict[str, Any]) -> None
+```
+
+一括書き込み（トランザクション + executemany使用で超高速）
+
+大量のデータを一度に書き込む場合、通常のupdateより10-100倍高速。
+v1.0.3rc5でexecutemanyによる最適化を追加。
+v1.3.4b2より、validkit バリデーター設定時は全値を事前に検証する。
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `mapping` | `dict[str, Any]` | 書き込むキーと値のdict |
+
+#### 戻り値
+
+::: tip 使用例
+```python
+    db.batch_update({"key1": "value1", "key2": "value2", ...})
+```
+:::
+
+
+---
+
+### `batch_update_partial`
+
+```python
+def batch_update_partial(mapping: dict[str, Any]) -> dict[str, str]
+```
+
+一括書き込み（部分成功モード）
+
+`batch_update()` のアトミック契約は維持したまま、各キーを個別に準備し、
+バリデーションまたはシリアライズに失敗したキーだけをスキップして残りを書き込む。
+返り値は、拒否されたキーとその理由の辞書。
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `mapping` | `dict[str, Any]` | 書き込むキーと値のdict |
+
+#### 戻り値
+
+**Type:** `dict[str, str]`
+
+拒否されたキー -> エラーメッセージ のdict
+
+::: tip 使用例
+```python
+    failed = db.batch_update_partial({"ok": 1, "bad": object()})
+    print(failed)
+```
+:::
+
+
+---
+
+### `batch_delete`
+
+```python
+def batch_delete(keys: list[str]) -> None
+```
+
+一括削除（トランザクション + executemany使用で高速）
+
+v1.0.3rc5でexecutemanyによる最適化を追加。
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `keys` | `list[str]` | 削除するキーのリスト |
+
+
+
+---
+
+### `flush`
+
+```python
+def flush() -> None
+```
+
+[v2 Feature] v2 エンジンのバックグラウンドバッファを SQLite に強制的にフラッシュします。
+v2モードが無効な場合は何もしません。
+
+
+---
+
+### `get_dlq`
+
+```python
+def get_dlq() -> list[dict[str, Any]]
+```
+
+[v2 Feature] デッドレターキュー（DLQ）の内容を取得します。
+
+
+---
+
+### `retry_dlq`
+
+```python
+def retry_dlq() -> None
+```
+
+[v2 Feature] デッドレターキュー（DLQ）内の全アイテムを再試行キューに戻します。
+
+
+---
+
+### `clear_dlq`
+
+```python
+def clear_dlq() -> None
+```
+
+[v2 Feature] デッドレターキュー（DLQ）の内容をクリアします。
+
+
+---
+
+### `get_v2_metrics`
+
+```python
+def get_v2_metrics() -> dict[str, Any]
+```
+
+[v2 Feature] 現在の v2 メトリクス情報を取得します。
+
 
 ---
 
@@ -283,85 +560,258 @@ def is_cached(self, key: str) -> bool
 ### `begin_transaction`
 
 ```python
-def begin_transaction(self) -> None
+def begin_transaction() -> None
 ```
-手動でトランザクションを開始します (`BEGIN IMMEDIATE`)。
-**例外:** 既にトランザクション中の場合 `NanaSQLiteTransactionError`。
+
+トランザクションを開始
+
+Note:
+    SQLiteはネストされたトランザクションをサポートしていません。
+    既にトランザクション中の場合、NanaSQLiteTransactionErrorが発生します。
+
+::: warning 例外
+- NanaSQLiteTransactionError: 既にトランザクション中の場合
+- NanaSQLiteConnectionError: 接続が閉じられている場合
+- NanaSQLiteDatabaseError: トランザクション開始に失敗した場合
+:::
+
+::: tip 使用例
+```python
+    db.begin_transaction()
+    try:
+        db.sql_insert("users", {"name": "Alice"})
+        db.sql_insert("users", {"name": "Bob"})
+        db.commit()
+    except:
+        db.rollback()
+```
+:::
+
+
+---
 
 ### `commit`
 
 ```python
-def commit(self) -> None
+def commit() -> None
 ```
-現在のトランザクションをコミットします。
+
+トランザクションをコミット
+
+::: warning 例外
+- NanaSQLiteTransactionError: トランザクション外でコミットを試みた場合
+- NanaSQLiteConnectionError: 接続が閉じられている場合
+- NanaSQLiteDatabaseError: コミットに失敗した場合
+:::
+
+
+---
 
 ### `rollback`
 
 ```python
-def rollback(self) -> None
+def rollback() -> None
 ```
-現在のトランザクションをロールバックします。
+
+トランザクションをロールバック
+
+::: warning 例外
+- NanaSQLiteTransactionError: トランザクション外でロールバックを試みた場合
+- NanaSQLiteConnectionError: 接続が閉じられている場合
+- NanaSQLiteDatabaseError: ロールバックに失敗した場合
+:::
+
+
+---
 
 ### `in_transaction`
 
 ```python
-def in_transaction(self) -> bool
+def in_transaction() -> bool
 ```
-現在トランザクション中の場合 `True` を返します。
+
+現在トランザクション中かどうかを返す
+
+#### 戻り値
+
+**Type:** `bool`
+
+bool: トランザクション中の場合True
+
+::: tip 使用例
+```python
+    db.begin_transaction()
+    print(db.in_transaction())  # True
+    db.commit()
+    print(db.in_transaction())  # False
+```
+:::
+
+
+---
 
 ### `transaction`
 
 ```python
-def transaction(self)
+def transaction()
 ```
-自動トランザクション処理のためのコンテキストマネージャです。
-正常終了時にコミット、例外発生時にロールバックします。
 
+トランザクションのコンテキストマネージャ
+
+コンテキストマネージャ内で例外が発生しない場合は自動的にコミット、
+例外が発生した場合は自動的にロールバックします。
+
+::: warning 例外
+- NanaSQLiteTransactionError: 既にトランザクション中の場合
+:::
+
+::: tip 使用例
 ```python
-with db.transaction():
-    db["a"] = 1
-    db["b"] = 2
+    with db.transaction():
+        db.sql_insert("users", {"name": "Alice"})
+        db.sql_insert("users", {"name": "Bob"})
+        # 自動的にコミット、例外時はロールバック
 ```
+:::
+
 
 ---
 
 ## SQLラッパー (CRUD)
 
-生のSQLを書かずに一般的なSQL操作を安全に行うためのヘルパーメソッドです。
-
 ### `sql_insert`
 
 ```python
-def sql_insert(self, table_name: str, data: dict) -> int
+def sql_insert(table_name: str, data: dict) -> int
 ```
-指定したテーブルに行を挿入します。
-**戻り値:** 挿入された行の `ROWID`。
+
+dictから直接INSERT
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `table_name` | `str` | テーブル名 |
+| `data` | `dict` | カラム名と値のdict |
+
+#### 戻り値
+
+**Type:** `int`
+
+挿入されたROWID
+
+::: tip 使用例
+```python
+    rowid = db.sql_insert("users", {
+        "name": "Alice",
+        "email": "alice@example.com",
+        "age": 25
+    })
+```
+:::
+
+
+---
 
 ### `sql_update`
 
 ```python
-def sql_update(self, table_name: str, data: dict, where: str, parameters: tuple = None) -> int
+def sql_update(table_name: str, data: dict, where: str, parameters: tuple = None) -> int
 ```
-`where` 条件に一致する行を更新します。
-**戻り値:** 影響を受けた行数。
+
+dictとwhere条件でUPDATE
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `table_name` | `str` | テーブル名 |
+| `data` | `dict` | 更新するカラム名と値のdict |
+| `where` | `str` | WHERE句の条件 |
+| `parameters` | `tuple` | WHERE句のパラメータ |
+
+#### 戻り値
+
+**Type:** `int`
+
+更新された行数
+
+::: tip 使用例
+```python
+    count = db.sql_update("users",
+        {"age": 26, "status": "active"},
+        "name = ?",
+        ("Alice",)
+    )
+```
+:::
+
+
+---
 
 ### `sql_delete`
 
 ```python
-def sql_delete(self, table_name: str, where: str, parameters: tuple = None) -> int
+def sql_delete(table_name: str, where: str, parameters: tuple = None) -> int
 ```
-`where` 条件に一致する行を削除します。
-**戻り値:** 影響を受けた行数。
+
+where条件でDELETE
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `table_name` | `str` | テーブル名 |
+| `where` | `str` | WHERE句の条件 |
+| `parameters` | `tuple` | WHERE句のパラメータ |
+
+#### 戻り値
+
+**Type:** `int`
+
+削除された行数
+
+::: tip 使用例
+```python
+    count = db.sql_delete("users", "age < ?", (18,))
+```
+:::
+
+
+---
 
 ### `upsert`
 
 ```python
-def upsert(self, table_name: str, data: dict, conflict_columns: list[str] = None) -> int
+def upsert(table_name: str | Any = None, data: Any = None, conflict_columns: list[str] = None) -> int | None
 ```
-"Insert or Replace" または "Insert ... ON CONFLICT DO UPDATE" 操作を行います。
 
-**パラメータ:**
-- `conflict_columns`: 指定された場合、`ON CONFLICT (...) DO UPDATE` を生成します。`None` の場合、`INSERT OR REPLACE` を使用します。
+INSERT OR REPLACE の簡易版（upsert）
+v2モードが有効で、キー/値のペアとして呼び出された場合はバックグラウンドキューに送られます。
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `table_name` | `str | Any` | テーブル名、または第2引数がNoneの場合はキー名 |
+| `data` |  | カラム名と値のdict、または第1引数がキー名の場合は値 |
+| `conflict_columns` | `list[str]` | 競合判定に使用するカラム（Noneの場合はINSERT OR REPLACE）。 キー/値のペア指定時は無視されます。 |
+
+#### 戻り値
+
+**Type:** `int | None`
+
+挿入/更新されたROWID。v2モードでのキー/値ペア指定時はNone。
+
+::: tip 使用例
+```python
+    # テーブル指定（標準）
+    db.upsert("users", {"id": 1, "name": "Alice", "age": 25})
+    # キー/値指定 (v2互換)
+    db.upsert("user:1", {"name": "Nana"})
+```
+:::
+
 
 ---
 
@@ -370,42 +820,163 @@ def upsert(self, table_name: str, data: dict, conflict_columns: list[str] = None
 ### `query`
 
 ```python
-def query(self, table_name: str = None, columns: list[str] = None,
-          where: str = None, parameters: tuple = None,
-          order_by: str = None, limit: int = None,
-          strict_sql_validation: bool = None, ...) -> list[dict]
+def query(table_name: str = None, columns: list[str] = None, where: str = None, parameters: tuple = None, order_by: str = None, limit: int = None, strict_sql_validation: bool = None, allowed_sql_functions: list[str] = None, forbidden_sql_functions: list[str] = None, override_allowed: bool = False) -> list[dict]
 ```
 
-`SELECT` クエリを実行し、結果を辞書のリストとして返します。
+シンプルなSELECTクエリを実行
 
-**パラメータ:**
-- `table_name`:対象テーブル。デフォルトはメインデータテーブル。
-- `columns`: 取得するカラムのリスト。デフォルトは `*`。
-- `where`: SQL `WHERE` 句（"WHERE" という単語は不要）。
-- `parameters`: `where` 句のプレースホルダに対する値のタプル。
-- `limit`: 取得する最大行数。
+#### 引数名
 
-### `query_with_pagination`
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `table_name` | `str` | テーブル名（Noneの場合はデフォルトテーブル） |
+| `columns` | `list[str]` | 取得するカラムのリスト（Noneの場合は全カラム） |
+| `where` | `str` | WHERE句の条件（パラメータバインディング使用推奨） |
+| `parameters` | `tuple` | WHERE句のパラメータ |
+| `order_by` | `str` | ORDER BY句 |
+| `limit` | `int` | LIMIT句 |
+| `strict_sql_validation` | `bool` | Trueの場合、未許可の関数等を含むクエリを拒否 |
+| `allowed_sql_functions` | `list[str]` | このクエリで一時的に許可するSQL関数のリスト |
+| `forbidden_sql_functions` | `list[str]` | このクエリで一時的に禁止するSQL関数のリスト |
+| `override_allowed` | `bool` | Trueの場合、インスタンス許可設定を無視 |
+
+#### 戻り値
+
+**Type:** `list[dict]`
+
+結果のリスト（各行はdict）
+
+::: tip 使用例
+```python
+    # デフォルトテーブルから全データ取得
+    results = db.query()
+```
 
 ```python
-def query_with_pagination(self, table_name: str = None, ..., offset: int = None, group_by: str = None) -> list[dict]
+    # 条件付き検索
+    results = db.query(
+        table_name="users",
+        columns=["id", "name", "email"],
+        where="age > ?",
+        parameters=(20,),
+        order_by="name ASC",
+        limit=10
+    )
 ```
+:::
 
-`offset`（ページネーション）と `group_by` をサポートする `query` の拡張版です。
+
+---
 
 ### `count`
 
 ```python
-def count(self, table_name: str = None, where: str = None, parameters: tuple = None, ...) -> int
+def count(table_name: str = None, where: str = None, parameters: tuple = None, strict_sql_validation: bool = None, allowed_sql_functions: list[str] = None, forbidden_sql_functions: list[str] = None, override_allowed: bool = False) -> int
 ```
-条件に一致する行数を返します。
+
+レコード数を取得
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `table_name` | `str` | テーブル名（Noneの場合はデフォルトテーブル） |
+| `where` | `str` | WHERE句の条件（オプション） |
+| `parameters` | `tuple` | WHERE句のパラメータ |
+| `strict_sql_validation` | `bool` | Trueの場合、未許可の関数等を含むクエリを拒否 |
+| `allowed_sql_functions` | `list[str]` | このクエリで一時的に許可するSQL関数のリスト |
+| `forbidden_sql_functions` | `list[str]` | このクエリで一時的に禁止するSQL関数のリスト |
+| `override_allowed` | `bool` | Trueの場合、インスタンス許可設定を無視 |
+
+::: tip 使用例
+```python
+    total = db.count("users")
+    adults = db.count("users", "age >= ?", (18,))
+```
+:::
+
+
+---
 
 ### `exists`
 
 ```python
-def exists(self, table_name: str, where: str, parameters: tuple = None) -> bool
+def exists(table_name: str, where: str, parameters: tuple = None) -> bool
 ```
-条件に一致する行が存在するか効率的に確認します（`SELECT 1 ... LIMIT 1` を使用）。
+
+レコードの存在確認
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `table_name` | `str` | テーブル名 |
+| `where` | `str` | WHERE句の条件 |
+| `parameters` | `tuple` | WHERE句のパラメータ |
+
+#### 戻り値
+
+**Type:** `bool`
+
+存在する場合True
+
+::: tip 使用例
+```python
+    if db.exists("users", "email = ?", ("alice@example.com",)):
+        print("User exists")
+```
+:::
+
+
+---
+
+### `query_with_pagination`
+
+```python
+def query_with_pagination(table_name: str = None, columns: list[str] = None, where: str = None, parameters: tuple = None, order_by: str = None, limit: int = None, offset: int = None, group_by: str = None, strict_sql_validation: bool = None, allowed_sql_functions: list[str] = None, forbidden_sql_functions: list[str] = None, override_allowed: bool = False) -> list[dict]
+```
+
+拡張されたクエリ（offset、group_by対応）
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `table_name` | `str` | テーブル名 |
+| `columns` | `list[str]` | 取得するカラム |
+| `where` | `str` | WHERE句 |
+| `parameters` | `tuple` | パラメータ |
+| `order_by` | `str` | ORDER BY句 |
+| `limit` | `int` | LIMIT句 |
+| `offset` | `int` | OFFSET句（ページネーション用） |
+| `group_by` | `str` | GROUP BY句 |
+| `strict_sql_validation` | `bool` | Trueの場合、未許可の関数等を含むクエリを拒否 |
+| `allowed_sql_functions` | `list[str]` | このクエリで一時的に許可するSQL関数のリスト |
+| `forbidden_sql_functions` | `list[str]` | このクエリで一時的に禁止するSQL関数のリスト |
+| `override_allowed` | `bool` | Trueの場合、インスタンス許可設定を無視 |
+
+#### 戻り値
+
+**Type:** `list[dict]`
+
+結果のリスト
+
+::: tip 使用例
+```python
+    # ページネーション
+    page2 = db.query_with_pagination("users",
+        limit=10, offset=10, order_by="id ASC")
+```
+
+```python
+    # グループ集計
+    stats = db.query_with_pagination("orders",
+        columns=["user_id", "COUNT(*) as order_count"],
+        group_by="user_id"
+    )
+```
+:::
+
 
 ---
 
@@ -414,31 +985,143 @@ def exists(self, table_name: str, where: str, parameters: tuple = None) -> bool
 ### `execute`
 
 ```python
-def execute(self, sql: str, parameters: tuple | None = None) -> apsw.Cursor
+def execute(sql: str, parameters: tuple | None = None) -> apsw.Cursor
 ```
-生のSQLステートメントを実行します。
-**戻り値:** `apsw.Cursor` オブジェクト。
+
+SQLを直接実行
+
+任意のSQL文を実行できる。SELECT、INSERT、UPDATE、DELETEなど。
+パラメータバインディングをサポート（SQLインジェクション対策）。
+
+    このメソッドで直接デフォルトテーブル（data）を操作した場合、
+    内部キャッシュ（_data）と不整合が発生する可能性があります。
+    キャッシュを更新するには `refresh()` を呼び出してください。
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `sql` | `str` | 実行するSQL文 |
+| `parameters` | `tuple | None` | SQLのパラメータ（?プレースホルダー用） |
+
+#### 戻り値
+
+**Type:** `apsw.Cursor`
+
+APSWのCursorオブジェクト（結果の取得に使用）
+
+::: warning 例外
+- NanaSQLiteConnectionError: 接続が閉じられている場合
+- NanaSQLiteDatabaseError: SQL実行エラー
+:::
+
+::: tip 使用例
+```python
+    cursor = db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
+    for row in cursor:
+        print(row)
+```
+
+    # キャッシュ更新が必要な場合:
+```python
+    db.execute("UPDATE data SET value = ? WHERE key = ?", ('"new"', "key"))
+    db.refresh("key")  # キャッシュを更新
+```
+:::
+
+
+---
 
 ### `execute_many`
 
 ```python
-def execute_many(self, sql: str, parameters_list: list[tuple]) -> None
+def execute_many(sql: str, parameters_list: list[tuple]) -> None
 ```
-同じSQLステートメントを異なるパラメータで複数回実行します（一括実行）。
+
+SQLを複数のパラメータで一括実行
+
+同じSQL文を複数のパラメータセットで実行（トランザクション使用）。
+大量のINSERTやUPDATEを高速に実行できる。
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `sql` | `str` | 実行するSQL文 |
+| `parameters_list` | `list[tuple]` | パラメータのリスト |
+
+::: tip 使用例
+```python
+    db.execute_many(
+        "INSERT OR REPLACE INTO custom (id, name) VALUES (?, ?)",
+        [(1, "Alice"), (2, "Bob"), (3, "Charlie")]
+    )
+```
+:::
+
+
+---
 
 ### `fetch_one`
 
 ```python
-def fetch_one(self, sql: str, parameters: tuple = None) -> tuple | None
+def fetch_one(sql: str, parameters: tuple = None) -> tuple | None
 ```
-SQLを実行し、最初の行（または `None`）を返します。
+
+SQLを実行して1行取得
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `sql` | `str` | 実行するSQL文 |
+| `parameters` | `tuple` | SQLのパラメータ |
+
+#### 戻り値
+
+**Type:** `tuple | None`
+
+1行の結果（tuple）、結果がない場合はNone
+
+::: tip 使用例
+```python
+    row = db.fetch_one("SELECT value FROM data WHERE key = ?", ("user",))
+    print(row[0])
+```
+:::
+
+
+---
 
 ### `fetch_all`
 
 ```python
-def fetch_all(self, sql: str, parameters: tuple = None) -> list[tuple]
+def fetch_all(sql: str, parameters: tuple = None) -> list[tuple]
 ```
-SQLを実行し、全行を返します。
+
+SQLを実行して全行取得
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `sql` | `str` | 実行するSQL文 |
+| `parameters` | `tuple` | SQLのパラメータ |
+
+#### 戻り値
+
+**Type:** `list[tuple]`
+
+全行の結果（tupleのリスト）
+
+::: tip 使用例
+```python
+    rows = db.fetch_all("SELECT key, value FROM data WHERE key LIKE ?", ("user%",))
+    for key, value in rows:
+        print(key, value)
+```
+:::
+
 
 ---
 
@@ -447,66 +1130,256 @@ SQLを実行し、全行を返します。
 ### `create_table`
 
 ```python
-def create_table(self, table_name: str, columns: dict, if_not_exists: bool = True, primary_key: str = None) -> None
+def create_table(table_name: str, columns: dict, if_not_exists: bool = True, primary_key: str = None) -> None
 ```
-新しいテーブルを作成します。
-**例:** `db.create_table("users", {"id": "INTEGER", "name": "TEXT"}, primary_key="id")`
+
+テーブルを作成
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `table_name` | `str` | テーブル名 |
+| `columns` | `dict` | カラム定義のdict（カラム名: SQL型） |
+| `if_not_exists` | `bool` | Trueの場合、存在しない場合のみ作成 |
+| `primary_key` | `str` | プライマリキーのカラム名（Noneの場合は指定なし） |
+
+::: tip 使用例
+```python
+    db.create_table("users", {
+        "id": "INTEGER PRIMARY KEY",
+        "name": "TEXT NOT NULL",
+        "email": "TEXT UNIQUE",
+        "age": "INTEGER"
+    })
+    db.create_table("posts", {
+        "id": "INTEGER",
+        "title": "TEXT",
+        "content": "TEXT"
+    }, primary_key="id")
+```
+:::
+
+
+---
 
 ### `create_index`
 
 ```python
-def create_index(self, index_name: str, table_name: str, columns: list[str], unique: bool = False, if_not_exists: bool = True) -> None
+def create_index(index_name: str, table_name: str, columns: list[str], unique: bool = False, if_not_exists: bool = True) -> None
 ```
-テーブルにインデックスを作成します。
 
-### `alter_table_add_column`
+インデックスを作成
 
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `index_name` | `str` | インデックス名 |
+| `table_name` | `str` | テーブル名 |
+| `columns` | `list[str]` | インデックスを作成するカラムのリスト |
+| `unique` | `bool` | Trueの場合、ユニークインデックスを作成 |
+| `if_not_exists` | `bool` | Trueの場合、存在しない場合のみ作成 |
+
+::: tip 使用例
 ```python
-def alter_table_add_column(self, table_name: str, column_name: str, column_type: str, default: Any = None) -> None
+    db.create_index("idx_users_email", "users", ["email"], unique=True)
+    db.create_index("idx_posts_user", "posts", ["user_id", "created_at"])
 ```
-既存のテーブルにカラムを追加します。
+:::
 
-### `drop_table`
 
-```python
-def drop_table(self, table_name: str, if_exists: bool = True) -> None
-```
-テーブルを削除します。
-
-### `drop_index`
-
-```python
-def drop_index(self, index_name: str, if_exists: bool = True) -> None
-```
-インデックスを削除します。
-
-### `list_tables`
-
-```python
-def list_tables(self) -> list[str]
-```
-データベース内の全テーブルのリストを返します。
-
-### `list_indexes`
-
-```python
-def list_indexes(self, table_name: str = None) -> list[dict]
-```
-インデックスのリストを返します（テーブル指定可）。
-
-### `get_table_schema`
-
-```python
-def get_table_schema(self, table_name: str) -> list[dict]
-```
-テーブルの詳細なスキーマ情報を返します。
+---
 
 ### `table_exists`
 
 ```python
-def table_exists(self, table_name: str) -> bool
+def table_exists(table_name: str) -> bool
 ```
-テーブルが存在するか確認します。
+
+テーブルの存在確認
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `table_name` | `str` | テーブル名 |
+
+#### 戻り値
+
+**Type:** `bool`
+
+存在する場合True、しない場合False
+
+::: tip 使用例
+```python
+    if db.table_exists("users"):
+        print("users table exists")
+```
+:::
+
+
+---
+
+### `list_tables`
+
+```python
+def list_tables() -> list[str]
+```
+
+データベース内の全テーブル一覧を取得
+
+#### 戻り値
+
+**Type:** `list[str]`
+
+テーブル名のリスト
+
+::: tip 使用例
+```python
+    tables = db.list_tables()
+    print(tables)  # ['data', 'users', 'posts']
+```
+:::
+
+
+---
+
+### `drop_table`
+
+```python
+def drop_table(table_name: str, if_exists: bool = True) -> None
+```
+
+テーブルを削除
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `table_name` | `str` | テーブル名 |
+| `if_exists` | `bool` | Trueの場合、存在する場合のみ削除（エラーを防ぐ） |
+
+::: tip 使用例
+```python
+    db.drop_table("old_table")
+    db.drop_table("temp", if_exists=True)
+```
+:::
+
+
+---
+
+### `drop_index`
+
+```python
+def drop_index(index_name: str, if_exists: bool = True) -> None
+```
+
+インデックスを削除
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `index_name` | `str` | インデックス名 |
+| `if_exists` | `bool` | Trueの場合、存在する場合のみ削除 |
+
+::: tip 使用例
+```python
+    db.drop_index("idx_users_email")
+```
+:::
+
+
+---
+
+### `alter_table_add_column`
+
+```python
+def alter_table_add_column(table_name: str, column_name: str, column_type: str, default: Any = None) -> None
+```
+
+既存テーブルにカラムを追加
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `table_name` | `str` | テーブル名 |
+| `column_name` | `str` | カラム名 |
+| `column_type` | `str` | カラムの型（SQL型） |
+| `default` |  | デフォルト値（Noneの場合は指定なし） |
+
+::: tip 使用例
+```python
+    db.alter_table_add_column("users", "phone", "TEXT")
+    db.alter_table_add_column("users", "status", "TEXT", default="'active'")
+```
+:::
+
+
+---
+
+### `get_table_schema`
+
+```python
+def get_table_schema(table_name: str = None) -> list[dict]
+```
+
+テーブル構造を取得
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `table_name` | `str` | テーブル名 (Noneの場合は自身のテーブル) |
+
+#### 戻り値
+
+**Type:** `list[dict]`
+
+カラム情報のリスト（各カラムはdict）
+
+::: tip 使用例
+```python
+    schema = db.get_table_schema("users")
+    for col in schema:
+        print(f"{col['name']}: {col['type']}")
+```
+:::
+
+
+---
+
+### `list_indexes`
+
+```python
+def list_indexes(table_name: str = None) -> list[dict]
+```
+
+インデックス一覧を取得
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `table_name` | `str` | テーブル名（Noneの場合は全インデックス） |
+
+#### 戻り値
+
+**Type:** `list[dict]`
+
+インデックス情報のリスト
+
+::: tip 使用例
+```python
+    indexes = db.list_indexes("users")
+    for idx in indexes:
+        print(f"{idx['name']}: {idx['columns']}")
+```
+:::
+
 
 ---
 
@@ -515,94 +1388,165 @@ def table_exists(self, table_name: str) -> bool
 ### `vacuum`
 
 ```python
-def vacuum(self) -> None
+def vacuum() -> None
 ```
-データベースファイルを最適化し、サイズを縮小します（`VACUUM` を実行）。
+
+データベースを最適化（VACUUM実行）
+
+削除されたレコードの領域を回収し、データベースファイルを最適化。
+
+::: tip 使用例
+```python
+    db.vacuum()
+```
+:::
+
+
+---
 
 ### `get_db_size`
 
 ```python
-def get_db_size(self) -> int
+def get_db_size() -> int
 ```
-データベースファイルのサイズをバイト単位で返します。
 
-### `pragma`
+データベースファイルのサイズを取得（バイト単位）
 
+#### 戻り値
+
+**Type:** `int`
+
+データベースファイルのサイズ
+
+::: tip 使用例
 ```python
-def pragma(self, pragma_name: str, value: Any = None) -> Any
+    size = db.get_db_size()
+    print(f"DB size: {size / 1024 / 1024:.2f} MB")
 ```
-SQLiteのPRAGMA値を取得または設定します。
+:::
+
+
+---
 
 ### `get_last_insert_rowid`
 
 ```python
-def get_last_insert_rowid(self) -> int
+def get_last_insert_rowid() -> int
 ```
-最後に挿入された行の `ROWID` を返します。
+
+最後に挿入されたROWIDを取得
+
+#### 戻り値
+
+**Type:** `int`
+
+最後に挿入されたROWID
+
+::: tip 使用例
+```python
+    db.sql_insert("users", {"name": "Alice"})
+    rowid = db.get_last_insert_rowid()
+```
+:::
+
 
 ---
 
-## バックアップ & リストア (v1.3.4b1以降)
+### `pragma`
+
+```python
+def pragma(pragma_name: str, value: Any = None) -> Any
+```
+
+PRAGMA設定の取得/設定
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `pragma_name` | `str` | PRAGMA名 |
+| `value` |  | 設定値（Noneの場合は取得のみ） |
+
+#### 戻り値
+
+valueがNoneの場合は現在の値、そうでない場合はNone
+
+::: tip 使用例
+```python
+    # 取得
+    mode = db.pragma("journal_mode")
+```
+
+```python
+    # 設定
+    db.pragma("foreign_keys", 1)
+```
+:::
+
+
+---
+
+## バックアップ & リストア
 
 ### `backup`
 
 ```python
-def backup(self, dest_path: str) -> None
+def backup(dest_path: str) -> None
 ```
 
-APSW の SQLite オンラインバックアップ API を使用して、現在のデータベースをファイルにバックアップします。
-バックアップはページ単位で実行されるため、他の SQLite 接続が同時に読み書きしていても安全に動作します。
-バックアップ実行中に NanaSQLite の内部ロックを保持しないため、同一プロセス内の他の NanaSQLite 操作をブロックしません。
+データベースをファイルにバックアップする
 
-**パラメータ:**
-- `dest_path` (str): バックアップ先のファイルパス。
+APSW の SQLite バックアップ API を使用して、現在の DB 全体を dest_path に書き出します。
+SQLite のトランザクション機構により、他の SQLite 接続が同時に読み書きしていても
+データの整合性を保ったままバックアップできます。
+NanaSQLite の内部ロックはバックアップ中に保持しないため、同一プロセス内の
+他の NanaSQLite 操作をブロックしません。
 
-**例外:**
-- `NanaSQLiteClosedError`: 接続が閉じられている場合。
-- `NanaSQLiteValidationError`: `dest_path` が DB ファイル自身と同一である場合（自己コピー防止）、または `':memory:'` / `'file::memory:...'` などインメモリDB文字列が指定された場合（永続化されないため）。
-- `NanaSQLiteDatabaseError`: バックアップ中にエラーが発生した場合。
-- `NanaSQLiteLockError`: `lock_timeout` 設定によりロック取得がタイムアウトした場合。
+#### 引数名
 
-**使用例:**
-```python
-db = NanaSQLite("app.db")
-db["user"] = {"name": "Nana"}
-db.backup("app_backup.db")
-# app_backup.db に app.db の完全なコピーが保存されます
-```
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `dest_path` | `str` | バックアップ先ファイルパス |
+
+::: warning 例外
+- NanaSQLiteClosedError: 接続が閉じられている場合
+- NanaSQLiteValidationError: dest_path が現在のDBファイルと同一の場合（自己コピー防止）、または
+- dest_path がインメモリDB文字列（':memory:' など）の場合（永続化されないため）
+- NanaSQLiteDatabaseError: バックアップ中にエラーが発生した場合
+- NanaSQLiteLockError: lock_timeout 設定によりロック取得に失敗した場合
+:::
+
+
+---
 
 ### `restore`
 
 ```python
-def restore(self, src_path: str) -> None
+def restore(src_path: str) -> None
 ```
 
-バックアップファイルからデータベースをリストアします。
-現在の接続を閉じ、バックアップファイルを DB ファイルに上書きコピーし、
-stale な WAL/SHM/journal サイドカーファイル（`-wal`/`-shm`/`-journal`）を削除してから接続を再確立します。
-リストア後はメモリキャッシュが自動的にクリアされます。
+バックアップファイルからデータベースをリストアする
 
-**パラメータ:**
-- `src_path` (str): リストア元のバックアップファイルパス。
+現在の接続を一時的に閉じ、src_path のファイルを DB パスにコピーし、
+stale な WAL/SHM/journal サイドカーファイル（-wal/-shm/-journal）を
+削除してから再接続します。
+リストア後はメモリキャッシュがクリアされ、DB の内容が反映されます。
 
-**例外:**
-- `NanaSQLiteClosedError`: 接続が閉じられている場合。
-- `NanaSQLiteConnectionError`: `.table()` で取得した（接続を所有しない）インスタンスから呼び出した場合。
-- `NanaSQLiteTransactionError`: トランザクション中に呼び出した場合。`restore()` を呼ぶ前にコミットまたはロールバックしてください。
-- `NanaSQLiteValidationError`: 現在の DB が `':memory:'` または `'file::memory:...'` などのインメモリDBの場合（ファイルによるリストアが不可能なため）。
-- `NanaSQLiteDatabaseError`: リストア中にエラーが発生した場合（例：ファイルが存在しない、stale な WAL サイドカーファイルを削除できない場合）。
-- `NanaSQLiteLockError`: `lock_timeout` 設定によりロック取得がタイムアウトした場合。
+#### 引数名
 
-**使用例:**
-```python
-db = NanaSQLite("app.db")
-db["user"] = {"name": "Nana"}
-db.backup("snapshot.db")
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `src_path` | `str` | リストア元バックアップファイルパス |
 
-db["user"] = {"name": "変更後"}
-db.restore("snapshot.db")
-print(db["user"])  # {'name': 'Nana'}
-```
+::: warning 例外
+- NanaSQLiteClosedError: 接続が閉じられている場合
+- NanaSQLiteConnectionError: 接続を所有していない (table() で取得した) インスタンスから呼ばれた場合
+- NanaSQLiteValidationError: 現在のDBがインメモリDB（':memory:' など）の場合（ファイル置換が不可能なため）
+- NanaSQLiteTransactionError: トランザクション中に呼ばれた場合
+- NanaSQLiteDatabaseError: リストア中にエラーが発生した場合
+- NanaSQLiteLockError: lock_timeout 設定によりロック取得に失敗した場合
+:::
+
 
 ---
 
@@ -611,13 +1555,140 @@ print(db["user"])  # {'name': 'Nana'}
 ### `set_model`
 
 ```python
-def set_model(self, key: str, model: Any) -> None
+def set_model(key: str, model: Any) -> None
 ```
-Pydanticモデルをシリアライズして保存します。
+
+Pydanticモデルを保存
+
+Pydanticモデル（BaseModelを継承したクラス）をシリアライズして保存。
+model_dump()メソッドを使用してdictに変換し、モデルのクラス情報も保存。
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `key` | `str` | 保存するキー |
+| `model` |  | Pydanticモデルのインスタンス |
+
+::: tip 使用例
+```python
+    from pydantic import BaseModel
+    class User(BaseModel):
+        name: str
+        age: int
+    user = User(name="Nana", age=20)
+    db.set_model("user", user)
+```
+:::
+
+
+---
 
 ### `get_model`
 
 ```python
-def get_model(self, key: str, model_class: type = None) -> Any
+def get_model(key: str, model_class: type = None) -> Any
 ```
-Pydanticモデルを取得してデシリアライズします。
+
+Pydanticモデルを取得
+
+保存されたPydanticモデルをデシリアライズして復元。
+model_classが指定されていない場合は、保存時のクラス情報を使用。
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `key` | `str` | 取得するキー |
+| `model_class` | `type` | Pydanticモデルのクラス（Noneの場合は自動検出を試みる） |
+
+#### 戻り値
+
+Pydanticモデルのインスタンス
+
+::: tip 使用例
+```python
+    user = db.get_model("user", User)
+    print(user.name)  # "Nana"
+```
+:::
+
+
+---
+
+## その他のメソッド
+
+### `export_table_to_dict`
+
+```python
+def export_table_to_dict(table_name: str) -> list[dict]
+```
+
+テーブル全体をdictのリストとして取得
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `table_name` | `str` | テーブル名 |
+
+#### 戻り値
+
+**Type:** `list[dict]`
+
+全レコードのリスト
+
+::: tip 使用例
+```python
+    all_users = db.export_table_to_dict("users")
+```
+:::
+
+
+---
+
+### `import_from_dict_list`
+
+```python
+def import_from_dict_list(table_name: str, data_list: list[dict]) -> int
+```
+
+dictのリストからテーブルに一括挿入
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `table_name` | `str` | テーブル名 |
+| `data_list` | `list[dict]` | 挿入するデータのリスト |
+
+#### 戻り値
+
+**Type:** `int`
+
+挿入された行数
+
+::: tip 使用例
+```python
+    users = [
+        {"name": "Alice", "age": 25},
+        {"name": "Bob", "age": 30}
+    ]
+    count = db.import_from_dict_list("users", users)
+```
+:::
+
+
+---
+
+### `popitem`
+
+```python
+def popitem()
+```
+
+
+
+
+---
+

@@ -2,8 +2,6 @@
 
 Complete API cheat sheet for NanaSQLite.
 
----
-
 ## Class: NanaSQLite
 
 ```python
@@ -12,7 +10,13 @@ class NanaSQLite(db_path: str, table: str = "data", bulk_load: bool = False,
                  strict_sql_validation: bool = True,
                  allowed_sql_functions: list[str] | None = None,
                  forbidden_sql_functions: list[str] | None = None,
-                 max_clause_length: int | None = 1000)
+                 max_clause_length: int | None = 1000,
+                 v2_mode: bool = False,
+                 flush_mode: str = "immediate",
+                 flush_interval: float = 3.0,
+                 flush_count: int = 100,
+                 v2_chunk_size: int = 1000,
+                 v2_enable_metrics: bool = False)
 ```
 
 A wrapper class that provides SQLite persistence with a dict-like interface.
@@ -30,6 +34,12 @@ A wrapper class that provides SQLite persistence with a dict-like interface.
 | `allowed_sql_functions` | `list` | `None` | List of allowed SQL functions |
 | `forbidden_sql_functions` | `list` | `None` | List of forbidden SQL functions |
 | `max_clause_length` | `int` | `1000` | Maximum character length for SQL clauses |
+| `v2_mode` | `bool` | `False` | Enable v2 architecture (async background writes) (v1.4.0+) |
+| `flush_mode` | `str` | `"immediate"` | v2 flush mode (`immediate`, `count`, `time`, `manual`) |
+| `flush_interval` | `float` | `3.0` | Flush interval in seconds for `time` mode |
+| `flush_count` | `int` | `100` | Write count threshold for `count` mode |
+| `v2_chunk_size` | `int` | `1000` | Maximum number of records per flush transaction |
+| `v2_enable_metrics` | `bool` | `False` | Collect metrics for v2 engine flushes |
 
 ### Usage Examples
 
@@ -46,8 +56,6 @@ db = NanaSQLite("app.db", table="users")
 # Custom Cache Size
 db = NanaSQLite("mydata.db", cache_size_mb=128)
 ```
-
----
 
 ## Dict Interface
 
@@ -116,8 +124,6 @@ Iterate over keys.
 for key in db:
     print(key)
 ```
-
----
 
 ## Dict Methods
 
@@ -188,7 +194,9 @@ db.update({"a": 1, "b": 2})
 db.update(c=3, d=4)
 ```
 
-**Note:** `batch_update()` is recommended for bulk updates.
+::: warning Note
+`batch_update()` is recommended for bulk updates.
+:::
 
 ---
 
@@ -210,8 +218,6 @@ Remove all keys.
 db.clear()
 assert len(db) == 0
 ```
-
----
 
 ## Special Methods
 
@@ -248,6 +254,17 @@ if db.is_cached("key"):
 
 ---
 
+### `flush() -> None` *(v1.4.0+)*
+
+[v2 Feature] Explicitly flush the background buffer to SQLite. No-op if v2 mode is disabled.
+
+```python
+db.flush()
+```
+
+
+---
+
 ### `to_dict() -> dict`
 
 Convert entire database to a standard Python dict.
@@ -267,7 +284,9 @@ Close database connection.
 db.close()
 ```
 
-**Note:** Helper table instances created by `table()` method share the connection, so only the first created instance (owner) closes the connection.
+::: warning Note
+Helper table instances created by `table()` method share the connection, so only the first created instance (owner) closes the connection.
+:::
 
 ---
 
@@ -299,8 +318,6 @@ config_db["theme"] = "dark"
 - **Memory efficient**: Reuses SQLite connection
 - **Cache isolation**: Independent memory cache for each table
 
----
-
 ## Batch Operations
 
 ### `batch_update(mapping: dict) -> None`
@@ -325,8 +342,6 @@ Bulk delete in transaction.
 db.batch_delete(["key1", "key2", "key3"])
 ```
 
----
-
 ## Context Manager
 
 ### `__enter__() / __exit__()`
@@ -338,8 +353,6 @@ with NanaSQLite("mydata.db") as db:
     db["key"] = "value"
 # Automatically closed
 ```
-
----
 
 ## Performance Notes
 

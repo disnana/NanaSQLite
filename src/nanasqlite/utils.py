@@ -106,26 +106,53 @@ class ExpiringDict(collections.abc.MutableMapping):
                 self._stop_event.wait(timeout=sleep_time)
 
     def _evict(self, key: str) -> None:
-        """Evict an item and trigger callback."""
+        """Evict an item and trigger callback.
+
+        IMPORTANT: The on_expire callback is invoked OUTSIDE self._lock
+        to prevent cross-lock deadlocks when the callback acquires
+        an external lock (e.g. NanaSQLite._lock).
+        """
+        callback_args: tuple[str, Any] | None = None
         with self._lock:
             if key in self._data:
                 value = self._data.pop(key)
                 self._exptimes.pop(key, None)
                 if self._on_expire:
-                    try:
-                        self._on_expire(key, value)
-                    except Exception as e:  # pylint: disable=broad-exception-caught
-                        logger.error("Error in ExpiringDict on_expire callback for key '%s': %s", key, e)
+                    callback_args = (key, value)
                 logger.debug("Key '%s' expired and removed.", key)
+
+        # Fire callback outside lock to prevent deadlock
+        if callback_args is not None and self._on_expire is not None:
+            try:
+                self._on_expire(*callback_args)
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.error("Error in ExpiringDict on_expire callback for key '%s': %s", callback_args[0], e)
 
     def _check_expiry(self, key: str) -> bool:
         """Check if a key is expired and remove it if it is (Lazy eviction)."""
         now = time.time()
+        callback_args: tuple[str, Any] | None = None
+        expired = False
         with self._lock:
             if key in self._exptimes and self._exptimes[key] <= now:
-                self._evict(key)
-                return True
-        return False
+                expired = True
+                if key in self._data:
+                    value = self._data.pop(key)
+                    self._exptimes.pop(key, None)
+                    if self._on_expire:
+                        callback_args = (key, value)
+                    logger.debug("Key '%s' expired and removed.", key)
+                else:
+                    self._exptimes.pop(key, None)
+
+        # Fire callback OUTSIDE the lock to prevent cross-lock deadlock
+        if callback_args is not None and self._on_expire is not None:
+            try:
+                self._on_expire(*callback_args)
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.error("Error in ExpiringDict on_expire callback for key '%s': %s", callback_args[0], e)
+        return expired
+
 
     def __setitem__(self, key: str, value: Any) -> None:
         expiry = time.time() + self._expiration_time
@@ -178,7 +205,7 @@ class ExpiringDict(collections.abc.MutableMapping):
 
     def __iter__(self) -> Iterator[str]:
         # Clean up expired items during iteration to stay accurate
-        keys = list(self._data.keys())
+        keys = list(self._data)
         for key in keys:
             if not self._check_expiry(key):
                 yield key
@@ -199,23 +226,28 @@ class ExpiringDict(collections.abc.MutableMapping):
 
     def clear(self) -> None:
         with self._lock:
-            for key in list(self._timers.keys()):
+            for key in list(self._timers):
                 self._cancel_timer(key)
             self._data.clear()
             self._exptimes.clear()
             self._scheduler_running = False
             self._stop_event.set()
         if self._scheduler_thread and self._scheduler_thread.is_alive():
-            self._scheduler_thread.join(timeout=2.0)
-            if self._scheduler_thread.is_alive():
-                logger.warning("ExpiringDict scheduler thread did not exit within timeout; possible thread leak.")
+            # Ensure it's not the current thread trying to join itself
+            if self._scheduler_thread is not threading.current_thread():
+                self._scheduler_thread.join(timeout=2.0)
+                if self._scheduler_thread.is_alive():
+                    logger.warning("ExpiringDict scheduler thread did not exit within timeout; it will continue as daemon.")
+        self._scheduler_thread = None
 
     def __del__(self):
         try:
             self._scheduler_running = False
             self._stop_event.set()
             if self._scheduler_thread and self._scheduler_thread.is_alive():
-                self._scheduler_thread.join(timeout=1.0)
+                if self._scheduler_thread is not threading.current_thread():
+                    self._scheduler_thread.join(timeout=1.0)
+            self._scheduler_thread = None
         except Exception:  # pylint: disable=broad-exception-caught
             # Cleanup at exit/garbage collection is best-effort and should not raise during interpreter shutdown
             pass  # nosec B110

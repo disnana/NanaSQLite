@@ -1,162 +1,256 @@
-# AsyncNanaSQLite API Reference
+# Asynchronous API Reference
 
-Complete documentation for the asynchronous `AsyncNanaSQLite` class.
+Reference for the asynchronous AsyncNanaSQLite class.
 
-## Class: `AsyncNanaSQLite`
+## AsyncNanaSQLite
 
 ```python
-class AsyncNanaSQLite
+class AsyncNanaSQLite(db_path: str, table: str = 'data', bulk_load: bool = False, optimize: bool = True, cache_size_mb: int = 64, max_workers: int = 5, thread_name_prefix: str = 'AsyncNanaSQLite', strict_sql_validation: bool = True, allowed_sql_functions: list[str] | None = None, forbidden_sql_functions: list[str] | None = None, max_clause_length: int | None = 1000, read_pool_size: int = 0, cache_strategy: CacheType | str = <CacheType.UNBOUNDED: unbounded>, cache_size: int | None = None, cache_ttl: float | None = None, cache_persistence_ttl: bool = False, encryption_key: str | bytes | None = None, encryption_mode: Literal['aes-gcm', 'chacha20', 'fernet'] = 'aes-gcm', validator: Any | None = None, coerce: bool = False, v2_mode: bool = False, flush_mode: Literal['immediate', 'count', 'time', 'manual'] = 'immediate', flush_interval: float = 3.0, flush_count: int = 100, v2_chunk_size: int = 1000, v2_enable_metrics: bool = False) -> None
 ```
 
-A non-blocking, async wrapper for `NanaSQLite`.
-It delegates all database operations to a thread pool executor, ensuring that the main asyncio event loop is never blocked. This is essential for high-concurrency applications like FastAPI or discord.py bots.
+Async wrapper for NanaSQLite with optimized thread pool executor.
+
+All database operations are executed in a dedicated thread pool executor to prevent
+blocking the async event loop. This allows NanaSQLite to be used safely
+in async applications like FastAPI, aiohttp, etc.
+
+The implementation uses a configurable thread pool for optimal concurrency
+and performance in high-load scenarios.
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `db_path` | `str` |  |
+| `table` | `str` |  |
+| `bulk_load` | `bool` |  |
+| `optimize` | `bool` |  |
+| `cache_size_mb` | `int` |  |
+| `max_workers` | `int` |  |
+| `thread_name_prefix` | `str` |  |
+| `strict_sql_validation` | `bool` |  |
+| `allowed_sql_functions` | `list[str] | None` |  |
+| `forbidden_sql_functions` | `list[str] | None` |  |
+| `max_clause_length` | `int | None` |  |
+| `read_pool_size` | `int` |  |
+| `cache_strategy` | `CacheType | str` |  |
+| `cache_size` | `int | None` |  |
+| `cache_ttl` | `float | None` |  |
+| `cache_persistence_ttl` | `bool` |  |
+| `encryption_key` | `str | bytes | None` |  |
+| `encryption_mode` | `Literal[aes-gcm, chacha20, fernet]` |  |
+| `validator` | `Any | None` |  |
+| `coerce` | `bool` | ``True`` の場合、validkit-py の自動変換機能を有効にする。 バリデーション後、変換済みの値をDBに書き込む。デフォルト: ``False``。 |
+| `v2_mode` | `bool` |  |
+| `flush_mode` | `Literal[immediate, count, time, manual]` |  |
+| `flush_interval` | `float` |  |
+| `flush_count` | `int` |  |
+| `v2_chunk_size` | `int` |  |
+| `v2_enable_metrics` | `bool` |  |
+
+::: tip Example
+```python
+    async with AsyncNanaSQLite("mydata.db") as db:
+        await db.aset("config", {"theme": "dark"})
+        config = await db.aget("config")
+        print(config)
+```
+
+```python
+    # 高負荷環境向けの設定
+    async with AsyncNanaSQLite("mydata.db", max_workers=10) as db:
+        # 並行処理が多い場合に最適化
+        results = await asyncio.gather(*[db.aget(f"key_{i}") for i in range(100)])
+```
+
+:::
+
 
 ---
 
 ## Constructor
-
-### `__init__`
-
-```python
-def __init__(
-    self,
-    db_path: str,
-    table: str = "data",
-    bulk_load: bool = False,
-    optimize: bool = True,
-    cache_size_mb: int = 64,
-    max_workers: int = 5,
-    thread_name_prefix: str = "AsyncNanaSQLite",
-    strict_sql_validation: bool = True,
-    allowed_sql_functions: list[str] | None = None,
-    forbidden_sql_functions: list[str] | None = None,
-    max_clause_length: int | None = 1000,
-    read_pool_size: int = 0,
-    cache_strategy: CacheType = CacheType.UNBOUNDED,
-    cache_size: int = 0,
-    cache_ttl: float | None = None,
-    cache_persistence_ttl: bool = False,
-    encryption_key: str | bytes | None = None,
-    encryption_mode: str = "aes-gcm",
-)
-```
-
-Initializes the AsyncNanaSQLite interface.
-
-**Parameters:**
-
-- `db_path` (str): Path to the SQLite database file.
-- `table` (str, optional): Table name to use for storage. Defaults to `"data"`.
-- `max_workers` (int, optional): Maximum number of threads in the thread pool. Defaults to `5`.
-  - Increase this for high-concurrency read workloads.
-- `read_pool_size` (int, optional): Size of the dedicated read-only connection pool. Defaults to `0` (disabled).
-  - Enable this (e.g., `read_pool_size=4`) to allow concurrent reads to bypass the write lock.
-- `cache_strategy` (CacheType, optional): `CacheType.UNBOUNDED` / `LRU` / `TTL`. (v1.3.0+)
-- `cache_size` (int, optional): Max items for cache.
-- `cache_ttl` (float, optional): TTL in seconds.
-- `cache_persistence_ttl` (bool, optional): Automatic DB deletion on TTL expiry.
-- `encryption_key` (str | bytes, optional): Encryption key. (v1.3.1+)
-- `encryption_mode` (str, optional): `"aes-gcm"` (default), `"chacha20"`, `"fernet"`.
-- `strict_sql_validation` etc.: Same security parameters as `NanaSQLite`.
-
----
 
 ## Core Methods
 
 ### `close`
 
 ```python
-async def close(self) -> None
+def close() -> None
 ```
 
-Closes the database connection and shuts down the thread pool.
+::: tip Example
+```python
+    await db.close()
+```
+:::
+
+
+---
 
 ### `table`
 
 ```python
-async def table(self, table_name: str) -> AsyncNanaSQLite
+def table(table_name: str, validator: Any | None | types.EllipsisType = Ellipsis, coerce: bool | types.EllipsisType = Ellipsis) -> AsyncNanaSQLite
 ```
 
-Asynchronously creates a new `AsyncNanaSQLite` instance for a sub-table.
-Shares the thread pool and connection with the parent.
+sub1 = await db.table("users")
+
+    users_db = await db.table("users")
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `validator` | `Any | None | types.EllipsisType` |  |
+| `coerce` | `bool | types.EllipsisType` | ``True`` の場合、validkit-py の自動変換機能を有効にする。 |
+
+#### Returns
+
+**Type:** `AsyncNanaSQLite`
+
+::: tip Example
+```python
+    async with AsyncNanaSQLite("mydata.db", table="main") as db:
+        users_db = await db.table("users")
+        products_db = await db.table("products")
+        await users_db.aset("user1", {"name": "Alice"})
+        await products_db.aset("prod1", {"name": "Laptop"})
+```
+:::
+
 
 ---
 
-## Async Dict-like Interface
+## Dictionary Interface
 
-These methods mirror standard dictionary operations but are `async`.
+### `get`
 
-### `aget` (Alias: `get`)
 ```python
-async def aget(self, key: str, default: Any = None) -> Any
+def get(key: str, default: Any = None) -> Any
 ```
-Asynchronously retrieves a value.
 
-### `aset`
-```python
-async def aset(self, key: str, value: Any) -> None
-```
-Asynchronously sets a value.
+#### Parameter
 
-### `adelete`
-```python
-async def adelete(self, key: str) -> None
-```
-Asynchronously deletes a key.
+| Parameter | Type | Description |
+|---|---|---|
+| `key` | `str` |  |
 
-### `acontains` (Alias: `contains`)
-```python
-async def acontains(self, key: str) -> bool
-```
-Asynchronously checks for key existence.
+#### Returns
 
-### `alen`
+::: tip Example
 ```python
-async def alen(self) -> int
+    user = await db.aget("user")
+    config = await db.aget("config", {})
 ```
-Asynchronously returns the number of items.
+:::
 
-### `akeys` (Alias: `keys`)
-```python
-async def akeys(self) -> list[str]
-```
-Asynchronously returns all keys.
 
-### `avalues` (Alias: `values`)
-```python
-async def avalues(self) -> list[Any]
-```
-Asynchronously returns all values.
+---
 
-### `aitems` (Alias: `items`)
-```python
-async def aitems(self) -> list[tuple[str, Any]]
-```
-Asynchronously returns all items.
+### `keys`
 
-### `aupdate`
 ```python
-async def aupdate(self, mapping: dict = None, **kwargs) -> None
+def keys() -> list[str]
 ```
-Asynchronously updates multiple keys.
 
-### `aclear`
-```python
-async def aclear(self) -> None
-```
-Asynchronously effectively clears the database.
+#### Returns
 
-### `apop`
-```python
-async def apop(self, key: str, *args) -> Any
-```
-Asynchronously pops a value.
+**Type:** `list[str]`
 
-### `asetdefault`
+::: tip Example
 ```python
-async def asetdefault(self, key: str, default: Any = None) -> Any
+    keys = await db.akeys()
 ```
-Asynchronously sets a default value if missing.
+:::
+
+
+---
+
+### `values`
+
+```python
+def values() -> list[Any]
+```
+
+#### Returns
+
+**Type:** `list[Any]`
+
+::: tip Example
+```python
+    values = await db.avalues()
+```
+:::
+
+
+---
+
+### `items`
+
+```python
+def items() -> list[tuple[str, Any]]
+```
+
+#### Returns
+
+**Type:** `list[tuple[str, Any]]`
+
+::: tip Example
+```python
+    items = await db.aitems()
+```
+:::
+
+
+---
+
+### `to_dict`
+
+```python
+def to_dict() -> dict
+```
+
+#### Returns
+
+**Type:** `dict`
+
+::: tip Example
+```python
+    data = await db.to_dict()
+```
+:::
+
+
+---
+
+### `copy`
+
+```python
+def copy() -> dict
+```
+
+#### Returns
+
+**Type:** `dict`
+
+::: tip Example
+```python
+    data_copy = await db.copy()
+```
+:::
+
+
+---
+
+### `clear_cache`
+
+```python
+def clear_cache() -> None
+```
+
+
+
 
 ---
 
@@ -165,44 +259,257 @@ Asynchronously sets a default value if missing.
 ### `load_all`
 
 ```python
-async def load_all(self) -> None
+def load_all() -> None
 ```
-Loads all data into memory asynchronously.
+
+::: tip Example
+```python
+    await db.load_all()
+```
+:::
+
+
+---
 
 ### `refresh`
 
 ```python
-async def refresh(self, key: str = None) -> None
+def refresh(key: str = None) -> None
 ```
-Asynchronously refreshes the cache.
 
-### `get_fresh`
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `key` | `str` |  |
+
+::: tip Example
+```python
+    await db.refresh("user")
+    await db.refresh()  # 全キャッシュ更新
+```
+:::
+
+
+---
+
+### `is_cached`
 
 ```python
-async def get_fresh(self, key: str, default: Any = None) -> Any
+def is_cached(key: str) -> bool
 ```
-Asynchronously fetches fresh data from DB.
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `key` | `str` |  |
+
+#### Returns
+
+**Type:** `bool`
+
+::: tip Example
+```python
+    cached = await db.is_cached("user")
+```
+:::
+
+
+---
 
 ### `batch_update`
 
 ```python
-async def batch_update(self, mapping: dict[str, Any]) -> None
+def batch_update(mapping: dict[str, Any]) -> None
 ```
-Asynchronous bulk update.
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `mapping` | `dict[str, Any]` |  |
+
+::: tip Example
+```python
+    await db.batch_update({
+        "key1": "value1",
+        "key2": "value2",
+        "key3": {"nested": "data"}
+    })
+```
+:::
+
+
+---
+
+### `batch_update_partial`
+
+```python
+def batch_update_partial(mapping: dict[str, Any]) -> dict[str, str]
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `mapping` | `dict[str, Any]` |  |
+
+
+
+---
 
 ### `batch_delete`
 
 ```python
-async def batch_delete(self, keys: list[str]) -> None
+def batch_delete(keys: list[str]) -> None
 ```
-Asynchronous bulk delete.
 
-### `abatch_get`
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `keys` | `list[str]` |  |
+
+::: tip Example
+```python
+    await db.batch_delete(["key1", "key2", "key3"])
+```
+:::
+
+
+---
+
+### `get_fresh`
 
 ```python
-async def abatch_get(self, keys: list[str]) -> dict[str, Any]
+def get_fresh(key: str, default: Any = None) -> Any
 ```
-Asynchronous bulk get.
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `key` | `str` |  |
+
+#### Returns
+
+::: tip Example
+```python
+    value = await db.get_fresh("key")
+```
+:::
+
+
+---
+
+### `aflush`
+
+```python
+def aflush() -> None
+```
+
+
+
+
+---
+
+### `flush`
+
+```python
+def flush() -> None
+```
+
+
+
+
+---
+
+### `aget_dlq`
+
+```python
+def aget_dlq() -> list[dict[str, Any]]
+```
+
+
+
+
+---
+
+### `get_dlq`
+
+```python
+def get_dlq() -> list[dict[str, Any]]
+```
+
+
+
+
+---
+
+### `aretry_dlq`
+
+```python
+def aretry_dlq() -> None
+```
+
+
+
+
+---
+
+### `retry_dlq`
+
+```python
+def retry_dlq() -> None
+```
+
+
+
+
+---
+
+### `aclear_dlq`
+
+```python
+def aclear_dlq() -> None
+```
+
+
+
+
+---
+
+### `clear_dlq`
+
+```python
+def clear_dlq() -> None
+```
+
+
+
+
+---
+
+### `aget_v2_metrics`
+
+```python
+def aget_v2_metrics() -> dict[str, Any]
+```
+
+
+
+
+---
+
+### `get_v2_metrics`
+
+```python
+def get_v2_metrics() -> dict[str, Any]
+```
+
+
+
 
 ---
 
@@ -211,183 +518,561 @@ Asynchronous bulk get.
 ### `begin_transaction`
 
 ```python
-async def begin_transaction(self) -> None
+def begin_transaction() -> None
 ```
-Starts a transaction.
+
+::: tip Example
+```python
+    await db.begin_transaction()
+    try:
+        await db.sql_insert("users", {"name": "Alice"})
+        await db.sql_insert("users", {"name": "Bob"})
+        await db.commit()
+    except:
+        await db.rollback()
+```
+:::
+
+
+---
 
 ### `commit`
 
 ```python
-async def commit(self) -> None
+def commit() -> None
 ```
-Commits a transaction.
+
+::: tip Example
+```python
+    await db.commit()
+```
+:::
+
+
+---
 
 ### `rollback`
 
 ```python
-async def rollback(self) -> None
+def rollback() -> None
 ```
-Rolls back a transaction.
+
+::: tip Example
+```python
+    await db.rollback()
+```
+:::
+
+
+---
 
 ### `in_transaction`
 
 ```python
-async def in_transaction(self) -> bool
+def in_transaction() -> bool
 ```
-Checks transaction status.
+
+#### Returns
+
+**Type:** `bool`
+
+::: tip Example
+```python
+    status = await db.in_transaction()
+    print(f"In transaction: {status}")
+```
+:::
+
+
+---
 
 ### `transaction`
 
 ```python
-def transaction(self)
+def transaction()
 ```
-Async context manager for transactions.
 
+::: tip Example
 ```python
-async with db.transaction():
-    await db.aset("a", 1)
+    async with db.transaction():
+        await db.sql_insert("users", {"name": "Alice"})
+        await db.sql_insert("users", {"name": "Bob"})
+        # 自動的にコミット、例外時はロールバック
 ```
+:::
+
 
 ---
 
-## Querying & SQL
+## SQL Wrapper (CRUD)
 
-All SQL and query methods available in `NanaSQLite` are available here as `async` methods.
+### `sql_insert`
 
-### `query` (Alias: `aquery`)
 ```python
-async def query(self, table_name: str, columns: list[str] | None = None, where: str | None = None, parameters: tuple = None, order_by: str | None = None, limit: int | None = None) -> list[dict]
+def sql_insert(table_name: str, data: dict) -> int
 ```
 
-### `query_with_pagination` (Alias: `aquery_with_pagination`)
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `data` | `dict` |  |
+
+#### Returns
+
+**Type:** `int`
+
+::: tip Example
 ```python
-async def query_with_pagination(self, table_name: str, columns: list[str] | None = None, where: str | None = None, parameters: tuple = None, order_by: str | None = None, limit: int = 20, offset: int = 0, group_by: str | None = None) -> list[dict]
+    rowid = await db.sql_insert("users", {
+        "name": "Alice",
+        "email": "alice@example.com",
+        "age": 25
+    })
+```
+:::
+
+
+---
+
+### `sql_update`
+
+```python
+def sql_update(table_name: str, data: dict, where: str, parameters: tuple | None = None) -> int
 ```
 
-### `execute` (Alias: `aexecute`)
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `data` | `dict` |  |
+| `where` | `str` |  |
+| `parameters` | `tuple | None` |  |
+
+#### Returns
+
+**Type:** `int`
+
+::: tip Example
 ```python
-async def execute(self, sql: str, parameters: tuple | None = None) -> Any
+    count = await db.sql_update("users",
+        {"age": 26, "status": "active"},
+        "name = ?",
+        ("Alice",)
+    )
+```
+:::
+
+
+---
+
+### `sql_delete`
+
+```python
+def sql_delete(table_name: str, where: str, parameters: tuple | None = None) -> int
 ```
 
-### `execute_many` (Alias: `aexecute_many`)
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `where` | `str` |  |
+| `parameters` | `tuple | None` |  |
+
+#### Returns
+
+**Type:** `int`
+
+::: tip Example
 ```python
-async def execute_many(self, sql: str, parameters: list[tuple]) -> None
+    count = await db.sql_delete("users", "age < ?", (18,))
+```
+:::
+
+
+---
+
+## Query
+
+### `query`
+
+```python
+def query(table_name: str = None, columns: list[str] = None, where: str = None, parameters: tuple | None = None, order_by: str = None, limit: int = None, strict_sql_validation: bool = None, allowed_sql_functions: list[str] = None, forbidden_sql_functions: list[str] = None, override_allowed: bool = False) -> list[dict]
 ```
 
-### `fetch_all` (Alias: `afetch_all`)
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `columns` | `list[str]` |  |
+| `where` | `str` |  |
+| `parameters` | `tuple | None` |  |
+| `order_by` | `str` |  |
+| `limit` | `int` |  |
+| `strict_sql_validation` | `bool` |  |
+| `allowed_sql_functions` | `list[str]` |  |
+| `forbidden_sql_functions` | `list[str]` |  |
+| `override_allowed` | `bool` |  |
+
+#### Returns
+
+**Type:** `list[dict]`
+
+::: tip Example
 ```python
-async def fetch_all(self, sql: str, parameters: tuple = None) -> list[tuple]
+    results = await db.query(
+        table_name="users",
+        columns=["id", "name", "email"],
+        where="age > ?",
+        parameters=(20,),
+        order_by="name ASC",
+        limit=10
+    )
+```
+:::
+
+
+---
+
+### `query_with_pagination`
+
+```python
+def query_with_pagination(table_name: str = None, columns: list[str] = None, where: str = None, parameters: tuple | None = None, order_by: str = None, limit: int = None, offset: int = None, group_by: str = None, strict_sql_validation: bool = None, allowed_sql_functions: list[str] = None, forbidden_sql_functions: list[str] = None, override_allowed: bool = False) -> list[dict]
 ```
 
-### `fetch_one` (Alias: `afetch_one`)
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `columns` | `list[str]` |  |
+| `where` | `str` |  |
+| `parameters` | `tuple | None` |  |
+| `order_by` | `str` |  |
+| `limit` | `int` |  |
+| `offset` | `int` |  |
+| `group_by` | `str` |  |
+| `strict_sql_validation` | `bool` |  |
+| `allowed_sql_functions` | `list[str]` |  |
+| `forbidden_sql_functions` | `list[str]` |  |
+| `override_allowed` | `bool` |  |
+
+#### Returns
+
+**Type:** `list[dict]`
+
+::: tip Example
 ```python
-async def fetch_one(self, sql: str, parameters: tuple = None) -> tuple | None
+    results = await db.query_with_pagination(
+        table_name="users",
+        columns=["id", "name", "email"],
+        where="age > ?",
+        parameters=(20,),
+        order_by="name ASC",
+        limit=10,
+        offset=0
+    )
+```
+:::
+
+
+---
+
+### `count`
+
+```python
+def count(table_name: str = None, where: str = None, parameters: tuple | None = None, strict_sql_validation: bool = None, allowed_sql_functions: list[str] = None, forbidden_sql_functions: list[str] = None, override_allowed: bool = False) -> int
 ```
 
-### `sql_insert` (Alias: `asql_insert`)
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `where` | `str` |  |
+| `parameters` | `tuple | None` |  |
+| `strict_sql_validation` | `bool` |  |
+| `allowed_sql_functions` | `list[str]` |  |
+| `forbidden_sql_functions` | `list[str]` |  |
+| `override_allowed` | `bool` |  |
+
+#### Returns
+
+**Type:** `int`
+
+::: tip Example
 ```python
-async def sql_insert(self, table_name: str, data: dict) -> int
+    count = await db.count("users", "age < ?", (18,))
+```
+:::
+
+
+---
+
+## Direct SQL Execution
+
+### `execute`
+
+```python
+def execute(sql: str, parameters: tuple | None = None) -> Any
 ```
 
-### `sql_update` (Alias: `asql_update`)
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `sql` | `str` |  |
+| `parameters` | `tuple | None` |  |
+
+#### Returns
+
+::: tip Example
 ```python
-async def sql_update(self, table_name: str, data: dict, where: str, parameters: tuple = None) -> None
+    cursor = await db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
+```
+:::
+
+
+---
+
+### `execute_many`
+
+```python
+def execute_many(sql: str, parameters_list: list[tuple]) -> None
 ```
 
-### `sql_delete` (Alias: `asql_delete`)
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `sql` | `str` |  |
+| `parameters_list` | `list[tuple]` |  |
+
+::: tip Example
 ```python
-async def sql_delete(self, table_name: str, where: str, parameters: tuple = None) -> None
+    await db.execute_many(
+        "INSERT OR REPLACE INTO custom (id, name) VALUES (?, ?)",
+        [(1, "Alice"), (2, "Bob"), (3, "Charlie")]
+    )
+```
+:::
+
+
+---
+
+### `fetch_one`
+
+```python
+def fetch_one(sql: str, parameters: tuple | None = None) -> tuple | None
 ```
 
-### `upsert` (Alias: `aupsert`)
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `sql` | `str` |  |
+| `parameters` | `tuple | None` |  |
+
+#### Returns
+
+**Type:** `tuple | None`
+
+::: tip Example
 ```python
-async def upsert(self, table_name: str, data: dict, unique_keys: list[str]) -> None
+    row = await db.fetch_one("SELECT value FROM data WHERE key = ?", ("user",))
+```
+:::
+
+
+---
+
+### `fetch_all`
+
+```python
+def fetch_all(sql: str, parameters: tuple | None = None) -> list[tuple]
 ```
 
-### `count` (Alias: `acount`)
-```python
-async def count(self, table_name: str, where: str | None = None, parameters: tuple = None) -> int
-```
+#### Parameter
 
-### `exists` (Alias: `aexists`)
+| Parameter | Type | Description |
+|---|---|---|
+| `sql` | `str` |  |
+| `parameters` | `tuple | None` |  |
+
+#### Returns
+
+**Type:** `list[tuple]`
+
+::: tip Example
 ```python
-async def exists(self, table_name: str, where: str, parameters: tuple = None) -> bool
+    rows = await db.fetch_all("SELECT key, value FROM data WHERE key LIKE ?", ("user%",))
 ```
+:::
+
+
+---
+
+## Schema Management
 
 ### `create_table`
+
 ```python
-async def create_table(self, table_name: str, schema: dict[str, str]) -> None
+def create_table(table_name: str, columns: dict, if_not_exists: bool = True, primary_key: str = None) -> None
 ```
 
-### `drop_table`
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `columns` | `dict` |  |
+| `if_not_exists` | `bool` |  |
+| `primary_key` | `str` |  |
+
+::: tip Example
 ```python
-async def drop_table(self, table_name: str) -> None
+    await db.create_table("users", {
+        "id": "INTEGER PRIMARY KEY",
+        "name": "TEXT NOT NULL",
+        "email": "TEXT UNIQUE"
+    })
 ```
+:::
+
+
+---
 
 ### `create_index`
+
 ```python
-async def create_index(self, index_name: str, table_name: str, columns: list[str], unique: bool = False) -> None
+def create_index(index_name: str, table_name: str, columns: list[str], unique: bool = False, if_not_exists: bool = True) -> None
 ```
 
-### `drop_index`
-```python
-async def drop_index(self, index_name: str) -> None
-```
+#### Parameter
 
-### `alter_table_add_column`
-```python
-async def alter_table_add_column(self, table_name: str, column_name: str, column_type: str) -> None
-```
+| Parameter | Type | Description |
+|---|---|---|
+| `index_name` | `str` |  |
+| `table_name` | `str` |  |
+| `columns` | `list[str]` |  |
+| `unique` | `bool` |  |
+| `if_not_exists` | `bool` |  |
 
-### `get_table_schema`
+::: tip Example
 ```python
-async def get_table_schema(self, table_name: str) -> list[dict]
+    await db.create_index("idx_users_email", "users", ["email"], unique=True)
 ```
+:::
 
-### `list_tables`
-```python
-async def list_tables(self) -> list[str]
-```
+
+---
 
 ### `table_exists`
+
 ```python
-async def table_exists(self, table_name: str) -> bool
+def table_exists(table_name: str) -> bool
 ```
 
-### `list_indexes`
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+
+#### Returns
+
+**Type:** `bool`
+
+::: tip Example
 ```python
-async def list_indexes(self, table_name: str | None = None) -> list[dict]
+    exists = await db.table_exists("users")
 ```
+:::
+
+
+---
+
+### `list_tables`
+
+```python
+def list_tables() -> list[str]
+```
+
+#### Returns
+
+**Type:** `list[str]`
+
+::: tip Example
+```python
+    tables = await db.list_tables()
+```
+:::
+
+
+---
+
+### `drop_table`
+
+```python
+def drop_table(table_name: str, if_exists: bool = True) -> None
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `if_exists` | `bool` |  |
+
+::: tip Example
+```python
+    await db.drop_table("old_table")
+```
+:::
+
+
+---
+
+### `drop_index`
+
+```python
+def drop_index(index_name: str, if_exists: bool = True) -> None
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `index_name` | `str` |  |
+| `if_exists` | `bool` |  |
+
+::: tip Example
+```python
+    await db.drop_index("idx_users_email")
+```
+:::
+
+
+---
+
+## Utility Functions
 
 ### `vacuum`
+
 ```python
-async def vacuum(self) -> None
+def vacuum() -> None
 ```
 
-### `get_db_size`
+::: tip Example
 ```python
-async def get_db_size(self) -> int
+    await db.vacuum()
 ```
+:::
 
-### `export_table_to_dict`
-```python
-async def export_table_to_dict(self, table_name: str) -> dict[str, Any]
-```
-
-### `import_from_dict_list`
-```python
-async def import_from_dict_list(self, table_name: str, data: list[dict], unique_keys: list[str] = None) -> None
-```
-
-### `get_last_insert_rowid`
-```python
-async def get_last_insert_rowid(self) -> int
-```
-
-### `pragma`
-```python
-async def pragma(self, name: str, value: Any = None) -> Any
-```
 
 ---
 
@@ -396,24 +1081,1168 @@ async def pragma(self, name: str, value: Any = None) -> Any
 ### `set_model`
 
 ```python
-async def set_model(self, key: str, model: Any) -> None
+def set_model(key: str, model: Any) -> None
 ```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `key` | `str` |  |
+
+::: tip Example
+```python
+    from pydantic import BaseModel
+    class User(BaseModel):
+        name: str
+        age: int
+    user = User(name="Nana", age=20)
+    await db.set_model("user", user)
+```
+:::
+
+
+---
 
 ### `get_model`
 
 ```python
-async def get_model(self, key: str, model_class: type = None) -> Any
+def get_model(key: str, model_class: type = None) -> Any
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `key` | `str` |  |
+| `model_class` | `type` |  |
+
+#### Returns
+
+::: tip Example
+```python
+    user = await db.get_model("user", User)
+```
+:::
+
+
+---
+
+## Other Methods
+
+### `aget`
+
+```python
+def aget(key: str, default: Any = None) -> Any
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `key` | `str` |  |
+
+#### Returns
+
+::: tip Example
+```python
+    user = await db.aget("user")
+    config = await db.aget("config", {})
+```
+:::
+
+
+---
+
+### `aset`
+
+```python
+def aset(key: str, value: Any) -> None
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `key` | `str` |  |
+
+::: tip Example
+```python
+    await db.aset("user", {"name": "Nana", "age": 20})
+```
+:::
+
+
+---
+
+### `adelete`
+
+```python
+def adelete(key: str) -> None
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `key` | `str` |  |
+
+::: warning Raises
+:::
+
+::: tip Example
+```python
+    await db.adelete("old_data")
+```
+:::
+
+
+---
+
+### `acontains`
+
+```python
+def acontains(key: str) -> bool
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `key` | `str` |  |
+
+#### Returns
+
+**Type:** `bool`
+
+::: tip Example
+```python
+    if await db.acontains("user"):
+        print("User exists")
+```
+:::
+
+
+---
+
+### `contains`
+
+```python
+def contains(key: str) -> bool
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `key` | `str` |  |
+
+#### Returns
+
+**Type:** `bool`
+
+::: tip Example
+```python
+    if await db.acontains("user"):
+        print("User exists")
+```
+:::
+
+
+---
+
+### `alen`
+
+```python
+def alen() -> int
+```
+
+#### Returns
+
+**Type:** `int`
+
+::: tip Example
+```python
+    count = await db.alen()
+```
+:::
+
+
+---
+
+### `akeys`
+
+```python
+def akeys() -> list[str]
+```
+
+#### Returns
+
+**Type:** `list[str]`
+
+::: tip Example
+```python
+    keys = await db.akeys()
+```
+:::
+
+
+---
+
+### `avalues`
+
+```python
+def avalues() -> list[Any]
+```
+
+#### Returns
+
+**Type:** `list[Any]`
+
+::: tip Example
+```python
+    values = await db.avalues()
+```
+:::
+
+
+---
+
+### `aitems`
+
+```python
+def aitems() -> list[tuple[str, Any]]
+```
+
+#### Returns
+
+**Type:** `list[tuple[str, Any]]`
+
+::: tip Example
+```python
+    items = await db.aitems()
+```
+:::
+
+
+---
+
+### `apop`
+
+```python
+def apop(key: str, *args) -> Any
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `key` | `str` |  |
+
+#### Returns
+
+::: tip Example
+```python
+    value = await db.apop("temp_data")
+    value = await db.apop("maybe_missing", "default")
+```
+:::
+
+
+---
+
+### `aupdate`
+
+```python
+def aupdate(mapping: dict = None, **kwargs) -> None
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `mapping` | `dict` |  |
+
+::: tip Example
+```python
+    await db.aupdate({"key1": "value1", "key2": "value2"})
+    await db.aupdate(key3="value3", key4="value4")
+```
+:::
+
+
+---
+
+### `aclear`
+
+```python
+def aclear() -> None
+```
+
+::: tip Example
+```python
+    await db.aclear()
+```
+:::
+
+
+---
+
+### `asetdefault`
+
+```python
+def asetdefault(key: str, default: Any = None) -> Any
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `key` | `str` |  |
+
+#### Returns
+
+::: tip Example
+```python
+    value = await db.asetdefault("config", {})
+```
+:::
+
+
+---
+
+### `aload_all`
+
+```python
+def aload_all() -> None
+```
+
+::: tip Example
+```python
+    await db.load_all()
+```
+:::
+
+
+---
+
+### `arefresh`
+
+```python
+def arefresh(key: str = None) -> None
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `key` | `str` |  |
+
+::: tip Example
+```python
+    await db.refresh("user")
+    await db.refresh()  # 全キャッシュ更新
+```
+:::
+
+
+---
+
+### `ais_cached`
+
+```python
+def ais_cached(key: str) -> bool
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `key` | `str` |  |
+
+#### Returns
+
+**Type:** `bool`
+
+::: tip Example
+```python
+    cached = await db.is_cached("user")
+```
+:::
+
+
+---
+
+### `abatch_update`
+
+```python
+def abatch_update(mapping: dict[str, Any]) -> None
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `mapping` | `dict[str, Any]` |  |
+
+::: tip Example
+```python
+    await db.batch_update({
+        "key1": "value1",
+        "key2": "value2",
+        "key3": {"nested": "data"}
+    })
+```
+:::
+
+
+---
+
+### `abatch_update_partial`
+
+```python
+def abatch_update_partial(mapping: dict[str, Any]) -> dict[str, str]
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `mapping` | `dict[str, Any]` |  |
+
+
+
+---
+
+### `abatch_delete`
+
+```python
+def abatch_delete(keys: list[str]) -> None
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `keys` | `list[str]` |  |
+
+::: tip Example
+```python
+    await db.batch_delete(["key1", "key2", "key3"])
+```
+:::
+
+
+---
+
+### `ato_dict`
+
+```python
+def ato_dict() -> dict
+```
+
+#### Returns
+
+**Type:** `dict`
+
+::: tip Example
+```python
+    data = await db.to_dict()
+```
+:::
+
+
+---
+
+### `acopy`
+
+```python
+def acopy() -> dict
+```
+
+#### Returns
+
+**Type:** `dict`
+
+::: tip Example
+```python
+    data_copy = await db.copy()
+```
+:::
+
+
+---
+
+### `aget_fresh`
+
+```python
+def aget_fresh(key: str, default: Any = None) -> Any
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `key` | `str` |  |
+
+#### Returns
+
+::: tip Example
+```python
+    value = await db.get_fresh("key")
+```
+:::
+
+
+---
+
+### `abatch_get`
+
+```python
+def abatch_get(keys: list[str]) -> dict[str, Any]
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `keys` | `list[str]` |  |
+
+#### Returns
+
+**Type:** `dict[str, Any]`
+
+::: tip Example
+```python
+    results = await db.abatch_get(["key1", "key2"])
+```
+:::
+
+
+---
+
+### `aset_model`
+
+```python
+def aset_model(key: str, model: Any) -> None
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `key` | `str` |  |
+
+::: tip Example
+```python
+    from pydantic import BaseModel
+    class User(BaseModel):
+        name: str
+        age: int
+    user = User(name="Nana", age=20)
+    await db.set_model("user", user)
+```
+:::
+
+
+---
+
+### `aget_model`
+
+```python
+def aget_model(key: str, model_class: type = None) -> Any
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `key` | `str` |  |
+| `model_class` | `type` |  |
+
+#### Returns
+
+::: tip Example
+```python
+    user = await db.get_model("user", User)
+```
+:::
+
+
+---
+
+### `aexecute`
+
+```python
+def aexecute(sql: str, parameters: tuple | None = None) -> Any
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `sql` | `str` |  |
+| `parameters` | `tuple | None` |  |
+
+#### Returns
+
+::: tip Example
+```python
+    cursor = await db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
+```
+:::
+
+
+---
+
+### `aexecute_many`
+
+```python
+def aexecute_many(sql: str, parameters_list: list[tuple]) -> None
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `sql` | `str` |  |
+| `parameters_list` | `list[tuple]` |  |
+
+::: tip Example
+```python
+    await db.execute_many(
+        "INSERT OR REPLACE INTO custom (id, name) VALUES (?, ?)",
+        [(1, "Alice"), (2, "Bob"), (3, "Charlie")]
+    )
+```
+:::
+
+
+---
+
+### `afetch_one`
+
+```python
+def afetch_one(sql: str, parameters: tuple | None = None) -> tuple | None
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `sql` | `str` |  |
+| `parameters` | `tuple | None` |  |
+
+#### Returns
+
+**Type:** `tuple | None`
+
+::: tip Example
+```python
+    row = await db.fetch_one("SELECT value FROM data WHERE key = ?", ("user",))
+```
+:::
+
+
+---
+
+### `afetch_all`
+
+```python
+def afetch_all(sql: str, parameters: tuple | None = None) -> list[tuple]
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `sql` | `str` |  |
+| `parameters` | `tuple | None` |  |
+
+#### Returns
+
+**Type:** `list[tuple]`
+
+::: tip Example
+```python
+    rows = await db.fetch_all("SELECT key, value FROM data WHERE key LIKE ?", ("user%",))
+```
+:::
+
+
+---
+
+### `acreate_table`
+
+```python
+def acreate_table(table_name: str, columns: dict, if_not_exists: bool = True, primary_key: str = None) -> None
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `columns` | `dict` |  |
+| `if_not_exists` | `bool` |  |
+| `primary_key` | `str` |  |
+
+::: tip Example
+```python
+    await db.create_table("users", {
+        "id": "INTEGER PRIMARY KEY",
+        "name": "TEXT NOT NULL",
+        "email": "TEXT UNIQUE"
+    })
+```
+:::
+
+
+---
+
+### `acreate_index`
+
+```python
+def acreate_index(index_name: str, table_name: str, columns: list[str], unique: bool = False, if_not_exists: bool = True) -> None
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `index_name` | `str` |  |
+| `table_name` | `str` |  |
+| `columns` | `list[str]` |  |
+| `unique` | `bool` |  |
+| `if_not_exists` | `bool` |  |
+
+::: tip Example
+```python
+    await db.create_index("idx_users_email", "users", ["email"], unique=True)
+```
+:::
+
+
+---
+
+### `aquery`
+
+```python
+def aquery(table_name: str = None, columns: list[str] = None, where: str = None, parameters: tuple | None = None, order_by: str = None, limit: int = None, strict_sql_validation: bool = None, allowed_sql_functions: list[str] = None, forbidden_sql_functions: list[str] = None, override_allowed: bool = False) -> list[dict]
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `columns` | `list[str]` |  |
+| `where` | `str` |  |
+| `parameters` | `tuple | None` |  |
+| `order_by` | `str` |  |
+| `limit` | `int` |  |
+| `strict_sql_validation` | `bool` |  |
+| `allowed_sql_functions` | `list[str]` |  |
+| `forbidden_sql_functions` | `list[str]` |  |
+| `override_allowed` | `bool` |  |
+
+#### Returns
+
+**Type:** `list[dict]`
+
+::: tip Example
+```python
+    results = await db.query(
+        table_name="users",
+        columns=["id", "name", "email"],
+        where="age > ?",
+        parameters=(20,),
+        order_by="name ASC",
+        limit=10
+    )
+```
+:::
+
+
+---
+
+### `aquery_with_pagination`
+
+```python
+def aquery_with_pagination(table_name: str = None, columns: list[str] = None, where: str = None, parameters: tuple | None = None, order_by: str = None, limit: int = None, offset: int = None, group_by: str = None, strict_sql_validation: bool = None, allowed_sql_functions: list[str] = None, forbidden_sql_functions: list[str] = None, override_allowed: bool = False) -> list[dict]
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `columns` | `list[str]` |  |
+| `where` | `str` |  |
+| `parameters` | `tuple | None` |  |
+| `order_by` | `str` |  |
+| `limit` | `int` |  |
+| `offset` | `int` |  |
+| `group_by` | `str` |  |
+| `strict_sql_validation` | `bool` |  |
+| `allowed_sql_functions` | `list[str]` |  |
+| `forbidden_sql_functions` | `list[str]` |  |
+| `override_allowed` | `bool` |  |
+
+#### Returns
+
+**Type:** `list[dict]`
+
+::: tip Example
+```python
+    results = await db.query_with_pagination(
+        table_name="users",
+        columns=["id", "name", "email"],
+        where="age > ?",
+        parameters=(20,),
+        order_by="name ASC",
+        limit=10,
+        offset=0
+    )
+```
+:::
+
+
+---
+
+### `atable_exists`
+
+```python
+def atable_exists(table_name: str) -> bool
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+
+#### Returns
+
+**Type:** `bool`
+
+::: tip Example
+```python
+    exists = await db.table_exists("users")
+```
+:::
+
+
+---
+
+### `alist_tables`
+
+```python
+def alist_tables() -> list[str]
+```
+
+#### Returns
+
+**Type:** `list[str]`
+
+::: tip Example
+```python
+    tables = await db.list_tables()
+```
+:::
+
+
+---
+
+### `adrop_table`
+
+```python
+def adrop_table(table_name: str, if_exists: bool = True) -> None
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `if_exists` | `bool` |  |
+
+::: tip Example
+```python
+    await db.drop_table("old_table")
+```
+:::
+
+
+---
+
+### `asql_insert`
+
+```python
+def asql_insert(table_name: str, data: dict) -> int
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `data` | `dict` |  |
+
+#### Returns
+
+**Type:** `int`
+
+::: tip Example
+```python
+    rowid = await db.sql_insert("users", {
+        "name": "Alice",
+        "email": "alice@example.com",
+        "age": 25
+    })
+```
+:::
+
+
+---
+
+### `asql_update`
+
+```python
+def asql_update(table_name: str, data: dict, where: str, parameters: tuple | None = None) -> int
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `data` | `dict` |  |
+| `where` | `str` |  |
+| `parameters` | `tuple | None` |  |
+
+#### Returns
+
+**Type:** `int`
+
+::: tip Example
+```python
+    count = await db.sql_update("users",
+        {"age": 26, "status": "active"},
+        "name = ?",
+        ("Alice",)
+    )
+```
+:::
+
+
+---
+
+### `asql_delete`
+
+```python
+def asql_delete(table_name: str, where: str, parameters: tuple | None = None) -> int
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `where` | `str` |  |
+| `parameters` | `tuple | None` |  |
+
+#### Returns
+
+**Type:** `int`
+
+::: tip Example
+```python
+    count = await db.sql_delete("users", "age < ?", (18,))
+```
+:::
+
+
+---
+
+### `acount`
+
+```python
+def acount(table_name: str = None, where: str = None, parameters: tuple | None = None, strict_sql_validation: bool = None, allowed_sql_functions: list[str] = None, forbidden_sql_functions: list[str] = None, override_allowed: bool = False) -> int
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `where` | `str` |  |
+| `parameters` | `tuple | None` |  |
+| `strict_sql_validation` | `bool` |  |
+| `allowed_sql_functions` | `list[str]` |  |
+| `forbidden_sql_functions` | `list[str]` |  |
+| `override_allowed` | `bool` |  |
+
+#### Returns
+
+**Type:** `int`
+
+::: tip Example
+```python
+    count = await db.count("users", "age < ?", (18,))
+```
+:::
+
+
+---
+
+### `avacuum`
+
+```python
+def avacuum() -> None
+```
+
+::: tip Example
+```python
+    await db.vacuum()
+```
+:::
+
+
+---
+
+### `aclear_cache`
+
+```python
+def aclear_cache() -> None
+```
+
+
+
+
+---
+
+### `atable`
+
+```python
+def atable(table_name: str, validator: Any | None | types.EllipsisType = Ellipsis, coerce: bool | types.EllipsisType = Ellipsis) -> AsyncNanaSQLite
+```
+
+sub1 = await db.table("users")
+
+    users_db = await db.table("users")
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+| `validator` | `Any | None | types.EllipsisType` |  |
+| `coerce` | `bool | types.EllipsisType` | ``True`` の場合、validkit-py の自動変換機能を有効にする。 |
+
+#### Returns
+
+**Type:** `AsyncNanaSQLite`
+
+::: tip Example
+```python
+    async with AsyncNanaSQLite("mydata.db", table="main") as db:
+        users_db = await db.table("users")
+        products_db = await db.table("products")
+        await users_db.aset("user1", {"name": "Alice"})
+        await products_db.aset("prod1", {"name": "Laptop"})
+```
+:::
+
+
+---
+
+### `abackup`
+
+```python
+def abackup(target_path: str) -> None
 ```
 
 ---
 
-## Advanced
-
-### `sync_db`
+### `arestore`
 
 ```python
-@property
-def sync_db(self) -> NanaSQLite | None
+def arestore(source_path: str) -> None
 ```
-Access to the underlying synchronous `NanaSQLite` instance.
-**Warning**: Calling methods on `sync_db` from an async function will block the event loop. Use with caution.
+
+---
+
+### `apragma`
+
+```python
+def apragma(pragma_name: str, value: Any = None) -> Any
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `pragma_name` | `str` |  |
+
+
+
+---
+
+### `aget_table_schema`
+
+```python
+def aget_table_schema(table_name: str = None) -> list[dict]
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+
+
+
+---
+
+### `alist_indexes`
+
+```python
+def alist_indexes(table_name: str = None) -> list[str]
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str` |  |
+
+
+
+---
+
+### `aalter_table_add_column`
+
+```python
+def aalter_table_add_column(table_name: str, column_name: str, column_type: str) -> None
+```
+
+---
+
+### `aupsert`
+
+```python
+def aupsert(table_name: str | Any = None, data: Any = None, conflict_columns: list[str] = None) -> int | None
+```
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `table_name` | `str | Any` |  |
+| `conflict_columns` | `list[str]` |  |
+
+
+
+---
+
