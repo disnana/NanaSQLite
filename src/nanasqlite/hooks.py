@@ -105,7 +105,7 @@ class ValidkitHook(BaseHook):
                 "The 'validkit-py' library is required for validation. "
                 "Install it with: pip install nanasqlite[validation]"
             )
-        from .core import validkit_validate
+        from .compat import validkit_validate
         self._validate_func = validkit_validate
 
     def before_write(self, db: "NanaSQLite", key: str, value: Any) -> Any:

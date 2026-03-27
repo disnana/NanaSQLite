@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 try:
     import validkit  # noqa: F401
     HAS_VALIDKIT = True
-    from validkit import validate as validkit_validate
+    from validkit import validate as validkit_validate  # noqa: F401
 except ImportError:
     HAS_VALIDKIT = False
     validkit_validate = None  # type: ignore

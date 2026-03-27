@@ -13,6 +13,7 @@ import pytest
 from nanasqlite import AsyncNanaSQLite, NanaSQLite
 from nanasqlite import async_core as async_core_module
 from nanasqlite import core as core_module
+from nanasqlite import compat as compat_module
 from nanasqlite.exceptions import NanaSQLiteValidationError
 
 
@@ -64,9 +65,10 @@ class TestBatchUpdateBehaviourWithMockedValidkit:
 
     def _patch_validkit(self, monkeypatch, mock_fn):
         """Helper: enable HAS_VALIDKIT and patch validkit_validate on the module."""
-        monkeypatch.setattr(core_module, "HAS_VALIDKIT", True)
-        # validkit_validate may not exist as a module attr when validkit is absent
-        monkeypatch.setattr(core_module, "validkit_validate", mock_fn, raising=False)
+        # Patch all potential source modules to ensure lazy imports pick up the mock
+        for mod in [core_module, async_core_module, compat_module]:
+            monkeypatch.setattr(mod, "HAS_VALIDKIT", True, raising=False)
+            monkeypatch.setattr(mod, "validkit_validate", mock_fn, raising=False)
 
     def test_batch_update_coerce_false_preserves_original_values(self, tmp_path, monkeypatch):
         """With coerce=False and a validator, batch_update should store original values."""
@@ -209,7 +211,10 @@ async def test_async_batch_update_partial_writes_only_valid_items(tmp_path, monk
 
     monkeypatch.setattr(core_module, "HAS_VALIDKIT", True)
     monkeypatch.setattr(async_core_module, "HAS_VALIDKIT", True)
+    monkeypatch.setattr(compat_module, "HAS_VALIDKIT", True)
     monkeypatch.setattr(core_module, "validkit_validate", mock_validate, raising=False)
+    monkeypatch.setattr(compat_module, "validkit_validate", mock_validate, raising=False)
+    monkeypatch.setattr(async_core_module, "validkit_validate", mock_validate, raising=False)
 
     async with AsyncNanaSQLite(str(tmp_path / "test_async_partial.db"), validator={"type": "string"}) as db:
         failed = await db.abatch_update_partial({"key1": "good", "key2": "bad", "key3": "also_good"})

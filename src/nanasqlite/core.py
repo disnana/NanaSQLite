@@ -59,12 +59,12 @@ from .exceptions import (
 from .sql_utils import fast_validate_sql_chars, sanitize_sql_for_function_scan
 
 # Re-exports for backward compatibility and tests
-HAS_VALIDKIT = HAS_VALIDKIT
-validkit_validate = validkit_validate
-HAS_ORJSON = HAS_ORJSON
+from .compat import HAS_ORJSON as HAS_ORJSON  # noqa: F401
+from .compat import HAS_VALIDKIT as HAS_VALIDKIT  # noqa: F401
+from .compat import validkit_validate as validkit_validate  # noqa: F401
 
 if TYPE_CHECKING:
-    from .hooks import NanaHook, ValidkitHook
+    from .hooks import NanaHook, ValidkitHook  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
