@@ -13,6 +13,7 @@ v1.5.0dev1で導入された「Ultimate Hooks」機能の基盤となるのが `
 
 import time
 from typing import Any
+
 from nanasqlite import NanaSQLite
 from nanasqlite.protocols import NanaHook
 
@@ -35,10 +36,10 @@ class TimestampHook(NanaHook):
                 # ここでは簡易的に現在のキャッシュ/DB存在確認を行います
                 if key not in db:
                     value["created_at"] = now
-            
+
             # 更新日時は常に現在時刻で上書き
             value["updated_at"] = now
-        
+
         return value
 
 
@@ -60,10 +61,10 @@ class LoggingHook(NanaHook):
 
 def main():
     print("--- 01. カスタムフック의 基本 ---")
-    
+
     # 1. データベースの初期化
     db = NanaSQLite(":memory:")
-    
+
     # 2. 作成したフックをデータベースに登録
     db.add_hook(TimestampHook())
     db.add_hook(LoggingHook())
@@ -71,11 +72,11 @@ def main():
     # 3. データの書き込み（before_write がトリガーされる）
     print(">> 'user:1' を保存します")
     db["user:1"] = {"name": "Alice", "age": 20}
-    
+
     # 4. データの読み込み（after_read がトリガーされる）
     print("\n>> 'user:1' を読み込みます")
     user_data = db["user:1"]
-    
+
     # TimestampHookによって自動付与されたデータを確認する
     print("=> 取得されたデータ全体:", user_data)
     print(f"=> created_at: {user_data.get('created_at')}")
@@ -87,7 +88,7 @@ def main():
     # updateやupsertでの保存もbefore_writeを通るため、updated_at が更新されます
     # 修正後のupsertロジックにより、第一引数がキーであっても正しく動作します
     db.upsert("user:1", {"name": "Alice Liddell", "age": 21, "created_at": user_data["created_at"]})
-    
+
     print("\n>> 更新後のデータを読み込みます")
     updated_data = db["user:1"]
     print("=> 取得されたデータ全体:", updated_data)

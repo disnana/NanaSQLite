@@ -11,15 +11,17 @@ NanaSQLite v1.5.0dev1 では、よく使われる RDBMS 的な制約を
 """
 
 from typing import Any
+
 from nanasqlite import NanaSQLite
-from nanasqlite.hooks import CheckHook, UniqueHook, ForeignKeyHook
 from nanasqlite.exceptions import NanaSQLiteValidationError
+from nanasqlite.hooks import CheckHook, ForeignKeyHook, UniqueHook
+
 
 def main():
     print("--- 02. 標準制約フック (Standard Constraints) ---")
 
     db = NanaSQLite(":memory:")
-    
+
     # ==============================================================================
     # 1. CheckHook の使用例 (age は 0 以上)
     # ==============================================================================
@@ -65,7 +67,7 @@ def main():
     # ==============================================================================
     print("\n[Case 3: ForeignKeyHook]")
     orders_db = db.table("orders")
-    
+
     # 'user_id' フィールドが、メインテーブル (db) のキーとして存在するかチェック
     orders_db.add_hook(ForeignKeyHook(field="user_id", target_db=db))
 

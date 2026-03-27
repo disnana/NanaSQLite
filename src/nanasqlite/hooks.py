@@ -1,5 +1,6 @@
 import re
-from typing import Any, Callable, Pattern
+from re import Pattern
+from typing import Any, Callable
 
 from .compat import HAS_VALIDKIT
 from .exceptions import NanaSQLiteValidationError
@@ -92,7 +93,7 @@ class UniqueHook(BaseHook):
         for k, v in db.items():
             if k == key:
                 continue
-            
+
             if callable(self.field):
                 other_val = self.field(k, v)
             elif isinstance(v, dict):

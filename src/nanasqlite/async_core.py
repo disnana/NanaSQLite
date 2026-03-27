@@ -582,7 +582,21 @@ class AsyncNanaSQLite:
         return await loop.run_in_executor(self._executor, self._db.get_v2_metrics)
 
     async def asetdefault(self, key: str, default: Any = None) -> Any:
-        # ... (既存のコード) ...
+        """
+        非同期でキーが存在しない場合のみ値を設定
+
+        Args:
+            key: キー
+            default: デフォルト値
+
+        Returns:
+            キーの値（既存または新規設定した値）
+
+        Example:
+            >>> value = await db.asetdefault("config", {})
+        """
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self._db.setdefault, key, default)
 
     async def aupsert(

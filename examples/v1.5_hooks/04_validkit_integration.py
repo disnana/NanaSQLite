@@ -11,11 +11,11 @@ NanaSQLite v1.5.0dev1 は、サードパーティ製ライブラリ `validkit-py
 3. バリデーションエラーのハンドリング
 """
 
-from typing import Any
 import validkit
+
 from nanasqlite import NanaSQLite
-from nanasqlite.hooks import ValidkitHook
 from nanasqlite.exceptions import NanaSQLiteValidationError
+from nanasqlite.hooks import ValidkitHook
 
 # ==============================================================================
 # 1. バリデーションスキーマの定義
@@ -39,7 +39,7 @@ def main():
     print("--- 04. Validkitによる高度なバリデーション ---")
 
     db = NanaSQLite(":memory:")
-    
+
     # ValidkitHook を登録する。
     # schema に定義したルールを指定します。
     # coerce=True にすると、入力データをスキーマに合わせて自動変換します。
@@ -49,7 +49,7 @@ def main():
     print("\n>> データを保存します (正常系)")
     # tags を省略していますが、coerce=True によりデフォルト値 [] が補完されます
     db["user:1"] = {"name": "nana", "age": "18"} # ageを文字列で渡してもintに変換されます
-    
+
     user_data = db["user:1"]
     print(f"-> [OK] 正常なデータを保存しました: {user_data}")
     print(f"   (ageの型: {type(user_data['age'])}, tags: {user_data['tags']})")
