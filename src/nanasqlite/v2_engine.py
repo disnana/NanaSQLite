@@ -527,7 +527,11 @@ class V2Engine:
                     if task.on_error:
                         try:
                             task.on_error(shutdown_err)
-                        except Exception:
-                            pass
+                        except Exception as callback_exc:
+                            # Do not let a buggy on_error callback break shutdown, but log it for observability.
+                            logger.warning(
+                                "NanaSQLite v2 Engine: on_error callback failed during shutdown: %s",
+                                callback_exc,
+                            )
                 except queue.Empty:
                     break
