@@ -830,7 +830,7 @@ class NanaSQLite(MutableMapping):
 
         # V2 staging buffer check (Stale Read prevention)
         if self._v2_mode and self._v2_engine:
-            staging = self._v2_engine.kvs_get_staging(key)
+            staging = self._v2_engine.kvs_get_staging(self._safe_table, key)
             if staging is not None:
                 if staging["action"] == "set":
                     value = self._deserialize(staging["value"])
@@ -888,7 +888,7 @@ class NanaSQLite(MutableMapping):
 
         # v2 Architecture: Route to background staging buffer instead of blocking DB write
         if self._v2_mode and self._v2_engine:
-            self._v2_engine.kvs_set(key, value)
+            self._v2_engine.kvs_set(self._safe_table, key, value)
             with self._acquire_lock():
                 self._update_cache(key, value)
         else:
@@ -909,7 +909,7 @@ class NanaSQLite(MutableMapping):
 
         # v2 Architecture: Route to background staging buffer
         if self._v2_mode and self._v2_engine:
-            self._v2_engine.kvs_delete(key)
+            self._v2_engine.kvs_delete(self._safe_table, key)
             with self._acquire_lock():
                 self._cache.delete(key)
                 if not self._lru_mode:
