@@ -35,9 +35,14 @@ from typing import Any, Literal
 import apsw
 
 from .cache import CacheType
-from .core import _UNSET, HAS_VALIDKIT, IDENTIFIER_PATTERN, NanaSQLite, V2Config
+from .core import HAS_ORJSON, HAS_VALIDKIT, _UNSET, IDENTIFIER_PATTERN, NanaSQLite, V2Config, validkit_validate
 from .exceptions import NanaSQLiteClosedError, NanaSQLiteDatabaseError
 from .hooks import NanaHook
+
+# Re-exports for backward compatibility and tests
+HAS_VALIDKIT = HAS_VALIDKIT
+validkit_validate = validkit_validate
+HAS_ORJSON = HAS_ORJSON
 
 
 class AsyncNanaSQLite:
@@ -160,7 +165,7 @@ class AsyncNanaSQLite:
         self._encryption_mode = encryption_mode
         self._validator_raw = validator
         self._coerce_raw: bool = bool(coerce)
-        self._hooks: list[NanaHook] = hooks or []
+        self._hooks_raw: list[NanaHook] = hooks or []
 
         # v2 Architecture Setup
         # v2_config が渡された場合はその値を優先し、個別パラメータより上書きする（後方互換のため個別引数も維持）
@@ -216,7 +221,30 @@ class AsyncNanaSQLite:
             # We can use run_in_executor but it's just appending to a list so it's instantaneous
             self._db.add_hook(hook)
         else:
-            self._hooks.append(hook)
+            if not hasattr(self, "_hooks_raw"):
+                self._hooks_raw = []
+            self._hooks_raw.append(hook)
+
+    @property
+    def _validator(self) -> Any:
+        """後方互換性とテストのためのプロパティ。内部の同期DBインスタンスから取得します。"""
+        if self._db is None:
+            return getattr(self, "_validator_raw", None)
+        return self._db._validator
+
+    @property
+    def _coerce(self) -> bool:
+        """後方互換性とテストのためのプロパティ。内部の同期DBインスタンスから取得します。"""
+        if self._db is None:
+            return getattr(self, "_coerce_raw", False)
+        return self._db._coerce
+
+    @property
+    def _hooks(self) -> list[NanaHook]:
+        """設定されているフックのリストを返します。"""
+        if self._db is None:
+            return getattr(self, "_hooks_raw", [])
+        return self._db._hooks
 
     async def _ensure_initialized(self) -> None:
         """Ensure the underlying sync database is initialized"""
@@ -1478,7 +1506,7 @@ class AsyncNanaSQLite:
         async_sub_db._validator_raw = self._validator if validator is _UNSET else validator
         # coerce 設定を引き継ぐ
         async_sub_db._coerce_raw = self._coerce if coerce is _UNSET else bool(coerce)
-        async_sub_db._hooks = self._hooks if hooks is _UNSET else hooks
+        async_sub_db._hooks_raw = self._hooks if hooks is _UNSET else hooks
         # キャッシュ関連の設定を親インスタンスから継承する
         async_sub_db._cache_strategy = self._cache_strategy
         async_sub_db._cache_size = self._cache_size

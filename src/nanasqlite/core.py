@@ -24,7 +24,7 @@ import weakref
 from collections.abc import Iterator, MutableMapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import apsw
 
@@ -40,6 +40,14 @@ except ImportError:
     HAS_CRYPTOGRAPHY = False
 
 from .cache import MISSING, CacheStrategy, CacheType, create_cache
+from .compat import (
+    _UNSET,
+    HAS_ORJSON,
+    HAS_VALIDKIT,
+    IDENTIFIER_PATTERN,
+    orjson,
+    validkit_validate,
+)
 from .exceptions import (
     NanaSQLiteClosedError,
     NanaSQLiteConnectionError,
@@ -48,40 +56,17 @@ from .exceptions import (
     NanaSQLiteTransactionError,
     NanaSQLiteValidationError,
 )
-
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from .hooks import NanaHook
-from .hooks import ValidkitHook
-
 from .sql_utils import fast_validate_sql_chars, sanitize_sql_for_function_scan
 
-try:
-    import validkit  # noqa: F401
-    HAS_VALIDKIT = True
-    from validkit import validate as validkit_validate
-except ImportError:
-    HAS_VALIDKIT = False
-    validkit_validate = None  # type: ignore
+# Re-exports for backward compatibility and tests
+HAS_VALIDKIT = HAS_VALIDKIT
+validkit_validate = validkit_validate
+HAS_ORJSON = HAS_ORJSON
 
-# 識別子バリデーション用の正規表現パターン（英数字とアンダースコアのみ、数字で開始しない）
-IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_]\w*$")
+if TYPE_CHECKING:
+    from .hooks import NanaHook, ValidkitHook
 
 logger = logging.getLogger(__name__)
-
-# Optional fast JSON (orjson)
-try:
-    import orjson  # type: ignore
-
-    HAS_ORJSON = True
-except ImportError:
-    HAS_ORJSON = False
-
-
-# Sentinel used to distinguish "parameter not passed" from "explicitly None".
-# Ellipsis (...) is used so inspect.signature() shows readable "= ..." instead of
-# "<object object at 0x...>" for table() parameters that support parent-inheritance.
-_UNSET = ...
 
 # Sentinel object for missing keys in DB
 _NOT_FOUND = object()
@@ -502,6 +487,24 @@ class NanaSQLite(MutableMapping):
 
     # ==================== Private Methods ====================
 
+    @property
+    def _validator(self) -> Any:
+        """後方互換性とテストのためのプロパティ。ValidkitHookからスキーマを返します"""
+        hooks = getattr(self, "_hooks", [])
+        for hook in hooks:
+            if getattr(hook, "_is_validkit_hook", False):
+                return getattr(hook, "schema", None)
+        return None
+
+    @property
+    def _coerce(self) -> bool:
+        """後方互換性とテストのためのプロパティ。ValidkitHookからcoerce設定を返します"""
+        hooks = getattr(self, "_hooks", [])
+        for hook in hooks:
+            if getattr(hook, "_is_validkit_hook", False):
+                return getattr(hook, "coerce", False)
+        return False
+
     @staticmethod
     def _is_in_memory_path(path: str) -> bool:
         """パスがインメモリDB文字列（':memory:' または 'file::memory:...'）かどうかを返す。"""
@@ -578,8 +581,8 @@ class NanaSQLite(MutableMapping):
         """後方互換性とテストのためのプロパティ。ValidkitHookからスキーマを返します"""
         hooks = getattr(self, "_hooks", [])
         for hook in hooks:
-            if isinstance(hook, ValidkitHook):
-                return hook.schema
+            if getattr(hook, "_is_validkit_hook", False):
+                return getattr(hook, "schema", None)
         return self._validator_raw
 
     @property
@@ -587,8 +590,8 @@ class NanaSQLite(MutableMapping):
         """後方互換性とテストのためのプロパティ。ValidkitHookからcoerce設定を返します"""
         hooks = getattr(self, "_hooks", [])
         for hook in hooks:
-            if isinstance(hook, ValidkitHook):
-                return hook.coerce
+            if getattr(hook, "_is_validkit_hook", False):
+                return getattr(hook, "coerce", False)
         return self._coerce_raw
 
     def _check_connection(self) -> None:
@@ -3169,7 +3172,7 @@ class NanaSQLite(MutableMapping):
                 resolved_validator = None
             else:
                 # いずれかが明示：親の_hooksから古いValidkitHookを除去し、新しい値で__init__に処理させる
-                resolved_hooks = [h for h in resolved_hooks if not isinstance(h, ValidkitHook)]
+                resolved_hooks = [h for h in resolved_hooks if not getattr(h, "_is_validkit_hook", False)]
                 resolved_validator = self._validator if validator is _UNSET else validator
         else:
             resolved_hooks = hooks

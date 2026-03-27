@@ -4,6 +4,7 @@ Hooks and Constraints system for NanaSQLite.
 
 from typing import TYPE_CHECKING, Any, Callable, Protocol
 
+from .compat import HAS_VALIDKIT
 from .exceptions import NanaSQLiteValidationError
 
 if TYPE_CHECKING:
@@ -93,28 +94,19 @@ class ForeignKeyHook(BaseHook):
 class ValidkitHook(BaseHook):
     """Integration with validkit-py for schema validation."""
 
+    _is_validkit_hook = True
+
     def __init__(self, schema: Any, coerce: bool = False):
         self.schema = schema
         self.coerce = coerce
 
-        try:
-            # We try to use the one from .core to support existing test monkeypatching
-            from .core import validkit_validate
-
-            if validkit_validate is None:
-                raise ImportError("validkit-py not installed")
-            self._validate_func = validkit_validate
-        except (ImportError, AttributeError):
-            # Fallback to direct import if .core is not yet fully available or doesn't have it
-            try:
-                from validkit import validate
-
-                self._validate_func = validate
-            except ImportError:
-                raise ImportError(
-                    "The 'validkit-py' library is required for validation. "
-                    "Install it with: pip install nanasqlite[validation]"
-                )
+        if not HAS_VALIDKIT:
+             raise ImportError(
+                "The 'validkit-py' library is required for validation. "
+                "Install it with: pip install nanasqlite[validation]"
+            )
+        from .core import validkit_validate
+        self._validate_func = validkit_validate
 
     def before_write(self, db: "NanaSQLite", key: str, value: Any) -> Any:
         try:

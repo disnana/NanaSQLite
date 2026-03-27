@@ -23,7 +23,8 @@ Async Example:
 
 from .async_core import AsyncNanaSQLite
 from .cache import CacheType
-from .core import HAS_ORJSON, NanaSQLite, V2Config
+from .compat import HAS_ORJSON, HAS_VALIDKIT
+from .core import NanaSQLite, V2Config
 from .exceptions import (
     NanaSQLiteCacheError,
     NanaSQLiteClosedError,
@@ -36,14 +37,7 @@ from .exceptions import (
 )
 from .hooks import CheckHook, ForeignKeyHook, NanaHook, PydanticHook, UniqueHook, ValidkitHook
 
-try:
-    import validkit  # noqa: F401
-
-    HAS_VALIDKIT = True
-except ImportError:
-    HAS_VALIDKIT = False
-
-__version__ = "1.4.1"
+__version__ = "1.5.0dev1"
 __author__ = "Disnana"
 __all__ = [
     "NanaSQLite",
