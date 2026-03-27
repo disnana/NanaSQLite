@@ -35,8 +35,9 @@ from typing import Any, Literal
 import apsw
 
 from .cache import CacheType
-from .core import _UNSET, HAS_VALIDKIT, IDENTIFIER_PATTERN, NanaSQLite, V2Config
+from .core import _UNSET, IDENTIFIER_PATTERN, NanaSQLite, V2Config
 from .exceptions import NanaSQLiteClosedError, NanaSQLiteDatabaseError
+from .hooks import NanaHook
 
 
 class AsyncNanaSQLite:
@@ -102,6 +103,7 @@ class AsyncNanaSQLite:
         encryption_mode: Literal["aes-gcm", "chacha20", "fernet"] = "aes-gcm",
         validator: Any | None = None,
         coerce: bool = False,
+        hooks: list[NanaHook] | None = None,
         v2_mode: bool = False,
         flush_mode: Literal["immediate", "count", "time", "manual"] = "immediate",
         flush_interval: float = 3.0,
@@ -157,12 +159,8 @@ class AsyncNanaSQLite:
         self._encryption_key = encryption_key
         self._encryption_mode = encryption_mode
         self._validator = validator
-        if self._validator is not None and not HAS_VALIDKIT:
-            raise ImportError(
-                "The 'validkit-py' library is required for validation. "
-                "Install it with: pip install nanasqlite[validation]\n"
-            )
         self._coerce: bool = bool(coerce)
+        self._hooks: list[NanaHook] = hooks or []
 
         # v2 Architecture Setup
         # v2_config が渡された場合はその値を優先し、個別パラメータより上書きする（後方互換のため個別引数も維持）
@@ -191,6 +189,20 @@ class AsyncNanaSQLite:
         self._owns_executor = True  # このインスタンスがエグゼキューターを所有
         # _init_lock はイベントループ内で初めて使われる時に生成する（__init__はループ外から呼ばれる可能性があるため）
         self._init_lock: asyncio.Lock | None = None
+
+    async def add_hook(self, hook: NanaHook) -> None:
+        """
+        [v1.5.0 Feature] Add a hook/constraint to intercept read, write, and delete operations.
+
+        Args:
+            hook: Instantiated hook (e.g., CheckHook, UniqueHook, PydanticHook).
+        """
+        if self._db is not None:
+            # If already initialized, we need to add directly to the inner DB
+            # We can use run_in_executor but it's just appending to a list so it's instantaneous
+            self._db.add_hook(hook)
+        else:
+            self._hooks.append(hook)
 
     async def _ensure_initialized(self) -> None:
         """Ensure the underlying sync database is initialized"""
@@ -234,6 +246,7 @@ class AsyncNanaSQLite:
                     encryption_mode=self._encryption_mode,
                     validator=self._validator,
                     coerce=self._coerce,
+                    hooks=self._hooks,
                     v2_mode=self._v2_mode,
                     flush_mode=self._flush_mode,
                     flush_interval=self._flush_interval,
@@ -312,7 +325,6 @@ class AsyncNanaSQLite:
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self._db.get, key, default)
-
 
     async def aset(self, key: str, value: Any) -> None:
         """
@@ -1288,7 +1300,6 @@ class AsyncNanaSQLite:
         """aclear_cache のエイリアス"""
         await self.aclear_cache()
 
-
     async def close(self) -> None:
         """
         非同期でデータベース接続を閉じる
@@ -1356,10 +1367,7 @@ class AsyncNanaSQLite:
 
     def __repr__(self) -> str:
         status = "initialized=True" if self._db is not None else "initialized=False"
-        return (
-            f"AsyncNanaSQLite({self._db_path!r}, table={self._table!r}, "
-            f"max_workers={self._max_workers}, {status})"
-        )
+        return f"AsyncNanaSQLite({self._db_path!r}, table={self._table!r}, max_workers={self._max_workers}, {status})"
 
     # ==================== Sync DB Access (for advanced use) ====================
 
@@ -1383,6 +1391,7 @@ class AsyncNanaSQLite:
         table_name: str,
         validator: Any | None | types.EllipsisType = _UNSET,
         coerce: bool | types.EllipsisType = _UNSET,
+        hooks: list[NanaHook] | None | types.EllipsisType = _UNSET,
     ) -> AsyncNanaSQLite:
         """
         非同期でサブテーブルのAsyncNanaSQLiteインスタンスを取得
@@ -1425,15 +1434,10 @@ class AsyncNanaSQLite:
         if self._db is None:
             await self._ensure_initialized()
 
-        # validator が省略された場合は親のスキーマを継承する。None 明示指定は無効化とする
-        resolved_validator = self._validator if validator is _UNSET else validator
-        # coerce が省略された場合は親の設定を継承する
-        resolved_coerce = self._coerce if coerce is _UNSET else bool(coerce)
-
         loop = asyncio.get_running_loop()
         sub_db = await loop.run_in_executor(
             self._executor,
-            lambda: self._db.table(table_name, validator=resolved_validator, coerce=resolved_coerce),
+            lambda: self._db.table(table_name, validator=validator, coerce=coerce, hooks=hooks),
         )
 
         # 新しいAsyncNanaSQLiteラッパーを作成（__init__をバイパス）
@@ -1456,10 +1460,11 @@ class AsyncNanaSQLite:
         async_sub_db._allowed_sql_functions = self._allowed_sql_functions
         async_sub_db._forbidden_sql_functions = self._forbidden_sql_functions
         async_sub_db._max_clause_length = self._max_clause_length
-        # バリデーションスキーマを引き継ぐ（resolved_validator を使用）
-        async_sub_db._validator = resolved_validator
+        # バリデーションスキーマを引き継ぐ
+        async_sub_db._validator = self._validator if validator is _UNSET else validator
         # coerce 設定を引き継ぐ
-        async_sub_db._coerce = resolved_coerce
+        async_sub_db._coerce = self._coerce if coerce is _UNSET else bool(coerce)
+        async_sub_db._hooks = self._hooks if hooks is _UNSET else hooks
         # キャッシュ関連の設定を親インスタンスから継承する
         async_sub_db._cache_strategy = self._cache_strategy
         async_sub_db._cache_size = self._cache_size
@@ -1568,9 +1573,7 @@ class AsyncNanaSQLite:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self._db.list_indexes, table_name)
 
-    async def aalter_table_add_column(
-        self, table_name: str, column_name: str, column_type: str
-    ) -> None:
+    async def aalter_table_add_column(self, table_name: str, column_name: str, column_type: str) -> None:
         """
         非同期でテーブルにカラムを追加します。
 
@@ -1601,10 +1604,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor, self._db.upsert, table_name, data, conflict_columns
-        )
-
+        return await loop.run_in_executor(self._executor, self._db.upsert, table_name, data, conflict_columns)
 
     acreate_table = create_table
     acreate_index = create_index
@@ -1636,11 +1636,7 @@ class AsyncNanaSQLite:
         override_allowed: bool = False,
     ) -> list[dict]:
         """Internal shared implementation for query execution"""
-        target_table = (
-            self._db._safe_table
-            if table_name is None
-            else self._db._sanitize_identifier(table_name)
-        )
+        target_table = self._db._safe_table if table_name is None else self._db._sanitize_identifier(table_name)
 
         # Validation (Delegated to Main Instance logic)
         v_args = {

@@ -48,6 +48,7 @@ from .exceptions import (
     NanaSQLiteTransactionError,
     NanaSQLiteValidationError,
 )
+from .hooks import NanaHook
 from .sql_utils import fast_validate_sql_chars, sanitize_sql_for_function_scan
 
 # 識別子バリデーション用の正規表現パターン（英数字とアンダースコアのみ、数字で開始しない）
@@ -63,13 +64,6 @@ try:
 except ImportError:
     HAS_ORJSON = False
 
-# Optional value validation (validkit-py)
-try:
-    from validkit import validate as validkit_validate  # type: ignore
-
-    HAS_VALIDKIT = True
-except ImportError:
-    HAS_VALIDKIT = False
 
 # Sentinel used to distinguish "parameter not passed" from "explicitly None".
 # Ellipsis (...) is used so inspect.signature() shows readable "= ..." instead of
@@ -144,6 +138,7 @@ class NanaSQLite(MutableMapping):
         lock_timeout: float | None = None,
         validator: Any | None = None,
         coerce: bool = False,
+        hooks: list[NanaHook] | None = None,
         v2_mode: bool = False,
         flush_mode: Literal["immediate", "count", "time", "manual"] = "immediate",
         flush_interval: float = 3.0,
@@ -228,15 +223,19 @@ class NanaSQLite(MutableMapping):
             else:
                 raise ValueError(f"Unsupported encryption_mode: {encryption_mode}")
 
-        # validkit バリデーション設定
-        resolved_init_validator = validator
-        if resolved_init_validator is not None and not HAS_VALIDKIT:
-            raise ImportError(
-                "The 'validkit-py' library is required for validation. "
-                "Install it with: pip install nanasqlite[validation]\n"
-            )
-        self._validator = resolved_init_validator
+        # Hooks setup (including legacy validkit support)
+        self._validator = validator
         self._coerce: bool = bool(coerce)
+        self._hooks: list[NanaHook] = []
+
+        if hooks:
+            self._hooks.extend(hooks)
+
+        if self._validator is not None:
+            # We import here to avoid circular dependencies and only if needed
+            from .hooks import ValidkitHook
+
+            self._hooks.append(ValidkitHook(self._validator, self._coerce))
 
         # v2 Architecture Setup
         # v2_config が渡された場合はその値を優先し、個別パラメータより上書きする（後方互換のため個別引数も維持）
@@ -476,6 +475,17 @@ class NanaSQLite(MutableMapping):
 
         # SQLiteではダブルクォートで囲むことで識別子をエスケープ
         return f'"{inner_identifier}"'
+
+    def add_hook(self, hook: NanaHook) -> None:
+        """
+        [v1.5.0 Feature] Add a hook/constraint to intercept read, write, and delete operations.
+
+        Args:
+            hook: Instantiated hook (e.g., CheckHook, UniqueHook, PydanticHook).
+        """
+        if not hasattr(self, "_hooks"):
+            self._hooks = []
+        self._hooks.append(hook)
 
     # ==================== Private Methods ====================
 
@@ -899,21 +909,20 @@ class NanaSQLite(MutableMapping):
         if self._ensure_cached(key):
             # LRU updates order even on __getitem__
             if self._lru_mode:
-                return self._cache.get(key)
-            return self._data[key]
+                val = self._cache.get(key)
+            else:
+                val = self._data[key]
+            for hook in getattr(self, "_hooks", []):
+                val = hook.after_read(self, key, val)
+            return val
         raise KeyError(key)
 
     def __setitem__(self, key: str, value: Any) -> None:
         """dict[key] = value - 即時書き込み + メモリ更新"""
         self._check_connection()
-        # validkit バリデーション（スキーマが設定されている場合のみ実行）
-        if self._validator is not None:
-            try:
-                coerced = validkit_validate(value, self._validator)
-                if self._coerce:
-                    value = coerced
-            except Exception as exc:  # pylint: disable=broad-exception-caught
-                self._raise_key_validation_error(key, exc)
+
+        for hook in getattr(self, "_hooks", []):
+            value = hook.before_write(self, key, value)
 
         # v2 Architecture: Route to background staging buffer instead of blocking DB write
         if self._v2_mode and self._v2_engine:
@@ -935,6 +944,9 @@ class NanaSQLite(MutableMapping):
         self._check_connection()
         if not self._ensure_cached(key):
             raise KeyError(key)
+
+        for hook in getattr(self, "_hooks", []):
+            hook.before_delete(self, key)
 
         # v2 Architecture: Route to background staging buffer
         if self._v2_mode and self._v2_engine:
@@ -1020,8 +1032,12 @@ class NanaSQLite(MutableMapping):
         """dict.get(key, default)"""
         if self._ensure_cached(key):
             if self._lru_mode:
-                return self._cache.get(key)
-            return self._data[key]
+                val = self._cache.get(key)
+            else:
+                val = self._data[key]
+            for hook in getattr(self, "_hooks", []):
+                val = hook.after_read(self, key, val)
+            return val
         return default
 
     def get_fresh(self, key: str, default: Any = None) -> Any:
@@ -1051,6 +1067,8 @@ class NanaSQLite(MutableMapping):
         if value is not _NOT_FOUND:
             with self._acquire_lock():
                 self._update_cache(key, value)
+            for hook in getattr(self, "_hooks", []):
+                value = hook.after_read(self, key, value)
             return value
         with self._acquire_lock():
             if self._lru_mode:
@@ -1116,6 +1134,12 @@ class NanaSQLite(MutableMapping):
             if key not in found_keys:
                 self._cache.mark_cached(key)
 
+        # Apply after_read hooks
+        for key, val in results.items():
+            for hook in getattr(self, "_hooks", []):
+                val = hook.after_read(self, key, val)
+            results[key] = val
+
         return results
 
     def pop(self, key: str, *args) -> Any:
@@ -1123,9 +1147,15 @@ class NanaSQLite(MutableMapping):
         self._check_connection()
         if self._ensure_cached(key):
             value = self._cache.get(key)
+            for hook in getattr(self, "_hooks", []):
+                hook.before_delete(self, key)
+
             # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
             self._delete_from_db(key)
             self._cache.delete(key)
+
+            for hook in getattr(self, "_hooks", []):
+                value = hook.after_read(self, key, value)
             return value
         if args:
             return args[0]
@@ -1198,9 +1228,12 @@ class NanaSQLite(MutableMapping):
     def setdefault(self, key: str, default: Any = None) -> Any:
         """dict.setdefault(key, default)"""
         if self._ensure_cached(key):
-            return self._cache.get(key)
+            val = self._cache.get(key)
+            for hook in getattr(self, "_hooks", []):
+                val = hook.after_read(self, key, val)
+            return val
         self[key] = default
-        return default
+        return self[key]
 
     # ==================== Special Methods ====================
 
@@ -1271,23 +1304,13 @@ class NanaSQLite(MutableMapping):
 
         self._check_connection()
 
-        # validkit 事前バリデーション: DB に触れる前に全値を検証し、1件でも失敗したら何も書かない
-        if self._validator is not None:
-            if self._coerce:
-                coerced_mapping: dict[str, Any] = {}
-                for key, value in mapping.items():
-                    try:
-                        coerced = validkit_validate(value, self._validator)
-                        coerced_mapping[key] = coerced
-                    except Exception as exc:  # pylint: disable=broad-exception-caught
-                        self._raise_key_validation_error(key, exc)
-                mapping = coerced_mapping
-            else:
-                for key, value in mapping.items():
-                    try:
-                        validkit_validate(value, self._validator)
-                    except Exception as exc:  # pylint: disable=broad-exception-caught
-                        self._raise_key_validation_error(key, exc)
+        # Apply before_write hooks
+        processed_mapping: dict[str, Any] = {}
+        for k, v in mapping.items():
+            for hook in getattr(self, "_hooks", []):
+                v = hook.before_write(self, k, v)
+            processed_mapping[k] = v
+        mapping = processed_mapping
 
         with self._acquire_lock():
             cursor = self._connection.cursor()
@@ -1341,15 +1364,12 @@ class NanaSQLite(MutableMapping):
         for key, original_value in mapping.items():
             value = original_value
 
-            if self._validator is not None:
-                try:
-                    if self._coerce:
-                        value = validkit_validate(original_value, self._validator)
-                    else:
-                        validkit_validate(original_value, self._validator)
-                except Exception as exc:  # pylint: disable=broad-exception-caught
-                    failed[key] = self._format_key_validation_error_message(key, exc)
-                    continue
+            try:
+                for hook in getattr(self, "_hooks", []):
+                    value = hook.before_write(self, key, value)
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                failed[key] = self._format_key_validation_error_message(key, exc)
+                continue
 
             try:
                 serialized = self._serialize(value)
@@ -1399,6 +1419,11 @@ class NanaSQLite(MutableMapping):
         self._check_connection()
         if not keys:
             return  # 空の場合は何もしない
+
+        for key in keys:
+            if self._ensure_cached(key):
+                for hook in getattr(self, "_hooks", []):
+                    hook.before_delete(self, key)
 
         with self._acquire_lock():
             cursor = self._connection.cursor()
@@ -3034,6 +3059,7 @@ class NanaSQLite(MutableMapping):
         cache_persistence_ttl: bool | None = None,
         validator: Any | None | types.EllipsisType = _UNSET,
         coerce: bool | types.EllipsisType = _UNSET,
+        hooks: list[NanaHook] | None | types.EllipsisType = _UNSET,
         v2_enable_metrics: bool | types.EllipsisType = _UNSET,
     ):
         """
@@ -3092,7 +3118,22 @@ class NanaSQLite(MutableMapping):
         ttl = cache_ttl if cache_ttl is not None else self._cache_ttl_raw
         persist_ttl = cache_persistence_ttl if cache_persistence_ttl is not None else self._cache_persistence_ttl_raw
         # validator が省略された場合は親のスキーマを継承し、None 明示指定は無効化とする
-        resolved_validator = self._validator if validator is _UNSET else validator
+        # hooksと併用時の多重登録を防ぐため、フック継承を調整する
+        if hooks is _UNSET:
+            resolved_hooks = list(getattr(self, "_hooks", []))
+            if validator is _UNSET:
+                # 両方省略：親の全て（_hooks）をそのまま引継ぎ、__init__側でのValidator追加はスキップさせる
+                resolved_validator = None
+            else:
+                # validatorのみ明示：親の_hooksから古いValidkitHookを除去し、新しいvalidatorを__init__で処理させる
+                from .hooks import ValidkitHook
+
+                resolved_hooks = [h for h in resolved_hooks if not isinstance(h, ValidkitHook)]
+                resolved_validator = validator
+        else:
+            resolved_hooks = hooks
+            resolved_validator = self._validator if validator is _UNSET else validator
+
         # coerce が省略された場合は親の設定を継承する
         resolved_coerce = self._coerce if coerce is _UNSET else bool(coerce)
         # v2_enable_metrics が省略された場合は親の設定を継承する
@@ -3113,6 +3154,7 @@ class NanaSQLite(MutableMapping):
                 lock_timeout=self._lock_timeout,
                 validator=resolved_validator,
                 coerce=resolved_coerce,
+                hooks=resolved_hooks,
                 v2_mode=self._v2_mode,
                 v2_enable_metrics=resolved_v2_enable_metrics,
                 _shared_connection=self._connection,

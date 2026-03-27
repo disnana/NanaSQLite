@@ -6,6 +6,26 @@
 
 ## 日本語
 
+### [1.5.0dev1] - 2026-03-27
+
+#### 新機能: Ultimate Hooks (汎用フック＆制約アーキテクチャ)
+- **強力なフック機構の導入**:
+  - `NanaHook` プロトコルを新設し、`before_write`, `after_read`, `before_delete` の3つのライフサイクルイベントをフック可能にしました。
+  - カスタムフックを自作することで、データの検証、暗号化の拡張、ロギング、他システムへの通知などを自由に実装できます。
+- **標準制約（Standard Constraints）の組み込み**:
+  - `CheckHook`: SQLite の `CHECK` 制約のような関数ベースの検証を提供。
+  - `UniqueHook`: 指定したキー（またはフィールド）の値の一意性を保証。
+  - `ForeignKeyHook`: 他の `NanaSQLite` テーブルのキーに対する参照整合性を保証。
+- **外部ライブラリ統合の透過的サポート**:
+  - `ValidkitHook`: 従来の `validator` 引数と互換性を持ち、`validkit-py` による高性能バリデーションを提供。
+  - `PydanticHook`: `Pydantic` モデルを直接フックに登録することで、読み書き時の自動シリアライズ/デシリアライズおよび厳格な型検証を実現。
+- **メソッドの拡張**:
+  - `NanaSQLite.add_hook()` および `AsyncNanaSQLite.add_hook()` を追加しました。
+
+#### アーキテクチャ強化と後方互換性
+- 従来の `validator` パラメータは内部的に `ValidkitHook` へと自動変換されるようになり、後方互換性が100%維持されています。
+- `batch_update`, `get`, `batch_get`, `setdefault`, `pop` など、あらゆるアクセス経路でフックが等しく適用されるように内部ロジックを統合・堅牢化しました。
+
 ### [1.4.1] - 2026-03-27
 
 #### セキュリティ修正
@@ -844,6 +864,26 @@
 
 
 ## English
+
+### [1.5.0dev1] - 2026-03-27
+
+#### New Features: Ultimate Hooks (General-purpose Hook & Constraint Architecture)
+- **Powerful Hook Mechanism**:
+  - Introduced the `NanaHook` protocol, allowing interception of 3 lifecycle events: `before_write`, `after_read`, and `before_delete`.
+  - Custom hooks can be easily authored to implement data validation, custom encryption, logging, or integrations with external systems.
+- **Built-in Standard Constraints**:
+  - `CheckHook`: Provides function-based validation similar to SQLite's `CHECK` constraint.
+  - `UniqueHook`: Ensures uniqueness of values for a specified key (or nested field).
+  - `ForeignKeyHook`: Grants referential integrity against keys in other `NanaSQLite` tables.
+- **Transparent External Library Integrations**:
+  - `ValidkitHook`: Maintains 100% backward compatibility with the legacy `validator` parameter, providing high-performance validation via `validkit-py`.
+  - `PydanticHook`: Allows direct registration of `Pydantic` models as hooks, enabling automatic serialization/deserialization and strict type validation on read/write.
+- **Method Extensions**:
+  - Added `NanaSQLite.add_hook()` and `AsyncNanaSQLite.add_hook()` for dynamic hook registration.
+
+#### Architectural Enhancements & Backward Compatibility
+- The legacy `validator` parameter is internally converted to a `ValidkitHook`, preserving 100% backward compatibility.
+- Internal logic has been unified and hardened to ensure hooks are equally applied across all access paths, including `batch_update`, `get`, `batch_get`, `setdefault`, and `pop`.
 
 ### [1.4.1] - 2026-03-27
 

@@ -2,6 +2,7 @@
 NanaSQLite Cache Module: Provides multiple cache strategy implementations.
 (NanaSQLite用キャッシュモジュール: 複数のキャッシュ戦略実装を提供)
 """
+
 from __future__ import annotations
 
 import logging
@@ -319,9 +320,7 @@ def create_cache(
         if HAS_FAST_LRU:
             logger.info("Using FastLRUCache (lru-dict) with size %s", size)
             return FastLRUCache(size)
-        logger.warning(
-            "lru-dict not found. Falling back to standard LRUCache (OrderedDict) with size %s", size
-        )
+        logger.warning("lru-dict not found. Falling back to standard LRUCache (OrderedDict) with size %s", size)
         return StdLRUCache(size)
 
     if strategy == CacheType.TTL:
