@@ -152,5 +152,6 @@ class PydanticHook(BaseHook):
             elif hasattr(self.model_class, "parse_obj"):
                 return self.model_class.parse_obj(value)
         except Exception:
+            # If conversion back to the Pydantic model fails, silently fall back to the original value.
             pass
         return value
