@@ -67,6 +67,24 @@ user = db["user:1"]
 db.close()  # Flushes remaining buffer to SQLite on shutdown
 ```
 
+### Batch Configuration with V2Config (v1.4.1+)
+
+To address the issue of having too many parameters, a `V2Config` dataclass has been introduced to group all v2-related settings.
+
+```python
+from nanasqlite import NanaSQLite, V2Config
+
+# Group settings using V2Config
+cfg = V2Config(
+    flush_mode="time",
+    flush_interval=1.0,
+    v2_chunk_size=500,
+    v2_enable_metrics=True
+)
+
+db = NanaSQLite("mydb.db", v2_mode=True, v2_config=cfg)
+```
+
 ### Async (AsyncNanaSQLite)
 
 ```python

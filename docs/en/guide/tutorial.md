@@ -536,5 +536,6 @@ You've learned:
 - ✅ Common usage patterns
 - ✅ Lock timeout for deadlock prevention
 - ✅ Backup and restore for data safety
+- ✅ Advanced engine configuration with V2Config (v1.4.1+)
 
 Happy coding with NanaSQLite!
