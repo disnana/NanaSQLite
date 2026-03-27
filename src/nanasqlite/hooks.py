@@ -17,15 +17,15 @@ class NanaHook(Protocol):
 
     def before_write(self, db: "NanaSQLite", key: str, value: Any) -> Any:
         """Called before writing. Can validate or mutate the value."""
-        ...
+        pass
 
     def after_read(self, db: "NanaSQLite", key: str, value: Any) -> Any:
         """Called after reading. Can mutate the value."""
-        ...
+        pass
 
     def before_delete(self, db: "NanaSQLite", key: str) -> None:
         """Called before deleting. Can abort the deletion."""
-        ...
+        pass
 
 
 class BaseHook:
@@ -98,14 +98,23 @@ class ValidkitHook(BaseHook):
         self.coerce = coerce
 
         try:
-            from validkit import validate
+            # We try to use the one from .core to support existing test monkeypatching
+            from .core import validkit_validate
 
-            self._validate_func = validate
-        except ImportError:
-            raise ImportError(
-                "The 'validkit-py' library is required for validation. "
-                "Install it with: pip install nanasqlite[validation]"
-            )
+            if validkit_validate is None:
+                raise ImportError("validkit-py not installed")
+            self._validate_func = validkit_validate
+        except (ImportError, AttributeError):
+            # Fallback to direct import if .core is not yet fully available or doesn't have it
+            try:
+                from validkit import validate
+
+                self._validate_func = validate
+            except ImportError:
+                raise ImportError(
+                    "The 'validkit-py' library is required for validation. "
+                    "Install it with: pip install nanasqlite[validation]"
+                )
 
     def before_write(self, db: "NanaSQLite", key: str, value: Any) -> Any:
         try:

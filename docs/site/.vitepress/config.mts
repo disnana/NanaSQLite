@@ -29,6 +29,7 @@ export default defineConfig({
                     { text: '非同期サポート', link: '/async_guide' },
                     { text: 'トランザクション', link: '/transaction_guide' },
                     { text: 'バリデーション', link: '/validation_guide' },
+                    { text: '究極のフック (Ultimate Hooks)', link: '/hooks_guide' },
                     { text: 'エラーハンドリング', link: '/error_handling' }
                 ]
             },
@@ -91,6 +92,7 @@ export default defineConfig({
                             { text: 'Async Support', link: '/en/async_guide' },
                             { text: 'Transactions', link: '/en/transaction_guide' },
                             { text: 'Validation', link: '/en/validation_guide' },
+                            { text: 'Ultimate Hooks', link: '/en/hooks_guide' },
                             { text: 'Error Handling', link: '/en/error_handling' }
                         ]
                     },

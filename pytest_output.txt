@@ -1,0 +1,144 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-8.4.2, pluggy-1.6.0 -- C:\Program Files\Python311\python.exe
+cachedir: .pytest_cache
+benchmark: 5.1.0 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: D:\data-backup\code\コード保存\NanaSQLite
+configfile: pyproject.toml
+plugins: langsmith-0.4.38, asyncio-0.26.0, benchmark-5.1.0, cov-7.0.0, socket-0.7.0, timeout-2.4.0, xdist-3.8.0, typeguard-4.4.4, anyio-4.9.0
+asyncio: mode=Mode.AUTO, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 10 items
+
+tests/test_tdd_cycle_4.py::TestBatchUpdateCodeStructure::test_batch_update_does_not_use_ternary_coerce_pattern PASSED [ 10%]
+tests/test_tdd_cycle_4.py::TestBatchUpdateCodeStructure::test_batch_update_has_separate_coerce_branch PASSED [ 20%]
+tests/test_tdd_cycle_4.py::TestBatchUpdateCodeStructure::test_batch_update_validate_only_branch_does_not_store_coerced PASSED [ 30%]
+tests/test_tdd_cycle_4.py::TestBatchUpdateBehaviourWithMockedValidkit::test_batch_update_coerce_false_preserves_original_values FAILED [ 40%]
+tests/test_tdd_cycle_4.py::TestBatchUpdateBehaviourWithMockedValidkit::test_batch_update_coerce_true_stores_coerced_values FAILED [ 50%]
+tests/test_tdd_cycle_4.py::TestBatchUpdateBehaviourWithMockedValidkit::test_batch_update_validates_all_before_writing_when_coerce_false PASSED [ 60%]
+tests/test_tdd_cycle_4.py::TestBatchUpdateBehaviourWithMockedValidkit::test_batch_update_validates_all_before_writing_when_coerce_true PASSED [ 70%]
+tests/test_tdd_cycle_4.py::TestBatchUpdateBehaviourWithMockedValidkit::test_batch_update_partial_writes_only_valid_items_when_coerce_false FAILED [ 80%]
+tests/test_tdd_cycle_4.py::TestBatchUpdateBehaviourWithMockedValidkit::test_batch_update_partial_writes_coerced_valid_items_when_coerce_true FAILED [ 90%]
+tests/test_tdd_cycle_4.py::test_async_batch_update_partial_writes_only_valid_items FAILED [100%]
+
+================================== FAILURES ===================================
+_ TestBatchUpdateBehaviourWithMockedValidkit.test_batch_update_coerce_false_preserves_original_values _
+src\nanasqlite\hooks.py:115: in before_write
+    self._validate_func(value, self.schema)
+C:\Users\msi-z\AppData\Roaming\Python\Python311\site-packages\validkit\validator.py:664: in validate
+    validated_data = validate_internal(
+C:\Users\msi-z\AppData\Roaming\Python\Python311\site-packages\validkit\validator.py:388: in validate_internal
+    raise ValidationError(err_msg, path_prefix, value)
+E   validkit.validator.ValidationError: Expected dict, got str
+
+The above exception was the direct cause of the following exception:
+tests\test_tdd_cycle_4.py:85: in test_batch_update_coerce_false_preserves_original_values
+    db.batch_update({"key1": "hello", "key2": "world"})
+src\nanasqlite\core.py:1355: in batch_update
+    temp_v = hook.before_write(self, k, temp_v)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\nanasqlite\hooks.py:118: in before_write
+    raise NanaSQLiteValidationError(
+E   nanasqlite.exceptions.NanaSQLiteValidationError: Value for key 'key1' failed schema validation: Expected dict, got str / キー 'key1' の値がスキーマに違反しています: Expected dict, got str
+_ TestBatchUpdateBehaviourWithMockedValidkit.test_batch_update_coerce_true_stores_coerced_values _
+src\nanasqlite\hooks.py:113: in before_write
+    return self._validate_func(value, self.schema)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\msi-z\AppData\Roaming\Python\Python311\site-packages\validkit\validator.py:664: in validate
+    validated_data = validate_internal(
+C:\Users\msi-z\AppData\Roaming\Python\Python311\site-packages\validkit\validator.py:388: in validate_internal
+    raise ValidationError(err_msg, path_prefix, value)
+E   validkit.validator.ValidationError: Expected dict, got str
+
+The above exception was the direct cause of the following exception:
+tests\test_tdd_cycle_4.py:105: in test_batch_update_coerce_true_stores_coerced_values
+    db.batch_update({"key1": "hello", "key2": "world"})
+src\nanasqlite\core.py:1347: in batch_update
+    v = hook.before_write(self, k, v)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\nanasqlite\hooks.py:118: in before_write
+    raise NanaSQLiteValidationError(
+E   nanasqlite.exceptions.NanaSQLiteValidationError: Value for key 'key1' failed schema validation: Expected dict, got str / キー 'key1' の値がスキーマに違反しています: Expected dict, got str
+_ TestBatchUpdateBehaviourWithMockedValidkit.test_batch_update_partial_writes_only_valid_items_when_coerce_false _
+tests\test_tdd_cycle_4.py:176: in test_batch_update_partial_writes_only_valid_items_when_coerce_false
+    assert set(failed) == {"key2"}
+E   AssertionError: assert {'key3', 'key2', 'key1'} == {'key2'}
+E     
+E     Extra items in the left set:
+E     'key1'
+E     'key3'
+E     
+E     Full diff:
+E       {
+E     +     'key1',
+E           'key2',
+E     +     'key3',
+E       }
+_ TestBatchUpdateBehaviourWithMockedValidkit.test_batch_update_partial_writes_coerced_valid_items_when_coerce_true _
+tests\test_tdd_cycle_4.py:195: in test_batch_update_partial_writes_coerced_valid_items_when_coerce_true
+    assert set(failed) == {"key2"}
+E   AssertionError: assert {'key3', 'key2', 'key1'} == {'key2'}
+E     
+E     Extra items in the left set:
+E     'key1'
+E     'key3'
+E     
+E     Full diff:
+E       {
+E     +     'key1',
+E           'key2',
+E     +     'key3',
+E       }
+___________ test_async_batch_update_partial_writes_only_valid_items ___________
+tests\test_tdd_cycle_4.py:217: in test_async_batch_update_partial_writes_only_valid_items
+    assert set(failed) == {"key2"}
+E   AssertionError: assert {'key3', 'key2', 'key1'} == {'key2'}
+E     
+E     Extra items in the left set:
+E     'key1'
+E     'key3'
+E     
+E     Full diff:
+E       {
+E     +     'key1',
+E           'key2',
+E     +     'key3',
+E       }
+=========================== short test summary info ===========================
+FAILED tests/test_tdd_cycle_4.py::TestBatchUpdateBehaviourWithMockedValidkit::test_batch_update_coerce_false_preserves_original_values - nanasqlite.exceptions.NanaSQLiteValidationError: Value for key 'key1' failed schema validation: Expected dict, got str / キー 'key1' の値がスキーマに違反しています: Expected dict, got str
+FAILED tests/test_tdd_cycle_4.py::TestBatchUpdateBehaviourWithMockedValidkit::test_batch_update_coerce_true_stores_coerced_values - nanasqlite.exceptions.NanaSQLiteValidationError: Value for key 'key1' failed schema validation: Expected dict, got str / キー 'key1' の値がスキーマに違反しています: Expected dict, got str
+FAILED tests/test_tdd_cycle_4.py::TestBatchUpdateBehaviourWithMockedValidkit::test_batch_update_partial_writes_only_valid_items_when_coerce_false - AssertionError: assert {'key3', 'key2', 'key1'} == {'key2'}
+  
+  Extra items in the left set:
+  'key1'
+  'key3'
+  
+  Full diff:
+    {
+  +     'key1',
+        'key2',
+  +     'key3',
+    }
+FAILED tests/test_tdd_cycle_4.py::TestBatchUpdateBehaviourWithMockedValidkit::test_batch_update_partial_writes_coerced_valid_items_when_coerce_true - AssertionError: assert {'key3', 'key2', 'key1'} == {'key2'}
+  
+  Extra items in the left set:
+  'key1'
+  'key3'
+  
+  Full diff:
+    {
+  +     'key1',
+        'key2',
+  +     'key3',
+    }
+FAILED tests/test_tdd_cycle_4.py::test_async_batch_update_partial_writes_only_valid_items - AssertionError: assert {'key3', 'key2', 'key1'} == {'key2'}
+  
+  Extra items in the left set:
+  'key1'
+  'key3'
+  
+  Full diff:
+    {
+  +     'key1',
+        'key2',
+  +     'key3',
+    }
+========================= 5 failed, 5 passed in 0.79s =========================

@@ -35,7 +35,7 @@ from typing import Any, Literal
 import apsw
 
 from .cache import CacheType
-from .core import _UNSET, IDENTIFIER_PATTERN, NanaSQLite, V2Config
+from .core import _UNSET, HAS_VALIDKIT, IDENTIFIER_PATTERN, NanaSQLite, V2Config
 from .exceptions import NanaSQLiteClosedError, NanaSQLiteDatabaseError
 from .hooks import NanaHook
 
@@ -158,8 +158,8 @@ class AsyncNanaSQLite:
         self._cache_persistence_ttl = cache_persistence_ttl
         self._encryption_key = encryption_key
         self._encryption_mode = encryption_mode
-        self._validator = validator
-        self._coerce: bool = bool(coerce)
+        self._validator_raw = validator
+        self._coerce_raw: bool = bool(coerce)
         self._hooks: list[NanaHook] = hooks or []
 
         # v2 Architecture Setup
@@ -189,6 +189,20 @@ class AsyncNanaSQLite:
         self._owns_executor = True  # このインスタンスがエグゼキューターを所有
         # _init_lock はイベントループ内で初めて使われる時に生成する（__init__はループ外から呼ばれる可能性があるため）
         self._init_lock: asyncio.Lock | None = None
+
+    @property
+    def _validator(self) -> Any:
+        """後方互換性とテストのためのプロパティ"""
+        if self._db is not None:
+            return self._db._validator
+        return self._validator_raw
+
+    @property
+    def _coerce(self) -> bool:
+        """後方互換性とテストのためのプロパティ"""
+        if self._db is not None:
+            return self._db._coerce
+        return self._coerce_raw
 
     async def add_hook(self, hook: NanaHook) -> None:
         """
@@ -1461,9 +1475,9 @@ class AsyncNanaSQLite:
         async_sub_db._forbidden_sql_functions = self._forbidden_sql_functions
         async_sub_db._max_clause_length = self._max_clause_length
         # バリデーションスキーマを引き継ぐ
-        async_sub_db._validator = self._validator if validator is _UNSET else validator
+        async_sub_db._validator_raw = self._validator if validator is _UNSET else validator
         # coerce 設定を引き継ぐ
-        async_sub_db._coerce = self._coerce if coerce is _UNSET else bool(coerce)
+        async_sub_db._coerce_raw = self._coerce if coerce is _UNSET else bool(coerce)
         async_sub_db._hooks = self._hooks if hooks is _UNSET else hooks
         # キャッシュ関連の設定を親インスタンスから継承する
         async_sub_db._cache_strategy = self._cache_strategy
