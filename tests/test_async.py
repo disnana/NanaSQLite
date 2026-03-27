@@ -227,6 +227,24 @@ class TestAsyncDictMethods:
             value = await db.asetdefault("key1", "default2")
             assert value == "default1"  # 既存の値が返される
 
+    @pytest.mark.asyncio
+    async def test_async_aupsert(self, db_path):
+        """非同期aupsert (upsert)のテスト"""
+        async with AsyncNanaSQLite(db_path) as db:
+            # 新規挿入
+            await db.aupsert("key1", {"name": "Alice"})
+            value = await db.aget("key1")
+            assert value == {"name": "Alice"}
+
+            # 更新
+            await db.aupsert("key1", {"name": "Nana", "age": 18})
+            updated = await db.aget("key1")
+            assert updated == {"name": "Nana", "age": 18}
+
+            # dict以外でのv2互換的upsert
+            await db.aupsert("key2", "simple_value")
+            assert await db.aget("key2") == "simple_value"
+
 
 # ==================== 非同期特殊メソッドテスト ====================
 
