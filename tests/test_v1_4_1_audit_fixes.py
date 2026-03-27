@@ -79,6 +79,7 @@ def test_v2_shared_lock_concurrency() -> None:
 
         t1.flush()
         t2.flush()
+        time.sleep(0.2) # Wait for background threads
 
         assert len(t1) == 50
         assert len(t2) == 50

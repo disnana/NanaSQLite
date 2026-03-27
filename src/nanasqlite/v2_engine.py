@@ -81,9 +81,9 @@ class V2Engine:
         self._max_chunk_size = max_chunk_size
 
         # Lane 1: KVS Normal Lane (Staging Buffer)
-        # Structure: {"key": {"action": "set"|"delete", "value": ...}}
+        # Structure: {(table_name, key): {"action": "set"|"delete", "value": ...}}
         self._staging_lock = threading.Lock()
-        self._staging_buffer: dict[str, dict[str, Any]] = {}
+        self._staging_buffer: dict[tuple[str, str], dict[str, Any]] = {}
         self._staging_changes = 0 # Track number of mutations since last flush
 
         # Lane 2: Strict / Raw SQL Lane (Priority Queue)
@@ -155,30 +155,30 @@ class V2Engine:
 
     # ==================== KVS Lane (Lane 1) Public API ====================
 
-    def kvs_set(self, key: str, value: Any) -> None:
+    def kvs_set(self, table_name: str, key: str, value: Any) -> None:
         """Queue a set operation in the staging buffer."""
         # Serialize immediately on the calling thread to catch type errors early
         # and prevent slow serialization during the flush transaction.
         serialized_value = self._serialize(value)
 
         with self._staging_lock:
-            self._staging_buffer[key] = {"action": "set", "value": serialized_value}
+            self._staging_buffer[(table_name, key)] = {"action": "set", "value": serialized_value}
             self._staging_changes += 1
 
         self._check_auto_flush()
 
-    def kvs_delete(self, key: str) -> None:
+    def kvs_delete(self, table_name: str, key: str) -> None:
         """Queue a delete operation in the staging buffer."""
         with self._staging_lock:
-            self._staging_buffer[key] = {"action": "delete"}
+            self._staging_buffer[(table_name, key)] = {"action": "delete"}
             self._staging_changes += 1
 
         self._check_auto_flush()
 
-    def kvs_get_staging(self, key: str) -> dict[str, Any] | None:
+    def kvs_get_staging(self, table_name: str, key: str) -> dict[str, Any] | None:
         """Read a single item from the staging buffer."""
         with self._staging_lock:
-            return self._staging_buffer.get(key)
+            return self._staging_buffer.get((table_name, key))
 
     def _check_auto_flush(self) -> None:
         """Trigger auto-flush based on the current mode."""
@@ -258,10 +258,6 @@ class V2Engine:
 
         # 1. Capture current snapshot of staging buffer
         with self._staging_lock:
-            if not self._staging_buffer and self._strict_queue.empty():
-                return
-
-            # Take a copy and clear the running buffer to unblock incoming writes
             current_buffer = self._staging_buffer
             self._staging_buffer = {}
             self._staging_changes = 0
@@ -271,22 +267,19 @@ class V2Engine:
         total_kvs = len(kvs_items)
         chunk_size = self._max_chunk_size
 
-        if total_kvs == 0:
-            # No KVS items but might be strict queue items — process those in one batch
-            try:
-                self._process_transaction_chunk([])
-            except Exception as e:
-                logger.warning("NanaSQLite v2 Engine: Strict-only chunk failed. Error: %s", e)
-        else:
+        if total_kvs > 0:
             for i in range(0, total_kvs, chunk_size):
                 chunk = kvs_items[i : i + chunk_size]
                 # Create a localized transaction per chunk
                 try:
-                    self._process_transaction_chunk(chunk)
+                    self._process_kvs_chunk(chunk)
                 except Exception as e:
                     # If a chunk fails, we enter a recovery mode for that specific chunk
                     logger.warning("NanaSQLite v2 Engine: Chunk transaction failed, entering DLQ recovery. Error: %s", e)
                     self._recover_chunk_via_dlq(chunk)
+
+        # Process all remaining Strict Lane tasks
+        self._process_all_strict_tasks()
 
         if self._enable_metrics:
             flush_duration_ms = (time.time() - start_time) * 1000
@@ -296,51 +289,47 @@ class V2Engine:
                 self._metrics["last_flush_time"] = current_time
                 self._metrics["total_flush_time_ms"] += flush_duration_ms
 
+    def _process_kvs_chunk(self, kvs_chunk: list[tuple[tuple[str, str], dict[str, Any]]]) -> None:
+        """Process a single KVS chunk in its own transaction."""
+        table_ops: dict[str, dict[str, list]] = {}
 
-    def _process_transaction_chunk(self, kvs_chunk: list[tuple[str, dict[str, Any]]]) -> None:
-        """Process a single KVS chunk and run all pending strict tasks in one transaction."""
-        sets = []
-        deletes = []
-        for key, op in kvs_chunk:
+        for (table_name, key), op in kvs_chunk:
+            if table_name not in table_ops:
+                table_ops[table_name] = {"sets": [], "deletes": []}
             if op["action"] == "set":
-                sets.append((key, op["value"]))
+                table_ops[table_name]["sets"].append((key, op["value"]))
             elif op["action"] == "delete":
-                deletes.append((key,))
+                table_ops[table_name]["deletes"].append((key,))
 
         cursor = self._connection.cursor()
-
         lock_acquired = False
         if self._shared_lock is not None:
             self._shared_lock.acquire()
             lock_acquired = True
 
         try:
-            # Start Transaction
             cursor.execute("BEGIN IMMEDIATE TRANSACTION;")
             try:
-                # 1. Process KVS sets (UPSERT)
-                if sets:
-                    cursor.executemany(
-                        f"INSERT OR REPLACE INTO {self._table_name} (key, value) VALUES (?, ?)",  # nosec
-                        sets
-                    )
-
-                # 2. Process KVS deletes
-                if deletes:
-                    cursor.executemany(
-                        f"DELETE FROM {self._table_name} WHERE key = ?",  # nosec
-                        deletes
-                    )
-
-                # 3. Process Strict Lane (callbacks deferred until after COMMIT)
-                succeeded_tasks = self._process_strict_queue(cursor)
+                flushed_count = 0
+                for table_name, ops in table_ops.items():
+                    sets = ops["sets"]
+                    deletes = ops["deletes"]
+                    if sets:
+                        cursor.executemany(
+                            f"INSERT OR REPLACE INTO {table_name} (key, value) VALUES (?, ?)",  # nosec
+                            sets
+                        )
+                    if deletes:
+                        cursor.executemany(
+                            f"DELETE FROM {table_name} WHERE key = ?",  # nosec
+                            deletes
+                        )
+                    flushed_count += len(sets) + len(deletes)
 
                 if self._enable_metrics:
                     with self._metrics_lock:
-                        self._metrics["kvs_items_flushed"] += len(sets) + len(deletes)
-                        self._metrics["strict_tasks_executed"] += len(succeeded_tasks)
+                        self._metrics["kvs_items_flushed"] += flushed_count
 
-                # Commit Transaction
                 cursor.execute("COMMIT;")
             except Exception:
                 cursor.execute("ROLLBACK;")
@@ -349,94 +338,93 @@ class V2Engine:
             if lock_acquired and self._shared_lock is not None:
                 self._shared_lock.release()
 
-        # Fire on_success callbacks only after the transaction is committed
-        for task in succeeded_tasks:
-            if task.on_success:
-                try:
-                    task.on_success()
-                except Exception as cb_err:
-                    logger.error("Error in on_success callback: %s", cb_err)
-
-    def _process_strict_queue(self, cursor: apsw.Cursor) -> list[StrictTask]:
-        """Process all pending tasks in the strict priority queue.
-
-        Returns:
-            A list of successfully executed tasks whose ``on_success``
-            callbacks should be invoked **after** the enclosing transaction
-            has been committed.  Callbacks are deliberately *not* fired
-            inside the transaction so that a later task failure + ROLLBACK
-            does not leave earlier callers with a false-positive success
-            notification.
-        """
-        succeeded: list[StrictTask] = []
+    def _process_all_strict_tasks(self) -> None:
+        """Process all pending tasks in the strict priority queue. Each task gets its own transaction."""
+        cursor = self._connection.cursor()
         while not self._strict_queue.empty():
-            task: StrictTask = self._strict_queue.get_nowait()
             try:
-                if task.task_type == TASK_EXECUTE:
-                    if task.parameters:
-                        cursor.execute(task.sql, task.parameters)
-                    else:
-                        cursor.execute(task.sql)
-                elif task.task_type == TASK_EXECUTEMANY:
-                    cursor.executemany(task.sql, task.parameters) # type: ignore
+                task: StrictTask = self._strict_queue.get_nowait()
+            except queue.Empty:
+                break
+                
+            lock_acquired = False
+            if self._shared_lock is not None:
+                self._shared_lock.acquire()
+                lock_acquired = True
 
-                succeeded.append(task)
+            try:
+                cursor.execute("BEGIN IMMEDIATE TRANSACTION;")
+                try:
+                    if task.task_type == TASK_EXECUTE:
+                        if task.parameters:
+                            cursor.execute(task.sql, task.parameters)
+                        else:
+                            cursor.execute(task.sql)
+                    elif task.task_type == TASK_EXECUTEMANY:
+                        cursor.executemany(task.sql, task.parameters) # type: ignore
+
+                    if self._enable_metrics:
+                        with self._metrics_lock:
+                            self._metrics["strict_tasks_executed"] += 1
+
+                    cursor.execute("COMMIT;")
+
+                    if task.on_success:
+                        try:
+                            task.on_success()
+                        except Exception as cb_err:
+                            logger.error("Error in on_success callback: %s", cb_err)
+
+                except Exception as e:
+                    cursor.execute("ROLLBACK;")
+                    if task.on_error:
+                        try:
+                            task.on_error(e)
+                        except Exception as handler_err:
+                            logger.error("Error in on_error callback: %s", handler_err)
+                    self._add_to_dlq(f"StrictTask failed: {e}", task)
 
             except Exception as e:
-                # Individual StrictTask failed. Add to DLQ and re-raise to rollback the transaction
+                # BEGIN IMMEDIATE TRANSACTION failed (e.g., BusyError)
                 if task.on_error:
-                    # Notify the caller
                     try:
                         task.on_error(e)
                     except Exception as handler_err:
                         logger.error("Error in on_error callback: %s", handler_err)
+                self._add_to_dlq(f"StrictTask transaction start failed: {e}", task)
 
-                self._add_to_dlq(f"StrictTask failed: {e}", task)
-                # Raising here ensures the chunk rolls back, but since we pulled from the queue
-                # using get_nowait(), the task is already out of the queue (it's in the DLQ).
-                # The next retry of the KVS chunk will NOT include this failed strict task.
-                raise
-        return succeeded
+            finally:
+                if lock_acquired and self._shared_lock is not None:
+                    self._shared_lock.release()
 
-    def _recover_chunk_via_dlq(self, failed_kvs_chunk: list[tuple[str, dict[str, Any]]]) -> None:
+    def _recover_chunk_via_dlq(self, failed_kvs_chunk: list[tuple[tuple[str, str], dict[str, Any]]]) -> None:
         """
         When a chunk flush fails (due to a poison pill in KVS data), process it row-by-row.
         If a row fails, put it in the DLQ and continue.
         """
         cursor = self._connection.cursor()
-
         lock_acquired = False
         if self._shared_lock is not None:
             self._shared_lock.acquire()
             lock_acquired = True
 
         try:
-            for key, op in failed_kvs_chunk:
+            for (table_name, key), op in failed_kvs_chunk:
                 try:
                     cursor.execute("BEGIN IMMEDIATE TRANSACTION;")
                     if op["action"] == "set":
-                        cursor.execute(f"INSERT OR REPLACE INTO {self._table_name} (key, value) VALUES (?, ?)", (key, op["value"])) # nosec
+                        cursor.execute(f"INSERT OR REPLACE INTO {table_name} (key, value) VALUES (?, ?)", (key, op["value"])) # nosec
                     elif op["action"] == "delete":
-                        cursor.execute(f"DELETE FROM {self._table_name} WHERE key = ?", (key,)) # nosec
-
-                    succeeded_tasks = self._process_strict_queue(cursor)
+                        cursor.execute(f"DELETE FROM {table_name} WHERE key = ?", (key,)) # nosec
 
                     if self._enable_metrics:
                         with self._metrics_lock:
                             self._metrics["kvs_items_flushed"] += 1
-                            self._metrics["strict_tasks_executed"] += len(succeeded_tasks)
 
                     cursor.execute("COMMIT;")
-
-                    for task in succeeded_tasks:
-                        if task.on_success:
-                            try:
-                                task.on_success()
-                            except Exception as cb_err:
-                                logger.error("Error in on_success callback: %s", cb_err)
                 except Exception as e:
                     cursor.execute("ROLLBACK;")
-                    self._add_to_dlq(f"KVS Poison Pill row '{key}' failed: {e}", (key, op))
+                    self._add_to_dlq(f"KVS Poison Pill row '{key}' failed: {e}", ((table_name, key), op))
         finally:
             if lock_acquired and self._shared_lock is not None:
                 self._shared_lock.release()
@@ -463,10 +451,10 @@ class V2Engine:
             if isinstance(item, StrictTask):
                 self._strict_queue.put(item)
             elif isinstance(item, tuple) and len(item) == 2 and isinstance(item[1], dict) and "action" in item[1]:
-                # It's a KVS row (key, op)
-                key, op = item
+                # It's a KVS row ((table_name, key), op)
+                table_key, op = item
                 with self._staging_lock:
-                    self._staging_buffer[key] = op
+                    self._staging_buffer[table_key] = op
                     self._staging_changes += 1
             else:
                 logger.warning("NanaSQLite v2 Engine: Unknown item type in DLQ, cannot retry: %s", item)
@@ -523,3 +511,19 @@ class V2Engine:
             self._perform_flush()
         except Exception as e:
             logger.error("NanaSQLite v2 Engine: Final flush failed during shutdown: %s", e)
+
+        # Clear any remaining strict tasks to prevent deadlocks (e.g., if _perform_flush failed entirely)
+        if not self._strict_queue.empty():
+            from .exceptions import NanaSQLiteClosedError
+            shutdown_err = NanaSQLiteClosedError("V2Engine shut down before task could complete.")
+            while not self._strict_queue.empty():
+                try:
+                    task = self._strict_queue.get_nowait()
+                    if task.on_error:
+                        try:
+                            task.on_error(shutdown_err)
+                        except Exception:
+                            pass
+                except queue.Empty:
+                    break
+

@@ -1516,6 +1516,11 @@ class NanaSQLite(MutableMapping):
                 "Use the original NanaSQLite instance, not one obtained via table()."
             )
 
+        # v2 Architecture: Shutdown background engine before acquiring lock
+        # to prevent deadlock with background flush thread (which also needs the lock).
+        if self._v2_mode and getattr(self, "_v2_engine", None):
+            self._v2_engine.shutdown()
+
         with self._acquire_lock():
             # ロック取得後にトランザクション中かを再チェック（ロック外チェックとの競合を防ぐ）
             if self._in_transaction:
@@ -1534,11 +1539,6 @@ class NanaSQLite(MutableMapping):
                 # 少なくとも src_path がオープン可能かどうかを、接続クローズ前に確認する
                 # 事前の isfile/access チェックは TOCTOU になるため行わず、open() の成否で判断する
                 with open(src_path, "rb") as src_f:
-                    # v2 Architecture: Shutdown background engine before closing connection
-                    if self._v2_mode and self._v2_engine:
-                        self._v2_engine.shutdown()
-                        # We don't set to None yet, we'll recreate later
-
                     self._connection.close()
                     # 一時ファイルへコピー→fsync→os.replace() で原子的に置き換える
                     # open()/コピー中の OSError は外側の except (apsw.Error, OSError) で捕捉して

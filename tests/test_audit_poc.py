@@ -467,8 +467,11 @@ class TestV140Bug01V2OnSuccessDeferred:
         except Exception:
             pass
 
-        # task1's on_success must NOT have been called since the transaction rolled back
-        assert "task1_success" not in callback_log
+        # Since StrictTasks now have independent transactions, task1 succeeds and task2 fails.
+        # task1's on_success WILL be called since it committed successfully.
+        assert "task1_success" in callback_log
+        # task2's on_success must NOT have been called since its transaction rolled back
+        assert "task2_success" not in callback_log
         # task2's on_error must have been called
         assert "task2_error" in callback_log
 

@@ -15,7 +15,7 @@ import pytest
 
 def _get_integration_test_source() -> str:
     """tests/test_validkit_integration.py のソースコードを返す。"""
-    import tests.test_validkit_integration as mod
+    import test_validkit_integration as mod
 
     return inspect.getsource(mod)
 
@@ -55,7 +55,7 @@ def test_integration_file_does_not_use_bare_import_validkit_for_detection():
 
 def test_has_validkit_consistency_with_integration_skip_flag():
     """nanasqlite.HAS_VALIDKIT と test_validkit_integration.validkit_installed が一致すること。"""
-    import tests.test_validkit_integration as mod
+    import test_validkit_integration as mod
 
     from nanasqlite import HAS_VALIDKIT
 
