@@ -37,12 +37,16 @@ import apsw
 from .cache import CacheType
 from .compat import (
     HAS_ORJSON as HAS_ORJSON,  # noqa: F401
+)
+from .compat import (
     HAS_VALIDKIT as HAS_VALIDKIT,  # noqa: F401
+)
+from .compat import (
     validkit_validate as validkit_validate,  # noqa: F401
 )
 from .core import (
-    IDENTIFIER_PATTERN,
     _UNSET,
+    IDENTIFIER_PATTERN,
     NanaSQLite,
     V2Config,
 )

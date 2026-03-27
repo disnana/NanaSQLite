@@ -30,11 +30,19 @@ import apsw
 
 from .cache import MISSING, CacheStrategy, CacheType, create_cache
 from .compat import (
-    HAS_ORJSON as HAS_ORJSON,
-    HAS_VALIDKIT as HAS_VALIDKIT,
-    IDENTIFIER_PATTERN,
     _UNSET,
+    IDENTIFIER_PATTERN,
+)
+from .compat import (
+    HAS_ORJSON as HAS_ORJSON,
+)
+from .compat import (
+    HAS_VALIDKIT as HAS_VALIDKIT,
+)
+from .compat import (
     orjson as orjson,
+)
+from .compat import (
     validkit_validate as validkit_validate,
 )
 from .exceptions import (

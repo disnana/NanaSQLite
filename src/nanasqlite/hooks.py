@@ -2,12 +2,10 @@
 Hooks and Constraints system for NanaSQLite.
 """
 
-from typing import TYPE_CHECKING, Any, Callable, Protocol
+from typing import Any, Callable, Protocol
 
 from .compat import HAS_VALIDKIT
 from .exceptions import NanaSQLiteValidationError
-
-
 
 
 class NanaHook(Protocol):
