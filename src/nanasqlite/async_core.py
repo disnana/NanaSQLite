@@ -24,6 +24,7 @@ Example:
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import queue
 import types
@@ -581,22 +582,35 @@ class AsyncNanaSQLite:
         return await loop.run_in_executor(self._executor, self._db.get_v2_metrics)
 
     async def asetdefault(self, key: str, default: Any = None) -> Any:
+        # ... (既存のコード) ...
+        return await loop.run_in_executor(self._executor, self._db.setdefault, key, default)
+
+    async def aupsert(
+        self,
+        table_name: str | None = None,
+        data: dict[str, Any] | Any | None = None,
+        *,
+        conflict_columns: list[str] | None = None,
+    ) -> None:
         """
-        非同期でキーが存在しない場合のみ値を設定
+        非同期でUPSERT（存在すれば更新、なければ挿入）を実行します。
 
         Args:
-            key: キー
-            default: デフォルト値
-
-        Returns:
-            キーの値（既存または新規設定した値）
+            table_name: テーブル名（またはv2互換モード時のキー）
+            data: 挿入・更新するデータ（またはv2互換モード時の値）
+            conflict_columns: 重複判定に使用するカラム名のリスト
 
         Example:
-            >>> value = await db.asetdefault("config", {})
+            >>> await db.aupsert("users", {"id": 1, "name": "Alice"})
+            >>> await db.aupsert("user:1", {"name": "Nana"})
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.setdefault, key, default)
+        func = functools.partial(self._db.upsert, table_name, data, conflict_columns=conflict_columns)
+        return await loop.run_in_executor(self._executor, func)
+
+    # Alias for consistency
+    upsert = aupsert
 
     # ==================== Async Special Methods ====================
 

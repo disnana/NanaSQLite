@@ -37,11 +37,11 @@ def main():
     try:
         db["user:1"] = {"name": "Alice", "age": -5}
     except NanaSQLiteValidationError as e:
-        print(f"-> ❌ 制約違反ブロック成功: {e}")
+        print(f"-> [FAIL] 制約違反ブロック成功: {e}")
 
     # 正常なデータは保存できる
     db["user:1"] = {"name": "Alice", "age": 20, "email": "alice@example.com"}
-    print(f"-> ✅ 正常なデータを保存しました: {db['user:1']}")
+    print(f"-> [OK] 正常なデータを保存しました: {db['user:1']}")
 
 
     # ==============================================================================
@@ -56,11 +56,11 @@ def main():
     try:
         db["user:2"] = {"name": "Bob", "age": 25, "email": "alice@example.com"}
     except NanaSQLiteValidationError as e:
-        print(f"-> ❌ 一意性違反ブロック成功: {e}")
+        print(f"-> [FAIL] 一意性違反ブロック成功: {e}")
 
     # emailが異なれば保存できる
     db["user:2"] = {"name": "Bob", "age": 25, "email": "bob@example.com"}
-    print(f"-> ✅ 重複しないデータを保存しました: {db['user:2']}")
+    print(f"-> [OK] 重複しないデータを保存しました: {db['user:2']}")
 
 
     # ==============================================================================
@@ -82,11 +82,11 @@ def main():
     try:
         db["order:1001"] = {"item": "Laptop", "user_id": "user:99", "price": 1000}
     except NanaSQLiteValidationError as e:
-        print(f"-> ❌ 参照整合性違反ブロック成功: {e}")
+        print(f"-> [FAIL] 参照整合性違反ブロック成功: {e}")
 
     # 存在するユーザー(user:1)であれば保存できる
     db["order:1001"] = {"item": "Laptop", "user_id": "user:1", "price": 1000}
-    print(f"-> ✅ 参照先が存在するデータを保存しました: {db['order:1001']}")
+    print(f"-> [OK] 参照先が存在するデータを保存しました: {db['order:1001']}")
 
 
     # 終了処理

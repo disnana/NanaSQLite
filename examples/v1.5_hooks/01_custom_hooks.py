@@ -59,7 +59,7 @@ class LoggingHook(NanaHook):
 # ==============================================================================
 
 def main():
-    print("--- 01. カスタムフックの基本 ---")
+    print("--- 01. カスタムフック의 基本 ---")
     
     # 1. データベースの初期化
     db = NanaSQLite(":memory:")
@@ -85,6 +85,7 @@ def main():
     time.sleep(1.0)
     print("\n>> データの一部を更新します (upsert)")
     # updateやupsertでの保存もbefore_writeを通るため、updated_at が更新されます
+    # 修正後のupsertロジックにより、第一引数がキーであっても正しく動作します
     db.upsert("user:1", {"name": "Alice Liddell", "age": 21, "created_at": user_data["created_at"]})
     
     print("\n>> 更新後のデータを読み込みます")

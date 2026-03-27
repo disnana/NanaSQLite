@@ -2533,7 +2533,17 @@ class NanaSQLite(MutableMapping):
             >>> db.upsert("user:1", {"name": "Nana"})
         """
         # 引数のパターン判定
+        is_standard_table_pattern = False
         if table_name is not None and data is not None and isinstance(data, dict):
+            # 第一引数が有効なテーブル識別子であり、かつ第二引数がdictの場合のみ標準パターンとする
+            # キー（例："user:1"）にコロンなどが含まれている場合は(key, value)パターンとみなす
+            try:
+                self._sanitize_identifier(table_name)
+                is_standard_table_pattern = True
+            except NanaSQLiteValidationError:
+                is_standard_table_pattern = False
+
+        if is_standard_table_pattern:
             # 標準的な (table, data_dict) パターン
             target_table = table_name
             target_data = data
@@ -2542,10 +2552,8 @@ class NanaSQLite(MutableMapping):
             self[table_name] = data
             return None
         elif table_name is not None and data is None:
-            # table_name に dict が渡された場合の安全策 (もしあれば)
+            # table_name に dict が渡された場合の安全策
             if isinstance(table_name, dict):
-                # self.upsert(data_dict) のような呼び出しは現時点では非サポートとするか
-                # デフォルトテーブルへの挿入とみなす
                 target_table = self._table
                 target_data = table_name
             else:
