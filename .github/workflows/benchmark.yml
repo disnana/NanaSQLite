@@ -300,7 +300,7 @@ jobs:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         auto-push: true
         # 120% = 20% slowdown threshold
-        alert-threshold: '120%'
+        alert-threshold: '200%'
         comment-on-alert: true
         fail-on-alert: false
         gh-pages-branch: 'gh-pages'

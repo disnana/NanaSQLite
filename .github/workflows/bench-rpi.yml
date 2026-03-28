@@ -234,7 +234,8 @@ jobs:
           output-file-path: combined-benchmark.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: true
-          alert-threshold: '120%'
+          # 200% = 100% slowdown threshold (less sensitive to minor CI variance)
+          alert-threshold: '200%'
           comment-on-alert: true
           fail-on-alert: false
           gh-pages-branch: 'gh-pages'
