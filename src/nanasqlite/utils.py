@@ -153,7 +153,6 @@ class ExpiringDict(collections.abc.MutableMapping):
                 logger.error("Error in ExpiringDict on_expire callback for key '%s': %s", callback_args[0], e)
         return expired
 
-
     def __setitem__(self, key: str, value: Any) -> None:
         expiry = time.time() + self._expiration_time
         with self._lock:
@@ -226,7 +225,8 @@ class ExpiringDict(collections.abc.MutableMapping):
 
     def clear(self) -> None:
         with self._lock:
-            for key in list(self._timers):
+            # Use tuple() to create a copy of keys for safe iteration while modifying the original dict
+            for key in tuple(self._timers):
                 self._cancel_timer(key)
             self._data.clear()
             self._exptimes.clear()
@@ -237,7 +237,9 @@ class ExpiringDict(collections.abc.MutableMapping):
             if self._scheduler_thread is not threading.current_thread():
                 self._scheduler_thread.join(timeout=2.0)
                 if self._scheduler_thread.is_alive():
-                    logger.warning("ExpiringDict scheduler thread did not exit within timeout; it will continue as daemon.")
+                    logger.warning(
+                        "ExpiringDict scheduler thread did not exit within timeout; it will continue as daemon."
+                    )
         self._scheduler_thread = None
 
     def __del__(self):

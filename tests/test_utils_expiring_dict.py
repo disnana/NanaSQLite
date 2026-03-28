@@ -22,9 +22,11 @@ def test_expiring_dict_lazy():
     with pytest.raises(KeyError):
         _ = d["key1"]
 
+
 def test_expiring_dict_scheduler():
     """SCHEDULERモード（バックグラウンドワーカー）のテスト"""
     expired_keys = []
+
     def on_expire(k, v):
         expired_keys.append(k)
 
@@ -46,10 +48,12 @@ def test_expiring_dict_scheduler():
 
     d.clear()
 
+
 def test_expiring_dict_timer():
     """TIMERモード（個別タイマー）のテスト"""
     # 同期的な環境でも threading.Timer を使う
     expired_keys = []
+
     def on_expire(k, v):
         expired_keys.append(k)
 
@@ -63,10 +67,12 @@ def test_expiring_dict_timer():
     assert "x" in expired_keys
     d.clear()
 
+
 @pytest.mark.asyncio
 async def test_expiring_dict_async_timer():
     """TIMERモードでの asyncio.call_later テスト"""
     expired_keys = []
+
     def on_expire(k, v):
         expired_keys.append(k)
 
@@ -81,13 +87,14 @@ async def test_expiring_dict_async_timer():
     assert "y" in expired_keys
     d.clear()
 
+
 def test_expiring_dict_update_ttl():
     """値を更新したときに有効期限がリセットされるかテスト"""
     d = ExpiringDict(expiration_time=0.5, mode=ExpirationMode.SCHEDULER)
     d["key"] = "v1"
 
     time.sleep(0.3)
-    d["key"] = "v2" # リセット
+    d["key"] = "v2"  # リセット
 
     time.sleep(0.3)
     # 最初にセットしてから 0.6秒経っているが、途中で更新したのでまだ残っているはず
@@ -98,6 +105,7 @@ def test_expiring_dict_update_ttl():
     assert "key" not in d
     d.clear()
 
+
 def test_expiring_dict_clear():
     """clear() でタイマーやワーカーが正しく処理されるかテスト"""
     d = ExpiringDict(expiration_time=1.0, mode=ExpirationMode.SCHEDULER)
@@ -107,10 +115,11 @@ def test_expiring_dict_clear():
     # 内部的に _scheduler_running が False になる
     assert not d._scheduler_running
 
+
 def test_expiring_dict_pop():
     """pop() で削除された場合に期限切れコールバックが呼ばれないこと"""
     expired = []
-    d = ExpiringDict(expiration_time=0.1, mode=ExpirationMode.SCHEDULER, on_expire=lambda k,v: expired.append(k))
+    d = ExpiringDict(expiration_time=0.1, mode=ExpirationMode.SCHEDULER, on_expire=lambda k, v: expired.append(k))
     d["a"] = 1
     val = d.pop("a")
     assert val == 1

@@ -23,7 +23,8 @@ def test_encryption_aes_gcm_default(tmp_path):
     conn.close()
     assert isinstance(raw, bytes)
     assert b"hello gcm" not in raw
-    assert len(raw) > 28 # 12 (nonce) + len(json) + 16 (tag)
+    assert len(raw) > 28  # 12 (nonce) + len(json) + 16 (tag)
+
 
 def test_encryption_fernet_mode(tmp_path):
     """Test Fernet mode."""
@@ -41,6 +42,7 @@ def test_encryption_fernet_mode(tmp_path):
     conn.close()
     assert raw.startswith(b"gAAAA")
 
+
 def test_encryption_chacha20_mode(tmp_path):
     """Test ChaCha20-Poly1305 mode."""
     db_path = str(tmp_path / "chacha.db")
@@ -50,10 +52,11 @@ def test_encryption_chacha20_mode(tmp_path):
         db["data"] = [1, 2, 3]
         assert db["data"] == [1, 2, 3]
 
+
 def test_encryption_cross_mode_failure(tmp_path):
     """Verify that using the wrong mode for existing data fails."""
     db_path = str(tmp_path / "cross.db")
-    key = os.urandom(32) # Suitable for both GCM and ChaCha
+    key = os.urandom(32)  # Suitable for both GCM and ChaCha
 
     with NanaSQLite(db_path, encryption_key=key, encryption_mode="aes-gcm") as db:
         db["k"] = "v"
@@ -62,6 +65,7 @@ def test_encryption_cross_mode_failure(tmp_path):
     with pytest.raises(Exception):
         with NanaSQLite(db_path, encryption_key=key, encryption_mode="chacha20") as db:
             _ = db["k"]
+
 
 def test_encryption_wrong_key(tmp_path):
     """Verify that wrong key raises error."""
@@ -75,6 +79,7 @@ def test_encryption_wrong_key(tmp_path):
     with pytest.raises(Exception):
         with NanaSQLite(db_path, encryption_key=key2) as db:
             _ = db["k"]
+
 
 @pytest.mark.asyncio
 async def test_async_multi_mode_encryption(tmp_path):
@@ -94,10 +99,12 @@ async def test_async_multi_mode_encryption(tmp_path):
         await db.aset("b", "async chacha")
         assert await db.aget("b") == "async chacha"
 
+
 def test_encryption_unsupported_mode(tmp_path):
     """Verify that unsupported mode raises error."""
     with pytest.raises(ValueError):
         NanaSQLite(str(tmp_path / "err.db"), encryption_key=b"123", encryption_mode="invalid")
+
 
 @pytest.mark.asyncio
 async def test_async_encryption_cross_mode_failure(tmp_path):
@@ -109,9 +116,10 @@ async def test_async_encryption_cross_mode_failure(tmp_path):
         await db.aset("k", "v")
 
     # Try reading with chacha
-    with pytest.raises(Exception): # Usually decrypt error or internal error
+    with pytest.raises(Exception):  # Usually decrypt error or internal error
         async with AsyncNanaSQLite(db_path, encryption_key=key, encryption_mode="chacha20") as db:
             await db.aget("k")
+
 
 @pytest.mark.asyncio
 async def test_async_encryption_wrong_key(tmp_path):
@@ -126,4 +134,3 @@ async def test_async_encryption_wrong_key(tmp_path):
     with pytest.raises(Exception):
         async with AsyncNanaSQLite(db_path, encryption_key=key2) as db:
             await db.aget("k")
-

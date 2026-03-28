@@ -6,6 +6,32 @@
 
 ## 日本語
 
+### [1.5.0dev1] - 2026-03-28
+
+#### リリース品質監査 (Release Audit) による改善
+- **[Critical] BUG-01**: `batch_update`, `batch_update_partial`, `batch_delete` メソッドにおいて V2 モードをバイパスして直接 DB を書き換えていた不具合を修正。V2 エンジンのステージングバッファを経由するようにルーティングし、データの整合性と順序を保証しました。
+- **[Critical] BUG-02**: `clear()` および `load_all()` メソッドにおいて、V2 エンジンの `flush()` が完了する前に DB 操作が実行され、古いデータが再挿入される「幽霊書き込み（Ghost Re-inserts）」が発生する問題を修正。`flush(wait=True)` による同期的待機を導入しました。
+- **[High] QUAL-01**: `AsyncNanaSQLite.add_hook()` の実装を整理。ベース DB 初期化前後のフック登録処理を堅牢化し、非同期実行時の安定性を向上させました。
+- **[Non-Breaking] API 拡張**: `flush()` (同期) および `aflush()` (非同期) に `wait` 引数を追加。バックグラウンド処理の完了を待機できるようになりました。
+
+#### 新機能: Ultimate Hooks (汎用フック＆制約アーキテクチャ)
+- **強力なフック機構の導入**:
+  - `NanaHook` プロトコルを新設し、`before_write`, `after_read`, `before_delete` の3つのライフサイクルイベントをフック可能にしました。
+  - カスタムフックを自作することで、データの検証、暗号化の拡張、ロギング、他システムへの通知などを自由に実装できます。
+- **標準制約（Standard Constraints）の組み込み**:
+  - `CheckHook`: SQLite の `CHECK` 制約のような関数ベースの検証を提供。
+  - `UniqueHook`: 指定したキー（またはフィールド）の値の一意性を保証。
+  - `ForeignKeyHook`: 他の `NanaSQLite` テーブルのキーに対する参照整合性を保証。
+- **外部ライブラリ統合の透過的サポート**:
+  - `ValidkitHook`: 従来の `validator` 引数と互換性を持ち、`validkit-py` による高性能バリデーションを提供。
+  - `PydanticHook`: `Pydantic` モデルを直接フックに登録することで、読み書き時の自動シリアライズ/デシリアライズおよび厳格な型検証を実現。
+- **メソッドの拡張**:
+  - `NanaSQLite.add_hook()` および `AsyncNanaSQLite.add_hook()` を追加しました。
+
+#### アーキテクチャ強化と後方互換性
+- 従来の `validator` パラメータは内部的に `ValidkitHook` へと自動変換されるようになり、後方互換性が100%維持されています。
+- `batch_update`, `get`, `batch_get`, `setdefault`, `pop` など、あらゆるアクセス経路でフックが等しく適用されるように内部ロジックを統合・堅牢化しました。
+
 ### [1.4.1] - 2026-03-27
 
 #### セキュリティ修正
@@ -844,6 +870,32 @@
 
 
 ## English
+
+### [1.5.0dev1] - 2026-03-28
+
+#### Improvements from Release Audit
+- **[Critical] BUG-01**: Fixed a bug where `batch_update`, `batch_update_partial`, and `batch_delete` methods bypassed V2 mode and performed direct database writes. Routed these operations through the V2 engine's staging buffer to ensure data integrity and FIFO order.
+- **[Critical] BUG-02**: Resolved "Ghost Re-inserts" in `clear()` and `load_all()` methods, where database operations executed before the V2 engine's background `flush()` completed. Introduced synchronous waiting via `flush(wait=True)`.
+- **[High] QUAL-01**: Refactored `AsyncNanaSQLite.add_hook()` implementation to harden hook registration logic before and after base database initialization, improving stability in asynchronous environments.
+- **[Non-Breaking] API Extension**: Added a `wait` parameter to `flush()` (sync) and `aflush()` (async) methods, allowing for synchronous waiting of background worker completion.
+
+#### New Features: Ultimate Hooks (General-purpose Hook & Constraint Architecture)
+- **Powerful Hook Mechanism**:
+  - Introduced the `NanaHook` protocol, allowing interception of 3 lifecycle events: `before_write`, `after_read`, and `before_delete`.
+  - Custom hooks can be easily authored to implement data validation, custom encryption, logging, or integrations with external systems.
+- **Built-in Standard Constraints**:
+  - `CheckHook`: Provides function-based validation similar to SQLite's `CHECK` constraint.
+  - `UniqueHook`: Ensures uniqueness of values for a specified key (or nested field).
+  - `ForeignKeyHook`: Grants referential integrity against keys in other `NanaSQLite` tables.
+- **Transparent External Library Integrations**:
+  - `ValidkitHook`: Maintains 100% backward compatibility with the legacy `validator` parameter, providing high-performance validation via `validkit-py`.
+  - `PydanticHook`: Allows direct registration of `Pydantic` models as hooks, enabling automatic serialization/deserialization and strict type validation on read/write.
+- **Method Extensions**:
+  - Added `NanaSQLite.add_hook()` and `AsyncNanaSQLite.add_hook()` for dynamic hook registration.
+
+#### Architectural Enhancements & Backward Compatibility
+- The legacy `validator` parameter is internally converted to a `ValidkitHook`, preserving 100% backward compatibility.
+- Internal logic has been unified and hardened to ensure hooks are equally applied across all access paths, including `batch_update`, `get`, `batch_get`, `setdefault`, and `pop`.
 
 ### [1.4.1] - 2026-03-27
 

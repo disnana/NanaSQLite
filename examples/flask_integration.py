@@ -15,23 +15,24 @@ from nanasqlite import NanaSQLite
 
 app = Flask(__name__)
 
+
 # Security: CSRF protection for API
 # In a real production app, use Flask-WTF or similar for robust CSRF protection.
 # For this cookie-less REST API example, we use a custom header check to mitigate CSRF
 # and satisfy security scanners (e.g., SonarCloud python:S4502).
 @app.before_request
 def check_csrf():
-    if request.method in ['POST', 'PUT', 'DELETE']:
+    if request.method in ["POST", "PUT", "DELETE"]:
         # Most CSRF attacks rely on standard HTML form submissions which cannot set custom headers.
         # Requiring a custom header is an effective mitigation for REST APIs.
-        if not request.headers.get('X-Requested-With'):
+        if not request.headers.get("X-Requested-With"):
             abort(403, description="CSRF protection: X-Requested-With header is missing")
 
 
 # Database initialization
 def get_db():
     """Get or create database instance"""
-    if not hasattr(app, 'database'):
+    if not hasattr(app, "database"):
         app.database = NanaSQLite("blog.db", bulk_load=False)
     return app.database
 
@@ -54,7 +55,7 @@ def get_post(post_id: str):
 
 
 # Routes
-@app.route('/posts', methods=['GET'])
+@app.route("/posts", methods=["GET"])
 def list_posts():
     """List all blog posts"""
     db = get_db()
@@ -65,10 +66,7 @@ def list_posts():
             post_id = key[5:]
             post_data = db.get(key)
             if post_data:
-                posts.append({
-                    "id": post_id,
-                    **post_data
-                })
+                posts.append({"id": post_id, **post_data})
 
     # Sort by created_at (newest first)
     posts.sort(key=lambda x: x.get("created_at", ""), reverse=True)
@@ -76,25 +74,25 @@ def list_posts():
     return jsonify(posts)
 
 
-@app.route('/posts', methods=['POST'])
+@app.route("/posts", methods=["POST"])
 def create_post():
     """Create a new blog post"""
     data = request.get_json()
 
     # Validate required fields
-    if not data or 'title' not in data or 'content' not in data:
+    if not data or "title" not in data or "content" not in data:
         abort(400, description="Title and content are required")
 
     db = get_db()
     post_id = str(uuid.uuid4())
 
     post_data = {
-        "title": data['title'],
-        "content": data['content'],
-        "author": data.get('author', 'Anonymous'),
-        "tags": data.get('tags', []),
+        "title": data["title"],
+        "content": data["content"],
+        "author": data.get("author", "Anonymous"),
+        "tags": data.get("tags", []),
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "updated_at": datetime.now(timezone.utc).isoformat()
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
     db[f"post_{post_id}"] = post_data
@@ -102,11 +100,11 @@ def create_post():
     return jsonify({"id": post_id, **post_data}), 201
 
 
-@app.route('/posts/search', methods=['GET'])
+@app.route("/posts/search", methods=["GET"])
 def search_posts():
     """Search posts by tag or keyword"""
-    query = request.args.get('q', '').lower()
-    tag = request.args.get('tag', '').lower()
+    query = request.args.get("q", "").lower()
+    tag = request.args.get("tag", "").lower()
 
     if not query and not tag:
         abort(400, description="Query parameter 'q' or 'tag' required")
@@ -122,28 +120,28 @@ def search_posts():
                 continue
 
             # Search by tag
-            if tag and tag in [t.lower() for t in post.get('tags', [])]:
+            if tag and tag in [t.lower() for t in post.get("tags", [])]:
                 results.append({"id": post_id, **post})
                 continue
 
             # Search by keyword in title or content
             if query:
-                title = post.get('title', '').lower()
-                content = post.get('content', '').lower()
+                title = post.get("title", "").lower()
+                content = post.get("content", "").lower()
                 if query in title or query in content:
                     results.append({"id": post_id, **post})
 
     return jsonify(results)
 
 
-@app.route('/posts/<post_id>', methods=['GET'])
+@app.route("/posts/<post_id>", methods=["GET"])
 def get_post_route(post_id):
     """Get a specific post"""
     post = get_post(post_id)
     return jsonify({"id": post_id, **post})
 
 
-@app.route('/posts/<post_id>', methods=['PUT'])
+@app.route("/posts/<post_id>", methods=["PUT"])
 def update_post(post_id):
     """Update a post"""
     post = get_post(post_id)
@@ -153,16 +151,16 @@ def update_post(post_id):
         abort(400, description="No data provided")
 
     # Update fields
-    if 'title' in data:
-        post['title'] = data['title']
-    if 'content' in data:
-        post['content'] = data['content']
-    if 'author' in data:
-        post['author'] = data['author']
-    if 'tags' in data:
-        post['tags'] = data['tags']
+    if "title" in data:
+        post["title"] = data["title"]
+    if "content" in data:
+        post["content"] = data["content"]
+    if "author" in data:
+        post["author"] = data["author"]
+    if "tags" in data:
+        post["tags"] = data["tags"]
 
-    post['updated_at'] = datetime.now(timezone.utc).isoformat()
+    post["updated_at"] = datetime.now(timezone.utc).isoformat()
 
     db = get_db()
     db[f"post_{post_id}"] = post
@@ -170,7 +168,7 @@ def update_post(post_id):
     return jsonify({"id": post_id, **post})
 
 
-@app.route('/posts/<post_id>', methods=['DELETE'])
+@app.route("/posts/<post_id>", methods=["DELETE"])
 def delete_post(post_id):
     """Delete a post"""
     get_post(post_id)  # Verify post exists
@@ -178,10 +176,10 @@ def delete_post(post_id):
     db = get_db()
     del db[f"post_{post_id}"]
 
-    return '', 204
+    return "", 204
 
 
-@app.route('/stats', methods=['GET'])
+@app.route("/stats", methods=["GET"])
 def get_stats():
     """Get blog statistics"""
     db = get_db()
@@ -194,13 +192,9 @@ def get_stats():
         if key.startswith("post_"):
             post = db.get(key)
             if post:
-                all_tags.update(post.get('tags', []))
+                all_tags.update(post.get("tags", []))
 
-    return jsonify({
-        "total_posts": post_count,
-        "unique_tags": len(all_tags),
-        "tags": sorted(list(all_tags))
-    })
+    return jsonify({"total_posts": post_count, "unique_tags": len(all_tags), "tags": sorted(list(all_tags))})
 
 
 # Error handlers
@@ -219,7 +213,7 @@ def internal_error(error):
     return jsonify({"error": "Internal server error"}), 500
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print("Starting Flask server...")
     print("Blog API: http://localhost:5000")
     print("\nExample requests:")
@@ -233,4 +227,4 @@ if __name__ == '__main__':
 
     # host='127.0.0.1' (localhost) is safer as it only allows local connections.
     # debug=False is required for production-like examples to avoid leaking sensitive info.
-    app.run(debug=False, host='127.0.0.1', port=5000)
+    app.run(debug=False, host="127.0.0.1", port=5000)

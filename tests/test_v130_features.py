@@ -28,6 +28,7 @@ def test_unbounded_fifo_limit(tmp_path):
     assert "b" in db._data
     assert "c" in db._data
 
+
 def test_ttl_cache_expiration(tmp_path):
     """TTLキャッシュが指定時間後に消去されるかテスト"""
     db_path = str(tmp_path / "ttl.db")
@@ -46,6 +47,7 @@ def test_ttl_cache_expiration(tmp_path):
     assert db["key1"] == "val1"
     assert "key1" in db._data
 
+
 def test_persistence_ttl(tmp_path):
     """Persistence TTL=True の場合、DBからもデータが消えるかテスト"""
     db_path = str(tmp_path / "per_ttl.db")
@@ -54,7 +56,7 @@ def test_persistence_ttl(tmp_path):
     db["session1"] = "data1"
     assert "session1" in db
 
-    time.sleep(1.0) # ワーカーによる削除を待つ
+    time.sleep(1.0)  # ワーカーによる削除を待つ
 
     # メモリから消えている
     assert "session1" not in db._cache.get_data()
@@ -63,6 +65,7 @@ def test_persistence_ttl(tmp_path):
     # NanaSQLite は dict ライクなので、存在しないキーへのアクセスは KeyError
     with pytest.raises(KeyError):
         _ = db["session1"]
+
 
 @pytest.mark.asyncio
 async def test_async_clear_cache(tmp_path):
@@ -79,6 +82,7 @@ async def test_async_clear_cache(tmp_path):
 
         # DBには残っているので取得は可能
         assert await db.aget("k1") == "v1"
+
 
 def test_clear_cache_sync(tmp_path):
     """同期でのキャッシュクリアが機能するかテスト"""

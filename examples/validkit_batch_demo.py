@@ -14,6 +14,7 @@ import tempfile
 class _MissingValidationError(Exception):
     """Fallback exception type used only when validation extras are unavailable."""
 
+
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
 SRC_DIR = os.path.join(PROJECT_ROOT, "src")
@@ -25,6 +26,7 @@ try:
     from validkit import v
 
     from nanasqlite import NanaSQLite, NanaSQLiteValidationError
+
     HAS_VALIDKIT = True
 except ImportError:
     v = None  # type: ignore[assignment]
@@ -58,11 +60,13 @@ def demo_batch_update_atomic(tmpdir: str):
     try:
         # すべて正常なデータ
         print("\n1. All valid data:")
-        db.batch_update({
-            "user1": {"name": "Alice", "age": 25},
-            "user2": {"name": "Bob", "age": 30},
-            "user3": {"name": "Charlie", "age": 35},
-        })
+        db.batch_update(
+            {
+                "user1": {"name": "Alice", "age": 25},
+                "user2": {"name": "Bob", "age": 30},
+                "user3": {"name": "Charlie", "age": 35},
+            }
+        )
         print(f"✓ Successfully saved {len(db)} users")
         for key in ["user1", "user2", "user3"]:
             print(f"  - {key}: {db[key]}")
@@ -70,11 +74,13 @@ def demo_batch_update_atomic(tmpdir: str):
         # 1件でも不正なデータが含まれる場合
         print("\n2. One invalid entry (全件が拒否されます):")
         try:
-            db.batch_update({
-                "user4": {"name": "David", "age": 40},
-                "user5": {"name": "Eve", "age": "bad"},  # 不正な年齢
-                "user6": {"name": "Frank", "age": 45},
-            })
+            db.batch_update(
+                {
+                    "user4": {"name": "David", "age": 40},
+                    "user5": {"name": "Eve", "age": "bad"},  # 不正な年齢
+                    "user6": {"name": "Frank", "age": 45},
+                }
+            )
             print("✓ Successfully saved all users")
         except NanaSQLiteValidationError as e:
             print(f"✗ Validation failed: {e}")
@@ -104,9 +110,9 @@ def demo_batch_update_partial(tmpdir: str):
         batch_update_partial = db.batch_update_partial
         failed = batch_update_partial(
             {
-                "user1": {"name": "Alice", "age": 25},     # OK
+                "user1": {"name": "Alice", "age": 25},  # OK
                 "user2": {"name": "Bob", "age": "bad"},  # 不正な年齢
-                "user3": {"name": "Carol", "age": 22},     # OK
+                "user3": {"name": "Carol", "age": 22},  # OK
             }
         )
 
@@ -174,8 +180,8 @@ def demo_coerce_mode(tmpdir: str):
         print(f"\n✓ Successfully saved {len(db)} users with coercion")
         for key in sorted(db.keys()):
             data = db[key]
-            age_type = type(data['age']).__name__
-            score_type = type(data['score']).__name__
+            age_type = type(data["age"]).__name__
+            score_type = type(data["score"]).__name__
             print(f"  - {key}: {data} (age type: {age_type}, score type: {score_type})")
 
         print(f"\n✗ Failed: {len(failed)} users")

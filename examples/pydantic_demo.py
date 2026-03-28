@@ -22,18 +22,18 @@ class User(BaseModel):
     age: int
     active: bool = True
 
-    @field_validator('age')
+    @field_validator("age")
     @classmethod
     def age_must_be_positive(cls, v):
         if v < 0:
-            raise ValueError('Age must be positive')
+            raise ValueError("Age must be positive")
         return v
 
-    @field_validator('email')
+    @field_validator("email")
     @classmethod
     def email_must_contain_at(cls, v):
-        if '@' not in v:
-            raise ValueError('Email must contain @')
+        if "@" not in v:
+            raise ValueError("Email must contain @")
         return v
 
 
@@ -43,18 +43,18 @@ class UserCreate(BaseModel):
     age: int
     active: Optional[bool] = True
 
-    @field_validator('age')
+    @field_validator("age")
     @classmethod
     def age_must_be_positive(cls, v):
         if v < 0:
-            raise ValueError('Age must be positive')
+            raise ValueError("Age must be positive")
         return v
 
-    @field_validator('email')
+    @field_validator("email")
     @classmethod
     def email_must_contain_at(cls, v):
-        if '@' not in v:
-            raise ValueError('Email must contain @')
+        if "@" not in v:
+            raise ValueError("Email must contain @")
         return v
 
 

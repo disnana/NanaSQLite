@@ -1,6 +1,7 @@
 """
 Tests for asynchronous cache strategy usage (v1.3.1).
 """
+
 import asyncio
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 from nanasqlite import AsyncNanaSQLite, CacheType
 
 pytestmark = pytest.mark.asyncio
+
 
 class TestAsyncCacheStrategies:
     """非同期環境でのキャッシュ戦略機能テスト"""
@@ -32,7 +34,7 @@ class TestAsyncCacheStrategies:
         async with AsyncNanaSQLite(db_path, cache_strategy=CacheType.LRU, cache_size=2) as db:
             await db.aset("k1", 1)
             await db.aset("k2", 2)
-            await db.aset("k3", 3) # This should evict k1
+            await db.aset("k3", 3)  # This should evict k1
 
             # k1 should be evicted from cache but exist in DB
             assert not await db.is_cached("k1")
@@ -81,7 +83,7 @@ class TestAsyncCacheStrategies:
             await db.aclear_cache()
 
             assert not await db.is_cached("k1")
-            assert await db.aget("k1") == 1 # Still in DB
+            assert await db.aget("k1") == 1  # Still in DB
 
     async def test_async_lru_db_persistence(self, tmp_path):
         """Test that evicted items are still in DB (Async)."""
@@ -113,4 +115,3 @@ class TestAsyncCacheStrategies:
             assert await db.is_cached("a")
             assert await db.is_cached("c")
             assert await db.is_cached("d")
-

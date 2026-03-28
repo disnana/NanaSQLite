@@ -4,6 +4,7 @@
 1. NanaSQLite クラスレベル docstring の Args 欄に `coerce` の記述がない
 2. AsyncNanaSQLite.__init__ の `validator` デフォルトが `_UNSET` (内部センチネル) → `None` に変更すべき
 """
+
 from __future__ import annotations
 
 import inspect

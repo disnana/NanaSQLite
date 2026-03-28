@@ -32,13 +32,14 @@ def test_v2_management_api_sync() -> None:
         db.clear_dlq()
         assert db.get_dlq() == []
 
+
 @pytest.mark.asyncio
 async def test_v2_management_api_async() -> None:
     """Verifies V2 management methods and aliases in AsyncNanaSQLite."""
     async with AsyncNanaSQLite(":memory:", v2_mode=True, v2_enable_metrics=True) as db:
         # Initial state
         assert await db.aget_dlq() == []
-        assert await db.get_dlq() == [] # Alias
+        assert await db.get_dlq() == []  # Alias
 
         metrics = await db.aget_v2_metrics()
         assert isinstance(metrics, dict)
@@ -46,16 +47,17 @@ async def test_v2_management_api_async() -> None:
         # Perform write
         await db.aset("test", "value")
         await db.aflush()
-        await db.flush() # Alias
+        await db.flush()  # Alias
 
         # Verify metrics
-        new_metrics = await db.get_v2_metrics() # Alias
+        new_metrics = await db.get_v2_metrics()  # Alias
         assert isinstance(new_metrics, dict)
 
         await db.aretry_dlq()
-        await db.retry_dlq() # Alias
+        await db.retry_dlq()  # Alias
         await db.aclear_dlq()
-        await db.clear_dlq() # Alias
+        await db.clear_dlq()  # Alias
+
 
 def test_v2_shared_lock_concurrency() -> None:
     """Verifies that shared locks prevent crashes with multiple tables in V2 mode."""
@@ -67,10 +69,7 @@ def test_v2_shared_lock_concurrency() -> None:
             for i in range(count):
                 table[f"key_{i}"] = f"val_{i}"
 
-        threads = [
-            threading.Thread(target=writer, args=(t1, 50)),
-            threading.Thread(target=writer, args=(t2, 50))
-        ]
+        threads = [threading.Thread(target=writer, args=(t1, 50)), threading.Thread(target=writer, args=(t2, 50))]
 
         for t in threads:
             t.start()
@@ -79,13 +78,14 @@ def test_v2_shared_lock_concurrency() -> None:
 
         t1.flush()
         t2.flush()
-        time.sleep(0.2) # Wait for background threads
+        time.sleep(0.2)  # Wait for background threads
 
         assert len(t1) == 50
         assert len(t2) == 50
 
     if os.path.exists("test_shared.db"):
         os.remove("test_shared.db")
+
 
 def test_v2_transaction_guard() -> None:
     """Verifies that explicit transactions are forbidden in V2 mode."""
@@ -96,6 +96,7 @@ def test_v2_transaction_guard() -> None:
         with pytest.raises(NanaSQLiteTransactionError, match="not supported in V2 mode"):
             with db.transaction():
                 pass
+
 
 def test_v2_metric_inheritance() -> None:
     """Verifies that v2_enable_metrics is inherited by child tables."""
@@ -108,6 +109,7 @@ def test_v2_metric_inheritance() -> None:
         assert isinstance(metrics, dict)
         assert len(metrics) > 0
 
+
 def test_v2_stale_read() -> None:
     """Verifies that reads prioritize the staging buffer to avoid stale reads."""
     with NanaSQLite(":memory:", v2_mode=True, flush_mode="manual") as db:
@@ -118,6 +120,7 @@ def test_v2_stale_read() -> None:
 
         db.flush()
         assert db["key1"] == "new_value"
+
 
 def test_expiring_dict_eviction_deadlock_prevention() -> None:
     """Verifies that on_expire in ExpiringDict doesn't cause deadlocks by being called under lock."""
@@ -157,6 +160,7 @@ def test_expiring_dict_eviction_deadlock_prevention() -> None:
     assert expired_event.wait(timeout=2.0)
     ed.clear()
 
+
 def test_sql_whitelist_validation() -> None:
     """Verifies hardened create_table and alter_table validation."""
     with NanaSQLite(":memory:") as db:
@@ -166,13 +170,7 @@ def test_sql_whitelist_validation() -> None:
         db.alter_table_add_column("data", "col3", "DECIMAL(10, 2)")
 
         # Unsafe cases (containing suspicious characters)
-        unsafe_types = [
-            "TEXT; DROP TABLE data",
-            "INTEGER --",
-            "VARCHAR(255) /* comment */",
-            "TEXT;--",
-            "TEXT\x00"
-        ]
+        unsafe_types = ["TEXT; DROP TABLE data", "INTEGER --", "VARCHAR(255) /* comment */", "TEXT;--", "TEXT\x00"]
 
         for t in unsafe_types:
             with pytest.raises((NanaSQLiteValidationError, ValueError)):
@@ -181,7 +179,9 @@ def test_sql_whitelist_validation() -> None:
         # Test SQL Whitelist (including standard names and simple nested parens)
         valid_types = ["TEXT", "INTEGER", "VARCHAR(255)", "DECIMAL(10, 2)", "DOUBLE PRECISION"]
         for vtype in valid_types:
-            db.alter_table_add_column("data", f"col_{vtype.replace(' ', '_').replace('(', '').replace(')', '').replace(',', '')}", vtype)
+            db.alter_table_add_column(
+                "data", f"col_{vtype.replace(' ', '_').replace('(', '').replace(')', '').replace(',', '')}", vtype
+            )
 
         # Test ReDoS-prone patterns (should fail)
         redos_patterns = [
@@ -190,7 +190,7 @@ def test_sql_whitelist_validation() -> None:
         ]
         for pattern in redos_patterns:
             with pytest.raises(ValueError):
-                 db.alter_table_add_column("data", "bad", pattern)
+                db.alter_table_add_column("data", "bad", pattern)
 
 
 def test_v2_clear_consistency():
@@ -203,11 +203,12 @@ def test_v2_clear_consistency():
 
         # Force a flush (if clear didn't empty the buffer, this would re-insert key1)
         db.flush()
-        time.sleep(0.2) # Wait for background thread
+        time.sleep(0.2)  # Wait for background thread
 
         # Check DB directly bypassing cache
         cursor = db._connection.execute(f"SELECT COUNT(*) FROM {db._safe_table}")
         assert cursor.fetchone()[0] == 0, "Ghost write detected after clear()"
+
 
 def test_v2_load_all_consistency():
     """Verify that load_all() sees pending writes in V2 mode."""
@@ -226,6 +227,7 @@ def test_v2_load_all_consistency():
         assert "key1" in db, "load_all() failed to see pending V2 write"
         assert db["key1"] == "value1"
 
+
 def test_v2_restore_consistency(tmp_path):
     """Verify that restore() correctly resets V2 engine connection."""
     db_path = str(tmp_path / "original.db")
@@ -236,7 +238,7 @@ def test_v2_restore_consistency(tmp_path):
         db.backup(backup_path)
 
         db["key_after"] = "after"
-        db.flush() # Ensure it's in the DB
+        db.flush()  # Ensure it's in the DB
 
         # Restore to initial state
         db.restore(backup_path)
@@ -248,4 +250,4 @@ def test_v2_restore_consistency(tmp_path):
         # Read back from the NEW connection
         assert "key_new" in db
         assert db["key_new"] == "new_v2_write"
-        assert "key_after" not in db # Restore should have reverted this
+        assert "key_after" not in db  # Restore should have reverted this

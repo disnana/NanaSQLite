@@ -2,6 +2,10 @@
 
 [validkit-py](https://github.com/disnana/Validkit) と組み合わせることで、NanaSQLite は SQLite に書き込む前にすべての値をスキーマ検証できます。
 
+::: tip 推奨
+v1.5.0 以降、より柔軟な **[Ultimate Hooks](./hooks)** が導入されました。独自のバリデーションロジックや Pydantic との統合が必要な場合は、Ultimate Hooks の使用を検討してください。
+:::
+
 このガイドでは、最近追加された `validator` / `coerce` 機能の実践的な使い方をまとめます。パラメータの完全な仕様は [NanaSQLite API ドキュメント](../api/nanasqlite.md) を参照してください。
 
 ## どんなときに使うか

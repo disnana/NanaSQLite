@@ -2,6 +2,10 @@
 
 Use NanaSQLite with [validkit-py](https://github.com/disnana/Validkit) when you want every write to match a schema before it reaches SQLite.
 
+::: tip Recommendation
+Starting with v1.5.0, more flexible **[Ultimate Hooks](./hooks)** have been introduced. Consider using Ultimate Hooks if you need custom validation logic or integration with Pydantic.
+:::
+
 This guide focuses on the practical setup and usage patterns for the recent `validator` / `coerce` support. For the full parameter reference, see the [NanaSQLite API docs](../api/nanasqlite.md).
 
 ## When to Use Validation

@@ -45,26 +45,26 @@ def test_lock_timeout_raises_on_deadlock(tmp_path):
     db = NanaSQLite(str(tmp_path / "test.db"), lock_timeout=0.2)
     errors = []
 
-    lock_held = threading.Event()   # hold_lock がロックを取得したことを通知
+    lock_held = threading.Event()  # hold_lock がロックを取得したことを通知
     can_release = threading.Event()  # try_acquire が完了したことを通知（リリース許可）
 
     def hold_lock():
         db._lock.acquire()
         try:
-            lock_held.set()           # ロック取得を通知
-            can_release.wait()        # try_acquire が終わるまで保持
+            lock_held.set()  # ロック取得を通知
+            can_release.wait()  # try_acquire が終わるまで保持
         finally:
             db._lock.release()
 
     def try_acquire():
-        lock_held.wait()          # hold_lock がロックを取得するまで待つ
+        lock_held.wait()  # hold_lock がロックを取得するまで待つ
         try:
             with db._acquire_lock():
                 pass
         except NanaSQLiteLockError as e:
             errors.append(e)
         finally:
-            can_release.set()     # hold_lock にリリースを許可
+            can_release.set()  # hold_lock にリリースを許可
 
     t1 = threading.Thread(target=hold_lock)
     t2 = threading.Thread(target=try_acquire)
@@ -717,6 +717,7 @@ def test_restore_file_memory_uri_raises(tmp_path):
     # (実際のインメモリDB接続は ":memory:" テストでカバー済みのため、
     #  ここでは内部判定メソッドのみを検証する)
     from nanasqlite.core import NanaSQLite as _NanaSQLite
+
     assert _NanaSQLite._is_in_memory_path("file::memory:?cache=shared")
     assert _NanaSQLite._is_in_memory_path("file::memory:")
     assert not _NanaSQLite._is_in_memory_path(str(tmp_path / "real.db"))

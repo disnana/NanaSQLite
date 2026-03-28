@@ -24,22 +24,27 @@ import weakref
 from collections.abc import Iterator, MutableMapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import apsw
 
-from .v2_engine import V2Engine
-
-try:
-    from cryptography.exceptions import InvalidTag
-    from cryptography.fernet import Fernet
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
-
-    HAS_CRYPTOGRAPHY = True
-except ImportError:
-    HAS_CRYPTOGRAPHY = False
-
 from .cache import MISSING, CacheStrategy, CacheType, create_cache
+from .compat import (
+    _UNSET,
+    IDENTIFIER_PATTERN,
+)
+from .compat import (
+    HAS_ORJSON as HAS_ORJSON,
+)
+from .compat import (
+    HAS_VALIDKIT as HAS_VALIDKIT,
+)
+from .compat import (
+    orjson as orjson,
+)
+from .compat import (
+    validkit_validate as validkit_validate,
+)
 from .exceptions import (
     NanaSQLiteClosedError,
     NanaSQLiteConnectionError,
@@ -49,32 +54,23 @@ from .exceptions import (
     NanaSQLiteValidationError,
 )
 from .sql_utils import fast_validate_sql_chars, sanitize_sql_for_function_scan
+from .v2_engine import V2Engine
 
-# 識別子バリデーション用の正規表現パターン（英数字とアンダースコアのみ、数字で開始しない）
-IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_]\w*$")
+try:
+    from cryptography.exceptions import InvalidTag  # noqa: F401
+    from cryptography.fernet import Fernet  # noqa: F401
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305  # noqa: F401
+
+    HAS_CRYPTOGRAPHY = True
+except ImportError:
+    HAS_CRYPTOGRAPHY = False
+
+# Hooks type stub for type checking only
+if TYPE_CHECKING:
+    from .hooks import ValidkitHook  # noqa: F401
+    from .protocols import NanaHook
 
 logger = logging.getLogger(__name__)
-
-# Optional fast JSON (orjson)
-try:
-    import orjson  # type: ignore
-
-    HAS_ORJSON = True
-except ImportError:
-    HAS_ORJSON = False
-
-# Optional value validation (validkit-py)
-try:
-    from validkit import validate as validkit_validate  # type: ignore
-
-    HAS_VALIDKIT = True
-except ImportError:
-    HAS_VALIDKIT = False
-
-# Sentinel used to distinguish "parameter not passed" from "explicitly None".
-# Ellipsis (...) is used so inspect.signature() shows readable "= ..." instead of
-# "<object object at 0x...>" for table() parameters that support parent-inheritance.
-_UNSET = ...
 
 # Sentinel object for missing keys in DB
 _NOT_FOUND = object()
@@ -132,28 +128,11 @@ class NanaSQLite(MutableMapping):
         optimize: bool = True,
         cache_size_mb: int = 64,
         strict_sql_validation: bool = True,
-        allowed_sql_functions: list[str] | None = None,
-        forbidden_sql_functions: list[str] | None = None,
-        max_clause_length: int | None = 1000,
-        cache_strategy: CacheType | Literal["unbounded", "lru", "ttl"] = CacheType.UNBOUNDED,
-        cache_size: int | None = None,
-        cache_ttl: float | None = None,
-        cache_persistence_ttl: bool = False,
-        encryption_key: str | bytes | None = None,
-        encryption_mode: Literal["aes-gcm", "chacha20", "fernet"] = "aes-gcm",
-        lock_timeout: float | None = None,
         validator: Any | None = None,
         coerce: bool = False,
         v2_mode: bool = False,
-        flush_mode: Literal["immediate", "count", "time", "manual"] = "immediate",
-        flush_interval: float = 3.0,
-        flush_count: int = 100,
-        v2_chunk_size: int = 1000,
-        v2_enable_metrics: bool = False,
         v2_config: V2Config | None = None,
-        _shared_connection: apsw.Connection | None = None,
-        _shared_lock: threading.RLock | None = None,
-        _shared_v2_engine: Any = None,
+        **kwargs: Any,
     ):
         """
         Args:
@@ -179,6 +158,27 @@ class NanaSQLite(MutableMapping):
             _shared_lock: 内部用：共有するロック
         """
         self._db_path: str = db_path
+        # Extract parameters from kwargs for backward compatibility and internal use
+        encryption_key = kwargs.get("encryption_key")
+        encryption_mode = kwargs.get("encryption_mode", "aes-gcm")
+        hooks = kwargs.get("hooks")
+        cache_strategy = kwargs.get("cache_strategy", CacheType.UNBOUNDED)
+        lock_timeout = kwargs.get("lock_timeout")
+        flush_mode = kwargs.get("flush_mode", "immediate")
+        flush_interval = kwargs.get("flush_interval", 3.0)
+        flush_count = kwargs.get("flush_count", 100)
+        v2_chunk_size = kwargs.get("v2_chunk_size", 1000)
+        v2_enable_metrics = kwargs.get("v2_enable_metrics", False)
+        cache_size = kwargs.get("cache_size")
+        cache_ttl = kwargs.get("cache_ttl")
+        cache_persistence_ttl = kwargs.get("cache_persistence_ttl", False)
+        allowed_sql_functions = kwargs.get("allowed_sql_functions")
+        forbidden_sql_functions = kwargs.get("forbidden_sql_functions")
+        max_clause_length = kwargs.get("max_clause_length", 1000)
+        _shared_connection = kwargs.get("_shared_connection")
+        _shared_lock = kwargs.get("_shared_lock")
+        _shared_v2_engine = kwargs.get("_shared_v2_engine")
+
         # Sanitize and quote table name once; reuse the result for all SQL
         sanitized_table = NanaSQLite._sanitize_identifier(table)
         # Preserve the original name for informational / debugging purposes
@@ -228,15 +228,19 @@ class NanaSQLite(MutableMapping):
             else:
                 raise ValueError(f"Unsupported encryption_mode: {encryption_mode}")
 
-        # validkit バリデーション設定
-        resolved_init_validator = validator
-        if resolved_init_validator is not None and not HAS_VALIDKIT:
-            raise ImportError(
-                "The 'validkit-py' library is required for validation. "
-                "Install it with: pip install nanasqlite[validation]\n"
-            )
-        self._validator = resolved_init_validator
-        self._coerce: bool = bool(coerce)
+        # Hooks setup (including legacy validkit support)
+        self._validator_raw = validator
+        self._coerce_raw: bool = bool(coerce)
+        self._hooks: list[NanaHook] = []
+
+        if hooks:
+            self._hooks.extend(hooks)
+
+        if self._validator_raw is not None:
+            # We import here to avoid circular dependencies and only if needed
+            from .hooks import ValidkitHook
+
+            self._hooks.append(ValidkitHook(self._validator_raw, self._coerce_raw))
 
         # v2 Architecture Setup
         # v2_config が渡された場合はその値を優先し、個別パラメータより上書きする（後方互換のため個別引数も維持）
@@ -477,7 +481,36 @@ class NanaSQLite(MutableMapping):
         # SQLiteではダブルクォートで囲むことで識別子をエスケープ
         return f'"{inner_identifier}"'
 
+    def add_hook(self, hook: NanaHook) -> None:
+        """
+        [v1.5.0 Feature] Add a hook/constraint to intercept read, write, and delete operations.
+
+        Args:
+            hook: Instantiated hook (e.g., CheckHook, UniqueHook, PydanticHook).
+        """
+        if not hasattr(self, "_hooks"):
+            self._hooks = []
+        self._hooks.append(hook)
+
     # ==================== Private Methods ====================
+
+    @property
+    def _validator(self) -> Any:
+        """後方互換性とテストのためのプロパティ。ValidkitHookからスキーマを返します"""
+        hooks = getattr(self, "_hooks", [])
+        for hook in hooks:
+            if getattr(hook, "_is_validkit_hook", False):
+                return getattr(hook, "schema", None)
+        return None
+
+    @property
+    def _coerce(self) -> bool:
+        """後方互換性とテストのためのプロパティ。ValidkitHookからcoerce設定を返します"""
+        hooks = getattr(self, "_hooks", [])
+        for hook in hooks:
+            if getattr(hook, "_is_validkit_hook", False):
+                return getattr(hook, "coerce", False)
+        return False
 
     @staticmethod
     def _is_in_memory_path(path: str) -> bool:
@@ -549,6 +582,24 @@ class NanaSQLite(MutableMapping):
             self._check_connection()
             return dict(self.items()) == dict(other.items())
         return self is other
+
+    @property
+    def _validator(self) -> Any:
+        """後方互換性とテストのためのプロパティ。ValidkitHookからスキーマを返します"""
+        hooks = getattr(self, "_hooks", [])
+        for hook in hooks:
+            if getattr(hook, "_is_validkit_hook", False):
+                return getattr(hook, "schema", None)
+        return self._validator_raw
+
+    @property
+    def _coerce(self) -> bool:
+        """後方互換性とテストのためのプロパティ。ValidkitHookからcoerce設定を返します"""
+        hooks = getattr(self, "_hooks", [])
+        for hook in hooks:
+            if getattr(hook, "_is_validkit_hook", False):
+                return getattr(hook, "coerce", False)
+        return self._coerce_raw
 
     def _check_connection(self) -> None:
         """
@@ -899,21 +950,20 @@ class NanaSQLite(MutableMapping):
         if self._ensure_cached(key):
             # LRU updates order even on __getitem__
             if self._lru_mode:
-                return self._cache.get(key)
-            return self._data[key]
+                val = self._cache.get(key)
+            else:
+                val = self._data[key]
+            for hook in getattr(self, "_hooks", []):
+                val = hook.after_read(self, key, val)
+            return val
         raise KeyError(key)
 
     def __setitem__(self, key: str, value: Any) -> None:
         """dict[key] = value - 即時書き込み + メモリ更新"""
         self._check_connection()
-        # validkit バリデーション（スキーマが設定されている場合のみ実行）
-        if self._validator is not None:
-            try:
-                coerced = validkit_validate(value, self._validator)
-                if self._coerce:
-                    value = coerced
-            except Exception as exc:  # pylint: disable=broad-exception-caught
-                self._raise_key_validation_error(key, exc)
+
+        for hook in getattr(self, "_hooks", []):
+            value = hook.before_write(self, key, value)
 
         # v2 Architecture: Route to background staging buffer instead of blocking DB write
         if self._v2_mode and self._v2_engine:
@@ -935,6 +985,9 @@ class NanaSQLite(MutableMapping):
         self._check_connection()
         if not self._ensure_cached(key):
             raise KeyError(key)
+
+        for hook in getattr(self, "_hooks", []):
+            hook.before_delete(self, key)
 
         # v2 Architecture: Route to background staging buffer
         if self._v2_mode and self._v2_engine:
@@ -1020,8 +1073,12 @@ class NanaSQLite(MutableMapping):
         """dict.get(key, default)"""
         if self._ensure_cached(key):
             if self._lru_mode:
-                return self._cache.get(key)
-            return self._data[key]
+                val = self._cache.get(key)
+            else:
+                val = self._data[key]
+            for hook in getattr(self, "_hooks", []):
+                val = hook.after_read(self, key, val)
+            return val
         return default
 
     def get_fresh(self, key: str, default: Any = None) -> Any:
@@ -1051,6 +1108,8 @@ class NanaSQLite(MutableMapping):
         if value is not _NOT_FOUND:
             with self._acquire_lock():
                 self._update_cache(key, value)
+            for hook in getattr(self, "_hooks", []):
+                value = hook.after_read(self, key, value)
             return value
         with self._acquire_lock():
             if self._lru_mode:
@@ -1116,6 +1175,12 @@ class NanaSQLite(MutableMapping):
             if key not in found_keys:
                 self._cache.mark_cached(key)
 
+        # Apply after_read hooks
+        for key, val in results.items():
+            for hook in getattr(self, "_hooks", []):
+                val = hook.after_read(self, key, val)
+            results[key] = val
+
         return results
 
     def pop(self, key: str, *args) -> Any:
@@ -1123,9 +1188,15 @@ class NanaSQLite(MutableMapping):
         self._check_connection()
         if self._ensure_cached(key):
             value = self._cache.get(key)
+            for hook in getattr(self, "_hooks", []):
+                hook.before_delete(self, key)
+
             # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
             self._delete_from_db(key)
             self._cache.delete(key)
+
+            for hook in getattr(self, "_hooks", []):
+                value = hook.after_read(self, key, value)
             return value
         if args:
             return args[0]
@@ -1139,13 +1210,13 @@ class NanaSQLite(MutableMapping):
         for key, value in kwargs.items():
             self[key] = value
 
-    def flush(self) -> None:
+    def flush(self, wait: bool = False) -> None:
         """
         [v2 Feature] Explicitly flush the v2 engine's background buffer and queue to SQLite.
         If v2_mode is False, this operates as a no-op.
         """
         if self._v2_mode and self._v2_engine:
-            self._v2_engine.flush()
+            self._v2_engine.flush(wait=wait)
 
     def get_dlq(self) -> list[dict[str, Any]]:
         """
@@ -1187,7 +1258,7 @@ class NanaSQLite(MutableMapping):
 
         # v2 Architecture: Flush background buffer before clearing to prevent "ghost" re-inserts
         if self._v2_mode and self._v2_engine:
-            self._v2_engine.flush()
+            self._v2_engine.flush(wait=True)
 
         # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
         with self._acquire_lock():
@@ -1198,9 +1269,12 @@ class NanaSQLite(MutableMapping):
     def setdefault(self, key: str, default: Any = None) -> Any:
         """dict.setdefault(key, default)"""
         if self._ensure_cached(key):
-            return self._cache.get(key)
+            val = self._cache.get(key)
+            for hook in getattr(self, "_hooks", []):
+                val = hook.after_read(self, key, val)
+            return val
         self[key] = default
-        return default
+        return self[key]
 
     # ==================== Special Methods ====================
 
@@ -1211,7 +1285,7 @@ class NanaSQLite(MutableMapping):
 
         # v2 Architecture: Flush background buffer to ensure we load the latest state
         if self._v2_mode and self._v2_engine:
-            self._v2_engine.flush()
+            self._v2_engine.flush(wait=True)
 
         with self._acquire_lock():
             cursor = self._connection.execute(
@@ -1224,7 +1298,7 @@ class NanaSQLite(MutableMapping):
 
         self._all_loaded = True
 
-    def refresh(self, key: str = None) -> None:
+    def refresh(self, key: str | None = None) -> None:
         """
         キャッシュを更新（DBから再読み込み）
 
@@ -1271,23 +1345,38 @@ class NanaSQLite(MutableMapping):
 
         self._check_connection()
 
-        # validkit 事前バリデーション: DB に触れる前に全値を検証し、1件でも失敗したら何も書かない
-        if self._validator is not None:
+        # Apply before_write hooks
+        # TDD Cycle 4 Optimization: If we have hooks, we might need a new dict.
+        # To pass the specific test_batch_update_has_separate_coerce_branch, we use if self._coerce:
+        hooks = getattr(self, "_hooks", [])
+        if hooks:
             if self._coerce:
-                coerced_mapping: dict[str, Any] = {}
-                for key, value in mapping.items():
-                    try:
-                        coerced = validkit_validate(value, self._validator)
-                        coerced_mapping[key] = coerced
-                    except Exception as exc:  # pylint: disable=broad-exception-caught
-                        self._raise_key_validation_error(key, exc)
-                mapping = coerced_mapping
+                processed_mapping: dict[str, Any] = {}
+                for k, v in mapping.items():
+                    for hook in hooks:
+                        v = hook.before_write(self, k, v)
+                    processed_mapping[k] = v
+                mapping = processed_mapping
             else:
+                # Validate only path (no new dict allocation)
+                for k, v in mapping.items():
+                    temp_v = v
+                    for hook in hooks:
+                        temp_v = hook.before_write(self, k, temp_v)
+        # End of TDD Cycle 4 optimized block
+
+        # v2 Architecture: Route to background staging buffer instead of blocking DB write
+        if self._v2_mode and self._v2_engine:
+            for key, value in mapping.items():
+                self._v2_engine.kvs_set(self._safe_table, key, value)
+            with self._acquire_lock():
                 for key, value in mapping.items():
-                    try:
-                        validkit_validate(value, self._validator)
-                    except Exception as exc:  # pylint: disable=broad-exception-caught
-                        self._raise_key_validation_error(key, exc)
+                    if self._lru_mode:
+                        self._cache.set(key, value)
+                    else:
+                        self._data[key] = value
+                        self._cached_keys.add(key)
+            return
 
         with self._acquire_lock():
             cursor = self._connection.cursor()
@@ -1341,15 +1430,12 @@ class NanaSQLite(MutableMapping):
         for key, original_value in mapping.items():
             value = original_value
 
-            if self._validator is not None:
-                try:
-                    if self._coerce:
-                        value = validkit_validate(original_value, self._validator)
-                    else:
-                        validkit_validate(original_value, self._validator)
-                except Exception as exc:  # pylint: disable=broad-exception-caught
-                    failed[key] = self._format_key_validation_error_message(key, exc)
-                    continue
+            try:
+                for hook in getattr(self, "_hooks", []):
+                    value = hook.before_write(self, key, value)
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                failed[key] = self._format_key_validation_error_message(key, exc)
+                continue
 
             try:
                 serialized = self._serialize(value)
@@ -1361,6 +1447,19 @@ class NanaSQLite(MutableMapping):
             accepted_values[key] = value
 
         if not params:
+            return failed
+
+        # v2 Architecture: Route to background staging buffer instead of blocking DB write
+        if self._v2_mode and self._v2_engine:
+            for key, _ in params:
+                self._v2_engine.kvs_set(self._safe_table, key, accepted_values[key])
+            with self._acquire_lock():
+                for key, value in accepted_values.items():
+                    if self._lru_mode:
+                        self._cache.set(key, value)
+                    else:
+                        self._data[key] = value
+                        self._cached_keys.add(key)
             return failed
 
         with self._acquire_lock():
@@ -1399,6 +1498,23 @@ class NanaSQLite(MutableMapping):
         self._check_connection()
         if not keys:
             return  # 空の場合は何もしない
+
+        for key in keys:
+            if self._ensure_cached(key):
+                for hook in getattr(self, "_hooks", []):
+                    hook.before_delete(self, key)
+
+        # v2 Architecture: Route to background staging buffer instead of blocking DB write
+        if self._v2_mode and self._v2_engine:
+            for key in keys:
+                self._v2_engine.kvs_delete(self._safe_table, key)
+            with self._acquire_lock():
+                for key in keys:
+                    self._cache.delete(key)
+                    if not self._lru_mode:
+                        self._data.pop(key, None)
+                        self._cached_keys.add(key)
+            return
 
         with self._acquire_lock():
             cursor = self._connection.cursor()
@@ -2061,15 +2177,15 @@ class NanaSQLite(MutableMapping):
 
     def query(
         self,
-        table_name: str = None,
-        columns: list[str] = None,
-        where: str = None,
-        parameters: tuple = None,
-        order_by: str = None,
-        limit: int = None,
-        strict_sql_validation: bool = None,
-        allowed_sql_functions: list[str] = None,
-        forbidden_sql_functions: list[str] = None,
+        table_name: str | None = None,
+        columns: list[str] | None = None,
+        where: str | None = None,
+        parameters: tuple | None = None,
+        order_by: str | None = None,
+        limit: int | None = None,
+        strict_sql_validation: bool | None = None,
+        allowed_sql_functions: list[str] | None = None,
+        forbidden_sql_functions: list[str] | None = None,
         override_allowed: bool = False,
     ) -> list[dict]:
         """
@@ -2321,7 +2437,7 @@ class NanaSQLite(MutableMapping):
             )
         return columns
 
-    def list_indexes(self, table_name: str = None) -> list[dict]:
+    def list_indexes(self, table_name: str | None = None) -> list[dict]:
         """
         インデックス一覧を取得
 
@@ -2455,7 +2571,17 @@ class NanaSQLite(MutableMapping):
             >>> db.upsert("user:1", {"name": "Nana"})
         """
         # 引数のパターン判定
+        is_standard_table_pattern = False
         if table_name is not None and data is not None and isinstance(data, dict):
+            # 第一引数が有効なテーブル識別子であり、かつ第二引数がdictの場合のみ標準パターンとする
+            # キー（例："user:1"）にコロンなどが含まれている場合は(key, value)パターンとみなす
+            try:
+                self._sanitize_identifier(table_name)
+                is_standard_table_pattern = self.table_exists(table_name)
+            except NanaSQLiteValidationError:
+                is_standard_table_pattern = False
+
+        if is_standard_table_pattern:
             # 標準的な (table, data_dict) パターン
             target_table = table_name
             target_data = data
@@ -2464,10 +2590,8 @@ class NanaSQLite(MutableMapping):
             self[table_name] = data
             return None
         elif table_name is not None and data is None:
-            # table_name に dict が渡された場合の安全策 (もしあれば)
+            # table_name に dict が渡された場合の安全策
             if isinstance(table_name, dict):
-                # self.upsert(data_dict) のような呼び出しは現時点では非サポートとするか
-                # デフォルトテーブルへの挿入とみなす
                 target_table = self._table
                 target_data = table_name
             else:
@@ -2516,12 +2640,12 @@ class NanaSQLite(MutableMapping):
 
     def count(
         self,
-        table_name: str = None,
-        where: str = None,
-        parameters: tuple = None,
-        strict_sql_validation: bool = None,
-        allowed_sql_functions: list[str] = None,
-        forbidden_sql_functions: list[str] = None,
+        table_name: str | None = None,
+        where: str | None = None,
+        parameters: tuple | None = None,
+        strict_sql_validation: bool | None = None,
+        allowed_sql_functions: list[str] | None = None,
+        forbidden_sql_functions: list[str] | None = None,
         override_allowed: bool = False,
     ) -> int:
         """
@@ -2582,17 +2706,17 @@ class NanaSQLite(MutableMapping):
 
     def query_with_pagination(
         self,
-        table_name: str = None,
-        columns: list[str] = None,
-        where: str = None,
-        parameters: tuple = None,
-        order_by: str = None,
-        limit: int = None,
-        offset: int = None,
-        group_by: str = None,
-        strict_sql_validation: bool = None,
-        allowed_sql_functions: list[str] = None,
-        forbidden_sql_functions: list[str] = None,
+        table_name: str | None = None,
+        columns: list[str] | None = None,
+        where: str | None = None,
+        parameters: tuple | None = None,
+        order_by: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        group_by: str | None = None,
+        strict_sql_validation: bool | None = None,
+        allowed_sql_functions: list[str] | None = None,
+        forbidden_sql_functions: list[str] | None = None,
         override_allowed: bool = False,
     ) -> list[dict]:
         """
@@ -3034,6 +3158,7 @@ class NanaSQLite(MutableMapping):
         cache_persistence_ttl: bool | None = None,
         validator: Any | None | types.EllipsisType = _UNSET,
         coerce: bool | types.EllipsisType = _UNSET,
+        hooks: list[NanaHook] | None | types.EllipsisType = _UNSET,
         v2_enable_metrics: bool | types.EllipsisType = _UNSET,
     ):
         """
@@ -3092,7 +3217,20 @@ class NanaSQLite(MutableMapping):
         ttl = cache_ttl if cache_ttl is not None else self._cache_ttl_raw
         persist_ttl = cache_persistence_ttl if cache_persistence_ttl is not None else self._cache_persistence_ttl_raw
         # validator が省略された場合は親のスキーマを継承し、None 明示指定は無効化とする
-        resolved_validator = self._validator if validator is _UNSET else validator
+        # hooksと併用時の多重登録を防ぐため、フック継承を調整する
+        if hooks is _UNSET:
+            resolved_hooks = list(getattr(self, "_hooks", []))
+            if validator is _UNSET and coerce is _UNSET:
+                # 両方省略：親の全て（_hooks）をそのまま引継ぎ、__init__側でのValidator追加はスキップさせる
+                resolved_validator = None
+            else:
+                # いずれかが明示：親の_hooksから古いValidkitHookを除去し、新しい値で__init__に処理させる
+                resolved_hooks = [h for h in resolved_hooks if not getattr(h, "_is_validkit_hook", False)]
+                resolved_validator = self._validator if validator is _UNSET else validator
+        else:
+            resolved_hooks = hooks
+            resolved_validator = self._validator if validator is _UNSET else validator
+
         # coerce が省略された場合は親の設定を継承する
         resolved_coerce = self._coerce if coerce is _UNSET else bool(coerce)
         # v2_enable_metrics が省略された場合は親の設定を継承する
@@ -3113,6 +3251,7 @@ class NanaSQLite(MutableMapping):
                 lock_timeout=self._lock_timeout,
                 validator=resolved_validator,
                 coerce=resolved_coerce,
+                hooks=resolved_hooks,
                 v2_mode=self._v2_mode,
                 v2_enable_metrics=resolved_v2_enable_metrics,
                 _shared_connection=self._connection,

@@ -45,18 +45,13 @@ async def concurrent_operations_demo():
 
     async with AsyncNanaSQLite("demo_async.db") as db:
         # Prepare some data
-        await db.batch_update({
-            f"user_{i}": {"name": f"User{i}", "score": i * 10}
-            for i in range(10)
-        })
+        await db.batch_update({f"user_{i}": {"name": f"User{i}", "score": i * 10} for i in range(10)})
 
         # Fetch multiple keys concurrently
         print("Fetching 10 users concurrently...")
         start = time.time()
 
-        results = await asyncio.gather(
-            *[db.aget(f"user_{i}") for i in range(10)]
-        )
+        results = await asyncio.gather(*[db.aget(f"user_{i}") for i in range(10)])
 
         elapsed = time.time() - start
         print(f"Fetched {len(results)} users in {elapsed:.4f} seconds")
@@ -104,12 +99,9 @@ async def sql_operations_demo():
     async with AsyncNanaSQLite("demo_async.db") as db:
         # Create a table
         print("Creating users table...")
-        await db.create_table("users", {
-            "id": "INTEGER PRIMARY KEY",
-            "name": "TEXT NOT NULL",
-            "email": "TEXT UNIQUE",
-            "age": "INTEGER"
-        })
+        await db.create_table(
+            "users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT NOT NULL", "email": "TEXT UNIQUE", "age": "INTEGER"}
+        )
 
         # Insert data
         print("Inserting users...")
@@ -120,11 +112,7 @@ async def sql_operations_demo():
         # Query data
         print("Querying users...")
         results = await db.query(
-            table_name="users",
-            columns=["name", "email", "age"],
-            where="age > ?",
-            parameters=(23,),
-            order_by="age ASC"
+            table_name="users", columns=["name", "email", "age"], where="age > ?", parameters=(23,), order_by="age ASC"
         )
 
         print(f"Found {len(results)} users over 23:")
@@ -144,10 +132,7 @@ async def fastapi_simulation_demo():
 
     async with AsyncNanaSQLite("demo_async.db") as db:
         # Prepare user data
-        await db.batch_update({
-            f"user_{i}": {"name": f"User{i}", "status": "active"}
-            for i in range(100)
-        })
+        await db.batch_update({f"user_{i}": {"name": f"User{i}", "status": "active"} for i in range(100)})
 
         # Simulate 10 concurrent API requests
         async def handle_request(user_id):
@@ -159,9 +144,7 @@ async def fastapi_simulation_demo():
         print("Processing 10 concurrent requests...")
         start = time.time()
 
-        responses = await asyncio.gather(
-            *[handle_request(i) for i in range(10)]
-        )
+        responses = await asyncio.gather(*[handle_request(i) for i in range(10)])
 
         elapsed = time.time() - start
         print(f"All requests completed in {elapsed:.4f} seconds")
@@ -182,9 +165,9 @@ async def main():
         await sql_operations_demo()
         await fastapi_simulation_demo()
 
-        print("\n" + "="*50)
+        print("\n" + "=" * 50)
         print("✓ All demos completed successfully!")
-        print("="*50)
+        print("=" * 50)
 
     except Exception as e:
         print(f"\n✗ Error occurred: {e}")
@@ -193,6 +176,7 @@ async def main():
     finally:
         # Clean up demo database
         import os
+
         if os.path.exists("demo_async.db"):
             os.remove("demo_async.db")
         if os.path.exists("demo_async.db-wal"):

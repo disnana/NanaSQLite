@@ -90,9 +90,32 @@ with NanaSQLite("mydata.db") as db:
 - [Benchmark Trends 📊](https://nanasqlite.disnana.com/dev/bench/)
 - [Migration Guide (v1.1.x to v1.2.0)](MIGRATION_GUIDE.md)
 
-### ✨ v1.4.x New Features (v2 Architecture)
+### ✨ v1.5.x New Features (Ultimate Hooks)
 
-**v2 Architecture: Non-blocking Background Persistance**
+**Ultimate Hooks: Flexible Validation & External Constraints**
+Intercept database operations with custom hooks or built-in constraints. Easily validate data, enforce uniqueness, check foreign keys, or flawlessly integrate with Pydantic.
+
+```python
+from nanasqlite import NanaSQLite
+from nanasqlite.hooks import UniqueHook, CheckHook, PydanticHook
+from pydantic import BaseModel
+
+class UserConfig(BaseModel):
+    version: int
+    theme: str
+
+db = NanaSQLite("config.db")
+db.add_hook(UniqueHook("email"))
+db.add_hook(CheckHook(lambda k, v: v.get("age", 0) >= 18, "Age must be >= 18"))
+db.add_hook(PydanticHook(UserConfig))
+
+# Write a dict, reads back as a Pydantic Model automatically!
+db["user_conf"] = {"version": 1, "theme": "dark", "email": "test@example.com", "age": 20}
+config = db["user_conf"]
+print(config.theme)  # 'dark'
+```
+
+### ✨ v1.4.x New Features (v2 Architecture)
 Introduced an optional "Write-Back Cache" architecture where all KVS writes are instantly available in memory but saved to SQLite asynchronously in the background. Read latency remains exactly zero.
 
 ```python
@@ -295,6 +318,31 @@ with NanaSQLite("mydata.db") as db:
 - [APIリファレンス (非同期)](https://nanasqlite.disnana.com/api_async)
 - [ベンチマーク履歴 📊](https://nanasqlite.disnana.com/dev/bench/)
 - [移行ガイド (v1.1.x から v1.2.0)](MIGRATION_GUIDE.md)
+
+### ✨ v1.5.x 新機能 (Ultimate Hooks)
+
+**Ultimate Hooks: 柔軟なバリデーションと外部制約アーキテクチャ**
+データベースの読み書き・削除をカスタムフックや組み込み制約でインターセプトできます。データの検証、一意性の保証、外部キー制約のチェック、Pydantic とのシームレスな統合などが容易に行えます。
+
+```python
+from nanasqlite import NanaSQLite
+from nanasqlite.hooks import UniqueHook, CheckHook, PydanticHook
+from pydantic import BaseModel
+
+class UserConfig(BaseModel):
+    version: int
+    theme: str
+
+db = NanaSQLite("config.db")
+db.add_hook(UniqueHook("email"))
+db.add_hook(CheckHook(lambda k, v: v.get("age", 0) >= 18, "Age must be >= 18"))
+db.add_hook(PydanticHook(UserConfig))
+
+# dict を書き込むと、自動的に検証され Pydantic モデルとして読み出せます！
+db["user_conf"] = {"version": 1, "theme": "dark", "email": "test@example.com", "age": 20}
+config = db["user_conf"]
+print(config.theme)  # 'dark'
+```
 
 ### ✨ v1.4.x 新機能 (v2 アーキテクチャ)
 

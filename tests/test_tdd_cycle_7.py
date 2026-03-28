@@ -55,9 +55,7 @@ class TestMypyPassesWithEllipsisType:
 
         result = _run_mypy("src/nanasqlite/core.py")
         name_defined_errors = [
-            line
-            for line in result.stdout.splitlines()
-            if "EllipsisType" in line and "name-defined" in line
+            line for line in result.stdout.splitlines() if "EllipsisType" in line and "name-defined" in line
         ]
         assert name_defined_errors == [], (
             "mypy reports name-defined errors for types.EllipsisType in core.py:\n"
@@ -71,9 +69,7 @@ class TestMypyPassesWithEllipsisType:
 
         result = _run_mypy("src/nanasqlite/async_core.py")
         name_defined_errors = [
-            line
-            for line in result.stdout.splitlines()
-            if "EllipsisType" in line and "name-defined" in line
+            line for line in result.stdout.splitlines() if "EllipsisType" in line and "name-defined" in line
         ]
         assert name_defined_errors == [], (
             "mypy reports name-defined errors for types.EllipsisType in async_core.py:\n"
@@ -103,6 +99,4 @@ class TestMypyPassesWithEllipsisType:
                 )
                 return
         # If we reach here, python_version was not found in [tool.mypy]
-        raise AssertionError(
-            "python_version not found in [tool.mypy] section of pyproject.toml"
-        )
+        raise AssertionError("python_version not found in [tool.mypy] section of pyproject.toml")

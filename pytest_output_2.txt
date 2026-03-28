@@ -1,0 +1,22 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-8.4.2, pluggy-1.6.0 -- C:\Program Files\Python311\python.exe
+cachedir: .pytest_cache
+benchmark: 5.1.0 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: D:\data-backup\code\コード保存\NanaSQLite
+configfile: pyproject.toml
+plugins: langsmith-0.4.38, asyncio-0.26.0, benchmark-5.1.0, cov-7.0.0, socket-0.7.0, timeout-2.4.0, xdist-3.8.0, typeguard-4.4.4, anyio-4.9.0
+asyncio: mode=Mode.AUTO, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 10 items
+
+tests/test_tdd_cycle_4.py::TestBatchUpdateCodeStructure::test_batch_update_does_not_use_ternary_coerce_pattern PASSED [ 10%]
+tests/test_tdd_cycle_4.py::TestBatchUpdateCodeStructure::test_batch_update_has_separate_coerce_branch PASSED [ 20%]
+tests/test_tdd_cycle_4.py::TestBatchUpdateCodeStructure::test_batch_update_validate_only_branch_does_not_store_coerced PASSED [ 30%]
+tests/test_tdd_cycle_4.py::TestBatchUpdateBehaviourWithMockedValidkit::test_batch_update_coerce_false_preserves_original_values PASSED [ 40%]
+tests/test_tdd_cycle_4.py::TestBatchUpdateBehaviourWithMockedValidkit::test_batch_update_coerce_true_stores_coerced_values PASSED [ 50%]
+tests/test_tdd_cycle_4.py::TestBatchUpdateBehaviourWithMockedValidkit::test_batch_update_validates_all_before_writing_when_coerce_false PASSED [ 60%]
+tests/test_tdd_cycle_4.py::TestBatchUpdateBehaviourWithMockedValidkit::test_batch_update_validates_all_before_writing_when_coerce_true PASSED [ 70%]
+tests/test_tdd_cycle_4.py::TestBatchUpdateBehaviourWithMockedValidkit::test_batch_update_partial_writes_only_valid_items_when_coerce_false PASSED [ 80%]
+tests/test_tdd_cycle_4.py::TestBatchUpdateBehaviourWithMockedValidkit::test_batch_update_partial_writes_coerced_valid_items_when_coerce_true PASSED [ 90%]
+tests/test_tdd_cycle_4.py::test_async_batch_update_partial_writes_only_valid_items PASSED [100%]
+
+============================= 10 passed in 0.27s ==============================

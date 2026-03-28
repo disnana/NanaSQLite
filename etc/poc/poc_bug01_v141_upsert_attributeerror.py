@@ -9,6 +9,7 @@ BUG-01 [High] (v1.4.1dev3): upsert(table, data_dict, conflict_columns) の Attri
 修正:
     core.py L2377: `for col in data.keys()` → `for col in target_data.keys()`
 """
+
 import os
 import sys
 

@@ -38,9 +38,7 @@ class TestRuffCleanCycle7:
             capture_output=True,
             text=True,
         )
-        assert result.returncode == 0, (
-            f"ruff errors in test_tdd_cycle_7.py:\n{result.stdout}"
-        )
+        assert result.returncode == 0, f"ruff errors in test_tdd_cycle_7.py:\n{result.stdout}"
 
 
 class TestMypyInstalledSkipsGracefully:
@@ -51,19 +49,11 @@ class TestMypyInstalledSkipsGracefully:
         source = TEST_CYCLE_7.read_text(encoding="utf-8")
         tree = ast.parse(source)
         for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.ClassDef)
-                and node.name == "TestMypyPassesWithEllipsisType"
-            ):
+            if isinstance(node, ast.ClassDef) and node.name == "TestMypyPassesWithEllipsisType":
                 for item in node.body:
-                    if (
-                        isinstance(item, ast.FunctionDef)
-                        and item.name == "test_mypy_installed"
-                    ):
+                    if isinstance(item, ast.FunctionDef) and item.name == "test_mypy_installed":
                         return item
-        raise AssertionError(
-            "test_mypy_installed not found in TestMypyPassesWithEllipsisType"
-        )
+        raise AssertionError("test_mypy_installed not found in TestMypyPassesWithEllipsisType")
 
     def test_mypy_installed_calls_skip_helper(self):
         """test_mypy_installed must call _skip_if_mypy_not_installed() so CI skips it."""
@@ -72,9 +62,7 @@ class TestMypyInstalledSkipsGracefully:
         skip_calls = [
             n
             for n in ast.walk(func_node)
-            if isinstance(n, ast.Call)
-            and isinstance(n.func, ast.Name)
-            and n.func.id == "_skip_if_mypy_not_installed"
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "_skip_if_mypy_not_installed"
         ]
         assert len(skip_calls) > 0, (
             "test_mypy_installed does not call _skip_if_mypy_not_installed(). "
@@ -95,9 +83,7 @@ class TestMypyInstalledSkipsGracefully:
         if isinstance(first_stmt, ast.Assert):
             # Check if the test value is a comparison involving find_spec
             test_src = ast.unparse(first_stmt.test)
-            assert "find_spec" not in test_src or "_skip_if" in "".join(
-                ast.unparse(n) for n in func_node.body
-            ), (
+            assert "find_spec" not in test_src or "_skip_if" in "".join(ast.unparse(n) for n in func_node.body), (
                 "test_mypy_installed starts with an unconditional assert on "
                 "importlib.util.find_spec('mypy'), which fails in CI when mypy is "
                 "not installed. Use _skip_if_mypy_not_installed() instead."

@@ -14,6 +14,7 @@ table() 継承セマンティクスとキャッシュ戦略の包括的テスト
 8. batch_update() バリデーション（アトミック失敗）
 9. AsyncNanaSQLite の各種パス
 """
+
 from __future__ import annotations
 
 import pytest
@@ -321,6 +322,7 @@ class TestOptionalImportFlags:
 
         try:
             import orjson  # noqa: F401
+
             expected = True
         except ImportError:
             expected = False
@@ -477,10 +479,12 @@ class TestValidkitValidationPaths:
         schema = {"age": v.int()}
         db = NanaSQLite(str(tmp_path / "db.db"), validator=schema)
         with pytest.raises(NanaSQLiteValidationError):
-            db.batch_update({
-                "u1": {"age": 20},
-                "u2": {"age": "bad"},
-            })
+            db.batch_update(
+                {
+                    "u1": {"age": 20},
+                    "u2": {"age": "bad"},
+                }
+            )
         assert "u1" not in db
         assert "u2" not in db
 
@@ -490,10 +494,12 @@ class TestValidkitValidationPaths:
 
         schema = {"age": v.int()}
         db = NanaSQLite(str(tmp_path / "db.db"), validator=schema)
-        db.batch_update({
-            "u1": {"age": 20},
-            "u2": {"age": 30},
-        })
+        db.batch_update(
+            {
+                "u1": {"age": 20},
+                "u2": {"age": 30},
+            }
+        )
         assert db["u1"]["age"] == 20
         assert db["u2"]["age"] == 30
 
@@ -676,9 +682,7 @@ class TestAsyncTableInheritance:
         from nanasqlite import AsyncNanaSQLite
 
         schema = {"age": v.int().coerce()}
-        async with AsyncNanaSQLite(
-            str(tmp_path / "db.db"), validator=schema, coerce=True
-        ) as db:
+        async with AsyncNanaSQLite(str(tmp_path / "db.db"), validator=schema, coerce=True) as db:
             child = await db.table("child")
             await child.aset("c", {"age": "12"})
             assert (await child.aget("c")) == {"age": 12}

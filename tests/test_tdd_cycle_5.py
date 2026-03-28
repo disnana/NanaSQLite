@@ -33,9 +33,7 @@ class TestTableSignatureUsesEllipsis:
 
         sig = inspect.signature(NanaSQLite.table)
         default = sig.parameters["coerce"].default
-        assert default is ..., (
-            f"NanaSQLite.table() coerce default should be Ellipsis (...), got {default!r}."
-        )
+        assert default is ..., f"NanaSQLite.table() coerce default should be Ellipsis (...), got {default!r}."
 
     def test_table_validator_default_is_not_opaque_object(self):
         """Regression: ensure the sentinel is not an opaque object()."""
@@ -45,9 +43,7 @@ class TestTableSignatureUsesEllipsis:
         default = sig.parameters["validator"].default
         assert repr(default) != "<object object at ...>", "Should not be opaque object()"
         # More direct check: type should not be 'object'
-        assert type(default) is not object, (
-            "Default is still a raw object() sentinel; should be Ellipsis"
-        )
+        assert type(default) is not object, "Default is still a raw object() sentinel; should be Ellipsis"
 
 
 class TestAsyncTableSignatureUsesEllipsis:
@@ -58,18 +54,14 @@ class TestAsyncTableSignatureUsesEllipsis:
 
         sig = inspect.signature(AsyncNanaSQLite.table)
         default = sig.parameters["validator"].default
-        assert default is ..., (
-            f"AsyncNanaSQLite.table() validator default should be Ellipsis (...), got {default!r}."
-        )
+        assert default is ..., f"AsyncNanaSQLite.table() validator default should be Ellipsis (...), got {default!r}."
 
     def test_async_table_coerce_default_is_ellipsis(self):
         from nanasqlite.async_core import AsyncNanaSQLite
 
         sig = inspect.signature(AsyncNanaSQLite.table)
         default = sig.parameters["coerce"].default
-        assert default is ..., (
-            f"AsyncNanaSQLite.table() coerce default should be Ellipsis (...), got {default!r}."
-        )
+        assert default is ..., f"AsyncNanaSQLite.table() coerce default should be Ellipsis (...), got {default!r}."
 
     def test_async_table_validator_default_is_not_opaque_object(self):
         from nanasqlite.async_core import AsyncNanaSQLite
@@ -140,9 +132,7 @@ class TestValidkitIntegrationVariableNaming:
 
         next_def = source.find("\ndef ", func_start + 1)
         next_async_def = source.find("\nasync def ", func_start + 1)
-        end = min(
-            x for x in [next_def, next_async_def, len(source)] if x > func_start
-        )
+        end = min(x for x in [next_def, next_async_def, len(source)] if x > func_start)
         func_body = source[func_start:end]
 
         assert "valid_mapping" not in func_body, (

@@ -228,7 +228,7 @@ class V2Engine:
 
     # ==================== Flush / Sync API ====================
 
-    def flush(self) -> None:
+    def flush(self, wait: bool = False) -> None:
         """Trigger an asynchronous flush operation on the background worker."""
         if not self._running:
             return
@@ -241,8 +241,17 @@ class V2Engine:
         # the executor at a time.  If a submission is already queued (lock is
         # held), subsequent calls are no-ops — the already-queued future will
         # process all pending writes when it runs.
+        future = None
         if self._flush_pending.acquire(blocking=False):
-            self._worker.submit(self._run_flush)
+            future = self._worker.submit(self._run_flush)
+
+        if wait:
+            if future:
+                future.result()
+            else:
+                # If a flush is currently pending/running, we wait for it to finish
+                # by submitting a dummy task to the single-worker executor.
+                self._worker.submit(lambda: None).result()
 
     def _run_flush(self) -> None:
         """Executor entry point: release the pending-guard then flush."""
