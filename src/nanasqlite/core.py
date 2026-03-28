@@ -2539,7 +2539,7 @@ class NanaSQLite(MutableMapping):
             # キー（例："user:1"）にコロンなどが含まれている場合は(key, value)パターンとみなす
             try:
                 self._sanitize_identifier(table_name)
-                is_standard_table_pattern = True
+                is_standard_table_pattern = self.table_exists(table_name)
             except NanaSQLiteValidationError:
                 is_standard_table_pattern = False
 
