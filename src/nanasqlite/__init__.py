@@ -21,6 +21,8 @@ Async Example:
     >>> asyncio.run(main())
 """
 
+from __future__ import annotations
+
 from .async_core import AsyncNanaSQLite
 from .cache import CacheType
 from .compat import HAS_ORJSON, HAS_VALIDKIT

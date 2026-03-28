@@ -6,6 +6,8 @@ particularly for sanitizing SQL expressions to prevent injection attacks
 and handle edge cases in SQL parsing.
 """
 
+from __future__ import annotations
+
 
 def sanitize_sql_for_function_scan(sql: str) -> str:
     """

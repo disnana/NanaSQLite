@@ -3,10 +3,21 @@ Compatibility layer for optional dependencies and internal shims.
 (オプションの依存関係と内部シムのための互換性レイヤー)
 """
 
+from __future__ import annotations
+
 import logging
 import re
+import sys
 
 logger = logging.getLogger(__name__)
+
+from typing import Any
+
+# EllipsisType compatibility (Python 3.10+)
+if sys.version_info >= (3, 10):
+    from types import EllipsisType
+else:
+    EllipsisType = Any  # type: ignore
 
 # Optional validkit-py
 try:

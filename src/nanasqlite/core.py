@@ -18,7 +18,6 @@ import shutil
 import stat
 import tempfile
 import threading
-import types
 import warnings
 import weakref
 from collections.abc import Iterator, MutableMapping
@@ -32,6 +31,7 @@ from .cache import MISSING, CacheStrategy, CacheType, create_cache
 from .compat import (
     _UNSET,
     IDENTIFIER_PATTERN,
+    EllipsisType,
 )
 from .compat import (
     HAS_ORJSON as HAS_ORJSON,
@@ -3156,10 +3156,10 @@ class NanaSQLite(MutableMapping):
         cache_size: int | None = None,
         cache_ttl: float | None = None,
         cache_persistence_ttl: bool | None = None,
-        validator: Any | None | types.EllipsisType = _UNSET,
-        coerce: bool | types.EllipsisType = _UNSET,
-        hooks: list[NanaHook] | None | types.EllipsisType = _UNSET,
-        v2_enable_metrics: bool | types.EllipsisType = _UNSET,
+        validator: Any | None | EllipsisType = _UNSET,
+        coerce: bool | EllipsisType = _UNSET,
+        hooks: list[NanaHook] | None | EllipsisType = _UNSET,
+        v2_enable_metrics: bool | EllipsisType = _UNSET,
     ):
         """
         新しいインスタンスを作成しますが、SQLite接続とロックは共有します。
@@ -3179,6 +3179,11 @@ class NanaSQLite(MutableMapping):
                        ``None`` を明示的に渡すとバリデーションなしで使用できる。
             coerce: ``True`` の場合、validkit-py の自動変換機能を有効にする。
                     指定しない場合は親インスタンスの設定を引き継ぐ。
+            hooks: このテーブル用のフックのリスト。
+                   指定しない場合は親インスタンスのフックを引き継ぐ。
+                   ``None`` を明示的に渡すとフックなしで使用できる。
+            v2_enable_metrics: ``True`` の場合、V2 エンジンのメトリクス収集を有効にする。
+                               指定しない場合は親インスタンスの設定を引き継ぐ。
 
         ⚠️ 重要な注意事項:
         - 同じテーブルに対して複数のインスタンスを作成しないでください
