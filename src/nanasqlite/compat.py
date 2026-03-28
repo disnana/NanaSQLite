@@ -8,10 +8,9 @@ from __future__ import annotations
 import logging
 import re
 import sys
+from typing import Any
 
 logger = logging.getLogger(__name__)
-
-from typing import Any
 
 # EllipsisType compatibility (Python 3.10+)
 if sys.version_info >= (3, 10):

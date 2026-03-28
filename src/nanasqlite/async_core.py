@@ -1484,9 +1484,12 @@ class AsyncNanaSQLite:
                        ``None`` を明示的に渡すとバリデーションなしで使用できる。
             coerce: ``True`` の場合、validkit-py の自動変換機能を有効にする。
                     指定しない場合は親インスタンスの設定を引き継ぐ。
+            hooks: このテーブル用のフックのリスト。
+                   指定しない場合は親インスタンスのフックを引き継ぐ。
+                   ``None`` を明示的に渡すとフックなしで使用できる。
 
         Returns:
-            指定したテーブルを操作するAsyncNanaSQLiteインスタンス
+            AsyncNanaSQLite: 指定したテーブルを操作するAsyncNanaSQLiteインスタンス
 
         Example:
             >>> async with AsyncNanaSQLite("mydata.db", table="main") as db:
