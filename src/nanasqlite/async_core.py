@@ -27,7 +27,6 @@ import asyncio
 import functools
 import logging
 import queue
-import types
 import weakref
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -41,6 +40,9 @@ from .compat import (
 )
 from .compat import (
     HAS_VALIDKIT as HAS_VALIDKIT,  # noqa: F401
+)
+from .compat import (
+    EllipsisType as EllipsisType,  # noqa: F401
 )
 from .compat import (
     validkit_validate as validkit_validate,  # noqa: F401
@@ -1452,9 +1454,9 @@ class AsyncNanaSQLite:
     async def table(
         self,
         table_name: str,
-        validator: Any | None | types.EllipsisType = _UNSET,
-        coerce: bool | types.EllipsisType = _UNSET,
-        hooks: list[NanaHook] | None | types.EllipsisType = _UNSET,
+        validator: Any | None | EllipsisType = _UNSET,
+        coerce: bool | EllipsisType = _UNSET,
+        hooks: list[NanaHook] | None | EllipsisType = _UNSET,
     ) -> AsyncNanaSQLite:
         """
         非同期でサブテーブルのAsyncNanaSQLiteインスタンスを取得
