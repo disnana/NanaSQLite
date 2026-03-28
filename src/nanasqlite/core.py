@@ -1210,13 +1210,13 @@ class NanaSQLite(MutableMapping):
         for key, value in kwargs.items():
             self[key] = value
 
-    def flush(self) -> None:
+    def flush(self, wait: bool = False) -> None:
         """
         [v2 Feature] Explicitly flush the v2 engine's background buffer and queue to SQLite.
         If v2_mode is False, this operates as a no-op.
         """
         if self._v2_mode and self._v2_engine:
-            self._v2_engine.flush()
+            self._v2_engine.flush(wait=wait)
 
     def get_dlq(self) -> list[dict[str, Any]]:
         """
@@ -1258,7 +1258,7 @@ class NanaSQLite(MutableMapping):
 
         # v2 Architecture: Flush background buffer before clearing to prevent "ghost" re-inserts
         if self._v2_mode and self._v2_engine:
-            self._v2_engine.flush()
+            self._v2_engine.flush(wait=True)
 
         # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
         with self._acquire_lock():
@@ -1285,7 +1285,7 @@ class NanaSQLite(MutableMapping):
 
         # v2 Architecture: Flush background buffer to ensure we load the latest state
         if self._v2_mode and self._v2_engine:
-            self._v2_engine.flush()
+            self._v2_engine.flush(wait=True)
 
         with self._acquire_lock():
             cursor = self._connection.execute(
@@ -1365,6 +1365,19 @@ class NanaSQLite(MutableMapping):
                         temp_v = hook.before_write(self, k, temp_v)
         # End of TDD Cycle 4 optimized block
 
+        # v2 Architecture: Route to background staging buffer instead of blocking DB write
+        if self._v2_mode and self._v2_engine:
+            for key, value in mapping.items():
+                self._v2_engine.kvs_set(self._safe_table, key, value)
+            with self._acquire_lock():
+                for key, value in mapping.items():
+                    if self._lru_mode:
+                        self._cache.set(key, value)
+                    else:
+                        self._data[key] = value
+                        self._cached_keys.add(key)
+            return
+
         with self._acquire_lock():
             cursor = self._connection.cursor()
             cursor.execute(_BEGIN_IMMEDIATE)
@@ -1436,6 +1449,19 @@ class NanaSQLite(MutableMapping):
         if not params:
             return failed
 
+        # v2 Architecture: Route to background staging buffer instead of blocking DB write
+        if self._v2_mode and self._v2_engine:
+            for key, _ in params:
+                self._v2_engine.kvs_set(self._safe_table, key, accepted_values[key])
+            with self._acquire_lock():
+                for key, value in accepted_values.items():
+                    if self._lru_mode:
+                        self._cache.set(key, value)
+                    else:
+                        self._data[key] = value
+                        self._cached_keys.add(key)
+            return failed
+
         with self._acquire_lock():
             cursor = self._connection.cursor()
             cursor.execute(_BEGIN_IMMEDIATE)
@@ -1477,6 +1503,18 @@ class NanaSQLite(MutableMapping):
             if self._ensure_cached(key):
                 for hook in getattr(self, "_hooks", []):
                     hook.before_delete(self, key)
+
+        # v2 Architecture: Route to background staging buffer instead of blocking DB write
+        if self._v2_mode and self._v2_engine:
+            for key in keys:
+                self._v2_engine.kvs_delete(self._safe_table, key)
+            with self._acquire_lock():
+                for key in keys:
+                    self._cache.delete(key)
+                    if not self._lru_mode:
+                        self._data.pop(key, None)
+                        self._cached_keys.add(key)
+            return
 
         with self._acquire_lock():
             cursor = self._connection.cursor()

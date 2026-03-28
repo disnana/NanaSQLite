@@ -9,6 +9,7 @@
 4. test_tdd_review_fixes.py に未使用 `import pytest` (Ruff F401)
 5. test_table_inheritance_comprehensive.py に未使用 `NanaSQLiteValidationError` (Ruff F401)
 """
+
 from __future__ import annotations
 
 import inspect
@@ -87,8 +88,10 @@ class TestTableCacheTTLParam:
     def test_table_inherits_parent_ttl(self, tmp_path):
         """TTL 親から省略で table() を呼ぶと cache_ttl が継承されること。"""
         parent = NanaSQLite(
-            str(tmp_path / "test.db"), table="parent",
-            cache_strategy=CacheType.TTL, cache_ttl=60.0,
+            str(tmp_path / "test.db"),
+            table="parent",
+            cache_strategy=CacheType.TTL,
+            cache_ttl=60.0,
         )
         child = parent.table("child")
         assert child._cache_ttl_raw == 60.0
@@ -96,8 +99,11 @@ class TestTableCacheTTLParam:
     def test_table_inherits_parent_persistence_ttl(self, tmp_path):
         """TTL 親の cache_persistence_ttl も子に継承されること。"""
         parent = NanaSQLite(
-            str(tmp_path / "test.db"), table="parent",
-            cache_strategy=CacheType.TTL, cache_ttl=60.0, cache_persistence_ttl=True,
+            str(tmp_path / "test.db"),
+            table="parent",
+            cache_strategy=CacheType.TTL,
+            cache_ttl=60.0,
+            cache_persistence_ttl=True,
         )
         child = parent.table("child")
         assert child._cache_persistence_ttl_raw is True
@@ -105,8 +111,10 @@ class TestTableCacheTTLParam:
     def test_table_explicit_cache_ttl_overrides_parent(self, tmp_path):
         """TTL 親から table() で cache_ttl を上書きできること。"""
         parent = NanaSQLite(
-            str(tmp_path / "test.db"), table="parent",
-            cache_strategy=CacheType.TTL, cache_ttl=60.0,
+            str(tmp_path / "test.db"),
+            table="parent",
+            cache_strategy=CacheType.TTL,
+            cache_ttl=60.0,
         )
         child = parent.table("child", cache_ttl=10.0)
         assert child._cache_ttl_raw == 10.0

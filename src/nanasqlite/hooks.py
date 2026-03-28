@@ -165,9 +165,7 @@ class ValidkitHook(BaseHook):
                 self._validate_func(value, self.schema)
                 return value
         except Exception as exc:
-            raise NanaSQLiteValidationError(
-                f"Value for key '{key}' failed schema validation: {exc}"
-            ) from exc
+            raise NanaSQLiteValidationError(f"Value for key '{key}' failed schema validation: {exc}") from exc
 
 
 class PydanticHook(BaseHook):

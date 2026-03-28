@@ -11,6 +11,7 @@ Environment Variables:
     BENCHMARK_REGRESSION_THRESHOLD: Percentage threshold for severe regression (default: 20)
                                     If any test is slower than this threshold, exit with code 2.
 """
+
 import json
 import os
 import subprocess
@@ -21,7 +22,7 @@ from pathlib import Path
 
 def parse_single_benchmark(filepath):
     """1つのbenchmark.jsonをパース"""
-    with open(filepath, encoding='utf-8') as f:
+    with open(filepath, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -29,24 +30,19 @@ def load_previous_benchmark():
     """Load previous benchmark data from gh-pages branch if available."""
     try:
         # Try to get the benchmark data from gh-pages branch
-        bench_path = os.environ.get('BENCH_DATA_PATH', 'dev/bench/data.js')
-        result = subprocess.run(
-            ['git', 'show', f'gh-pages:{bench_path}'],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
+        bench_path = os.environ.get("BENCH_DATA_PATH", "dev/bench/data.js")
+        result = subprocess.run(["git", "show", f"gh-pages:{bench_path}"], capture_output=True, text=True, timeout=10)
         if result.returncode != 0:
             return {}
 
         # Parse the JS file (format: window.BENCHMARK_DATA = {...})
         content = result.stdout
-        if 'window.BENCHMARK_DATA' not in content:
+        if "window.BENCHMARK_DATA" not in content:
             return {}
 
         # Extract JSON part
-        json_start = content.find('{')
-        json_end = content.rfind('}') + 1
+        json_start = content.find("{")
+        json_end = content.rfind("}") + 1
         if json_start == -1 or json_end == 0:
             return {}
 
@@ -54,17 +50,17 @@ def load_previous_benchmark():
 
         # Get the most recent benchmark entry
         previous = {}
-        for _, entries in data.get('entries', {}).items():
+        for _, entries in data.get("entries", {}).items():
             if entries:
                 # Get the latest entry
                 latest = entries[-1]
-                for bench in latest.get('benches', []):
-                    name = bench.get('name', '')
-                    if '::' in name:
-                        name = name.split('::')[-1]
+                for bench in latest.get("benches", []):
+                    name = bench.get("name", "")
+                    if "::" in name:
+                        name = name.split("::")[-1]
                     if name:
                         # Store ops/sec directly for comparison
-                        iter_per_sec = bench.get('value', 0)
+                        iter_per_sec = bench.get("value", 0)
                         previous[name] = iter_per_sec  # Keep as ops/sec
 
         return previous
@@ -135,9 +131,9 @@ def format_diff_ops(current_ops, previous_ops):
     def format_ops_diff(ops):
         abs_ops = abs(ops)
         if abs_ops >= 1000000:
-            return f"{ops/1000000:+.1f}M"
+            return f"{ops / 1000000:+.1f}M"
         elif abs_ops >= 1000:
-            return f"{ops/1000:+.1f}k"
+            return f"{ops / 1000:+.1f}k"
         else:
             return f"{ops:+.0f}"
 
@@ -154,35 +150,58 @@ def categorize_test(test_name):
     """テスト名からカテゴリを判定"""
     name_lower = test_name.lower()
 
-    if 'write' in name_lower or 'insert' in name_lower or 'set' in name_lower:
-        if 'encryption' in name_lower or 'aes' in name_lower or 'chacha' in name_lower or 'fernet' in name_lower:
+    if "write" in name_lower or "insert" in name_lower or "set" in name_lower:
+        if "encryption" in name_lower or "aes" in name_lower or "chacha" in name_lower or "fernet" in name_lower:
             return "🔐 Encryption Operations"
-        if 'cache' in name_lower or 'lru' in name_lower or 'ttl' in name_lower:
+        if "cache" in name_lower or "lru" in name_lower or "ttl" in name_lower:
             return "⚡ Cache Operations"
         return "✍️ Write Operations"
-    elif 'read' in name_lower or 'get' in name_lower or 'fetch' in name_lower or 'load' in name_lower:
-        if 'encryption' in name_lower or 'aes' in name_lower or 'chacha' in name_lower or 'fernet' in name_lower:
+    elif "read" in name_lower or "get" in name_lower or "fetch" in name_lower or "load" in name_lower:
+        if "encryption" in name_lower or "aes" in name_lower or "chacha" in name_lower or "fernet" in name_lower:
             return "🔐 Encryption Operations"
-        if 'cache' in name_lower or 'lru' in name_lower or 'ttl' in name_lower:
+        if "cache" in name_lower or "lru" in name_lower or "ttl" in name_lower:
             return "⚡ Cache Operations"
         return "📖 Read Operations"
-    elif 'eviction' in name_lower or 'expiry' in name_lower:
+    elif "eviction" in name_lower or "expiry" in name_lower:
         return "⚡ Cache Operations"
-    elif 'batch' in name_lower:
+    elif "batch" in name_lower:
         return "📦 Batch Operations"
-    elif 'concurrent' in name_lower or 'mixed' in name_lower:
+    elif "concurrent" in name_lower or "mixed" in name_lower:
         return "🔄 Concurrency"
-    elif 'query' in name_lower or 'sql' in name_lower or 'execute' in name_lower:
+    elif "query" in name_lower or "sql" in name_lower or "execute" in name_lower:
         return "🗃️ SQL Operations"
-    elif 'table' in name_lower or 'index' in name_lower or 'schema' in name_lower or 'drop' in name_lower or 'create' in name_lower:
+    elif (
+        "table" in name_lower
+        or "index" in name_lower
+        or "schema" in name_lower
+        or "drop" in name_lower
+        or "create" in name_lower
+    ):
         return "🏗️ Schema Operations"
-    elif 'pydantic' in name_lower or 'model' in name_lower:
+    elif "pydantic" in name_lower or "model" in name_lower:
         return "🔷 Pydantic Operations"
-    elif 'dict' in name_lower or 'keys' in name_lower or 'values' in name_lower or 'items' in name_lower or 'contains' in name_lower or 'len' in name_lower or 'pop' in name_lower or 'setdefault' in name_lower or 'to_dict' in name_lower:
+    elif (
+        "dict" in name_lower
+        or "keys" in name_lower
+        or "values" in name_lower
+        or "items" in name_lower
+        or "contains" in name_lower
+        or "len" in name_lower
+        or "pop" in name_lower
+        or "setdefault" in name_lower
+        or "to_dict" in name_lower
+    ):
         return "📋 Dict Operations"
-    elif 'vacuum' in name_lower or 'refresh' in name_lower or 'pragma' in name_lower or 'copy' in name_lower or 'clear' in name_lower or 'update' in name_lower:
+    elif (
+        "vacuum" in name_lower
+        or "refresh" in name_lower
+        or "pragma" in name_lower
+        or "copy" in name_lower
+        or "clear" in name_lower
+        or "update" in name_lower
+    ):
         return "🔧 Utility Operations"
-    elif 'transaction' in name_lower or 'commit' in name_lower or 'rollback' in name_lower:
+    elif "transaction" in name_lower or "commit" in name_lower or "rollback" in name_lower:
         return "💾 Transaction Operations"
     else:
         return "📊 Other Operations"
@@ -190,19 +209,19 @@ def categorize_test(test_name):
 
 def get_os_emoji(os_name):
     """OS名から絵文字を取得"""
-    if 'ubuntu' in os_name.lower():
-        return '🐧'
-    elif 'windows' in os_name.lower():
-        return '🪟'
-    elif 'macos' in os_name.lower():
-        return '🍎'
+    if "ubuntu" in os_name.lower():
+        return "🐧"
+    elif "windows" in os_name.lower():
+        return "🪟"
+    elif "macos" in os_name.lower():
+        return "🍎"
     else:
-        return '💻'
+        return "💻"
 
 
 def main():
-    results_dir = sys.argv[1] if len(sys.argv) > 1 else '.'
-    benchmark_type = sys.argv[2] if len(sys.argv) > 2 else 'sync'  # 'sync' or 'async'
+    results_dir = sys.argv[1] if len(sys.argv) > 1 else "."
+    benchmark_type = sys.argv[2] if len(sys.argv) > 2 else "sync"  # 'sync' or 'async'
     results_path = Path(results_dir)
 
     # Load previous benchmark data for comparison
@@ -212,15 +231,15 @@ def main():
     all_results = {}
 
     # ベンチマーク結果ファイルのパターン
-    if benchmark_type == 'async':
-        dir_pattern = 'async-benchmark-results-'
-        file_name = 'async-benchmark.json'
-    elif benchmark_type == 'encryption':
-        dir_pattern = 'encryption-benchmark-results-'
-        file_name = 'encryption-benchmark.json'
+    if benchmark_type == "async":
+        dir_pattern = "async-benchmark-results-"
+        file_name = "async-benchmark.json"
+    elif benchmark_type == "encryption":
+        dir_pattern = "encryption-benchmark-results-"
+        file_name = "encryption-benchmark.json"
     else:
-        dir_pattern = 'benchmark-results-'
-        file_name = 'benchmark.json'
+        dir_pattern = "benchmark-results-"
+        file_name = "benchmark.json"
 
     # ディレクトリ内のベンチマーク結果を探す
     if results_path.is_dir():
@@ -228,7 +247,7 @@ def main():
             if subdir.is_dir() and subdir.name.startswith(dir_pattern):
                 benchmark_file = subdir / file_name
                 if benchmark_file.exists():
-                    platform = subdir.name.replace(dir_pattern, '')
+                    platform = subdir.name.replace(dir_pattern, "")
                     try:
                         all_results[platform] = parse_single_benchmark(benchmark_file)
                     except json.JSONDecodeError:
@@ -239,36 +258,27 @@ def main():
         return
 
     # 全テスト結果を集計
-    test_data = defaultdict(lambda: {'by_os': defaultdict(list), 'all_means': []})
+    test_data = defaultdict(lambda: {"by_os": defaultdict(list), "all_means": []})
     os_set = set()
 
     for platform, data in all_results.items():
-        parts = platform.rsplit('-py', 1)
+        parts = platform.rsplit("-py", 1)
         if len(parts) == 2:
             os_name = parts[0]
             py_version = parts[1]
         else:
             os_name = platform
-            py_version = 'unknown'
+            py_version = "unknown"
 
         os_set.add(os_name)
 
-        for b in data.get('benchmarks', []):
-            name = b['name'].split('::')[-1]
-            mean = b['stats']['mean'] * 1000  # ms
-            ops = b['stats'].get('ops', 0)    # raw ops/sec
+        for b in data.get("benchmarks", []):
+            name = b["name"].split("::")[-1]
+            mean = b["stats"]["mean"] * 1000  # ms
+            ops = b["stats"].get("ops", 0)  # raw ops/sec
 
-            test_data[name]['by_os'][os_name].append({
-                'py': py_version,
-                'mean': mean,
-                'ops': ops
-            })
-            test_data[name]['all_means'].append({
-                'os': os_name,
-                'py': py_version,
-                'mean': mean,
-                'ops': ops
-            })
+            test_data[name]["by_os"][os_name].append({"py": py_version, "mean": mean, "ops": ops})
+            test_data[name]["all_means"].append({"os": os_name, "py": py_version, "mean": mean, "ops": ops})
 
     if not test_data:
         print("No benchmark data to display.")
@@ -281,48 +291,51 @@ def main():
     # 各テストの平均時間を計算
     test_averages = []
     for test_name, data in test_data.items():
-        means = [x['mean'] for x in data['all_means']]
-        ops_list = [x['ops'] for x in data['all_means']]
+        means = [x["mean"] for x in data["all_means"]]
+        ops_list = [x["ops"] for x in data["all_means"]]
 
         avg = sum(means) / len(means) if means else 0
         avg_ops = sum(ops_list) / len(ops_list) if ops_list else 0
 
-        fastest = min(data['all_means'], key=lambda x: x['mean']) if data['all_means'] else None
-        test_averages.append({
-            'name': test_name,
-            'avg': avg,
-            'ops': avg_ops,
-            'fastest': fastest
-        })
+        fastest = min(data["all_means"], key=lambda x: x["mean"]) if data["all_means"] else None
+        test_averages.append({"name": test_name, "avg": avg, "ops": avg_ops, "fastest": fastest})
 
     # Top 10 Fastest
-    sorted_by_speed = sorted(test_averages, key=lambda x: x['avg'])
+    sorted_by_speed = sorted(test_averages, key=lambda x: x["avg"])
     print("#### 🏆 Top 10 Fastest Operations\n")
     print("| Rank | Test | Avg Time | Ops/sec | vs Prev | Fastest Platform |")
     print("|------|------|----------|---------|---------|------------------|")
 
     for i, item in enumerate(sorted_by_speed[:10], 1):
-        fastest_str = f"{item['fastest']['os']} py{item['fastest']['py']}" if item['fastest'] else "-"
-        prev_ops = previous_data.get(item['name'])
-        current_ops = item['ops']
+        fastest_str = f"{item['fastest']['os']} py{item['fastest']['py']}" if item["fastest"] else "-"
+        prev_ops = previous_data.get(item["name"])
+        current_ops = item["ops"]
         diff_str, _ = format_diff_ops(current_ops, prev_ops)
-        print(f"| {i} | {item['name']} | {format_time(item['avg'])} | {format_ops(current_ops)} | {diff_str} | {fastest_str} |")
+        print(
+            f"| {i} | {item['name']} | {format_time(item['avg'])} | {format_ops(current_ops)} | {diff_str} | {fastest_str} |"
+        )
 
     print()
 
     # Top 10 Slowest
-    sorted_by_slow = sorted(test_averages, key=lambda x: x['avg'], reverse=True)
+    sorted_by_slow = sorted(test_averages, key=lambda x: x["avg"], reverse=True)
     print("#### 🐢 Top 10 Slowest Operations\n")
     print("| Rank | Test | Avg Time | Ops/sec | vs Prev | Slowest Platform |")
     print("|------|------|----------|---------|---------|------------------|")
 
     for i, item in enumerate(sorted_by_slow[:10], 1):
-        slowest = max(test_data[item['name']]['all_means'], key=lambda x: x['mean']) if test_data[item['name']]['all_means'] else None
+        slowest = (
+            max(test_data[item["name"]]["all_means"], key=lambda x: x["mean"])
+            if test_data[item["name"]]["all_means"]
+            else None
+        )
         slowest_str = f"{slowest['os']} py{slowest['py']}" if slowest else "-"
-        prev_ops = previous_data.get(item['name'])
-        current_ops = item['ops']
+        prev_ops = previous_data.get(item["name"])
+        current_ops = item["ops"]
         diff_str, _ = format_diff_ops(current_ops, prev_ops)
-        print(f"| {i} | {item['name']} | {format_time(item['avg'])} | {format_ops(current_ops)} | {diff_str} | {slowest_str} |")
+        print(
+            f"| {i} | {item['name']} | {format_time(item['avg'])} | {format_ops(current_ops)} | {diff_str} | {slowest_str} |"
+        )
 
     print()
 
@@ -330,8 +343,8 @@ def main():
     categories = defaultdict(list)
     for test_name, data in test_data.items():
         category = categorize_test(test_name)
-        means = [x['mean'] for x in data['all_means']]
-        ops_list = [x['ops'] for x in data['all_means']]
+        means = [x["mean"] for x in data["all_means"]]
+        ops_list = [x["ops"] for x in data["all_means"]]
 
         avg = sum(means) / len(means) if means else 0
         avg_ops = sum(ops_list) / len(ops_list) if ops_list else 0
@@ -339,27 +352,22 @@ def main():
         # OS別の統計を計算
         os_stats = {}
         for os_name in sorted_os:
-            entries = data['by_os'].get(os_name, [])
+            entries = data["by_os"].get(os_name, [])
             if entries:
-                mean_avg = sum(x['mean'] for x in entries) / len(entries)
-                ops_avg = sum(x['ops'] for x in entries) / len(entries)
-                os_stats[os_name] = {'mean': mean_avg, 'ops': ops_avg}
+                mean_avg = sum(x["mean"] for x in entries) / len(entries)
+                ops_avg = sum(x["ops"] for x in entries) / len(entries)
+                os_stats[os_name] = {"mean": mean_avg, "ops": ops_avg}
             else:
                 os_stats[os_name] = None
 
-        categories[category].append({
-            'name': test_name,
-            'avg': avg,
-            'ops': avg_ops,
-            'os_stats': os_stats
-        })
+        categories[category].append({"name": test_name, "avg": avg, "ops": avg_ops, "os_stats": os_stats})
 
     print("#### 📋 Results by Category\n")
 
     # カテゴリごとに出力
     for category in sorted(categories.keys()):
         tests = categories[category]
-        tests_sorted = sorted(tests, key=lambda x: x['avg'])
+        tests_sorted = sorted(tests, key=lambda x: x["avg"])
 
         # ヘッダー作成
         os_headers = " | ".join([f"{get_os_emoji(os)} {os.replace('-latest', '')}" for os in sorted_os])
@@ -371,17 +379,19 @@ def main():
         for test in tests_sorted:
             os_values = []
             for os_name in sorted_os:
-                stats = test['os_stats'].get(os_name)
+                stats = test["os_stats"].get(os_name)
                 if stats:
                     os_values.append(f"{format_time(stats['mean'])}<br>({format_ops(stats['ops'])})")
                 else:
                     os_values.append("-")
 
             os_cells = " | ".join(os_values)
-            prev_ops = previous_data.get(test['name'])
-            current_ops = test['ops']
+            prev_ops = previous_data.get(test["name"])
+            current_ops = test["ops"]
             diff_str, _ = format_diff_ops(current_ops, prev_ops)
-            print(f"| {test['name']} | {format_time(test['avg'])} | {format_ops(current_ops)} | {diff_str} | {os_cells} |")
+            print(
+                f"| {test['name']} | {format_time(test['avg'])} | {format_ops(current_ops)} | {diff_str} | {os_cells} |"
+            )
 
         print("\n</details>\n")
 
@@ -394,12 +404,12 @@ def main():
         unchanged = 0
         no_data = 0
 
-        regression_threshold = float(os.environ.get('BENCHMARK_REGRESSION_THRESHOLD', '20'))
+        regression_threshold = float(os.environ.get("BENCHMARK_REGRESSION_THRESHOLD", "20"))
 
         for item in test_averages:
-            prev_ops = previous_data.get(item['name'])
-            if prev_ops and prev_ops > 0 and item['avg'] > 0:
-                current_ops = item['ops']
+            prev_ops = previous_data.get(item["name"])
+            if prev_ops and prev_ops > 0 and item["avg"] > 0:
+                current_ops = item["ops"]
                 # change_pct: positive = faster (improvement), negative = slower (regression)
                 change_pct = ((current_ops / prev_ops) - 1) * 100
 
@@ -433,11 +443,11 @@ def main():
     return 2 if has_significant_regression else 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Ensure UTF-8 output for Windows to handle emojis correctly
-    if sys.stdout.encoding != 'utf-8':
+    if sys.stdout.encoding != "utf-8":
         try:
-            sys.stdout.reconfigure(encoding='utf-8')
+            sys.stdout.reconfigure(encoding="utf-8")
         except AttributeError:
             # Python < 3.7 doesn't support reconfigure, but we target >= 3.9
             pass
@@ -448,5 +458,6 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"Error parsing benchmark results: {e}", file=sys.stderr)
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

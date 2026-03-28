@@ -235,8 +235,6 @@ class AsyncNanaSQLite:
                 self._hooks_raw = []
             self._hooks_raw.append(hook)
 
-
-
     async def _ensure_initialized(self) -> None:
         """Ensure the underlying sync database is initialized"""
         if self._closed:
@@ -507,17 +505,22 @@ class AsyncNanaSQLite:
 
         await loop.run_in_executor(self._executor, update_wrapper)
 
-    async def aflush(self) -> None:
+    async def aflush(self, wait: bool = False) -> None:
         """
         [v2 Feature] 非同期でv2エンジンのバックグラウンドバッファとキューをSQLiteに明示的にフラッシュする。
         v2_modeがFalseの場合は何もしない。
 
         Example:
-            >>> await db.aflush()
+            >>> await db.aflush(wait=True)
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.flush)
+
+        # Create a tiny closure to pass the keyword argument to flush
+        def _flush_wrapper():
+            self._db.flush(wait=wait)
+
+        await loop.run_in_executor(self._executor, _flush_wrapper)
 
     async def aclear(self) -> None:
         """

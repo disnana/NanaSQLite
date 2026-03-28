@@ -6,6 +6,7 @@
 2. docs/en/api/nanasqlite.md の table() シグネチャに cache_ttl / cache_persistence_ttl がない
 3. docs/ja/api/nanasqlite.md の table() シグネチャに cache_ttl / cache_persistence_ttl がない
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -64,9 +65,7 @@ class TestRuffAvailabilitySkip:
         class_src = src[class_start:]
         # ruff が利用できるかチェックしているか確認する
         has_availability_check = (
-            "shutil.which" in class_src
-            or "pytest.skip" in class_src
-            or "importorskip" in class_src
+            "shutil.which" in class_src or "pytest.skip" in class_src or "importorskip" in class_src
         )
         assert has_availability_check, (
             "TestNoUnusedImports は ruff が利用できない場合の処理"
@@ -117,4 +116,3 @@ class TestTableSignatureInJaDocs:
             "docs/ja/api/nanasqlite.md の table() シグネチャに cache_persistence_ttl が含まれていません。"
             f"\n見つかったブロック:\n{block}"
         )
-

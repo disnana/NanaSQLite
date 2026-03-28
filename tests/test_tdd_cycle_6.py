@@ -29,9 +29,7 @@ class TestInitValidatorAnnotation:
         ann = sig.parameters["validator"].annotation
         ann_str = str(ann)
         # Should NOT contain 'dict' (redundant since Any already subsumes it)
-        assert "dict" not in ann_str, (
-            f"__init__ validator annotation '{ann_str}' still contains redundant 'dict |'"
-        )
+        assert "dict" not in ann_str, f"__init__ validator annotation '{ann_str}' still contains redundant 'dict |'"
 
     def test_async_init_validator_annotation_has_no_redundant_dict(self):
         """AsyncNanaSQLite.__init__ same fix."""

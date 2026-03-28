@@ -2,6 +2,7 @@
 table()機能のストレステスト
 潜在的な問題を検出するためのストレステスト
 """
+
 import asyncio
 import os
 import sys
@@ -83,7 +84,7 @@ def test_sync_heavy_concurrent_access():
             value = {
                 "data": "x" * 10000,  # 10KB
                 "idx": item_idx,
-                "table": table_idx
+                "table": table_idx,
             }
             db[key] = value
             return table_idx, item_idx
@@ -137,10 +138,7 @@ async def test_async_executor_sharing():
                 for i in range(count):
                     await db.aset(f"{prefix}_{i}", {"value": i})
 
-            await asyncio.gather(
-                write_many(main_db, "main", 50),
-                write_many(sub_db, "sub", 50)
-            )
+            await asyncio.gather(write_many(main_db, "main", 50), write_many(sub_db, "sub", 50))
 
             # 検証
             for i in range(50):
@@ -279,4 +277,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -606,9 +606,6 @@ class TestAsyncSQLOperationsBenchmarks:
 # ==================== Async Schema Operations Benchmarks ====================
 
 
-
-
-
 # ==================== Async Batch Operations Benchmarks ====================
 
 
@@ -742,14 +739,12 @@ class TestAsyncPydanticOperationsBenchmarks:
 # ==================== Async Utility Operations Benchmarks ====================
 
 
-
-
-
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--benchmark-only"])
 
 
 # ==================== Async Encryption Benchmarks ====================
+
 
 @pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
 class TestAsyncEncryptionBenchmarks:
@@ -779,6 +774,7 @@ class TestAsyncEncryptionBenchmarks:
                 async with AsyncNanaSQLite(db_path, encryption_key=key, encryption_mode=enc_mode) as db:
                     await db.aset(f"k_{counter[0]}", data)
                     counter[0] += 1
+
             run_async(_write())
 
         benchmark(write_encryption)
@@ -795,20 +791,23 @@ class TestAsyncEncryptionBenchmarks:
         # Pre-fill
         async def setup():
             async with AsyncNanaSQLite(db_path, encryption_key=key) as db:
-                 await db.aset("uncached_target", data)
+                await db.aset("uncached_target", data)
+
         run_async(setup())
 
         def read_op():
             async def _read():
-                 async with AsyncNanaSQLite(db_path, encryption_key=key) as db:
-                      # New connection implies empty cache (persistence TTL aside)
-                      return await db.aget("uncached_target")
+                async with AsyncNanaSQLite(db_path, encryption_key=key) as db:
+                    # New connection implies empty cache (persistence TTL aside)
+                    return await db.aget("uncached_target")
+
             run_async(_read())
 
         benchmark(read_op)
 
 
 # ==================== Async Mixed Benchmarks ====================
+
 
 @pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
 class TestAsyncMixedBenchmarks:
@@ -825,17 +824,19 @@ class TestAsyncMixedBenchmarks:
 
         def concurrent_writes():
             async def _writes():
-                 async with AsyncNanaSQLite(db_path, encryption_key=key) as db:
-                      base = counter[0] * 10
-                      tasks = [db.aset(f"cw_{base + i}", {"v": i}) for i in range(10)]
-                      await asyncio.gather(*tasks)
-                      counter[0] += 1
+                async with AsyncNanaSQLite(db_path, encryption_key=key) as db:
+                    base = counter[0] * 10
+                    tasks = [db.aset(f"cw_{base + i}", {"v": i}) for i in range(10)]
+                    await asyncio.gather(*tasks)
+                    counter[0] += 1
+
             run_async(_writes())
 
         benchmark(concurrent_writes)
 
 
 # ==================== Async Cache Strategy Benchmarks ====================
+
 
 @pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
 class TestAsyncCacheStrategyBenchmarks:
@@ -847,7 +848,6 @@ class TestAsyncCacheStrategyBenchmarks:
         import shutil
 
         from nanasqlite import CacheType
-
 
         base_dir = os.path.dirname(db_path)
         cache_dir = os.path.join(base_dir, "async_cache_bench")
@@ -889,6 +889,7 @@ class TestAsyncCacheStrategyBenchmarks:
                 async with AsyncNanaSQLite(db_path, cache_strategy=strategy, **kw) as db:
                     for i in range(100):
                         await db.aset(f"w_{i}", i)
+
             run_async(_write())
 
         benchmark(write_op)
@@ -914,13 +915,15 @@ class TestAsyncCacheStrategyBenchmarks:
             async with AsyncNanaSQLite(db_path, cache_strategy=strategy, **kw) as db:
                 for i in range(100):
                     await db.aset(f"r_{i}", i)
+
         run_async(setup())
 
         def read_op():
             async def _read():
-                 async with AsyncNanaSQLite(db_path, cache_strategy=strategy, **kw) as db:
+                async with AsyncNanaSQLite(db_path, cache_strategy=strategy, **kw) as db:
                     for i in range(100):
                         await db.aget(f"r_{i}")
+
             run_async(_read())
 
         benchmark(read_op)
@@ -934,17 +937,20 @@ class TestAsyncCacheStrategyBenchmarks:
 
         # Pre-fill 10 items (size 10)
         async def setup():
-             async with AsyncNanaSQLite(db_path, cache_strategy=CacheType.LRU, cache_size=10) as db:
-                 for i in range(10):
-                     await db.aset(f"init_{i}", i)
+            async with AsyncNanaSQLite(db_path, cache_strategy=CacheType.LRU, cache_size=10) as db:
+                for i in range(10):
+                    await db.aset(f"init_{i}", i)
+
         run_async(setup())
 
         counter = [0]
+
         def eviction_op():
             async def _evict():
-                 async with AsyncNanaSQLite(db_path, cache_strategy=CacheType.LRU, cache_size=10) as db:
-                      await db.aset(f"new_{counter[0]}", counter[0])
-                      counter[0] += 1
+                async with AsyncNanaSQLite(db_path, cache_strategy=CacheType.LRU, cache_size=10) as db:
+                    await db.aset(f"new_{counter[0]}", counter[0])
+                    counter[0] += 1
+
             run_async(_evict())
 
         benchmark(eviction_op)
@@ -956,14 +962,16 @@ class TestAsyncCacheStrategyBenchmarks:
         db_path = str(tmp_path / "async_ttl_check.db")
 
         async def setup():
-             async with AsyncNanaSQLite(db_path, cache_strategy=CacheType.TTL, cache_ttl=60) as db:
-                 await db.aset("target", "value")
+            async with AsyncNanaSQLite(db_path, cache_strategy=CacheType.TTL, cache_ttl=60) as db:
+                await db.aset("target", "value")
+
         run_async(setup())
 
         def read_op():
             async def _read():
-                 async with AsyncNanaSQLite(db_path, cache_strategy=CacheType.TTL, cache_ttl=60) as db:
-                     return await db.aget("target")
+                async with AsyncNanaSQLite(db_path, cache_strategy=CacheType.TTL, cache_ttl=60) as db:
+                    return await db.aget("target")
+
             return run_async(_read())
 
         benchmark(read_op)
@@ -981,8 +989,8 @@ class TestAsyncDDLOperationsBenchmarks:
         from nanasqlite import AsyncNanaSQLite
 
         async def setup():
-             async with AsyncNanaSQLite(db_path) as db:
-                 await db.create_table("idx_create_test", {"id": "INTEGER", "name": "TEXT"})
+            async with AsyncNanaSQLite(db_path) as db:
+                await db.create_table("idx_create_test", {"id": "INTEGER", "name": "TEXT"})
 
         run_async(setup())
         counter = [0]
@@ -993,6 +1001,7 @@ class TestAsyncDDLOperationsBenchmarks:
                     idx_name = f"idx_{counter[0]}"
                     await db.create_index(idx_name, "idx_create_test", ["name"], if_not_exists=True)
                     await db.drop_index(idx_name)  # clean up
+
             run_async(_create())
             counter[0] += 1
 
@@ -1010,6 +1019,7 @@ class TestAsyncDDLOperationsBenchmarks:
                     table_name = f"drop_test_{counter[0]}"
                     await db.create_table(table_name, {"id": "INTEGER"})
                     await db.drop_table(table_name)
+
             run_async(_drop())
             counter[0] += 1
 
@@ -1022,6 +1032,7 @@ class TestAsyncDDLOperationsBenchmarks:
         async def setup():
             async with AsyncNanaSQLite(db_path) as db:
                 await db.create_table("idx_test", {"id": "INTEGER", "name": "TEXT"})
+
         run_async(setup())
         counter = [0]
 
@@ -1031,6 +1042,7 @@ class TestAsyncDDLOperationsBenchmarks:
                     idx_name = f"idx_drop_{counter[0]}"
                     await db.create_index(idx_name, "idx_test", ["name"], if_not_exists=True)
                     await db.drop_index(idx_name)
+
             run_async(_drop())
             counter[0] += 1
 
@@ -1046,6 +1058,7 @@ class TestAsyncDDLOperationsBenchmarks:
                 # Prepare data
                 for i in range(1000):
                     await db.sql_insert("delete_test", {"id": i, "name": f"User{i}"})
+
         run_async(setup())
 
         counter = [0]
@@ -1057,6 +1070,7 @@ class TestAsyncDDLOperationsBenchmarks:
                     await db.sql_delete("delete_test", "id = ?", (target_id,))
                     # Re-insert
                     await db.sql_insert("delete_test", {"id": target_id, "name": f"User{counter[0]}"})
+
             run_async(_delete())
             counter[0] += 1
 
@@ -1075,14 +1089,16 @@ class TestAsyncSchemaOperationsBenchmarks:
         from nanasqlite import AsyncNanaSQLite
 
         async def setup():
-             async with AsyncNanaSQLite(db_path) as db:
-                 await db.create_table("exists_test", {"id": "INTEGER"})
+            async with AsyncNanaSQLite(db_path) as db:
+                await db.create_table("exists_test", {"id": "INTEGER"})
+
         run_async(setup())
 
         def table_exists_op():
             async def _exists():
                 async with AsyncNanaSQLite(db_path) as db:
                     return await db.table_exists("exists_test")
+
             return run_async(_exists())
 
         benchmark(table_exists_op)
@@ -1092,15 +1108,17 @@ class TestAsyncSchemaOperationsBenchmarks:
         from nanasqlite import AsyncNanaSQLite
 
         async def setup():
-             async with AsyncNanaSQLite(db_path) as db:
-                 for i in range(20):
-                     await db.create_table(f"list_test_{i}", {"id": "INTEGER"})
+            async with AsyncNanaSQLite(db_path) as db:
+                for i in range(20):
+                    await db.create_table(f"list_test_{i}", {"id": "INTEGER"})
+
         run_async(setup())
 
         def list_tables_op():
             async def _list():
                 async with AsyncNanaSQLite(db_path) as db:
                     return await db.list_tables()
+
             return run_async(_list())
 
         benchmark(list_tables_op)
@@ -1118,14 +1136,16 @@ class TestAsyncUtilityOperationsBenchmarks:
         from nanasqlite import AsyncNanaSQLite
 
         async def setup():
-             async with AsyncNanaSQLite(db_path) as db:
-                 await db.aset("target_key", {"data": "value", "number": 123})
+            async with AsyncNanaSQLite(db_path) as db:
+                await db.aset("target_key", {"data": "value", "number": 123})
+
         run_async(setup())
 
         def get_fresh_op():
             async def _get():
                 async with AsyncNanaSQLite(db_path) as db:
                     return await db.get_fresh("target_key")
+
             return run_async(_get())
 
         benchmark(get_fresh_op)
@@ -1145,6 +1165,7 @@ class TestAsyncUtilityOperationsBenchmarks:
                     await db.batch_update(data)
                     # Delete
                     await db.batch_delete(keys)
+
             run_async(_op())
             counter[0] += 1
 
@@ -1160,6 +1181,7 @@ class TestAsyncUtilityOperationsBenchmarks:
                     await db.aset(f"vac_key_{i}", {"data": "x" * 100})
                 for i in range(50):
                     await db.adelete(f"vac_key_{i}")
+
         run_async(setup())
 
         counter = [0]
@@ -1170,8 +1192,9 @@ class TestAsyncUtilityOperationsBenchmarks:
                     # Churn data
                     await db.aset(f"vac_extra_{counter[0]}", {"data": "y" * 100})
                     if counter[0] > 0:
-                         await db.adelete(f"vac_extra_{counter[0] - 1}")
+                        await db.adelete(f"vac_extra_{counter[0] - 1}")
                     await db.vacuum()
+
             run_async(_vac())
             counter[0] += 1
 
@@ -1184,6 +1207,7 @@ class TestAsyncUtilityOperationsBenchmarks:
         async def setup():
             async with AsyncNanaSQLite(db_path) as db:
                 await db.create_table("exec_test", {"id": "INTEGER", "value": "TEXT"})
+
         run_async(setup())
 
         counter = [0]
@@ -1192,9 +1216,9 @@ class TestAsyncUtilityOperationsBenchmarks:
             async def _exec():
                 async with AsyncNanaSQLite(db_path) as db:
                     await db.execute(
-                        "INSERT INTO exec_test (id, value) VALUES (?, ?)",
-                        (counter[0], f"val{counter[0]}")
+                        "INSERT INTO exec_test (id, value) VALUES (?, ?)", (counter[0], f"val{counter[0]}")
                     )
+
             run_async(_exec())
             counter[0] += 1
 
@@ -1207,6 +1231,7 @@ class TestAsyncUtilityOperationsBenchmarks:
         async def setup():
             async with AsyncNanaSQLite(db_path) as db:
                 await db.create_table("exec_many_test", {"id": "INTEGER", "value": "TEXT"})
+
         run_async(setup())
 
         counter = [0]
@@ -1216,10 +1241,8 @@ class TestAsyncUtilityOperationsBenchmarks:
                 async with AsyncNanaSQLite(db_path) as db:
                     base = counter[0] * 100
                     params = [(base + i, f"val{i}") for i in range(100)]
-                    await db.execute_many(
-                        "INSERT INTO exec_many_test (id, value) VALUES (?, ?)",
-                        params
-                    )
+                    await db.execute_many("INSERT INTO exec_many_test (id, value) VALUES (?, ?)", params)
+
             run_async(_exec())
             counter[0] += 1
 
@@ -1232,6 +1255,7 @@ class TestAsyncUtilityOperationsBenchmarks:
         async def setup():
             async with AsyncNanaSQLite(db_path) as db:
                 await db.create_table("logs", {"id": "INTEGER", "message": "TEXT"})
+
         run_async(setup())
 
         counter = [0]
@@ -1241,6 +1265,7 @@ class TestAsyncUtilityOperationsBenchmarks:
                 async with AsyncNanaSQLite(db_path) as db:
                     async with db.transaction():
                         await db.sql_insert("logs", {"id": counter[0], "message": f"Log{counter[0]}"})
+
             run_async(_trans())
             counter[0] += 1
 
@@ -1255,12 +1280,14 @@ class TestAsyncUtilityOperationsBenchmarks:
                 await db.create_table("items", {"id": "INTEGER", "value": "INTEGER"})
                 for i in range(100):
                     await db.sql_insert("items", {"id": i, "value": i})
+
         run_async(setup())
 
         def count_records():
             async def _count():
                 async with AsyncNanaSQLite(db_path) as db:
                     return await db.count("items", "value > ?", (50,))
+
             return run_async(_count())
 
         benchmark(count_records)
@@ -1272,12 +1299,14 @@ class TestAsyncUtilityOperationsBenchmarks:
         async def setup():
             async with AsyncNanaSQLite(db_path) as db:
                 await db.aset("key1", "value1")
+
         run_async(setup())
 
         def refresh_op():
             async def _refresh():
                 async with AsyncNanaSQLite(db_path) as db:
                     await db.arefresh()
+
             run_async(_refresh())
 
         benchmark(refresh_op)
@@ -1289,12 +1318,14 @@ class TestAsyncUtilityOperationsBenchmarks:
         async def setup():
             async with AsyncNanaSQLite(db_path) as db:
                 await db.abatch_update({f"load_key_{i}": {"index": i} for i in range(1000)})
+
         run_async(setup())
 
         def load_all():
             async def _load():
                 async with AsyncNanaSQLite(db_path) as db:
                     await db.aload_all()
+
             run_async(_load())
 
         benchmark(load_all)
@@ -1305,13 +1336,15 @@ class TestAsyncUtilityOperationsBenchmarks:
 
         async def setup():
             async with AsyncNanaSQLite(db_path) as db:
-                 await db.aset("k", "v")
+                await db.aset("k", "v")
+
         run_async(setup())
 
         def copy_op():
             async def _copy():
                 async with AsyncNanaSQLite(db_path) as db:
                     return await db.copy()
+
             return run_async(_copy())
 
         benchmark(copy_op)
@@ -1322,14 +1355,16 @@ class TestAsyncUtilityOperationsBenchmarks:
 
         async def setup():
             async with AsyncNanaSQLite(db_path) as db:
-                 await db.aset("key_0", "val")
-                 await db.aget("key_0") # Ensure cached
+                await db.aset("key_0", "val")
+                await db.aget("key_0")  # Ensure cached
+
         run_async(setup())
 
         def is_cached_op():
             async def _check():
-                 async with AsyncNanaSQLite(db_path) as db:
-                     return await db.is_cached("key_0")
+                async with AsyncNanaSQLite(db_path) as db:
+                    return await db.is_cached("key_0")
+
             return run_async(_check())
 
         benchmark(is_cached_op)
@@ -1383,6 +1418,7 @@ class TestAsyncV2ArchitectureBenchmarks:
             async def _write():
                 for i in range(100):
                     await db.aset(f"w_{i}", i)
+
             run_async(_write())
 
         benchmark(write_op)
@@ -1391,16 +1427,19 @@ class TestAsyncV2ArchitectureBenchmarks:
     def test_async_v2_read_hit(self, benchmark, async_v2_dbs, mode):
         """v2モードごとの非同期読み込み性能 (キャッシュヒット)"""
         db = async_v2_dbs[mode]
+
         # Setup data
         async def setup():
             for i in range(100):
                 await db.aset(f"r_{i}", i)
+
         run_async(setup())
 
         def read_op():
             async def _read():
                 for i in range(100):
                     await db.aget(f"r_{i}")
+
             run_async(_read())
 
         benchmark(read_op)
@@ -1413,6 +1452,7 @@ class TestAsyncV2ArchitectureBenchmarks:
             async def _batch():
                 data = {f"batch_{i}": {"index": i} for i in range(1000)}
                 await db.abatch_update(data)
+
             run_async(_batch())
 
         benchmark(batch_write)
@@ -1426,6 +1466,7 @@ class TestAsyncV2ArchitectureBenchmarks:
             async def _upsert():
                 await db.aupsert(f"u_{counter[0]}", counter[0])
                 counter[0] += 1
+
             run_async(_upsert())
 
         benchmark(upsert_op)
@@ -1437,6 +1478,7 @@ class TestAsyncV2ArchitectureBenchmarks:
         def dlq_op():
             async def _dlq():
                 return await db.aget_dlq()
+
             return run_async(_dlq())
 
         benchmark(dlq_op)
@@ -1458,12 +1500,14 @@ class TestAsyncBackupRestoreBenchmarks:
         async def setup():
             async with AsyncNanaSQLite(db_path) as db:
                 await db.abatch_update({f"k_{i}": i for i in range(1000)})
+
         run_async(setup())
 
         def backup_op():
             async def _backup():
                 async with AsyncNanaSQLite(db_path) as db:
                     await db.abackup(backup_path)
+
             run_async(_backup())
 
         benchmark(backup_op)
@@ -1477,12 +1521,14 @@ class TestAsyncBackupRestoreBenchmarks:
         async def setup():
             async with AsyncNanaSQLite(source_path) as db:
                 await db.abatch_update({f"k_{i}": i for i in range(1000)})
+
         run_async(setup())
 
         def restore_op():
             async def _restore():
                 async with AsyncNanaSQLite(db_path) as db:
                     await db.arestore(source_path)
+
             run_async(_restore())
 
         benchmark(restore_op)
@@ -1503,6 +1549,7 @@ class TestAsyncExtendedBenchmarks:
             async def _pragma():
                 async with AsyncNanaSQLite(db_path) as db:
                     return await db.apragma("journal_mode")
+
             return run_async(_pragma())
 
         benchmark(pragma_op)
@@ -1515,6 +1562,7 @@ class TestAsyncExtendedBenchmarks:
             async def _schema():
                 async with AsyncNanaSQLite(db_path) as db:
                     return await db.aget_table_schema()
+
             return run_async(_schema())
 
         benchmark(schema_op)
@@ -1522,6 +1570,7 @@ class TestAsyncExtendedBenchmarks:
     def test_async_alter_table_add_column(self, benchmark, db_path):
         """非同期 alter_table_add_column 実行"""
         from nanasqlite import AsyncNanaSQLite
+
         counter = [0]
 
         def alter_op():
@@ -1529,7 +1578,7 @@ class TestAsyncExtendedBenchmarks:
                 async with AsyncNanaSQLite(db_path) as db:
                     await db.aalter_table_add_column("data", f"new_async_col_{counter[0]}", "TEXT")
                     counter[0] += 1
+
             run_async(_alter())
 
         benchmark(alter_op)
-

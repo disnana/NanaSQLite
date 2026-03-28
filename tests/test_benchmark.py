@@ -912,14 +912,13 @@ def test_benchmark_summary(db_path, capsys):
 
 # ==================== Encryption Benchmarks ====================
 
+
 @pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
 class TestEncryptionBenchmarks:
     """暗号化パフォーマンスのベンチマーク"""
 
     @pytest.fixture
     def enc_dbs(self, db_path):
-
-
         from cryptography.fernet import Fernet
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
 
@@ -936,8 +935,12 @@ class TestEncryptionBenchmarks:
         # Setup DBs
         dbs["plaintext"] = NanaSQLite(os.path.join(base_dir, "plain_bench.db"))
         dbs["aes-gcm"] = NanaSQLite(os.path.join(base_dir, "aes_bench.db"), encryption_key=aes_key)
-        dbs["chacha20"] = NanaSQLite(os.path.join(base_dir, "chacha_bench.db"), encryption_key=chacha_key, encryption_mode="chacha20")
-        dbs["fernet"] = NanaSQLite(os.path.join(base_dir, "fernet_bench.db"), encryption_key=fernet_key, encryption_mode="fernet")
+        dbs["chacha20"] = NanaSQLite(
+            os.path.join(base_dir, "chacha_bench.db"), encryption_key=chacha_key, encryption_mode="chacha20"
+        )
+        dbs["fernet"] = NanaSQLite(
+            os.path.join(base_dir, "fernet_bench.db"), encryption_key=fernet_key, encryption_mode="fernet"
+        )
 
         yield dbs
 
@@ -948,7 +951,7 @@ class TestEncryptionBenchmarks:
     def test_write_encryption(self, benchmark, enc_dbs, mode):
         """暗号化書き込みパフォーマンス"""
         db = enc_dbs[mode]
-        data = {"v": "x" * 100} # 100 bytes payload
+        data = {"v": "x" * 100}  # 100 bytes payload
         counter = [0]
 
         def write_op():
@@ -968,6 +971,7 @@ class TestEncryptionBenchmarks:
             db[f"rk_{i}"] = data
 
         counter = [0]
+
         def read_op():
             _ = db[f"rk_{counter[0] % 100}"]
             counter[0] += 1
@@ -978,11 +982,11 @@ class TestEncryptionBenchmarks:
     def test_read_encryption_uncached(self, benchmark, enc_dbs, mode):
         """暗号化読み込みパフォーマンス（キャッシュミス/復号コスト）"""
         db = enc_dbs[mode]
-        data = {"v": "x" * 1024} # 1KB payload
+        data = {"v": "x" * 1024}  # 1KB payload
         db["uncached_target"] = data
 
         def read_op():
-            db.refresh() # Clear cache
+            db.refresh()  # Clear cache
             return db["uncached_target"]
 
         benchmark(read_op)
@@ -990,13 +994,13 @@ class TestEncryptionBenchmarks:
 
 # ==================== Cache Strategy Benchmarks ====================
 
+
 @pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
 class TestCacheStrategyBenchmarks:
     """キャッシュ戦略のベンチマーク"""
 
     @pytest.fixture
     def cache_dbs(self, tmp_path):
-
         from nanasqlite import CacheType, NanaSQLite
 
         dbs = {}
@@ -1006,12 +1010,12 @@ class TestCacheStrategyBenchmarks:
         strategies = {
             "unbounded": (CacheType.UNBOUNDED, None),
             "lru": (CacheType.LRU, 1000),
-            "fifo": (CacheType.UNBOUNDED, 1000), # FIFO acts as unbounded with size limit in this lib? Check impl.
+            "fifo": (CacheType.UNBOUNDED, 1000),  # FIFO acts as unbounded with size limit in this lib? Check impl.
             # wait, NanaSQLite CacheType has UNBOUNDED, LRU, TTL.
             # FIFO is implemented as UnboundedCache with a max_size?
             # Looking at previous file content (Step 1242):
             # db_fifo -> CacheType.UNBOUNDED, cache_size=1000
-            "ttl": (CacheType.TTL, 3600)
+            "ttl": (CacheType.TTL, 3600),
         }
 
         for name, (strategy, size) in strategies.items():
@@ -1034,7 +1038,7 @@ class TestCacheStrategyBenchmarks:
         db = cache_dbs[strategy]
 
         def write_op():
-            for i in range(100): # Reduced rounds for benchmark speed, pytest-benchmark runs many rounds
+            for i in range(100):  # Reduced rounds for benchmark speed, pytest-benchmark runs many rounds
                 db[f"w_{i}"] = i
 
         benchmark(write_op)
@@ -1065,6 +1069,7 @@ class TestCacheStrategyBenchmarks:
                 db[f"init_{i}"] = i
 
             counter = [0]
+
             def eviction_op():
                 # Write new key -> causes eviction
                 db[f"new_{counter[0]}"] = counter[0]
@@ -1082,10 +1087,12 @@ class TestCacheStrategyBenchmarks:
 
             def read_op():
                 return db["target"]
+
             benchmark(read_op)
 
 
 # ==================== Mixed (Encryption + Cache) Benchmarks ====================
+
 
 @pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
 class TestMixedBenchmarks:
@@ -1102,9 +1109,11 @@ class TestMixedBenchmarks:
 
         with NanaSQLite(str(db_path), encryption_key=key, cache_strategy=CacheType.LRU, cache_size=1000) as db:
             counter = [0]
+
             def write_op():
                 db[f"k_{counter[0]}"] = {"data": "x" * 100}
                 counter[0] += 1
+
             benchmark(write_op)
 
 
@@ -1246,6 +1255,7 @@ class TestBackupRestoreBenchmarks:
             db.batch_update({f"k_{i}": i for i in range(1000)})
 
         with NanaSQLite(db_path) as db:
+
             def restore_op():
                 db.restore(backup_path)
 
@@ -1262,6 +1272,7 @@ class TestExtendedBenchmarks:
     def test_pragma_read(self, benchmark, db_path):
         """PRAGMA取得 (journal_mode)"""
         from nanasqlite import NanaSQLite
+
         with NanaSQLite(db_path) as db:
             benchmark(lambda: db.pragma("journal_mode"))
 
@@ -1269,20 +1280,25 @@ class TestExtendedBenchmarks:
         """PRAGMA設定 (synchronous)"""
         # 注意: PRAGMA設定はDB設定を変えるため計測に副作用がある可能性があるが、APIコストとして測る
         from nanasqlite import NanaSQLite
+
         with NanaSQLite(db_path) as db:
+
             def pragma_op():
                 db.pragma("synchronous", "NORMAL")
+
             benchmark(pragma_op)
 
     def test_get_table_schema(self, benchmark, db_path):
         """get_table_schema() 取得"""
         from nanasqlite import NanaSQLite
+
         with NanaSQLite(db_path) as db:
             benchmark(lambda: db.get_table_schema())
 
     def test_list_indexes(self, benchmark, db_path):
         """list_indexes() 取得"""
         from nanasqlite import NanaSQLite
+
         with NanaSQLite(db_path) as db:
             db.create_index("idx_bench", "data", ["key"])
             benchmark(lambda: db.list_indexes())
@@ -1290,35 +1306,44 @@ class TestExtendedBenchmarks:
     def test_alter_table_add_column(self, benchmark, db_path):
         """alter_table_add_column() の実行"""
         from nanasqlite import NanaSQLite
+
         counter = [0]
         # 使用するDBを事前に開く
         with NanaSQLite(db_path) as db:
+
             def alter_op():
                 table_name = f"alter_test_ext_{counter[0]}"
                 db.create_table(table_name, {"id": "INTEGER"})
                 db.alter_table_add_column(table_name, "new_col", "TEXT")
                 counter[0] += 1
+
             benchmark(alter_op)
 
     def test_import_from_dict_list(self, benchmark, db_path):
         """import_from_dict_list() の実行 (100件)"""
         from nanasqlite import NanaSQLite
+
         data = [{"id": i, "name": f"User{i}"} for i in range(100)]
         counter = [0]
         with NanaSQLite(db_path) as db:
             db.create_table("import_test", {"id": "INTEGER", "name": "TEXT"})
+
             def import_op():
                 db.import_from_dict_list("import_test", data)
                 counter[0] += 1
+
             benchmark(import_op)
 
     def test_batch_update_partial_100(self, benchmark, db_path):
         """batch_update_partial() (100件、すべて成功ケース)"""
         from nanasqlite import NanaSQLite
+
         data = {f"pk_{i}": i for i in range(100)}
         counter = [0]
         with NanaSQLite(db_path) as db:
+
             def partial_op():
                 db.batch_update_partial({f"k_{counter[0]}_{k}": v for k, v in data.items()})
                 counter[0] += 1
+
             benchmark(partial_op)

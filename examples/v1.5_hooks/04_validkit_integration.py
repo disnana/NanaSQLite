@@ -15,11 +15,11 @@ Pydanticのようなクラスベースではなく、辞書表現でシンプル
 4. バリデーションエラーのハンドリング
 """
 
-from typing import Any
 import validkit
+
 from nanasqlite import NanaSQLite
-from nanasqlite.hooks import ValidkitHook
 from nanasqlite.exceptions import NanaSQLiteValidationError
+from nanasqlite.hooks import ValidkitHook
 
 # ==============================================================================
 # 1. バリデーションスキーマの定義
@@ -33,7 +33,7 @@ from nanasqlite.exceptions import NanaSQLiteValidationError
 USER_SCHEMA = {
     "name": str,
     "age": validkit.All(int, validkit.Range(min=0, max=150)),
-    "tags": validkit.Optional([str], default=[])
+    "tags": validkit.Optional([str], default=[]),
 }
 
 
@@ -41,11 +41,12 @@ USER_SCHEMA = {
 # 2. 連携テスト
 # ==============================================================================
 
+
 def main():
     print("--- 04. Validkitによる高度なバリデーション ---")
 
     db = NanaSQLite(":memory:")
-    
+
     # ValidkitHook を登録する。
     # schema に↑で定義したルールを指定します。
     # `coerce=True` に指定すると、入力されたデータがスキーマの型に合うように
@@ -59,16 +60,15 @@ def main():
     # 'age' に文字列 "18" を渡していますが、coerce=True により整数に変換されます。
     # 'tags' は省略されていますが、デフォルト設定により [] (空リスト)が自動で追加されます。
     db["user:1"] = {"name": "nana", "age": "18"}
-    
+
     user_data = db["user:1"]
     print(f"-> [OK] 正常なデータを保存しました: {user_data}")
     print(f"   (ageの型が変換されています: {type(user_data['age'])}, tagsが補完されています: {user_data['tags']})")
 
-
     # ==============================================================================
     # 4. バリデーションエラーの発生（異常系）
     # ==============================================================================
-    
+
     # 異常系 1: age の範囲外
     print("\n>> 不正なデータを保存します (異常系: 年齢が範囲外)")
     try:
@@ -87,6 +87,7 @@ def main():
 
     # データベースを安全に閉じます。
     db.close()
+
 
 if __name__ == "__main__":
     main()

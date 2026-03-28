@@ -8,13 +8,13 @@ def wrap_callout(match, c_type):
     content = match.group(3)
 
     # Determine base indent (spaces corresponding to the bullet)
-    base_indent = re.sub(r'[-*]\s', '  ', full_indent)
+    base_indent = re.sub(r"[-*]\s", "  ", full_indent)
 
     # Clean up content: strip leading/trailing whitespace
     content = content.strip()
 
     # Split content and prefix with base_indent if needed
-    lines = content.split('\n')
+    lines = content.split("\n")
     processed_lines = []
     for i, line in enumerate(lines):
         if not line.strip():
@@ -45,13 +45,32 @@ def wrap_callout(match, c_type):
 
     return f"{opening}\n{inner_content}\n{closing}"
 
+
 def process_file(filepath):
     content = filepath.read_text(encoding="utf-8")
 
     patterns = [
-        (re.compile(r'^([ \t]*(?:[-*]\s+)?)\*\*(注意|警告|Note|Warning):?\*\*\s*(.*?)(?=\n[ \t]*\n|\n[ \t]*[-*]|\Z)', re.DOTALL | re.MULTILINE), 'warning'),
-        (re.compile(r'^([ \t]*(?:[-*]\s+)?)\*\*(ヒント|Tip):?\*\*\s*(.*?)(?=\n[ \t]*\n|\n[ \t]*[-*]|\Z)', re.DOTALL | re.MULTILINE), 'tip'),
-        (re.compile(r'^([ \t]*(?:[-*]\s+)?)\*\*(重要(?:なポイント)?|Important):?\*\*\s*(.*?)(?=\n[ \t]*\n|\n[ \t]*[-*]|\Z)', re.DOTALL | re.MULTILINE), 'danger')
+        (
+            re.compile(
+                r"^([ \t]*(?:[-*]\s+)?)\*\*(注意|警告|Note|Warning):?\*\*\s*(.*?)(?=\n[ \t]*\n|\n[ \t]*[-*]|\Z)",
+                re.DOTALL | re.MULTILINE,
+            ),
+            "warning",
+        ),
+        (
+            re.compile(
+                r"^([ \t]*(?:[-*]\s+)?)\*\*(ヒント|Tip):?\*\*\s*(.*?)(?=\n[ \t]*\n|\n[ \t]*[-*]|\Z)",
+                re.DOTALL | re.MULTILINE,
+            ),
+            "tip",
+        ),
+        (
+            re.compile(
+                r"^([ \t]*(?:[-*]\s+)?)\*\*(重要(?:なポイント)?|Important):?\*\*\s*(.*?)(?=\n[ \t]*\n|\n[ \t]*[-*]|\Z)",
+                re.DOTALL | re.MULTILINE,
+            ),
+            "danger",
+        ),
     ]
 
     new_content = content
@@ -63,6 +82,7 @@ def process_file(filepath):
         filepath.write_text(new_content, encoding="utf-8")
         return True
     return False
+
 
 def main():
     docs_dir = Path(__file__).parent.parent / "docs" / "site"
@@ -78,6 +98,7 @@ def main():
             changed += 1
 
     print(f"Total files updated: {changed}")
+
 
 if __name__ == "__main__":
     main()

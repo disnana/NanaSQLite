@@ -9,6 +9,7 @@ def evaluate_regex(pattern: str, test_string: str) -> float:
     end = time.perf_counter()
     return end - start
 
+
 def main():
     print("--- SEC-02 column_type ReDoS POC ---")
 
@@ -35,6 +36,7 @@ def main():
     for v in valid_types:
         assert re.match(safe_pattern, v) is not None, f"Failed to match valid type: {v}"
     print("全ての正常な型にマッチしました。")
+
 
 if __name__ == "__main__":
     main()

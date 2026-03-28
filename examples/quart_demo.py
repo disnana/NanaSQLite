@@ -6,6 +6,7 @@ Clean Quart Todo App example (one-file)
 - Datetimes stored as ISO strings (UTC)
 - Minimal validation and error handling
 """
+
 import uuid
 from datetime import datetime, timezone
 
@@ -73,22 +74,27 @@ HOME = """
 </div>
 """
 
+
 # DB lifecycle
 @app.before_serving
 async def setup_db():
     app.db = AsyncNanaSQLite(DB_PATH, bulk_load=False)
 
+
 @app.after_serving
 async def close_db():
     await app.db.close()
+
 
 # Helpers
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
+
 async def list_task_keys():
     keys = await app.db.akeys()
-    return [k for k in keys if k.startswith('task_')]
+    return [k for k in keys if k.startswith("task_")]
+
 
 async def get_all_tasks():
     tasks = []
@@ -97,60 +103,68 @@ async def get_all_tasks():
         if t is None:
             continue
         # ensure fields exist and are simple types
-        tasks.append({
-            'id': k,
-            'title': str(t.get('title', '')),
-            'completed': bool(t.get('completed', False)),
-            'created_at': str(t.get('created_at', ''))
-        })
+        tasks.append(
+            {
+                "id": k,
+                "title": str(t.get("title", "")),
+                "completed": bool(t.get("completed", False)),
+                "created_at": str(t.get("created_at", "")),
+            }
+        )
     # sort by created_at (ISO strings sort lexicographically)
-    tasks.sort(key=lambda x: x['created_at'] or "", reverse=True)
+    tasks.sort(key=lambda x: x["created_at"] or "", reverse=True)
     return tasks
+
 
 async def save_task(task_id, data):
     # data should be serializable (str, bool, numbers)
     await app.db.aset(task_id, data)
 
+
 # Routes
-@app.route('/')
+@app.route("/")
 async def index():
     tasks = await get_all_tasks()
     total = len(tasks)
-    completed = sum(1 for t in tasks if t['completed'])
+    completed = sum(1 for t in tasks if t["completed"])
     content = await render_template_string(HOME, tasks=tasks, total=total, completed=completed)
-    return await render_template_string(BASE, title='Todo', content=content)
+    return await render_template_string(BASE, title="Todo", content=content)
 
-@app.route('/add', methods=['POST'])
+
+@app.route("/add", methods=["POST"])
 async def add():
     form = await request.form
-    title = (form.get('title') or '').strip()
+    title = (form.get("title") or "").strip()
     if not title:
-        return redirect(url_for('index'))
-    tid = 'task_' + str(uuid.uuid4())
-    task = {'title': title, 'completed': False, 'created_at': now_iso()}
+        return redirect(url_for("index"))
+    tid = "task_" + str(uuid.uuid4())
+    task = {"title": title, "completed": False, "created_at": now_iso()}
     await save_task(tid, task)
-    return redirect(url_for('index'))
+    return redirect(url_for("index"))
 
-@app.route('/toggle/<task_id>', methods=['POST'])
+
+@app.route("/toggle/<task_id>", methods=["POST"])
 async def toggle(task_id):
     t = await app.db.aget(task_id)
     if not t:
-        return redirect(url_for('index'))
-    t['completed'] = not bool(t.get('completed', False))
+        return redirect(url_for("index"))
+    t["completed"] = not bool(t.get("completed", False))
     # don't change created_at; optionally add updated_at
     await save_task(task_id, t)
-    return redirect(url_for('index'))
+    return redirect(url_for("index"))
 
-@app.route('/delete/<task_id>', methods=['POST'])
+
+@app.route("/delete/<task_id>", methods=["POST"])
 async def delete(task_id):
     await app.db.adelete(task_id)
-    return redirect(url_for('index'))
+    return redirect(url_for("index"))
 
-@app.route('/api/tasks')
+
+@app.route("/api/tasks")
 async def api_tasks():
     tasks = await get_all_tasks()
-    return jsonify({'tasks': tasks, 'total': len(tasks)})
+    return jsonify({"tasks": tasks, "total": len(tasks)})
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     app.run(debug=True, port=5000, use_reloader=False)
-

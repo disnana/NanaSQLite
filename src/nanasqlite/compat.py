@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 # Optional validkit-py
 try:
     import validkit  # noqa: F401
+
     HAS_VALIDKIT = True
     from validkit import validate as validkit_validate  # noqa: F401
 except ImportError:
@@ -20,6 +21,7 @@ except ImportError:
 # Optional orjson
 try:
     import orjson  # noqa: F401
+
     HAS_ORJSON = True
 except ImportError:
     orjson = None  # type: ignore

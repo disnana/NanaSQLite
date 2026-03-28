@@ -44,7 +44,7 @@ async def lifespan(app: FastAPI):
     app.state.db = AsyncNanaSQLite(
         "users.db",
         max_workers=10,  # Handle 10 concurrent requests
-        bulk_load=False  # Lazy loading for scalability
+        bulk_load=False,  # Lazy loading for scalability
     )
     print("Database initialized")
     yield
@@ -58,7 +58,7 @@ app = FastAPI(
     title="User Management API",
     description="Simple user CRUD API using AsyncNanaSQLite",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 
@@ -70,10 +70,7 @@ async def get_db() -> AsyncNanaSQLite:
 
 # Routes
 @app.post("/users", response_model=UserResponse, status_code=201)
-async def create_user(
-    user: UserCreate,
-    db: AsyncNanaSQLite = Depends(get_db)
-):
+async def create_user(user: UserCreate, db: AsyncNanaSQLite = Depends(get_db)):
     """Create a new user"""
     # Generate unique ID
     user_id = str(uuid.uuid4())
@@ -87,35 +84,24 @@ async def create_user(
         if key.startswith("user_"):
             existing_user = await db.aget(key)
             if existing_user and existing_user.get("email") == user.email:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Email already registered"
-                )
+                raise HTTPException(status_code=400, detail="Email already registered")
 
     # Save user
-    user_data = {
-        "name": user.name,
-        "email": user.email,
-        "age": user.age
-    }
+    user_data = {"name": user.name, "email": user.email, "age": user.age}
     await db.aset(f"user_{user_id}", user_data)
 
     return UserResponse(id=user_id, **user_data)
 
 
 @app.get("/users", response_model=list[UserResponse])
-async def list_users(
-    skip: int = 0,
-    limit: int = 100,
-    db: AsyncNanaSQLite = Depends(get_db)
-):
+async def list_users(skip: int = 0, limit: int = 100, db: AsyncNanaSQLite = Depends(get_db)):
     """List all users with pagination"""
     users = []
     all_keys = await db.akeys()
     user_keys = [k for k in all_keys if k.startswith("user_")]
 
     # Apply pagination
-    for key in user_keys[skip:skip + limit]:
+    for key in user_keys[skip : skip + limit]:
         user_id = key[5:]  # Remove "user_" prefix
         user_data = await db.aget(key)
         if user_data:
@@ -125,10 +111,7 @@ async def list_users(
 
 
 @app.get("/users/{user_id}", response_model=UserResponse)
-async def get_user(
-    user_id: str,
-    db: AsyncNanaSQLite = Depends(get_db)
-):
+async def get_user(user_id: str, db: AsyncNanaSQLite = Depends(get_db)):
     """Get a specific user by ID"""
     user_data = await db.aget(f"user_{user_id}")
 
@@ -139,11 +122,7 @@ async def get_user(
 
 
 @app.put("/users/{user_id}", response_model=UserResponse)
-async def update_user(
-    user_id: str,
-    user_update: UserUpdate,
-    db: AsyncNanaSQLite = Depends(get_db)
-):
+async def update_user(user_id: str, user_update: UserUpdate, db: AsyncNanaSQLite = Depends(get_db)):
     """Update a user"""
     # Check if user exists
     user_data = await db.aget(f"user_{user_id}")
@@ -157,10 +136,7 @@ async def update_user(
             if key.startswith("user_") and key != f"user_{user_id}":
                 existing_user = await db.aget(key)
                 if existing_user and existing_user.get("email") == user_update.email:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Email already registered"
-                    )
+                    raise HTTPException(status_code=400, detail="Email already registered")
 
     # Update fields
     if user_update.name is not None:
@@ -177,10 +153,7 @@ async def update_user(
 
 
 @app.delete("/users/{user_id}", status_code=204)
-async def delete_user(
-    user_id: str,
-    db: AsyncNanaSQLite = Depends(get_db)
-):
+async def delete_user(user_id: str, db: AsyncNanaSQLite = Depends(get_db)):
     """Delete a user"""
     # Check if user exists
     user_data = await db.aget(f"user_{user_id}")
@@ -196,10 +169,7 @@ async def delete_user(
 async def get_stats(db: AsyncNanaSQLite = Depends(get_db)):
     """Get database statistics"""
     total_users = await db.alen()
-    return {
-        "total_users": total_users,
-        "database": "users.db"
-    }
+    return {"total_users": total_users, "database": "users.db"}
 
 
 if __name__ == "__main__":
@@ -208,9 +178,4 @@ if __name__ == "__main__":
     print("Starting FastAPI server...")
     print("API documentation: http://localhost:8000/docs")
 
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8000,
-        log_level="info"
-    )
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")

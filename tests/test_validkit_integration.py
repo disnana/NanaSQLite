@@ -2,6 +2,7 @@
 validkit-py オプション連携のテスト
 (Tests for optional validkit-py integration)
 """
+
 import pytest
 
 from nanasqlite import HAS_VALIDKIT, AsyncNanaSQLite, NanaSQLite, NanaSQLiteValidationError
@@ -277,10 +278,12 @@ def test_batch_update_all_valid_writes_all(tmp_path):
     schema = {"name": v.str(), "age": v.int()}
     db = NanaSQLite(str(tmp_path / "batch_valid.db"), validator=schema)
 
-    db.batch_update({
-        "u1": {"name": "Alice", "age": 30},
-        "u2": {"name": "Bob", "age": 25},
-    })
+    db.batch_update(
+        {
+            "u1": {"name": "Alice", "age": 30},
+            "u2": {"name": "Bob", "age": 25},
+        }
+    )
 
     assert db["u1"] == {"name": "Alice", "age": 30}
     assert db["u2"] == {"name": "Bob", "age": 25}
@@ -333,10 +336,12 @@ def test_coerce_in_batch_update(tmp_path):
     schema = {"score": v.float().coerce()}
     db = NanaSQLite(str(tmp_path / "batch_coerce.db"), validator=schema, coerce=True)
 
-    db.batch_update({
-        "a": {"score": "1.5"},
-        "b": {"score": "2.0"},
-    })
+    db.batch_update(
+        {
+            "a": {"score": "1.5"},
+            "b": {"score": "2.0"},
+        }
+    )
 
     assert db["a"] == {"score": 1.5}
     assert db["b"] == {"score": 2.0}
@@ -430,11 +435,13 @@ def test_batch_update_partial_writes_valid_values_and_reports_failures(tmp_path)
     schema = {"name": v.str(), "age": v.int()}
     db = NanaSQLite(str(tmp_path / "batch_partial.db"), validator=schema)
 
-    failed = db.batch_update_partial({
-        "u1": {"name": "Alice", "age": 30},
-        "u2": {"name": "Bob", "age": "bad"},
-        "u3": {"name": "Carol", "age": 22},
-    })
+    failed = db.batch_update_partial(
+        {
+            "u1": {"name": "Alice", "age": 30},
+            "u2": {"name": "Bob", "age": "bad"},
+            "u3": {"name": "Carol", "age": 22},
+        }
+    )
 
     assert set(failed) == {"u2"}
     assert "failed schema validation" in failed["u2"]
@@ -449,11 +456,13 @@ async def test_async_batch_update_partial_writes_valid_values_and_reports_failur
     """AsyncNanaSQLite: batch_update_partial() は違反キーだけを返し、正常値は保存する。"""
     schema = {"name": v.str(), "age": v.int()}
     async with AsyncNanaSQLite(str(tmp_path / "async_batch_partial.db"), validator=schema) as db:
-        failed = await db.batch_update_partial({
-            "u1": {"name": "Alice", "age": 30},
-            "u2": {"name": "Bob", "age": "bad"},
-            "u3": {"name": "Carol", "age": 22},
-        })
+        failed = await db.batch_update_partial(
+            {
+                "u1": {"name": "Alice", "age": 30},
+                "u2": {"name": "Bob", "age": "bad"},
+                "u3": {"name": "Carol", "age": 22},
+            }
+        )
 
         assert set(failed) == {"u2"}
         assert await db.aget("u1") == {"name": "Alice", "age": 30}

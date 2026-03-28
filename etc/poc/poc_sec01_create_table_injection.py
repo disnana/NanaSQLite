@@ -22,9 +22,7 @@ try:
 
     # Attempt SQL injection through column type
     try:
-        db.create_table("evil", {
-            "id": 'INTEGER); DELETE FROM "victim" WHERE 1=1; --'
-        })
+        db.create_table("evil", {"id": 'INTEGER); DELETE FROM "victim" WHERE 1=1; --'})
         # If we get here, the injection was not blocked
         rows = db.query("victim")
         if len(rows) == 0:

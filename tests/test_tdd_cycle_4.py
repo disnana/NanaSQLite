@@ -6,6 +6,7 @@ even when self._coerce is False, wasting O(n) memory/time.
 These tests are written FIRST (they should FAIL before the fix).
 After the fix they must all PASS.
 """
+
 import inspect
 
 import pytest
@@ -113,9 +114,7 @@ class TestBatchUpdateBehaviourWithMockedValidkit:
         assert db["key1"] == "hello_coerced"
         assert db["key2"] == "world_coerced"
 
-    def test_batch_update_validates_all_before_writing_when_coerce_false(
-        self, tmp_path, monkeypatch
-    ):
+    def test_batch_update_validates_all_before_writing_when_coerce_false(self, tmp_path, monkeypatch):
         """batch_update with coerce=False must validate all items atomically.
 
         If any item fails validation, nothing should be written.
@@ -139,9 +138,7 @@ class TestBatchUpdateBehaviourWithMockedValidkit:
         assert "key2" not in db
         assert "key3" not in db
 
-    def test_batch_update_validates_all_before_writing_when_coerce_true(
-        self, tmp_path, monkeypatch
-    ):
+    def test_batch_update_validates_all_before_writing_when_coerce_true(self, tmp_path, monkeypatch):
         """batch_update with coerce=True must validate all items atomically.
 
         If any item fails coercion, nothing should be written.

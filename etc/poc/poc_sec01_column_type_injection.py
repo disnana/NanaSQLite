@@ -18,10 +18,10 @@ db = NanaSQLite(path)
 db.create_table("target", {"id": "INTEGER", "name": "TEXT"})
 
 injection_payloads = [
-    "TEXT CHECK(1=1)",          # constraint injection via '('
+    "TEXT CHECK(1=1)",  # constraint injection via '('
     "TEXT; DROP TABLE target",  # semicolon injection
-    "TEXT\x00DROP",             # null byte truncation
-    "TEXT'--",                  # quote + comment
+    "TEXT\x00DROP",  # null byte truncation
+    "TEXT'--",  # quote + comment
 ]
 
 blocked = 0

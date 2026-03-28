@@ -378,6 +378,7 @@ class TestStrictLane:
     def test_execute_many_in_v2_mode(self, v2db):
         """v2モードでexecute_many()がStrict Lane経由で実行される"""
         import json
+
         params = [(f"em_key_{i}", json.dumps(f"em_value_{i}")) for i in range(10)]
         v2db.execute_many(
             f"INSERT OR REPLACE INTO {v2db._safe_table} (key, value) VALUES (?, ?)",

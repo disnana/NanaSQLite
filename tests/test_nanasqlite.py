@@ -158,18 +158,10 @@ class TestBasicOperations:
             "age as user_age",
             "data  AS  info",
             "count",
-            "\"quoted\" AS \"alias\"",
-            "'quoted_single' as 'alias_single'"
+            '"quoted" AS "alias"',
+            "'quoted_single' as 'alias_single'",
         ]
-        expected = [
-            "id",
-            "user_name",
-            "user_age",
-            "info",
-            "count",
-            "alias",
-            "alias_single"
-        ]
+        expected = ["id", "user_name", "user_age", "info", "count", "alias", "alias_single"]
         # Accessing private member for testing purposes
         # pylint: disable=protected-access
         result = NanaSQLite._extract_column_aliases(columns)

@@ -45,6 +45,7 @@ except ImportError:
 # Import Pydantic (optional, for Pydantic test)
 try:
     from pydantic import BaseModel, ValidationError, field_validator
+
     PYDANTIC_AVAILABLE = True
 except ImportError:
     BaseModel = None
@@ -52,6 +53,7 @@ except ImportError:
 
     def field_validator(*_args, **_kwargs):  # pylint: disable=function-redefined
         """Pydantic未インストール時のfield_validatorスタブ。"""
+
         def _decorator(func):
             return func
 
@@ -62,6 +64,7 @@ except ImportError:
 # Import Quart (optional, for Quart test)
 try:
     from quart import Quart
+
     QUART_AVAILABLE = True
 except ImportError:
     Quart = None
@@ -70,6 +73,7 @@ except ImportError:
 # Import validkit (optional, for validkit example)
 try:
     from validkit import v
+
     VALIDKIT_AVAILABLE = HAS_VALIDKIT
 except ImportError:
     v = None
@@ -93,7 +97,7 @@ def test_flask_patterns():
                 "author": "Test Author",
                 "tags": ["test", "demo"],
                 "created_at": datetime.now(timezone.utc).isoformat(),
-                "updated_at": datetime.now(timezone.utc).isoformat()
+                "updated_at": datetime.now(timezone.utc).isoformat(),
             }
 
             db[f"post_{post_id}"] = post_data
@@ -118,7 +122,7 @@ def test_flask_patterns():
             results = []
             for key, post in db.items():
                 if key.startswith("post_"):
-                    if "test" in [t.lower() for t in post.get('tags', [])]:
+                    if "test" in [t.lower() for t in post.get("tags", [])]:
                         results.append(post)
             assert len(results) == 1
             print("  ✓ Search by tag")
@@ -135,7 +139,7 @@ def test_flask_patterns():
                 db[f"post_{pid}"] = {
                     "title": f"Post {i}",
                     "content": "Content",
-                    "tags": ["tag1", "tag2"] if i % 2 == 0 else ["tag3"]
+                    "tags": ["tag1", "tag2"] if i % 2 == 0 else ["tag3"],
                 }
 
             post_count = sum(1 for key in db.keys() if key.startswith("post_"))
@@ -144,7 +148,7 @@ def test_flask_patterns():
             all_tags = set()
             for key, post in db.items():
                 if key.startswith("post_"):
-                    all_tags.update(post.get('tags', []))
+                    all_tags.update(post.get("tags", []))
             assert len(all_tags) == 3
             print("  ✓ Statistics calculation")
 
@@ -164,11 +168,7 @@ async def test_fastapi_patterns():  # pylint: disable=too-many-locals,too-many-s
         async with AsyncNanaSQLite(db_path, max_workers=10, bulk_load=False) as db:
             # Test 1: Create user
             user_id = str(uuid.uuid4())
-            user_data = {
-                "name": "Alice",
-                "email": "alice@example.com",
-                "age": 30
-            }
+            user_data = {"name": "Alice", "email": "alice@example.com", "age": 30}
 
             await db.aset(f"user_{user_id}", user_data)
             print("  ✓ Create user")
@@ -184,11 +184,7 @@ async def test_fastapi_patterns():  # pylint: disable=too-many-locals,too-many-s
             # Create multiple users
             for i in range(10):
                 uid = str(uuid.uuid4())
-                await db.aset(f"user_{uid}", {
-                    "name": f"User{i}",
-                    "email": f"user{i}@example.com",
-                    "age": 20 + i
-                })
+                await db.aset(f"user_{uid}", {"name": f"User{i}", "email": f"user{i}@example.com", "age": 20 + i})
 
             all_keys = await db.akeys()
             user_keys = [k for k in all_keys if k.startswith("user_")]
@@ -197,7 +193,7 @@ async def test_fastapi_patterns():  # pylint: disable=too-many-locals,too-many-s
             # Simulate pagination
             skip = 0
             limit = 5
-            page_keys = user_keys[skip:skip + limit]
+            page_keys = user_keys[skip : skip + limit]
             assert len(page_keys) == 5
             print("  ✓ List users with pagination")
 
@@ -238,7 +234,7 @@ async def test_fastapi_patterns():  # pylint: disable=too-many-locals,too-many-s
             results = await asyncio.gather(
                 db.aget("user_" + str(uuid.uuid4())),  # Non-existent
                 db.alen(),
-                db.acontains(user_keys[0])
+                db.acontains(user_keys[0]),
             )
             assert results[0] is None  # Non-existent user
             assert results[1] == 10  # Total count
@@ -266,20 +262,20 @@ def test_pydantic_patterns():  # pylint: disable=too-many-locals,too-many-statem
         age: int
         active: bool = True
 
-        @field_validator('age')
+        @field_validator("age")
         @classmethod
         def age_must_be_positive(cls, value):
             """Validate age is positive."""
             if value < 0:
-                raise ValueError('Age must be positive')
+                raise ValueError("Age must be positive")
             return value
 
-        @field_validator('email')
+        @field_validator("email")
         @classmethod
         def email_must_contain_at(cls, value):
             """Validate email contains @."""
-            if '@' not in value:
-                raise ValueError('Email must contain @')
+            if "@" not in value:
+                raise ValueError("Email must contain @")
             return value
 
     class UserCreate(BaseModel):  # pylint: disable=too-few-public-methods,useless-object-inheritance
@@ -341,7 +337,7 @@ def test_pydantic_patterns():  # pylint: disable=too-many-locals,too-many-statem
             # Test 5: Model serialization
             user_dict = user.model_dump()
             assert isinstance(user_dict, dict)
-            assert 'name' in user_dict
+            assert "name" in user_dict
 
             user_json = user.model_dump_json()
             assert isinstance(user_json, str)
@@ -364,7 +360,7 @@ def test_quart_patterns():
     # Create a minimal Quart app for testing
     app = Quart(__name__)
 
-    @app.route('/test')
+    @app.route("/test")
     async def test_route():
         return {"message": "test"}
 
@@ -383,7 +379,7 @@ def test_quart_patterns():
                 task_data = {
                     "title": "Test Task",
                     "completed": False,
-                    "created_at": datetime.now(timezone.utc).isoformat()
+                    "created_at": datetime.now(timezone.utc).isoformat(),
                 }
 
                 await db.aset(task_id, task_data)
@@ -398,7 +394,7 @@ def test_quart_patterns():
                 for key in keys:
                     if key.startswith("task_"):
                         task = await db.aget(key)
-                        task['id'] = key
+                        task["id"] = key
                         tasks.append(task)
                 assert len(tasks) == 1
                 print("  ✓ Task listing")
@@ -439,19 +435,23 @@ def test_validkit_batch_patterns():
 
         try:
             # Test 1: batch_update() is atomic on validation failure
-            db.batch_update({
-                "u1": {"name": "Alice", "age": 30},
-                "u2": {"name": "Bob", "age": 25},
-            })
+            db.batch_update(
+                {
+                    "u1": {"name": "Alice", "age": 30},
+                    "u2": {"name": "Bob", "age": 25},
+                }
+            )
             assert db["u1"] == {"name": "Alice", "age": 30}
             assert db["u2"] == {"name": "Bob", "age": 25}
             print("  ✓ Atomic batch_update success")
 
             with RaisesValidationError():
-                db.batch_update({
-                    "u3": {"name": "Carol", "age": 22},
-                    "u4": {"name": "Dave", "age": "bad"},
-                })
+                db.batch_update(
+                    {
+                        "u3": {"name": "Carol", "age": 22},
+                        "u4": {"name": "Dave", "age": "bad"},
+                    }
+                )
             assert "u3" not in db
             assert "u4" not in db
             print("  ✓ Atomic batch_update rollback on invalid item")

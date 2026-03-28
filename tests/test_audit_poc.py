@@ -563,6 +563,7 @@ class TestV140Bug03V2SelectBypass:
     def test_query_returns_results_in_v2_mode(self, db_path):
         """query() returns actual data in v2 mode."""
         import os
+
         os.environ["NANASQLITE_SUPPRESS_MP_WARNING"] = "1"
         db = NanaSQLite(db_path, v2_mode=True)
         try:
@@ -579,6 +580,7 @@ class TestV140Bug03V2SelectBypass:
     def test_fetch_one_returns_results_in_v2_mode(self, db_path):
         """fetch_one() returns data in v2 mode."""
         import os
+
         os.environ["NANASQLITE_SUPPRESS_MP_WARNING"] = "1"
         db = NanaSQLite(db_path, v2_mode=True)
         try:
@@ -595,6 +597,7 @@ class TestV140Bug03V2SelectBypass:
     def test_pragma_works_in_v2_mode(self, db_path):
         """PRAGMA queries bypass v2 queue."""
         import os
+
         os.environ["NANASQLITE_SUPPRESS_MP_WARNING"] = "1"
         db = NanaSQLite(db_path, v2_mode=True)
         try:
