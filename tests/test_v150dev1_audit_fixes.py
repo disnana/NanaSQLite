@@ -18,7 +18,6 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 from nanasqlite import NanaSQLite
 
-
 # ====================================================================
 # Fixtures
 # ====================================================================
@@ -80,8 +79,7 @@ class TestBug01BatchV2Routing:
 
             # 修正済み: batch_value が最後に書かれた値として永続化されること
             assert actual == "batch_value", (
-                f"Expected 'batch_value' but got '{actual}'. "
-                "Possible ghost re-insert from old staging buffer."
+                f"Expected 'batch_value' but got '{actual}'. Possible ghost re-insert from old staging buffer."
             )
         finally:
             db.close()
@@ -204,6 +202,7 @@ class TestBug02ClearAndLoadAllSync:
             def wrapper(chunk):
                 time.sleep(0.3)  # フラッシュを意図的に遅延
                 original_chunk_fn(chunk)
+
             return wrapper
 
         db = NanaSQLite(db_path, v2_mode=True, flush_mode="manual")
@@ -218,15 +217,10 @@ class TestBug02ClearAndLoadAllSync:
 
             # DB から直接確認 (内部で load_all もしない)
             with db._acquire_lock():
-                cursor = db._connection.execute(
-                    f"SELECT COUNT(*) FROM {db._safe_table}"
-                )
+                cursor = db._connection.execute(f"SELECT COUNT(*) FROM {db._safe_table}")
                 count = cursor.fetchone()[0]
 
-            assert count == 0, (
-                f"clear() left {count} row(s) in DB. "
-                "Ghost re-insert from async flush was not prevented."
-            )
+            assert count == 0, f"clear() left {count} row(s) in DB. Ghost re-insert from async flush was not prevented."
         finally:
             db.close()
 
@@ -251,8 +245,7 @@ class TestBug02ClearAndLoadAllSync:
 
             for i in range(10):
                 assert db.get(f"load_key_{i}") == f"load_value_{i}", (
-                    f"load_key_{i} was missing after load_all(). "
-                    "Possible stale DB read before flush completed."
+                    f"load_key_{i} was missing after load_all(). Possible stale DB read before flush completed."
                 )
         finally:
             db.close()
