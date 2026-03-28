@@ -40,7 +40,7 @@ from .exceptions import (
 from .hooks import CheckHook, ForeignKeyHook, PydanticHook, UniqueHook, ValidkitHook
 from .protocols import NanaHook
 
-__version__ = "1.5.0dev1"
+__version__ = "1.5.0dev2"
 __author__ = "Disnana"
 __all__ = [
     "NanaSQLite",

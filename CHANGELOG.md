@@ -6,6 +6,14 @@
 
 ## 日本語
 
+### [1.5.0dev2] - 2026-03-28
+
+#### パッケージングとIDE支援の改善
+- **[High] PEP 561 準拠と型補完の修正**:
+  - `pyproject.toml` の `tool.setuptools` 設定を標準的な `src-layout` 用に刷新。これまで PyPI 配布版で `import nanasqlite` した際に型補完（IntelliSense）が効かなかった問題を修正しました。
+  - `include-package-data = true` を有効化し、`MANIFEST.in` を追加することで、ビルドされたパッケージ (.whl, sdist) に確実に `py.typed` ファイルが含まれるようにしました。
+  - これにより、VS Code (Pylance) や PyCharm 等の主要な IDE で、インストール直後から `NanaSQLite` や `PydanticHook` などの完全な型補完が利用可能になりました。
+
 ### [1.5.0dev1] - 2026-03-28
 
 #### リリース品質監査 (Release Audit) による改善
@@ -874,6 +882,14 @@
 
 
 ## English
+
+### [1.5.0dev2] - 2026-03-28
+
+#### Packaging and IDE Support Improvements
+- **[High] PEP 561 Compliance and Autocompletion Fix**:
+  - Refactored `tool.setuptools` in `pyproject.toml` to use standard `src-layout` auto-discovery. Fixed the issue where IntelliSense/autocompletion failed for the PyPI distribution.
+  - Enabled `include-package-data = true` and added `MANIFEST.in` to ensure the `py.typed` file is correctly bundled in both wheel (.whl) and source distributions (sdist).
+  - This enables full autocompletion support for `NanaSQLite`, `PydanticHook`, and other exports in major IDEs like VS Code (Pylance) and PyCharm out of the box.
 
 ### [1.5.0dev1] - 2026-03-28
 

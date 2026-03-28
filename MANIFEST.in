@@ -1,0 +1,2 @@
+include src/nanasqlite/py.typed
+recursive-include src/nanasqlite *.py

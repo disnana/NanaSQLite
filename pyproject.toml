@@ -84,8 +84,12 @@ Repository = "https://github.com/disnana/nanasqlite"
 Issues = "https://github.com/disnana/nanasqlite/issues"
 
 [tool.setuptools]
-packages = ["nanasqlite"]
-package-dir = {"nanasqlite" = "src/nanasqlite"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["nanasqlite*"]
+namespaces = false
 
 [tool.setuptools.package-data]
 nanasqlite = ["py.typed"]
