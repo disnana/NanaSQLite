@@ -136,7 +136,6 @@ def test_pydantic_hook_exception_suppression():
         # Test actual database read operations
         for test_case in test_cases:
             key = test_case["key"]
-            test_case["description"]
             should_suppress = test_case["should_suppress"]
             
             print(f"\nReading {key} from database...")
