@@ -444,7 +444,7 @@ def test_batch_update_partial_writes_valid_values_and_reports_failures(tmp_path)
     )
 
     assert set(failed) == {"u2"}
-    assert "failed schema validation" in failed["u2"]
+    assert "Schema validation failed" in failed["u2"]
     assert db["u1"] == {"name": "Alice", "age": 30}
     assert db["u3"] == {"name": "Carol", "age": 22}
     assert "u2" not in db

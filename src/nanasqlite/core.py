@@ -1351,12 +1351,23 @@ class NanaSQLite(MutableMapping):
         hooks = getattr(self, "_hooks", [])
         if hooks:
             if self._coerce:
-                processed_mapping: dict[str, Any] = {}
+                # True copy-on-write: only allocate a new dict on the first detected change.
+                # When no hooks modify any value, zero extra memory is allocated.
+                processed_mapping: dict[str, Any] | None = None
                 for k, v in mapping.items():
+                    new_v = v
                     for hook in hooks:
-                        v = hook.before_write(self, k, v)
-                    processed_mapping[k] = v
-                mapping = processed_mapping
+                        new_v = hook.before_write(self, k, new_v)
+                    if processed_mapping is not None:
+                        processed_mapping[k] = new_v
+                    elif new_v != v:
+                        # First modification detected: bootstrap with a shallow copy of the
+                        # original (all previous entries were unchanged by hooks), then
+                        # overwrite the current key with the hook-processed value.
+                        processed_mapping = dict(mapping)
+                        processed_mapping[k] = new_v
+                if processed_mapping is not None:
+                    mapping = processed_mapping
             else:
                 # Validate only path (no new dict allocation)
                 for k, v in mapping.items():

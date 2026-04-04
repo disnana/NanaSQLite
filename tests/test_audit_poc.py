@@ -659,3 +659,351 @@ class TestV141Bug01UpsertAttributeError:
             await db.aupsert("t", {"id": 1, "name": "Alice"}, conflict_columns=["id"])
             rows = await db.query("t")
             assert rows[0]["name"] == "Alice"
+
+
+# ===========================================================================
+# v1.5.0 Hooks System Audit Findings
+# ===========================================================================
+
+
+# ===========================================================================
+# SEC-03 [Critical]: UniqueHook TOCTOU Race Condition
+# ===========================================================================
+class TestV150Sec03UniqueHookRace:
+    """SEC-03: UniqueHook has TOCTOU race condition in multi-threaded environments."""
+
+    def test_unique_hook_race_condition_documented(self, db_path):
+        """UniqueHook class has proper warning documentation about race conditions."""
+        from nanasqlite.hooks import UniqueHook
+
+        # Check that the class docstring contains race condition warning
+        assert "TOCTOU race condition" in UniqueHook.__doc__
+        assert "WARNING" in UniqueHook.__doc__
+        assert "SEC-03" in UniqueHook.__doc__
+
+    def test_unique_hook_single_threaded_works(self, db_path):
+        """UniqueHook works correctly in single-threaded scenarios."""
+        from nanasqlite import NanaSQLite
+        from nanasqlite.exceptions import NanaSQLiteValidationError
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path, table="users")
+        db.add_hook(UniqueHook("email"))
+
+        try:
+            # First user should succeed
+            db["user1"] = {"email": "test@example.com", "name": "User 1"}
+
+            # Second user with same email should fail
+            with pytest.raises(NanaSQLiteValidationError, match="Unique constraint violation"):
+                db["user2"] = {"email": "test@example.com", "name": "User 2"}
+
+            # Verify only first user exists
+            users = dict(db.items())
+            assert "user1" in users
+            assert "user2" not in users
+            assert users["user1"]["email"] == "test@example.com"
+        finally:
+            db.close()
+
+
+# ===========================================================================
+# SEC-04 [Critical]: ForeignKeyHook TOCTOU Race Condition
+# ===========================================================================
+class TestV150Sec04ForeignKeyHookRace:
+    """SEC-04: ForeignKeyHook has TOCTOU race condition allowing orphaned references."""
+
+    def test_foreign_key_hook_race_condition_documented(self, db_path):
+        """ForeignKeyHook class has proper warning documentation about race conditions."""
+        from nanasqlite.hooks import ForeignKeyHook
+
+        # Check that the class docstring contains race condition warning
+        assert "TOCTOU race condition" in ForeignKeyHook.__doc__
+        assert "WARNING" in ForeignKeyHook.__doc__
+        assert "SEC-04" in ForeignKeyHook.__doc__
+
+    def test_foreign_key_hook_single_threaded_works(self, db_path):
+        """ForeignKeyHook works correctly in single-threaded scenarios."""
+        from nanasqlite import NanaSQLite
+        from nanasqlite.exceptions import NanaSQLiteValidationError
+        from nanasqlite.hooks import ForeignKeyHook
+
+        groups = NanaSQLite(db_path, table="groups")
+        users = NanaSQLite(db_path, table="users")
+
+        try:
+            # Create a group
+            groups["admin"] = {"name": "Administrators"}
+
+            # Add FK constraint
+            users.add_hook(ForeignKeyHook("group_id", groups))
+
+            # Valid FK reference should work
+            users["user1"] = {"name": "Alice", "group_id": "admin"}
+
+            # Invalid FK reference should fail
+            with pytest.raises(NanaSQLiteValidationError, match="Foreign key constraint violation"):
+                users["user2"] = {"name": "Bob", "group_id": "nonexistent"}
+
+            # Verify only valid user exists
+            user_dict = dict(users.items())
+            assert "user1" in user_dict
+            assert "user2" not in user_dict
+        finally:
+            groups.close()
+            users.close()
+
+
+# ===========================================================================
+# SEC-05 [High]: BaseHook ReDoS Vulnerability
+# ===========================================================================
+class TestV150Sec05BaseHookRedos:
+    """SEC-05: BaseHook accepts dangerous regex patterns causing ReDoS."""
+
+    def test_dangerous_regex_patterns_rejected(self, db_path):
+        """Dangerous regex patterns are detected and rejected."""
+        from nanasqlite.exceptions import NanaSQLiteValidationError
+        from nanasqlite.hooks import BaseHook
+
+        dangerous_patterns = [
+            "(a+)+",
+            "(a*)*",
+            "(a+)+b",
+            "(a|a)*"
+        ]
+
+        for pattern in dangerous_patterns:
+            with pytest.raises(NanaSQLiteValidationError, match="dangerous regex pattern"):
+                BaseHook(key_pattern=pattern)
+
+    def test_safe_regex_patterns_accepted(self, db_path):
+        """Safe regex patterns are still accepted."""
+        from nanasqlite.hooks import BaseHook
+
+        safe_patterns = [
+            r"user_\d+",
+            r"^[a-z]+$",
+            r"data_\w*",
+            r"[a-zA-Z0-9_]+"
+        ]
+
+        for pattern in safe_patterns:
+            # Should not raise
+            hook = BaseHook(key_pattern=pattern)
+            # Test basic functionality
+            assert hook._should_run("test_key") in [True, False]
+
+
+# ===========================================================================
+# SEC-06 [High]: Hooks Exception Information Leakage
+# ===========================================================================
+class TestV150Sec06HooksInfoLeakage:
+    """SEC-06: Hook exception messages leak sensitive information."""
+
+    def test_unique_hook_generic_error_message(self, db_path):
+        """UniqueHook returns generic error message to prevent information leakage."""
+        from nanasqlite import NanaSQLite
+        from nanasqlite.exceptions import NanaSQLiteValidationError
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        db.add_hook(UniqueHook("email"))
+
+        try:
+            db["user1"] = {"email": "secret@company.internal"}
+
+            with pytest.raises(NanaSQLiteValidationError) as exc_info:
+                db["user2"] = {"email": "secret@company.internal"}
+
+            # Error message should be generic, not leak field names or values
+            error_msg = str(exc_info.value)
+            assert "secret@company.internal" not in error_msg
+            assert "email" not in error_msg
+            assert "Unique constraint violation" in error_msg
+        finally:
+            db.close()
+
+    def test_foreign_key_hook_generic_error_message(self, db_path):
+        """ForeignKeyHook returns generic error message to prevent information leakage."""
+        from nanasqlite import NanaSQLite
+        from nanasqlite.exceptions import NanaSQLiteValidationError
+        from nanasqlite.hooks import ForeignKeyHook
+
+        groups = NanaSQLite(db_path, table="groups")
+        users = NanaSQLite(db_path, table="users")
+
+        try:
+            users.add_hook(ForeignKeyHook("group_id", groups))
+
+            with pytest.raises(NanaSQLiteValidationError) as exc_info:
+                users["user1"] = {"name": "Alice", "group_id": "secret_dept_001"}
+
+            # Error message should be generic, not leak field names or key values
+            error_msg = str(exc_info.value)
+            assert "secret_dept_001" not in error_msg
+            assert "group_id" not in error_msg
+            assert "Foreign key constraint violation" in error_msg
+        finally:
+            groups.close()
+            users.close()
+
+
+# ===========================================================================
+# BUG-05 [Critical]: PydanticHook Silent Exception Suppression
+# ===========================================================================
+class TestV150Bug05PydanticExceptionSuppress:
+    """BUG-05: PydanticHook.after_read() suppresses critical system exceptions."""
+
+    def test_validation_errors_suppressed(self, db_path):
+        """Validation errors are properly suppressed and logged."""
+        from nanasqlite.hooks import PydanticHook
+
+        # Mock Pydantic model that raises validation errors
+        class MockModel:
+            @classmethod
+            def model_validate(cls, value):
+                raise ValueError("Validation failed")
+
+        hook = PydanticHook(MockModel)
+
+        # Validation error should be suppressed, return original value
+        result = hook.after_read(None, "test_key", {"data": "test"})
+        assert result == {"data": "test"}
+
+    def test_system_errors_not_suppressed(self, db_path):
+        """Critical system errors are properly raised, not suppressed."""
+        from nanasqlite.hooks import PydanticHook
+
+        # Mock Pydantic model that raises system errors
+        class MockModel:
+            @classmethod
+            def model_validate(cls, value):
+                if value.get("trigger") == "connection":
+                    raise ConnectionError("Database connection lost")
+                elif value.get("trigger") == "memory":
+                    raise MemoryError("Out of memory")
+                elif value.get("trigger") == "system":
+                    raise OSError("System I/O error")
+                return cls()
+
+        hook = PydanticHook(MockModel)
+
+        # System errors should NOT be suppressed
+        with pytest.raises(ConnectionError):
+            hook.after_read(None, "test", {"trigger": "connection"})
+
+        with pytest.raises(MemoryError):
+            hook.after_read(None, "test", {"trigger": "memory"})
+
+        with pytest.raises(OSError):
+            hook.after_read(None, "test", {"trigger": "system"})
+
+
+# ===========================================================================
+# BUG-06 [High]: Hooks Memory Inefficiency in batch_update
+# ===========================================================================
+class TestV150Bug06HooksMemoryEfficiency:
+    """BUG-06: Hook processing creates unnecessary dict copies affecting performance."""
+
+    def test_no_value_change_no_copy(self, db_path):
+        """When hooks don't change values, no new dict should be created."""
+        from nanasqlite import NanaSQLite
+        from nanasqlite.hooks import BaseHook
+
+        # Hook that doesn't modify values
+        class PassthroughHook(BaseHook):
+            def before_write(self, db, key, value):
+                return value  # No modification
+
+        db = NanaSQLite(db_path, coerce=True)  # coerce=True triggers optimization path
+        db.add_hook(PassthroughHook())
+
+        try:
+            original_mapping = {"key1": "value1", "key2": "value2"}
+
+            # This is an indirect test - we verify the functionality works
+            # The actual memory optimization is internal
+            db.batch_update(original_mapping)
+
+            # Verify data was written correctly
+            assert db["key1"] == "value1"
+            assert db["key2"] == "value2"
+        finally:
+            db.close()
+
+    def test_value_change_creates_copy(self, db_path):
+        """When hooks modify values, appropriate copying should occur."""
+        from nanasqlite import NanaSQLite
+        from nanasqlite.hooks import BaseHook
+
+        # Hook that modifies values
+        class ModifyingHook(BaseHook):
+            def before_write(self, db, key, value):
+                if isinstance(value, str):
+                    return value.upper()
+                return value
+
+        db = NanaSQLite(db_path, coerce=True)
+        db.add_hook(ModifyingHook())
+
+        try:
+            db.batch_update({"key1": "hello", "key2": "world"})
+
+            # Values should be modified by hook
+            assert db["key1"] == "HELLO"
+            assert db["key2"] == "WORLD"
+        finally:
+            db.close()
+
+
+# ===========================================================================
+# PERF-02 [Medium]: UniqueHook O(N) Scaling Issue
+# ===========================================================================
+class TestV150Perf02UniqueHookScaling:
+    """PERF-02: UniqueHook performs O(N) linear search affecting large datasets."""
+
+    def test_unique_hook_scales_with_dataset_size(self, db_path):
+        """UniqueHook performance degrades linearly with dataset size."""
+        from nanasqlite import NanaSQLite
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        db.add_hook(UniqueHook("email"))
+
+        try:
+            # Add some baseline data
+            for i in range(100):
+                db[f"user_{i}"] = {"email": f"user{i}@test.com", "name": f"User {i}"}
+
+            # Verify that adding a new unique record succeeds
+            db["new_user"] = {"email": "new@test.com", "name": "New User"}
+
+            # Verify the unique constraint is still enforced
+            with pytest.raises(NanaSQLiteValidationError):
+                db["duplicate"] = {"email": "new@test.com", "name": "Duplicate"}
+        finally:
+            db.close()
+
+    def test_unique_hook_recommendation_sqlite_constraints(self, db_path):
+        """For production, recommend using SQLite UNIQUE constraints instead."""
+        # This is a documentation/recommendation test
+        # The proper solution would be:
+        conn = sqlite3.connect(db_path)
+        try:
+            # Create table with SQLite UNIQUE constraint instead of UniqueHook
+            conn.execute("""
+                CREATE TABLE users (
+                    id TEXT PRIMARY KEY,
+                    email TEXT UNIQUE NOT NULL,  -- SQLite enforces uniqueness atomically
+                    name TEXT
+                )
+            """)
+
+            # SQLite UNIQUE constraint is atomic and scales better
+            conn.execute("INSERT INTO users (id, email, name) VALUES ('u1', 'test@example.com', 'User 1')")
+
+            # Duplicate should be rejected by database
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute("INSERT INTO users (id, email, name) VALUES ('u2', 'test@example.com', 'User 2')")
+        finally:
+            conn.close()

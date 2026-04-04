@@ -30,7 +30,7 @@ def test_unique_hook(tmp_path):
     db["user2"] = {"email": "other@example.com"}
 
     # Should fail for collision
-    with pytest.raises(NanaSQLiteValidationError, match="Unique constraint violated"):
+    with pytest.raises(NanaSQLiteValidationError, match="Unique constraint violation"):
         db["user3"] = {"email": "test@example.com"}
 
     # Self updates are allowed
@@ -51,7 +51,7 @@ def test_foreign_key_hook(tmp_path):
     users_db["user1"] = {"name": "Alice", "group_id": "group1"}
 
     # Should fail due to foreign key violation
-    with pytest.raises(NanaSQLiteValidationError, match="Foreign key constraint violated"):
+    with pytest.raises(NanaSQLiteValidationError, match="Foreign key constraint violation"):
         users_db["user2"] = {"name": "Bob", "group_id": "group3"}
 
 
@@ -84,7 +84,7 @@ def test_pydantic_hook(tmp_path):
     assert res2.version == 2
 
     # Fails if invalid
-    with pytest.raises(NanaSQLiteValidationError, match="Pydantic validation failed"):
+    with pytest.raises(NanaSQLiteValidationError, match="Model validation failed"):
         db["cfg3"] = {"version": "invalid", "data": "test"}
 
 
