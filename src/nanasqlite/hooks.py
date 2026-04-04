@@ -22,10 +22,13 @@ class BaseHook:
         key_pattern: str | Pattern | None = None,
         key_filter: Callable[[str], bool] | None = None,
     ):
-        # ReDoS protection: validate regex patterns before compilation
+        # ReDoS protection: validate regex patterns before compilation/use
         if isinstance(key_pattern, str):
             self._validate_regex_pattern(key_pattern)
             self._key_regex = re.compile(key_pattern)
+        elif isinstance(key_pattern, Pattern):
+            self._validate_regex_pattern(key_pattern.pattern)
+            self._key_regex = key_pattern
         else:
             self._key_regex = key_pattern
         self._key_filter = key_filter
