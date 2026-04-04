@@ -115,7 +115,6 @@ def test_unique_hook_performance_scaling():
                 baseline_time = time_ms
             else:
                 # Check if time increased significantly more than linearly
-                expected_linear_time = baseline_time * (size / test_sizes[0])
                 actual_ratio = time_ms / baseline_time
                 expected_ratio = size / test_sizes[0]
                 
@@ -153,14 +152,12 @@ def test_unique_hook_performance_scaling():
                 
                 start_time = time.perf_counter()
                 db["duplicate_test"] = {
-                    "name": "Duplicate Test", 
+                    "name": "Duplicate Test",
                     "email": existing_email  # This should fail
                 }
-                duplicate_time = time.perf_counter() - start_time
-                
                 print("🐛 BUG: Duplicate email was allowed!")
                 return "BUG"
-                
+
         except Exception as e:
             duplicate_time = time.perf_counter() - start_time
             print(f"✅ Duplicate correctly rejected in {duplicate_time * 1000:.2f}ms: {type(e).__name__}")
@@ -209,7 +206,7 @@ def test_direct_hook_performance():
             new_user_data = {"email": "newuser@test.com", "name": "New User"}
             
             start_time = time.perf_counter()
-            result = hook.before_write(db, "new_user", new_user_data)
+            _ = hook.before_write(db, "new_user", new_user_data)
             elapsed = time.perf_counter() - start_time
             
             print(f"Hook execution time: {elapsed * 1000:.2f}ms")
@@ -238,7 +235,7 @@ if __name__ == "__main__":
     print("Testing UniqueHook O(N) performance scaling...\n")
     
     result1 = test_unique_hook_performance_scaling()
-    result2 = test_direct_hook_performance()
+    _result2 = test_direct_hook_performance()
     
     if result1 == "BUG":
         final_result = "BUG"

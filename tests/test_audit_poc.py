@@ -995,8 +995,6 @@ class TestV150Perf02UniqueHookScaling:
         """For production, recommend using SQLite UNIQUE constraints instead."""
         # This is a documentation/recommendation test
         # The proper solution would be:
-        import sqlite3
-
         conn = sqlite3.connect(db_path)
         try:
             # Create table with SQLite UNIQUE constraint instead of UniqueHook

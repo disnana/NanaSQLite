@@ -9,7 +9,6 @@ checking and actual database write.
 
 import os
 import threading
-import time
 import tempfile
 from nanasqlite import NanaSQLite
 from nanasqlite.hooks import UniqueHook

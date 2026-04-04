@@ -149,7 +149,8 @@ def test_simplified_foreign_key_race():
             time.sleep(0.001)  # Tiny delay
             try:
                 del target_db["ref2"]
-            except:
+            except Exception:
+                # key may already be absent; ignore during cleanup
                 pass
             
             writer_thread.join()

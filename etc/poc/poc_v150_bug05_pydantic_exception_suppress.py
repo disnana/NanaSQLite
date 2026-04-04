@@ -8,7 +8,6 @@ potentially masking critical errors and returning corrupted data.
 
 import os
 import tempfile
-from unittest.mock import patch, Mock
 from nanasqlite import NanaSQLite
 from nanasqlite.hooks import PydanticHook
 
@@ -137,7 +136,7 @@ def test_pydantic_hook_exception_suppression():
         # Test actual database read operations
         for test_case in test_cases:
             key = test_case["key"]
-            description = test_case["description"]
+            _description = test_case["description"]
             should_suppress = test_case["should_suppress"]
             
             print(f"\nReading {key} from database...")

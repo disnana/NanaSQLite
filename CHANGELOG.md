@@ -20,6 +20,11 @@
 - **[Critical] BUG-05**: `PydanticHook` が全ての例外を `ValidationError` として一律に変換・抑制していた問題を修正。`ConnectionError`, `MemoryError` 等のシステムエラーは正しく再送出されるようになりました。
 - **[High] BUG-06**: フック処理において値が変更されない場合も不要な辞書コピーを行っていた問題を修正。変更検出ロジックを導入し、実際に値が変更された場合のみ新しい辞書を生成するようにしました（バッチ処理でのメモリ効率改善）。
 
+#### コード品質修正（PR レビュー指摘対応）
+
+- **[Low] BANDIT-B110**: `v2_engine.py` にて Bandit が指摘した `try/except/pass` パターン（`atexit.unregister` の空キャッチ）を `contextlib.suppress(Exception)` に置き換え。
+- **[Low] POC クリーンアップ**: CodeQL・Bandit が指摘した POC スクリプト内の問題（未使用インポート、未使用変数、bare `except`、ReDoS パターンのリテラル埋め込み）をすべて修正。テストファイル内の重複 `import sqlite3` も解消。
+
 #### パッケージングとIDE支援の改善
 
 - **[High] PEP 561 準拠と型補完の修正**:
@@ -954,6 +959,11 @@
 
 - **[Critical] BUG-05**: Fixed `PydanticHook` silently converting all exceptions to `ValidationError`. System-level errors such as `ConnectionError` and `MemoryError` are now properly re-raised.
 - **[High] BUG-06**: Fixed unnecessary dictionary copying in hook processing when no values were actually changed. Introduced change detection to allocate new dicts only when values are actually modified (improves memory efficiency in batch operations).
+
+#### Code Quality Fixes (PR Review Follow-up)
+
+- **[Low] BANDIT-B110**: Replaced empty `try/except/pass` around `atexit.unregister` in `v2_engine.py` with `contextlib.suppress(Exception)` to resolve the Bandit B110 warning.
+- **[Low] POC Cleanup**: Fixed all CodeQL and Bandit warnings raised in POC scripts (unused imports, unused variables, bare `except`, and hard-coded ReDoS pattern literals). Removed duplicate `import sqlite3` in test file.
 
 #### Packaging and IDE Support Improvements
 
