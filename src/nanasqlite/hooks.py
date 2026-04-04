@@ -224,6 +224,8 @@ class ValidkitHook(BaseHook):
                 self._validate_func(value, self.schema)
                 return value
         except Exception as exc:
+            if isinstance(exc, (MemoryError, OSError)):
+                raise
             _logger.error("Schema validation failed for key '%s': %s", key, exc)
             raise NanaSQLiteValidationError("Schema validation failed") from exc
 
