@@ -12,7 +12,7 @@
 
 - **[Critical] SEC-03**: `UniqueHook` における TOCTOU (Time-of-check/Time-of-use) 競合状態を文書化・警告追加。ユニーク制約チェックが DB 書き込みの外側で行われるため、マルチスレッド環境では制約をバイパスされる可能性があることをクラス docstring に明記しました。本質的な修正には SQLite ネイティブ制約 (`UNIQUE`) または排他ロックの適用を推奨します。
 - **[Critical] SEC-04**: `ForeignKeyHook` における TOCTOU 競合状態を同様に文書化・警告追加。参照整合性制約チェックとDB書き込みの間に参照先キーが削除される可能性を docstring に明記。本質的な修正には `PRAGMA foreign_keys=ON` の使用を推奨します。
-- **[High] SEC-05**: `BaseHook` の `key_pattern` 正規表現パターンに ReDoS (正規表現によるサービス拒否) 脆弱性が存在しました。悪意ある正規表現パターンにより CPU 負荷を引き起こす可能性があったため、パターン検証・タイムアウト保護を追加して修正しました。
+- **[High] SEC-05**: `BaseHook` の `key_pattern` 正規表現パターンに ReDoS (正規表現によるサービス拒否) 脆弱性が存在しました。悪意ある正規表現パターンにより CPU 負荷を引き起こす可能性があったため、コンストラクト時にパターン検証を行うよう修正しました。
 - **[High] SEC-06**: フック制約違反時のエラーメッセージに詳細なフィールド名・値が含まれ、情報漏洩の恐れがありました。エラーメッセージを汎用化し、詳細情報はサーバーサイドのログのみに記録するように修正しました。
 
 #### バグ修正（v1.5.0 プレリリース監査）
@@ -952,7 +952,7 @@
 
 - **[Critical] SEC-03**: Documented and added warnings for the TOCTOU (Time-of-check/Time-of-use) race condition in `UniqueHook`. The uniqueness check occurs outside the database write transaction, meaning multiple threads can bypass the constraint in concurrent environments. Class docstring now clearly warns against this and recommends using SQLite native `UNIQUE` constraints or application-level exclusive locks.
 - **[Critical] SEC-04**: Similarly documented and added warnings for the TOCTOU race condition in `ForeignKeyHook`, where a referenced key can be deleted between the constraint check and the write operation. Class docstring recommends `PRAGMA foreign_keys=ON` for strict referential integrity.
-- **[High] SEC-05**: Fixed a ReDoS (Regular Expression Denial of Service) vulnerability in `BaseHook`'s `key_filter` pattern validation. Malicious regex patterns could cause excessive CPU load. Added pattern validation and timeout protection.
+- **[High] SEC-05**: Fixed a ReDoS (Regular Expression Denial of Service) vulnerability in `BaseHook`'s `key_pattern` regex parameter. Malicious regex patterns could cause excessive CPU load. Pattern validation is now enforced at construction time.
 - **[High] SEC-06**: Fixed information leakage in hook constraint violation error messages that exposed field names and values. Error messages are now generic, with detailed information logged server-side only.
 
 #### Bug Fixes (v1.5.0 Pre-Release Audit)
