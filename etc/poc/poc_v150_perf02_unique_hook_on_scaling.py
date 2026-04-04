@@ -235,7 +235,7 @@ if __name__ == "__main__":
     print("Testing UniqueHook O(N) performance scaling...\n")
     
     result1 = test_unique_hook_performance_scaling()
-    _result2 = test_direct_hook_performance()
+    test_direct_hook_performance()
     
     if result1 == "BUG":
         final_result = "BUG"
