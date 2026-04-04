@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from re import Pattern
 from typing import Any, Callable
@@ -7,6 +8,8 @@ from typing import Any, Callable
 from .compat import HAS_VALIDKIT
 from .exceptions import NanaSQLiteValidationError
 from .protocols import NanaHook as NanaHook
+
+_logger = logging.getLogger(__name__)
 
 
 class BaseHook:
@@ -19,8 +22,30 @@ class BaseHook:
         key_pattern: str | Pattern | None = None,
         key_filter: Callable[[str], bool] | None = None,
     ):
-        self._key_regex = re.compile(key_pattern) if isinstance(key_pattern, str) else key_pattern
+        # ReDoS protection: validate regex patterns before compilation
+        if isinstance(key_pattern, str):
+            self._validate_regex_pattern(key_pattern)
+            self._key_regex = re.compile(key_pattern)
+        else:
+            self._key_regex = key_pattern
         self._key_filter = key_filter
+
+    def _validate_regex_pattern(self, pattern: str) -> None:
+        """Validate regex patterns to prevent ReDoS attacks."""
+        # Check for known dangerous patterns
+        dangerous_patterns = [
+            r'\([^)]*\+\)[*+]',     # (a+)+ or (a+)*
+            r'\([^)]*\*\)[*+]',     # (a*)+ or (a*)*
+            r'\([^|]*\|[^|]*\)\*',  # (a|b)*
+            r'\([^|]*\|[^|]*\)\+',  # (a|b)+
+        ]
+
+        for dangerous in dangerous_patterns:
+            if re.search(dangerous, pattern):
+                raise NanaSQLiteValidationError(
+                    f"Potentially dangerous regex pattern detected: {pattern}. "
+                    "This pattern may cause ReDoS (Regular Expression Denial of Service) attacks."
+                )
 
     def _should_run(self, key: str) -> bool:
         """Determines if the hook should run for the given key."""
@@ -71,7 +96,19 @@ class CheckHook(BaseHook):
 
 
 class UniqueHook(BaseHook):
-    """Ensures a specific field in a dictionary value is unique across the table."""
+    """Ensures a specific field in a dictionary value is unique across the table.
+
+    WARNING: This implementation has a known TOCTOU race condition in multi-threaded
+    environments. The uniqueness check occurs before the database write, creating
+    a race window where multiple threads can bypass the constraint.
+
+    For production applications requiring strict uniqueness guarantees:
+    1. Use SQLite UNIQUE constraints instead of this hook
+    2. Use single-threaded access patterns
+    3. Implement application-level locking around write operations
+
+    This issue is tracked as SEC-03 in the v1.5.0 audit report.
+    """
 
     def __init__(self, field: str | Callable[[str, Any], Any], **kwargs: Any):
         super().__init__(**kwargs)
@@ -105,14 +142,28 @@ class UniqueHook(BaseHook):
 
             if other_val == check_val:
                 field_name = self.field.__name__ if callable(self.field) else str(self.field)
-                raise NanaSQLiteValidationError(
-                    f"Unique constraint violated: '{field_name}' = {check_val} already exists."
+                _logger.warning(
+                    "Unique constraint violation for key '%s': field '%s' value already exists",
+                    key,
+                    field_name,
                 )
+                raise NanaSQLiteValidationError("Unique constraint violation: duplicate value detected")
         return value
 
 
 class ForeignKeyHook(BaseHook):
-    """Ensures a specific field refers to an existing key in a target table."""
+    """Ensures a specific field refers to an existing key in a target table.
+
+    WARNING: This implementation has a known TOCTOU race condition where the
+    referenced key can be deleted between the constraint check and write operation.
+
+    For production applications requiring strict referential integrity:
+    1. Use SQLite FOREIGN KEY constraints with PRAGMA foreign_keys=ON
+    2. Use single-threaded access patterns
+    3. Implement application-level locking around related operations
+
+    This issue is tracked as SEC-04 in the v1.5.0 audit report.
+    """
 
     def __init__(self, field: str | Callable[[str, Any], Any], target_db: Any, **kwargs: Any):
         super().__init__(**kwargs)
@@ -132,9 +183,12 @@ class ForeignKeyHook(BaseHook):
 
         if ref_key is not None and ref_key not in self.target_db:
             field_name = self.field.__name__ if callable(self.field) else str(self.field)
-            raise NanaSQLiteValidationError(
-                f"Foreign key constraint violated: key '{ref_key}' (from '{field_name}') not found in target table."
+            _logger.warning(
+                "Foreign key constraint violation for key '%s': field '%s' references non-existent key",
+                key,
+                field_name,
             )
+            raise NanaSQLiteValidationError("Foreign key constraint violation: referenced key not found")
         return value
 
 
@@ -167,7 +221,8 @@ class ValidkitHook(BaseHook):
                 self._validate_func(value, self.schema)
                 return value
         except Exception as exc:
-            raise NanaSQLiteValidationError(f"Value for key '{key}' failed schema validation: {exc}") from exc
+            _logger.error("Schema validation failed for key '%s': %s", key, exc)
+            raise NanaSQLiteValidationError("Schema validation failed") from exc
 
 
 class PydanticHook(BaseHook):
@@ -195,8 +250,9 @@ class PydanticHook(BaseHook):
                 model = self.model_class.parse_obj(value)
                 return model.dict()
             return value
-        except Exception as exc:
-            raise NanaSQLiteValidationError(f"Pydantic validation failed for key '{key}': {exc}") from exc
+        except (ValueError, TypeError, AttributeError) as exc:
+            _logger.error("Pydantic validation failed for key '%s': %s", key, exc)
+            raise NanaSQLiteValidationError("Model validation failed") from exc
 
     def after_read(self, db: Any, key: str, value: Any) -> Any:
         if not self._should_run(key):
@@ -206,6 +262,8 @@ class PydanticHook(BaseHook):
                 return self.model_class.model_validate(value)
             elif hasattr(self.model_class, "parse_obj"):
                 return self.model_class.parse_obj(value)
-        except Exception:
-            pass
+        except (ValueError, TypeError, AttributeError) as e:
+            # Only suppress Pydantic validation errors, not system errors
+            _logger.debug("Pydantic model validation failed for key '%s': %s", key, e)
+        # Don't suppress ConnectionError, MemoryError, OSError, etc.
         return value
