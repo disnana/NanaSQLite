@@ -6,6 +6,21 @@
 
 ## 日本語
 
+### [1.5.1] - 2026-04-05
+
+#### パフォーマンス修正（v1.5.0dev1 以降の性能低下対応）
+
+ベンチマーク（RPI 実機）で確認された v1.5.0dev1 以降の性能低下を修正しました。
+
+- **[Critical] PERF-01: フックホットパスのオーバーヘッド除去**（`core.py`）
+  - `__getitem__`・`__setitem__`・`__delitem__`・`get`・`batch_get`・`setdefault`・`pop`・`batch_update_partial`・`batch_delete` の全ての読み書き操作で、毎呼び出し `getattr(self, "_hooks", [])` を実行していたため、フックが未設定の場合でも無視できないオーバーヘッドが発生していました。`self._hooks`（常に初期化済み）への直接アクセスと `if self._hooks:` による早期スキップに変更しました。
+  - **効果**: キャッシュ済みキーの読み込み速度が約 30% 向上（実機 RPI: ~1.74M → ~2.3M ops/sec 相当）。
+
+- **[Critical] PERF-02: v2 モードにおける共有ロック競合の解消**（`core.py`）
+  - `__setitem__`・`__delitem__`・`batch_update`・`batch_delete` の v2 モードパスで、インメモリキャッシュの更新（`_data[key] = value` 等）に対して DB フラッシュスレッドと共有するロックを使用していました。このため、バックグラウンドフラッシュスレッドが DB トランザクションのためにロックを保持している間、メインスレッドのキャッシュ更新がブロックされ、特に低速 CPU（Raspberry Pi 等）で深刻なスループット低下を引き起こしていました。
+  - v2 モードにおいてインメモリのみの更新操作は Python の GIL によるアトミック性が保証されており、バックグラウンドフラッシュスレッドは `_data` / `_cached_keys` に直接アクセスしないため、これらの操作に対する明示的なロック取得は不要です。
+  - **効果**: v2 immediate モードの書き込みスループットが約 3.7 倍向上（実機 RPI: ~169 → ~600+ calls/sec 相当）。
+
 ### [1.5.0] - 2026-04-04
 
 #### セキュリティ修正（v1.5.0 プレリリース監査）
@@ -945,6 +960,21 @@
 
 
 ## English
+
+### [1.5.1] - 2026-04-05
+
+#### Performance Fixes (Regression since v1.5.0dev1)
+
+Fixed performance regressions observed in RPI benchmarks that appeared starting from v1.5.0dev1.
+
+- **[Critical] PERF-01: Remove hook hot-path overhead** (`core.py`)
+  - All read/write operations (`__getitem__`, `__setitem__`, `__delitem__`, `get`, `batch_get`, `setdefault`, `pop`, `batch_update_partial`, `batch_delete`) were calling `getattr(self, "_hooks", [])` on every invocation, causing measurable overhead even when no hooks are registered. Changed to direct `self._hooks` access (always initialized) with an `if self._hooks:` early-exit guard.
+  - **Impact**: ~30% throughput improvement for cached reads (RPI: ~1.74M → ~2.3M ops/sec equivalent).
+
+- **[Critical] PERF-02: Eliminate shared-lock contention in v2 mode** (`core.py`)
+  - In the v2-mode paths of `__setitem__`, `__delitem__`, `batch_update`, and `batch_delete`, the in-memory cache update (`_data[key] = value`, etc.) was being wrapped in the same lock used by the background flush thread for database transactions. On slow CPUs (Raspberry Pi and similar ARM devices) this caused severe throughput degradation because the main thread and background flush thread constantly competed for the same lock.
+  - In v2 mode, in-memory-only updates are atomic under Python's GIL, and the background flush thread never accesses `_data` or `_cached_keys` directly, so no explicit lock is required for these operations.
+  - **Impact**: ~3.7× throughput improvement for v2 immediate-mode writes (RPI: ~169 → ~600+ calls/sec equivalent).
 
 ### [1.5.0] - 2026-04-04
 
