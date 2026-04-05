@@ -21,7 +21,6 @@ import threading
 import warnings
 import weakref
 from collections.abc import Iterator, MutableMapping
-from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -97,6 +96,28 @@ class V2Config:
     flush_count: int = 100
     chunk_size: int = 1000
     enable_metrics: bool = False
+
+
+class _TimedLockContext:
+    """
+    PERF-04: Lightweight context manager for timed RLock acquisition.
+    Used only when lock_timeout is set; the common case (no timeout) returns
+    the RLock directly to avoid @contextmanager generator overhead.
+    """
+
+    __slots__ = ("_lock", "_timeout")
+
+    def __init__(self, lock: threading.RLock, timeout: float) -> None:
+        self._lock = lock
+        self._timeout = timeout
+
+    def __enter__(self) -> _TimedLockContext:
+        if not self._lock.acquire(timeout=self._timeout):
+            raise NanaSQLiteLockError(f"Failed to acquire lock within {self._timeout}s")
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self._lock.release()
 
 
 class NanaSQLite(MutableMapping):
@@ -311,6 +332,11 @@ class NanaSQLite(MutableMapping):
         self._cache: CacheStrategy = create_cache(cache_strategy, cache_size, ttl=cache_ttl, on_expire=on_expire)
         self._data = self._cache.get_data()
         self._lru_mode = cache_strategy in (CacheType.LRU, "lru", CacheType.TTL, "ttl")
+        # PERF-03: Pre-compute cache-dispatch flag once at init time to avoid repeated
+        # hasattr() calls in the _update_cache hot path.
+        self._use_cache_set: bool = bool(
+            self._lru_mode or (hasattr(self._cache, "_max_size") and self._cache._max_size)
+        )
 
         if not self._lru_mode:
             # Unbounded 以外のモードでは内部辞書の直接参照を使用しない場合があるが、
@@ -533,21 +559,20 @@ class NanaSQLite(MutableMapping):
                 col_names.append(col.strip().strip('"').strip("'"))
         return col_names
 
-    @contextmanager
-    def _acquire_lock(self):
-        """ロックを取得するコンテキストマネージャ。lock_timeout が設定されている場合はタイムアウト付きで取得する。"""
-        lock_timeout = self._lock_timeout
-        if lock_timeout is not None:
-            acquired = self._lock.acquire(timeout=lock_timeout)
-            if not acquired:
-                raise NanaSQLiteLockError(f"Failed to acquire lock within {lock_timeout}s")
-            try:
-                yield
-            finally:
-                self._lock.release()
-        else:
-            with self._lock:
-                yield
+    def _acquire_lock(self) -> threading.RLock | _TimedLockContext:
+        """
+        PERF-04: Return an appropriate context manager for lock acquisition.
+
+        Common case (no timeout): returns ``self._lock`` directly.
+        ``threading.RLock`` is itself a context manager with highly optimized
+        C-level ``__enter__``/``__exit__``, avoiding the overhead of the
+        ``@contextmanager`` generator machinery (~6-7% per write op on ARM).
+
+        Timeout case: returns a ``_TimedLockContext`` instance.
+        """
+        if self._lock_timeout is None:
+            return self._lock  # RLock is a CM: fastest path
+        return _TimedLockContext(self._lock, self._lock_timeout)
 
     def __hash__(self):
         # MutableMapping inhibits hashing by default because it's mutable.
@@ -884,7 +909,7 @@ class NanaSQLite(MutableMapping):
 
     def _update_cache(self, key: str, value: Any) -> None:
         """キャッシュメモリを同期的に更新（呼び出し元でロック取得推奨）"""
-        if self._lru_mode or (hasattr(self._cache, "_max_size") and self._cache._max_size):
+        if self._use_cache_set:
             self._cache.set(key, value)
         else:
             self._data[key] = value

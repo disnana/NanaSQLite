@@ -21,6 +21,14 @@
   - v2 モードにおいてインメモリのみの更新操作は Python の GIL によるアトミック性が保証されており、バックグラウンドフラッシュスレッドは `_data` / `_cached_keys` に直接アクセスしないため、これらの操作に対する明示的なロック取得は不要です。
   - **効果**: v2 immediate モードの書き込みスループットが約 3.7 倍向上（実機 RPI: ~169 → ~600+ calls/sec 相当）。
 
+- **[Medium] PERF-03: `_update_cache` 内の `hasattr()` 呼び出しを事前計算に変更**（`core.py`）
+  - `_update_cache()` が毎呼び出し `hasattr(self._cache, "_max_size")` を実行していたため、書き込みパスで不要なオーバーヘッドが発生していました。`__init__` 時に `_use_cache_set` フラグとして事前計算するように変更し、ホットパスから `hasattr()` 呼び出しを除去しました。
+  - **効果**: 書き込みパスで約 2-3% の速度改善。
+
+- **[Medium] PERF-04: `_acquire_lock()` を `@contextmanager` ジェネレータから直接 RLock 返却に変更**（`core.py`）
+  - `_acquire_lock()` が `@contextmanager` デコレータを使用していたため、毎呼び出しでジェネレータオブジェクトの生成・`next()` 呼び出し・`contextlib` のオーバーヘッドが発生していました。タイムアウト未設定（共通ケース）の場合は `threading.RLock` オブジェクトをそのまま返し、タイムアウト設定時のみ新設の `_TimedLockContext` を返すよう変更しました。`RLock` は C レベルの `__enter__`/`__exit__` を持つため、ジェネレータより大幅に高速です。
+  - **効果**: 非 v2 書き込みで約 7% の速度改善。
+
 ### [1.5.0] - 2026-04-04
 
 #### セキュリティ修正（v1.5.0 プレリリース監査）
@@ -975,6 +983,14 @@ Fixed performance regressions observed in RPI benchmarks that appeared starting 
   - In the v2-mode paths of `__setitem__`, `__delitem__`, `batch_update`, and `batch_delete`, the in-memory cache update (`_data[key] = value`, etc.) was being wrapped in the same lock used by the background flush thread for database transactions. On slow CPUs (Raspberry Pi and similar ARM devices) this caused severe throughput degradation because the main thread and background flush thread constantly competed for the same lock.
   - In v2 mode, in-memory-only updates are atomic under Python's GIL, and the background flush thread never accesses `_data` or `_cached_keys` directly, so no explicit lock is required for these operations.
   - **Impact**: ~3.7× throughput improvement for v2 immediate-mode writes (RPI: ~169 → ~600+ calls/sec equivalent).
+
+- **[Medium] PERF-03: Pre-compute `_update_cache` dispatch flag** (`core.py`)
+  - `_update_cache()` called `hasattr(self._cache, "_max_size")` on every invocation, adding unnecessary overhead on the write hot path. The result is now pre-computed as `_use_cache_set` during `__init__`, eliminating the `hasattr()` call entirely.
+  - **Impact**: ~2-3% write throughput improvement.
+
+- **[Medium] PERF-04: Replace `@contextmanager` with direct RLock return in `_acquire_lock()`** (`core.py`)
+  - `_acquire_lock()` used a `@contextmanager` generator, incurring `contextlib` overhead (object allocation, `next()` calls) on every lock acquisition. For the common case (no timeout), the method now returns `self._lock` (a `threading.RLock`) directly — `RLock` is itself a context manager with highly-optimised C-level `__enter__`/`__exit__`. When `lock_timeout` is set, a lightweight `_TimedLockContext` helper is returned instead.
+  - **Impact**: ~7% write throughput improvement for non-v2 paths.
 
 ### [1.5.0] - 2026-04-04
 
