@@ -19,7 +19,6 @@ from nanasqlite import NanaSQLite
 from nanasqlite.exceptions import NanaSQLiteLockError, NanaSQLiteValidationError
 from nanasqlite.hooks import CheckHook
 
-
 # ====================================================================
 # Fixtures
 # ====================================================================
@@ -359,3 +358,74 @@ class TestPerf04AcquireLock:
             released.set()
             t.join(timeout=3)
             db.close()
+
+
+# ====================================================================
+# カバレッジ補完: 残り未カバーパスのテスト
+# ====================================================================
+
+
+class TestCoverageGapFixes:
+    """SonarCloud の未カバー行を埋めるためのテスト"""
+
+    def test_batch_get_with_after_read_hook(self, db_path):
+        """batch_get がフック付きで after_read を呼び出す（batch_get の if self._hooks ブランチ）"""
+        # Pre-populate the DB
+        setup_db = NanaSQLite(db_path)
+        setup_db["x"] = 10
+        setup_db["y"] = 20
+        setup_db.close()
+
+        # Re-open so the in-memory cache is empty — forcing DB fetch in batch_get
+        db = NanaSQLite(db_path)
+
+        read_calls = []
+
+        class RecordHook(CheckHook):
+            def after_read(self, db_inst, key, value):
+                read_calls.append(key)
+                return value
+
+        db.add_hook(RecordHook(lambda k, v: True))
+
+        result = db.batch_get(["x", "y"])
+
+        assert result == {"x": 10, "y": 20}
+        assert set(read_calls) == {"x", "y"}
+        db.close()
+
+    def test_setdefault_existing_key_with_after_read_hook(self, db_path):
+        """setdefault が既存キーに対してフック付きで after_read を呼び出す"""
+        db = NanaSQLite(db_path)
+        db["existing"] = "hello"
+
+        read_calls = []
+
+        class RecordHook(CheckHook):
+            def after_read(self, db_inst, key, value):
+                read_calls.append((key, value))
+                return value
+
+        db.add_hook(RecordHook(lambda k, v: True))
+
+        result = db.setdefault("existing", "default")
+
+        assert result == "hello"
+        assert ("existing", "hello") in read_calls
+        db.close()
+
+    def test_v2_lru_batch_update_uses_cache_set(self, db_path):
+        """v2 モード + LRU キャッシュで batch_update が cache.set() を使用する"""
+        import os
+
+        os.environ.setdefault("NANASQLITE_SUPPRESS_MP_WARNING", "1")
+        db = NanaSQLite(db_path, v2_mode=True, flush_mode="manual", cache_strategy="lru", cache_size=50)
+        assert db._lru_mode is True
+
+        mapping = {"a": 1, "b": 2, "c": 3}
+        db.batch_update(mapping)
+
+        for key, expected in mapping.items():
+            assert db.get(key) == expected
+
+        db.close()

@@ -520,22 +520,6 @@ class NanaSQLite(MutableMapping):
 
     # ==================== Private Methods ====================
 
-    @property
-    def _validator(self) -> Any:
-        """後方互換性とテストのためのプロパティ。ValidkitHookからスキーマを返します"""
-        for hook in self._hooks:
-            if getattr(hook, "_is_validkit_hook", False):
-                return getattr(hook, "schema", None)
-        return None
-
-    @property
-    def _coerce(self) -> bool:
-        """後方互換性とテストのためのプロパティ。ValidkitHookからcoerce設定を返します"""
-        for hook in self._hooks:
-            if getattr(hook, "_is_validkit_hook", False):
-                return getattr(hook, "coerce", False)
-        return False
-
     @staticmethod
     def _is_in_memory_path(path: str) -> bool:
         """パスがインメモリDB文字列（':memory:' または 'file::memory:...'）かどうかを返す。"""
