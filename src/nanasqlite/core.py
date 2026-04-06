@@ -1167,6 +1167,13 @@ class NanaSQLite(MutableMapping):
                 val = cache_data[key]
                 if val is not MISSING:
                     results[key] = val
+            elif not self._lru_mode and key in self._cached_keys:
+                # BUG-02 fix: key is "known absent" (_cached_keys records it was checked
+                # and not found, or was explicitly deleted).  Honour this status rather
+                # than falling back to a DB query that may return a stale value,
+                # particularly in v2 non-immediate modes where a pending delete has not
+                # yet been flushed to the DB.
+                pass
             else:
                 missing_keys.append(key)
 
@@ -1208,9 +1215,21 @@ class NanaSQLite(MutableMapping):
                 for hook in self._hooks:
                     hook.before_delete(self, key)
 
-            # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
-            self._delete_from_db(key)
-            self._cache.delete(key)
+            # BUG-01 fix: route through v2 engine in v2 mode to avoid bypassing
+            # the staging buffer.  _delete_from_db() issues a direct DELETE on the
+            # connection; in v2 mode that can race with a concurrent background flush
+            # or leave a pending SET in the staging buffer that will later resurrect
+            # the key after flush().
+            if self._v2_mode and self._v2_engine:
+                self._v2_engine.kvs_delete(self._safe_table, key)
+                self._cache.delete(key)
+                if not self._lru_mode:
+                    self._data.pop(key, None)
+                    self._cached_keys.add(key)
+            else:
+                # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
+                self._delete_from_db(key)
+                self._cache.delete(key)
 
             if self._hooks:
                 for hook in self._hooks:
@@ -1570,7 +1589,11 @@ class NanaSQLite(MutableMapping):
         """全データをPython dictとして取得"""
         self._check_connection()
         self.load_all()
-        return dict(self._data)
+        # BUG-03 fix: filter out MISSING sentinels that may be present in LRU/TTL
+        # mode as negative-cache entries (keys known to be absent).  Without this
+        # filter, callers would receive {key: <MISSING>} in the result dict which
+        # is inconsistent with items() and other API methods.
+        return {k: v for k, v in self._data.items() if v is not MISSING}
 
     def copy(self) -> dict:
         """浅いコピーを作成（標準dictを返す）"""
@@ -2554,6 +2577,9 @@ class NanaSQLite(MutableMapping):
         set_clause = ", ".join(safe_set_items)
         values = list(data.values())
 
+        # SEC-02 fix: validate WHERE clause for consistency with count() / query() which
+        # both apply _validate_expression() in strict_sql_validation mode.
+        self._validate_expression(where, context="where")
         sql = f"UPDATE {safe_table_name} SET {set_clause} WHERE {where}"  # nosec
 
         if parameters:
@@ -2578,6 +2604,8 @@ class NanaSQLite(MutableMapping):
             >>> count = db.sql_delete("users", "age < ?", (18,))
         """
         safe_table_name = self._sanitize_identifier(table_name)
+        # SEC-02 fix: validate WHERE clause for consistency with other query methods.
+        self._validate_expression(where, context="where")
         sql = f"DELETE FROM {safe_table_name} WHERE {where}"  # nosec
         self.execute(sql, parameters)
         return self._connection.changes()
@@ -2730,6 +2758,10 @@ class NanaSQLite(MutableMapping):
             ...     print("User exists")
         """
         safe_table_name = self._sanitize_identifier(table_name)
+        # SEC-01 fix: validate the WHERE clause through _validate_expression() for
+        # consistency with count() / query() / query_with_pagination() which all
+        # reject forbidden functions and dangerous patterns in strict mode.
+        self._validate_expression(where, context="where")
         sql = f"SELECT EXISTS(SELECT 1 FROM {safe_table_name} WHERE {where})"  # nosec
         cursor = self.execute(sql, parameters)
         return bool(cursor.fetchone()[0])
