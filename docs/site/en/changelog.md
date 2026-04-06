@@ -4,6 +4,25 @@ outline: [2, 3]
 
 # Changelog
 
+### [1.5.2] - 2026-04-06
+
+#### Performance Fixes (Follow-up for regression since v1.5.0dev1)
+
+- **[High] PERF-06: Fast-path optimization for Unbounded cache reads** (`core.py`)
+  - In Unbounded mode, read-heavy paths (`__getitem__`, `get`, `__contains__`, `_ensure_cached`) still had extra branching before the `_data` check on hot read paths, adding avoidable membership checks even for positive cache hits.
+  - Reorganized the path to prioritize `_data` lookup first and use `_absent_keys` only for known-absent fast return.
+  - **Impact**: Lower overhead for cached reads and contains checks while preserving existing behavior.
+
+#### Breaking Change (approved)
+
+- In Unbounded mode, internal mixed-state metadata was split from `_cached_keys` to `_absent_keys` (known-absent only).
+  - No public API change, but code depending on internal `_cached_keys` semantics is not compatible.
+  - Migration: use public APIs (`in`, `get`, `is_cached`) instead of internal metadata fields.
+
+#### Tests
+
+- Added `tests/test_v152_perf_fastpath.py` to verify the `_data`-first fast-path and preserved negative-cache semantics.
+
 ### [1.5.1] - 2026-04-05
 
 #### Security Fixes (v1.5.1 Pre-Release Audit)

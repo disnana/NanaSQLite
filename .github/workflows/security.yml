@@ -192,7 +192,7 @@ jobs:
 
     - name: Run Bun Audit
       working-directory: docs/site
-      run: bun audit
+      run: bun audit --audit-level=high
 
 
   # Grype - 脆弱性スキャン (OS/Python/JS)

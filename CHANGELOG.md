@@ -6,6 +6,36 @@
 
 ## 日本語
 
+### [1.5.2] - 2026-04-06
+
+#### パフォーマンス修正（v1.5.0dev1 以降の性能低下 継続対応）
+
+- **[High] PERF-06: Unbounded キャッシュ読み取りホットパスの分岐最適化**（`core.py`）
+  - `__getitem__` / `get` / `__contains__` / `_ensure_cached` の Unbounded モードで、内部メタデータ参照を優先してから `_data` を確認する経路が残っており、正のキャッシュヒット時にも不要な membership 判定が追加され、キャッシュ済み読み取りで無視できないオーバーヘッドになっていました。
+  - 1. `_data` を先に確認する fast-path に変更（ヒット時は即 return）
+  - 2. known-absent の早期 return は `_absent_keys` に限定
+  - 3. `__getitem__` / `get` でも同様の fast-path を適用し、不要な `_ensure_cached()` 呼び出しを回避
+  - **効果**: キャッシュ済み読み取り・存在確認の追加オーバーヘッドを削減（既存 API/挙動は維持）。
+
+#### 破壊的変更（許可済み対応）
+
+- Unbounded モードの内部メタデータを `_cached_keys` から `_absent_keys`（known-absent 専用）へ分離しました。
+  - 公開 API への影響はありませんが、内部属性 `_cached_keys` に依存するコードは互換性がありません。
+  - 移行: `in` / `get` / `is_cached` 等の公開 API を利用してください。
+
+#### テスト
+
+- `tests/test_v152_perf_fastpath.py` を追加し、以下を検証:
+  - Unbounded モードで `_data` 優先 fast-path が機能すること
+  - 既知の不在キー（negative cache）挙動が維持されること
+
+#### 監査（`etc/audit/audit_prompt.md` 準拠）
+
+- フェーズ1〜6の観点で差分監査を実施し、今回の修正範囲（read/contains ホットパス）において:
+  - 後方互換性を壊す変更なし
+  - 新規セキュリティ問題の導入なし
+  - 既存の negative cache セマンティクス維持を確認
+
 ### [1.5.1] - 2026-04-05
 
 #### セキュリティ修正（v1.5.1 プレリリース監査）
@@ -993,6 +1023,37 @@
 
 
 ## English
+
+### [1.5.2] - 2026-04-06
+
+#### Performance Fixes (Follow-up for regression since v1.5.0dev1)
+
+- **[High] PERF-06: Fast-path optimization for Unbounded cache reads** (`core.py`)
+  - In Unbounded mode, read-heavy paths (`__getitem__`, `get`, `__contains__`, `_ensure_cached`) still had metadata checks before looking at `_data`, adding avoidable membership checks even for positive cache hits.
+  - Changes:
+    1. Prioritize `_data` lookup as the primary fast-path for positive cache hits
+    2. Use `_absent_keys` only for known-absent early return
+    3. Apply the same fast-path pattern in `__getitem__` / `get` to reduce unnecessary `_ensure_cached()` calls
+  - **Impact**: Reduces overhead on cached read / contains hot paths while preserving existing public behavior.
+
+#### Breaking Change (approved)
+
+- In Unbounded mode, internal mixed-state metadata was split from `_cached_keys` to `_absent_keys` (known-absent only).
+  - No public API change, but code depending on internal `_cached_keys` semantics is not compatible.
+  - Migration: use public APIs (`in`, `get`, `is_cached`) instead of internal metadata fields.
+
+#### Tests
+
+- Added `tests/test_v152_perf_fastpath.py` to verify:
+  - `_data`-first fast-path behavior in Unbounded mode
+  - Preserved negative-cache semantics for known-absent keys
+
+#### Audit (`etc/audit/audit_prompt.md` aligned)
+
+- Performed focused audit checks (Phase 1-6 perspective) on the changed scope:
+  - No backward-incompatible API change
+  - No new security issue introduced
+  - Negative-cache semantics preserved
 
 ### [1.5.1] - 2026-04-05
 

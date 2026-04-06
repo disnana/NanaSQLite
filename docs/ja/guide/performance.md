@@ -99,3 +99,22 @@ db.create_index("idx_user_age", "data", ["age"])
 - [ ] 頻繁な検索に `create_index` を適用しているか？
 - [ ] `optimize=True`（デフォルト）を使用しているか？
 - [ ] SSD環境で動作させているか？
+
+---
+
+## v1.5.2 リグレッション追跡メモ（v1.5.0dev1 以降）
+
+`etc/bench-data-split1.json` / `etc/bench-data-split2.json`（結合データ）を分析し、主に read hot-path の追加分岐が性能低下に寄与していることを確認しました。  
+v1.5.2 では公開 API の破壊的変更を加えずに、Unbounded キャッシュの `__getitem__` / `get` / `__contains__` / `_ensure_cached` を `_data` 優先の fast-path に最適化しています。
+
+### 公開 API に破壊的変更を加えずに実施した最適化
+- 正のキャッシュヒットはまず `_data` を参照し、read hot-path を 1 回の判定で解決
+- known-absent（負キャッシュ）の判定は `_absent_keys` に分離し、`_data` fast-path とは切り分け
+- 既存 API / 例外仕様 / negative cache の意味は維持しつつ、内部データ構造は変更
+
+### 破壊的変更（v1.5.2で実施）
+- **negative cache のデータ構造を分離**
+  - Unbounded モードで在/不在混在の `_cached_keys` を廃止し、known-absent 専用の `_absent_keys` を導入しました。
+  - 理由: read hot-path での分岐単純化と不要判定削減のため。
+  - 影響: `_cached_keys` を直接参照していた内部実装依存コードは互換性がありません。
+  - 利用者コード変更: 内部属性参照をやめ、`in` / `get` / `is_cached` 等の公開APIを利用してください。
