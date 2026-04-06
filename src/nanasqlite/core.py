@@ -906,8 +906,13 @@ class NanaSQLite(MutableMapping):
         """
         # FAST PATH for default Unbounded mode
         if not self._lru_mode:
+            # Fast path for the common positive-cache case:
+            # check _data first (single dict lookup), then fallback to the
+            # "known absent" marker set.
+            if self._data.get(key, _NOT_FOUND) is not _NOT_FOUND:
+                return True
             if key in self._cached_keys:
-                return key in self._data
+                return False
         else:
             if key in self._data:
                 # Check for negative cache (known to be missing from DB)
@@ -952,17 +957,23 @@ class NanaSQLite(MutableMapping):
 
     def __getitem__(self, key: str) -> Any:
         """dict[key] - 遅延ロード後、メモリから取得"""
-        if self._ensure_cached(key):
-            # LRU updates order even on __getitem__
-            if self._lru_mode:
-                val = self._cache.get(key)
-            else:
+        if not self._lru_mode:
+            val = self._data.get(key, _NOT_FOUND)
+            if val is _NOT_FOUND:
+                if key in self._cached_keys:
+                    raise KeyError(key)
+                if not self._ensure_cached(key):
+                    raise KeyError(key)
                 val = self._data[key]
-            if self._hooks:
-                for hook in self._hooks:
-                    val = hook.after_read(self, key, val)
-            return val
-        raise KeyError(key)
+        else:
+            if not self._ensure_cached(key):
+                raise KeyError(key)
+            # LRU updates order even on __getitem__
+            val = self._cache.get(key)
+        if self._hooks:
+            for hook in self._hooks:
+                val = hook.after_read(self, key, val)
+        return val
 
     def __setitem__(self, key: str, value: Any) -> None:
         """dict[key] = value - 即時書き込み + メモリ更新"""
@@ -1027,8 +1038,10 @@ class NanaSQLite(MutableMapping):
         """
         # FAST PATH: already cached
         if not self._lru_mode:
+            if self._data.get(key, _NOT_FOUND) is not _NOT_FOUND:
+                return True
             if key in self._cached_keys:
-                return key in self._data
+                return False
         else:
             if key in self._data:
                 # Value might be MISSING sentinel
@@ -1084,16 +1097,22 @@ class NanaSQLite(MutableMapping):
 
     def get(self, key: str, default: Any = None) -> Any:
         """dict.get(key, default)"""
-        if self._ensure_cached(key):
-            if self._lru_mode:
-                val = self._cache.get(key)
-            else:
+        if not self._lru_mode:
+            val = self._data.get(key, _NOT_FOUND)
+            if val is _NOT_FOUND:
+                if key in self._cached_keys:
+                    return default
+                if not self._ensure_cached(key):
+                    return default
                 val = self._data[key]
-            if self._hooks:
-                for hook in self._hooks:
-                    val = hook.after_read(self, key, val)
-            return val
-        return default
+        else:
+            if not self._ensure_cached(key):
+                return default
+            val = self._cache.get(key)
+        if self._hooks:
+            for hook in self._hooks:
+                val = hook.after_read(self, key, val)
+        return val
 
     def get_fresh(self, key: str, default: Any = None) -> Any:
         """

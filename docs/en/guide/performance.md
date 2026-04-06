@@ -99,3 +99,26 @@ db.create_index("idx_user_age", "data", ["age"])
 - [ ] Have you applied `create_index` for frequent searches?
 - [ ] Are you using the default `optimize=True`?
 - [ ] Is the database running on an SSD?
+
+---
+
+## v1.5.2 Regression Tracking Notes (since v1.5.0dev1)
+
+We analyzed `etc/bench-data-split1.json` and `etc/bench-data-split2.json` (combined dataset) and confirmed that additional branching in read hot paths was a meaningful contributor to the observed slowdown.
+
+In v1.5.2, we applied a non-breaking optimization for Unbounded-cache read paths (`__getitem__`, `get`, `__contains__`, `_ensure_cached`) by prioritizing `_data` lookup first.
+
+### Non-breaking changes implemented
+- Reduced `_cached_keys`-first checks on positive cache-hit paths
+- Kept `_cached_keys` for known-absent (negative cache) fast return
+- Preserved public API behavior and negative-cache semantics
+
+### Potential breaking options (NOT implemented in v1.5.2)
+- **Option 1: Split negative-cache metadata into separate present/absent structures**
+  - Why: Simplifies branching and reduces ambiguity in hot paths
+  - Impact: Any user code relying on internal `_cached_keys` semantics would need refactoring
+  - User-code migration: stop reading internal fields directly; use public APIs (`in`, `get`, `is_cached`, etc.)
+- **Option 2: Remove `_cached_keys` from Unbounded mode and keep only an absent-only set**
+  - Why: Further simplifies and accelerates read fast paths
+  - Impact: Internal implementation compatibility break for advanced/debug integrations using `_cached_keys`
+  - User-code migration: replace internal `_cached_keys` logic with public API usage
