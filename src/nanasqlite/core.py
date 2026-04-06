@@ -892,6 +892,8 @@ class NanaSQLite(MutableMapping):
         """キャッシュメモリを同期的に更新（呼び出し元でロック取得推奨）"""
         if self._use_cache_set:
             self._cache.set(key, value)
+            if not self._lru_mode:
+                self._absent_keys.discard(key)
         else:
             self._data[key] = value
             self._absent_keys.discard(key)
@@ -1208,7 +1210,7 @@ class NanaSQLite(MutableMapping):
             cursor = self._connection.execute(sql, tuple(missing_keys))
             for key, val_str in cursor:
                 value = self._deserialize(val_str)
-                self._cache.set(key, value)
+                self._update_cache(key, value)
                 results[key] = value
 
         # 3. DBにも存在しなかったキーを「存在しない」としてキャッシュ

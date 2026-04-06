@@ -83,3 +83,42 @@ def test_unbounded_delete_paths_keep_known_absent_metadata_consistent(db_path):
         assert db.get("k3", "d") == "d"
     finally:
         db.close()
+
+
+def test_unbounded_update_cache_clears_stale_absent_marker_with_cache_size(db_path):
+    """
+    In unbounded mode with cache_size (self._use_cache_set=True), cache updates must
+    clear stale known-absent markers.
+    """
+    db = NanaSQLite(db_path, cache_size=2)
+    try:
+        db._absent_keys.add("k1")
+        db._update_cache("k1", "v1")
+        assert "k1" not in db._absent_keys
+        assert db.get("k1") == "v1"
+    finally:
+        db.close()
+
+
+def test_unbounded_batch_get_db_hit_discards_absent_marker(db_path):
+    """
+    batch_get() DB-hit path should discard _absent_keys markers in unbounded mode.
+    """
+    class _AlwaysMissSet(set):
+        def __contains__(self, key):
+            # Force DB query path while retaining marker storage behavior.
+            return False
+
+    db = NanaSQLite(db_path)
+    try:
+        db._write_to_db("revived", "v")
+        spy_absent = _AlwaysMissSet(["revived"])
+        db._absent_keys = spy_absent
+
+        result = db.batch_get(["revived"])
+        assert result["revived"] == "v"
+        assert "revived" not in spy_absent
+        assert len(spy_absent) == 0
+        assert db.get("revived") == "v"
+    finally:
+        db.close()
