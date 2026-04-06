@@ -105,12 +105,12 @@ db.create_index("idx_user_age", "data", ["age"])
 ## v1.5.2 リグレッション追跡メモ（v1.5.0dev1 以降）
 
 `etc/bench-data-split1.json` / `etc/bench-data-split2.json`（結合データ）を分析し、主に read hot-path の追加分岐が性能低下に寄与していることを確認しました。  
-v1.5.2 では破壊的変更なしで、Unbounded キャッシュの `__getitem__` / `get` / `__contains__` / `_ensure_cached` を `_data` 優先の fast-path に最適化しています。
+v1.5.2 では公開 API の破壊的変更を加えずに、Unbounded キャッシュの `__getitem__` / `get` / `__contains__` / `_ensure_cached` を `_data` 優先の fast-path に最適化しています。
 
-### 破壊的変更なしで実施した対応
-- `_cached_keys` 先行判定を縮小し、正のキャッシュヒットは `_data` 1回で解決
-- `_cached_keys` は known-absent（負キャッシュ）判定に限定
-- 既存 API / 例外仕様 / negative cache の意味は維持
+### 公開 API に破壊的変更を加えずに実施した最適化
+- 正のキャッシュヒットはまず `_data` を参照し、read hot-path を 1 回の判定で解決
+- known-absent（負キャッシュ）の判定は `_absent_keys` に分離し、`_data` fast-path とは切り分け
+- 既存 API / 例外仕様 / negative cache の意味は維持しつつ、内部データ構造は変更
 
 ### 破壊的変更（v1.5.2で実施）
 - **negative cache のデータ構造を分離**

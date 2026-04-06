@@ -71,7 +71,8 @@ def test_unbounded_delete_paths_keep_known_absent_metadata_consistent(db_path):
         db["k2"] = "v2"
         db["k3"] = "v3"
 
-        assert db.pop("k1") == "v1"
+        popped = db.pop("k1")
+        assert popped == "v1"
         db.batch_delete(["k2", "k3"])
 
         assert "k1" in db._absent_keys

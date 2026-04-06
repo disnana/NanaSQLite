@@ -1015,15 +1015,17 @@ class NanaSQLite(MutableMapping):
         if self._v2_mode and self._v2_engine:
             self._v2_engine.kvs_delete(self._safe_table, key)
             # See __setitem__ comment: no explicit lock needed for pure in-memory updates in v2 mode.
-            self._cache.delete(key)
-            if not self._lru_mode:
+            if self._lru_mode:
+                self._cache.delete(key)
+            else:
                 self._data.pop(key, None)
                 self._absent_keys.add(key)
         else:
             with self._acquire_lock():
                 self._connection.execute(f"DELETE FROM {self._safe_table} WHERE key = ?", (key,))  # nosec
-                self._cache.delete(key)
-                if not self._lru_mode:
+                if self._lru_mode:
+                    self._cache.delete(key)
+                else:
                     self._data.pop(key, None)
                     self._absent_keys.add(key)
 
@@ -1245,15 +1247,17 @@ class NanaSQLite(MutableMapping):
             # the key after flush().
             if self._v2_mode and self._v2_engine:
                 self._v2_engine.kvs_delete(self._safe_table, key)
-                self._cache.delete(key)
-                if not self._lru_mode:
+                if self._lru_mode:
+                    self._cache.delete(key)
+                else:
                     self._data.pop(key, None)
                     self._absent_keys.add(key)
             else:
                 # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
                 self._delete_from_db(key)
-                self._cache.delete(key)
-                if not self._lru_mode:
+                if self._lru_mode:
+                    self._cache.delete(key)
+                else:
                     self._data.pop(key, None)
                     self._absent_keys.add(key)
 
@@ -1591,8 +1595,9 @@ class NanaSQLite(MutableMapping):
                 self._v2_engine.kvs_delete(self._safe_table, key)
             # See __setitem__ comment: no explicit lock needed for pure in-memory updates in v2 mode.
             for key in keys:
-                self._cache.delete(key)
-                if not self._lru_mode:
+                if self._lru_mode:
+                    self._cache.delete(key)
+                else:
                     self._data.pop(key, None)
                     self._absent_keys.add(key)
             return
@@ -1609,8 +1614,9 @@ class NanaSQLite(MutableMapping):
                 )
                 # キャッシュ更新
                 for key in keys:
-                    self._cache.delete(key)
-                    if not self._lru_mode:
+                    if self._lru_mode:
+                        self._cache.delete(key)
+                    else:
                         self._data.pop(key, None)
                         self._absent_keys.add(key)
                 cursor.execute("COMMIT")

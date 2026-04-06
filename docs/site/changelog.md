@@ -9,7 +9,7 @@ outline: [2, 3]
 #### パフォーマンス修正（v1.5.0dev1 以降の性能低下 継続対応）
 
 - **[High] PERF-06: Unbounded キャッシュ読み取りホットパスの分岐最適化**（`core.py`）
-  - `__getitem__` / `get` / `__contains__` / `_ensure_cached` の Unbounded モードで、`_cached_keys` を先に参照してから `_data` を確認する経路が残っていました。`_cached_keys` は「存在確認済み（在/不在）」の両方を保持するため、正のキャッシュヒット時にも不要な membership 判定が追加され、キャッシュ済み読み取りで無視できないオーバーヘッドになっていました。
+  - `__getitem__` / `get` / `__contains__` / `_ensure_cached` の Unbounded モードで、キャッシュ済み読み取り時の判定順序を見直しました。存在データは `_data` を優先して処理し、known-absent の追跡は `_absent_keys` に分離することで、正のキャッシュヒット時に不要な分岐や membership 判定が入らないよう整理しました。
   - `_data` 優先の fast-path と negative cache（known-absent）専用分岐に再編し、不要な `_ensure_cached()` 呼び出しを削減しました。
   - **効果**: キャッシュ済み読み取り・存在確認の追加オーバーヘッドを削減（既存 API/挙動は維持）。
 
