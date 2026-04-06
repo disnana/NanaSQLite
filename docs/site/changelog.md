@@ -4,6 +4,155 @@ outline: [2, 3]
 
 # 更新履歴
 
+### [1.5.1] - 2026-04-05
+
+#### セキュリティ修正（v1.5.1 プレリリース監査）
+
+- **[Medium] SEC-01: `exists()` の WHERE 句に `_validate_expression()` 未適用を修正**（`core.py`）
+  - `query()` / `count()` / `query_with_pagination()` は WHERE 句を `_validate_expression()` で検証して `forbidden_sql_functions` などのポリシーを適用していましたが、`exists()` はこの検証を行っていませんでした。アプリケーションが `forbidden_sql_functions` を設定していても `exists()` のみポリシーが無視されるという不整合を修正しました。
+  - `exists()` を呼び出す前に `_validate_expression(where, context="where")` を実行するよう変更しました。
+
+- **[Medium] SEC-02: `sql_update()` / `sql_delete()` の WHERE 句に `_validate_expression()` 未適用を修正**（`core.py`）
+  - `sql_update()` と `sql_delete()` の WHERE 句も同様に `_validate_expression()` が呼ばれていませんでした。`strict_sql_validation=True` / `forbidden_sql_functions` の設定がこれらのメソッドでは機能しない不整合を修正しました。
+
+#### バグ修正（v1.5.1 プレリリース監査）
+
+- **[High] BUG-01: `pop()` が v2 モードで v2 エンジンをバイパスする問題を修正**（`core.py`）
+  - v2 モードで `pop()` を呼ぶと `_delete_from_db()` が直接 DB へ DELETE を発行し、v2 staging buffer を完全にバイパスしていました。staging buffer に SET 操作が残留している状態でこの直接 DELETE が実行されると、その後の `flush()` で staging の SET が DB に書き込まれてキーが「復活」するデータ整合性バグが発生していました。`__delitem__` と同様に v2 モードでは `v2_engine.kvs_delete()` を経由するよう修正しました。
+
+- **[Medium] BUG-02: `batch_get()` が `_cached_keys` の「存在しない」ステータスを尊重しない問題を修正**（`core.py`）
+  - `__delitem__` 実行後、キーは `_cached_keys` に「存在しない」として記録されますが、`batch_get()` は `_data` のみを確認して `_cached_keys` を参照しないため、v2 non-immediate モードでは staging の DELETE がまだ DB に反映されていない状態で `batch_get()` が DB の旧値を返してしまう不整合がありました。`batch_get()` でも `_cached_keys` を確認して「既知の不在キー」をスキップするよう修正しました。
+
+- **[Low] BUG-03: `to_dict()` が LRU/TTL モードで `MISSING` センチネル値を含む問題を修正**（`core.py`）
+  - LRU/TTL キャッシュモードでは、存在しないキーへのアクセス時に `MISSING` センチネルがキャッシュに書き込まれます（負キャッシュ）。`to_dict()` がこれをフィルタリングせずに返していたため、結果に `{key: <MISSING sentinel>}` が混入する可能性がありました。`items()` と同様に `MISSING` をフィルタリングするよう修正しました。
+
+#### パフォーマンス修正（v1.5.1 プレリリース監査）
+
+- **[Low] PERF-05: `fast_validate_sql_chars()` のホットパス最適化**（`sql_utils.py`）
+  - `fast_validate_sql_chars()` が呼び出しごとに `set(...)` で文字セットオブジェクトを新規生成していました。この関数は全てのクエリメソッドのバリデーション経路（ホットパス）から呼ばれるため、モジュールレベルの `frozenset` 定数 `_SAFE_SQL_CHARS` として事前計算するよう変更しました。約 200–300 ns / 呼び出しのオーバーヘッドを削減します。
+
+#### パフォーマンス修正（v1.5.0dev1 以降の性能低下対応）
+
+ベンチマーク（RPI 実機）で確認された v1.5.0dev1 以降の性能低下を修正しました。
+
+- **[Critical] PERF-01: フックホットパスのオーバーヘッド除去**（`core.py`）
+  - `__getitem__`・`__setitem__`・`__delitem__`・`get`・`batch_get`・`setdefault`・`pop`・`batch_update_partial`・`batch_delete` の全ての読み書き操作で、毎呼び出し `getattr(self, "_hooks", [])` を実行していたため、フックが未設定の場合でも無視できないオーバーヘッドが発生していました。`self._hooks`（常に初期化済み）への直接アクセスと `if self._hooks:` による早期スキップに変更しました。
+  - **効果**: キャッシュ済みキーの読み込み速度が約 30% 向上（実機 RPI: ~1.74M → ~2.3M ops/sec 相当）。
+
+- **[Critical] PERF-02: v2 モードにおける共有ロック競合の解消**（`core.py`）
+  - `__setitem__`・`__delitem__`・`batch_update`・`batch_delete` の v2 モードパスで、インメモリキャッシュの更新（`_data[key] = value` 等）に対して DB フラッシュスレッドと共有するロックを使用していました。このため、バックグラウンドフラッシュスレッドが DB トランザクションのためにロックを保持している間、メインスレッドのキャッシュ更新がブロックされ、特に低速 CPU（Raspberry Pi 等）で深刻なスループット低下を引き起こしていました。
+  - v2 モードにおいてインメモリのみの更新操作は Python の GIL によるアトミック性が保証されており、バックグラウンドフラッシュスレッドは `_data` / `_cached_keys` に直接アクセスしないため、これらの操作に対する明示的なロック取得は不要です。
+  - **効果**: v2 immediate モードの書き込みスループットが約 3.7 倍向上（実機 RPI: ~169 → ~600+ calls/sec 相当）。
+
+- **[Medium] PERF-03: `_update_cache` 内の `hasattr()` 呼び出しを事前計算に変更**（`core.py`）
+  - `_update_cache()` が毎呼び出し `hasattr(self._cache, "_max_size")` を実行していたため、書き込みパスで不要なオーバーヘッドが発生していました。`__init__` 時に `_use_cache_set` フラグとして事前計算するように変更し、ホットパスから `hasattr()` 呼び出しを除去しました。
+  - **効果**: 書き込みパスで約 2-3% の速度改善。
+
+- **[Medium] PERF-04: `_acquire_lock()` を `@contextmanager` ジェネレータから直接 RLock 返却に変更**（`core.py`）
+  - `_acquire_lock()` が `@contextmanager` デコレータを使用していたため、毎呼び出しでジェネレータオブジェクトの生成・`next()` 呼び出し・`contextlib` のオーバーヘッドが発生していました。タイムアウト未設定（共通ケース）の場合は `threading.RLock` オブジェクトをそのまま返し、タイムアウト設定時のみ新設の `_TimedLockContext` を返すよう変更しました。`RLock` は C レベルの `__enter__`/`__exit__` を持つため、ジェネレータより大幅に高速です。
+  - **効果**: 非 v2 書き込みで約 7% の速度改善。
+
+### [1.5.0] - 2026-04-04
+
+#### セキュリティ修正（v1.5.0 プレリリース監査）
+
+- **[Critical] SEC-03**: `UniqueHook` における TOCTOU (Time-of-check/Time-of-use) 競合状態を文書化・警告追加。ユニーク制約チェックが DB 書き込みの外側で行われるため、マルチスレッド環境では制約をバイパスされる可能性があることをクラス docstring に明記しました。本質的な修正には SQLite ネイティブ制約 (`UNIQUE`) または排他ロックの適用を推奨します。
+- **[Critical] SEC-04**: `ForeignKeyHook` における TOCTOU 競合状態を同様に文書化・警告追加。参照整合性制約チェックとDB書き込みの間に参照先キーが削除される可能性を docstring に明記。本質的な修正には `PRAGMA foreign_keys=ON` の使用を推奨します。
+- **[High] SEC-05**: `BaseHook` の `key_pattern` 正規表現パターンに ReDoS (正規表現によるサービス拒否) 脆弱性が存在しました。悪意ある正規表現パターンにより CPU 負荷を引き起こす可能性があったため、コンストラクト時にパターン検証を行うよう修正しました。
+- **[High] SEC-06**: フック制約違反時のエラーメッセージに詳細なフィールド名・値が含まれ、情報漏洩の恐れがありました。エラーメッセージを汎用化し、詳細情報はサーバーサイドのログのみに記録するように修正しました。
+
+#### バグ修正（v1.5.0 プレリリース監査）
+
+- **[Critical] BUG-05**: `PydanticHook` が全ての例外を `ValidationError` として一律に変換・抑制していた問題を修正。`ConnectionError`, `MemoryError` 等のシステムエラーは正しく再送出されるようになりました。
+- **[High] BUG-06**: フック処理において値が変更されない場合も不要な辞書コピーを行っていた問題を修正。変更検出ロジックを導入し、実際に値が変更された場合のみ新しい辞書を生成するようにしました（バッチ処理でのメモリ効率改善）。
+
+#### コード品質修正（PR レビュー指摘対応）
+
+- **[Low] BANDIT-B110**: `v2_engine.py` にて Bandit が指摘した `try/except/pass` パターン（`atexit.unregister` の空キャッチ）を `contextlib.suppress(Exception)` に置き換え。
+- **[Low] POC クリーンアップ**: CodeQL・Bandit が指摘した POC スクリプト内の問題（未使用インポート、未使用変数、bare `except`、ReDoS パターンのリテラル埋め込み）をすべて修正。テストファイル内の重複 `import sqlite3` も解消。
+
+#### パッケージングとIDE支援の改善
+
+- **[High] PEP 561 準拠と型補完の修正**:
+  - `pyproject.toml` の `tool.setuptools` 設定を標準的な `src-layout` 用に刷新。これまで PyPI 配布版で `import nanasqlite` した際に型補完（IntelliSense）が効かなかった問題を修正しました。
+  - `include-package-data = true` を有効化し、`MANIFEST.in` を追加することで、ビルドされたパッケージ (.whl, sdist) に確実に `py.typed` ファイルが含まれるようにしました。
+  - これにより、VS Code (Pylance) や PyCharm 等の主要な IDE で、インストール直後から `NanaSQLite` や `PydanticHook` などの完全な型補完が利用可能になりました。
+
+#### リリース品質監査 (Release Audit) による改善
+
+- **[Critical] BUG-01**: `batch_update`, `batch_update_partial`, `batch_delete` メソッドにおいて V2 モードをバイパスして直接 DB を書き換えていた不具合を修正。V2 エンジンのステージングバッファを経由するようにルーティングし、データの整合性と順序を保証しました。
+- **[Critical] BUG-02**: `clear()` および `load_all()` メソッドにおいて、V2 エンジンの `flush()` が完了する前に DB 操作が実行され、古いデータが再挿入される「幽霊書き込み（Ghost Re-inserts）」が発生する問題を修正。`flush(wait=True)` による同期的待機を導入しました。
+- **[High] QUAL-01**: `AsyncNanaSQLite.add_hook()` の実装を整理。ベース DB 初期化前後のフック登録処理を堅牢化し、非同期実行時の安定性を向上させました。
+- **[Non-Breaking] API 拡張**: `flush()` (同期) および `aflush()` (非同期) に `wait` 引数を追加。バックグラウンド処理の完了を待機できるようになりました。
+- **[High] Python 3.9 互換性の完全復旧**:
+  - 全てのソースファイルに `from __future__ import annotations` を追加し、Python 3.10+ の `|` (Union) 演算子を型ヒントで使用していても Python 3.9 で動作するように修正しました。
+  - `compat.py` に `EllipsisType` の互換レイヤーを導入し、Python 3.9 環境での `mypy` チェックと実行時の型検証の安定性を向上させました。
+  - `pyproject.toml` の `mypy` 設定を `3.9` に更新し、継続的な互換性を保証しました。
+
+#### 新機能: Ultimate Hooks (汎用フック＆制約アーキテクチャ)
+
+- **強力なフック機構の導入**:
+  - `NanaHook` プロトコルを新設し、`before_write`, `after_read`, `before_delete` の3つのライフサイクルイベントをフック可能にしました。
+  - カスタムフックを自作することで、データの検証、暗号化の拡張、ロギング、他システムへの通知などを自由に実装できます。
+- **標準制約（Standard Constraints）の組み込み**:
+  - `CheckHook`: SQLite の `CHECK` 制約のような関数ベースの検証を提供。
+  - `UniqueHook`: 指定したキー（またはフィールド）の値の一意性を保証（TOCTOU 警告あり、詳細は SEC-03 参照）。
+  - `ForeignKeyHook`: 他の `NanaSQLite` テーブルのキーに対する参照整合性を保証（TOCTOU 警告あり、詳細は SEC-04 参照）。
+- **外部ライブラリ統合の透過的サポート**:
+  - `ValidkitHook`: 従来の `validator` 引数と互換性を持ち、`validkit-py` による高性能バリデーションを提供。
+  - `PydanticHook`: `Pydantic` モデルを直接フックに登録することで、読み書き時の自動シリアライズ/デシリアライズおよび厳格な型検証を実現。
+- **メソッドの拡張**:
+  - `NanaSQLite.add_hook()` および `AsyncNanaSQLite.add_hook()` を追加しました。
+
+#### アーキテクチャ強化と後方互換性
+
+- 従来の `validator` パラメータは内部的に `ValidkitHook` へと自動変換されるようになり、後方互換性が100%維持されています。
+- `batch_update`, `get`, `batch_get`, `setdefault`, `pop` など、あらゆるアクセス経路でフックが等しく適用されるように内部ロジックを統合・堅牢化しました。
+
+#### 監査・テスト
+
+- プレリリース監査レポート (`audit.md`) を更新 — v1.5.0 向け 12 件の発見事項を文書化。
+- POC スクリプト 5 件を `etc/poc/` に追加。
+- POC 検証テスト 14 件を `tests/test_audit_poc.py` に追加。
+
+### [1.5.0dev2] - 2026-03-28 *(リリース済みバージョン — v1.5.0 に統合)*
+
+#### パッケージングとIDE支援の改善
+- **[High] PEP 561 準拠と型補完の修正**:
+  - `pyproject.toml` の `tool.setuptools` 設定を標準的な `src-layout` 用に刷新。これまで PyPI 配布版で `import nanasqlite` した際に型補完（IntelliSense）が効かなかった問題を修正しました。
+  - `include-package-data = true` を有効化し、`MANIFEST.in` を追加することで、ビルドされたパッケージ (.whl, sdist) に確実に `py.typed` ファイルが含まれるようにしました。
+  - これにより、VS Code (Pylance) や PyCharm 等の主要な IDE で、インストール直後から `NanaSQLite` や `PydanticHook` などの完全な型補完が利用可能になりました。
+
+### [1.5.0dev1] - 2026-03-28
+
+#### リリース品質監査 (Release Audit) による改善
+- **[Critical] BUG-01**: `batch_update`, `batch_update_partial`, `batch_delete` メソッドにおいて V2 モードをバイパスして直接 DB を書き換えていた不具合を修正。V2 エンジンのステージングバッファを経由するようにルーティングし、データの整合性と順序を保証しました。
+- **[Critical] BUG-02**: `clear()` および `load_all()` メソッドにおいて、V2 エンジンの `flush()` が完了する前に DB 操作が実行され、古いデータが再挿入される「幽霊書き込み（Ghost Re-inserts）」が発生する問題を修正。`flush(wait=True)` による同期的待機を導入しました。
+- **[High] QUAL-01**: `AsyncNanaSQLite.add_hook()` の実装を整理。ベース DB 初期化前後のフック登録処理を堅牢化し、非同期実行時の安定性を向上させました。
+- **[Non-Breaking] API 拡張**: `flush()` (同期) および `aflush()` (非同期) に `wait` 引数を追加。バックグラウンド処理の完了を待機できるようになりました。
+- **[High] Python 3.9 互換性の完全復旧**:
+  - 全てのソースファイルに `from __future__ import annotations` を追加し、Python 3.10+ の `|` (Union) 演算子を型ヒントで使用していても Python 3.9 で動作するように修正しました。
+  - `compat.py` に `EllipsisType` の互換レイヤーを導入し、Python 3.9 環境での `mypy` チェックと実行時の型検証の安定性を向上させました。
+  - `pyproject.toml` の `mypy` 設定を `3.9` に更新し、継続的な互換性を保証しました。
+
+#### 新機能: Ultimate Hooks (汎用フック＆制約アーキテクチャ)
+- **強力なフック機構の導入**:
+  - `NanaHook` プロトコルを新設し、`before_write`, `after_read`, `before_delete` の3つのライフサイクルイベントをフック可能にしました。
+  - カスタムフックを自作することで、データの検証、暗号化の拡張、ロギング、他システムへの通知などを自由に実装できます。
+- **標準制約（Standard Constraints）の組み込み**:
+  - `CheckHook`: SQLite の `CHECK` 制約のような関数ベースの検証を提供。
+  - `UniqueHook`: 指定したキー（またはフィールド）の値の一意性を保証。
+  - `ForeignKeyHook`: 他の `NanaSQLite` テーブルのキーに対する参照整合性を保証。
+- **外部ライブラリ統合の透過的サポート**:
+  - `ValidkitHook`: 従来の `validator` 引数と互換性を持ち、`validkit-py` による高性能バリデーションを提供。
+  - `PydanticHook`: `Pydantic` モデルを直接フックに登録することで、読み書き時の自動シリアライズ/デシリアライズおよび厳格な型検証を実現。
+- **メソッドの拡張**:
+  - `NanaSQLite.add_hook()` および `AsyncNanaSQLite.add_hook()` を追加しました。
+
+#### アーキテクチャ強化と後方互換性
+- 従来の `validator` パラメータは内部的に `ValidkitHook` へと自動変換されるようになり、後方互換性が100%維持されています。
+- `batch_update`, `get`, `batch_get`, `setdefault`, `pop` など、あらゆるアクセス経路でフックが等しく適用されるように内部ロジックを統合・堅牢化しました。
+
 ### [1.4.1] - 2026-03-25
 
 #### セキュリティ修正
