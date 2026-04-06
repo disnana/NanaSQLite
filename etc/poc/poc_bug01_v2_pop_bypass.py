@@ -51,9 +51,9 @@ finally:
     try:
         os.unlink(path)
     except OSError:
-        pass
+        pass  # file may already have been removed or never created; safe to ignore
     for suffix in ("-wal", "-shm", "-journal"):
         try:
             os.unlink(path + suffix)
         except OSError:
-            pass
+            pass  # WAL/SHM/journal files are optional; absence is not an error

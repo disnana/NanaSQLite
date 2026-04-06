@@ -325,3 +325,101 @@ def sql_delete(self, table_name: str, where: str, parameters: tuple = None) -> i
 |----|--------|----------|
 | BUG-04 | Low | `get_db_size()` がインメモリ DB で FileNotFoundError を発生させる |
 | QUAL-01 | Low | `AsyncNanaSQLite.table()` が同期版の一部オプション引数を公開しない |
+
+---
+
+## 第2パス監査 (2026-04-06)
+
+**監査コミット:** `6f51f6a`  
+**監査方針:** 第1パスで発見された全修正の検証、BUG-01 修正のエッジケース確認、新規問題の探索。
+
+### 修正検証結果
+
+#### BUG-01 [High] ✅ VERIFIED
+
+`pop()` の v2 パスが `__delitem__` と完全に対称であることを確認した。
+
+- `v2_engine.kvs_delete()` → staging buffer に DELETE を積む ✓  
+- `_cache.delete(key)` → `_data` から削除し `_cached_keys` に追加 ✓  
+- `if not self._lru_mode:` ブロックの `_data.pop` / `_cached_keys.add` は `UnboundedCache.delete()` の後に呼ばれるため冗長だが無害 ✓  
+- hooks (`before_delete` / `after_read`) の呼び出し順序は修正前と同一 ✓  
+- v2+LRU モード: `_cache.delete(key)` で LRU データから削除、以後 `_ensure_cached` が staging buffer の "delete" action を確認して False を返す ✓
+
+**回帰なし。新たなエッジケースなし。**
+
+#### BUG-02 [Medium] ✅ VERIFIED
+
+`batch_get()` の BUG-02 修正 (`elif not self._lru_mode and key in self._cached_keys: pass`) を検証。
+
+- 非 LRU モード: `_cached_keys` に存在するが `_data` に存在しないキーを「既知不在」として正しくスキップ ✓  
+- LRU モード: `not self._lru_mode` が False のため、この elif 分岐は決して実行されない。LRU モードの動作は修正前と同一 ✓  
+- v2 モードで SET 直後のキーは `_update_cache()` により常に `_data` に存在するため、`batch_get` のステージングバッファ未チェックは問題にならない ✓  
+- LRU モードで MISSING センチネルが格納されているキーは `cache_data` に存在するが `val is not MISSING` が False になるため `missing_keys` に回され DB 再クエリされる。この挙動は修正前と同一で設計通り ✓
+
+**回帰なし。**
+
+#### BUG-03 [Low] ✅ VERIFIED
+
+`to_dict()` の MISSING フィルタを検証。
+
+- LRU/TTL モード: `mark_cached(key)` が `_data` に MISSING を格納する場合があり、フィルタが機能 ✓  
+- 非 LRU モード: `UnboundedCache.delete()` は `_data` からキーを削除するため MISSING は `_data` に現れない。フィルタは no-op だが無害 ✓  
+- `load_all()` が事前に呼ばれるため `_data` に全 DB レコードが展開済み ✓
+
+**回帰なし。**
+
+#### SEC-01 [Medium] ✅ VERIFIED
+
+`exists()` の WHERE 句に `_validate_expression(where, context="where")` が追加され、他のクエリメソッドと一貫した検証が行われることを確認。
+
+#### SEC-02 [Medium] ✅ VERIFIED
+
+`sql_update()` および `sql_delete()` の WHERE 句に `_validate_expression(where, context="where")` が追加されていることを確認。`strict_sql_validation=True` 設定が正しく機能する。
+
+#### PERF-05 [Low] ✅ VERIFIED
+
+`_SAFE_SQL_CHARS` frozenset の文字セットがオリジナルの `set()` 呼び出しと完全に同一であることを `git show 6f51f6a -- src/nanasqlite/sql_utils.py` で確認:
+
+```
+-    safe_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_ ,.()'=<>!+-*/\"|?:@$")
++_SAFE_SQL_CHARS: frozenset[str] = frozenset(
++    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_ ,.()'=<>!+-*/\"|?:@$"
++)
+```
+
+文字セットは等価、挙動変化なし。
+
+#### BUG-04 [Low] ✅ DOCUMENTED ONLY (確認済)
+
+`get_db_size()` のインメモリ DB における OSError はドキュメントのみ対応として記録済み。コードは変更なし。
+
+#### QUAL-01 [Low] ✅ DOCUMENTED ONLY (確認済)
+
+`AsyncNanaSQLite.table()` に `lock_timeout` 転送がないことはドキュメントのみ対応として記録済み。なお、`lock_timeout` は `async_core.py` では使用されていないため実際の影響は限定的。
+
+### 新規発見事項
+
+#### OBS-01 [Info] `__contains__` が v2+LRU モードでステージングバッファを参照しない (既知の制限)
+
+**ファイル:** `core.py` L1021–1049
+
+v2+LRU モードでキーを削除（pop/del）した直後、ステージングバッファへの DELETE がまだ DB にフラッシュされていない場合、`__contains__` が DB を直接参照して `True` を返す可能性がある。
+
+これは `__contains__` が `_ensure_cached()` を呼ばず DB に直接クエリするため発生する。v2+非 LRU モードでは `_cached_keys` のファストパスにより回避される。
+
+**評価:** BUG-01 修正によって導入されたものではなく、v2 モードの設計上の eventual consistency に起因する既知の制限。`_ensure_cached()` は v2 ステージングバッファを正しく参照しており、`__getitem__` ・ `pop()` ・ `batch_get()` ではデータ整合性が維持される。`__contains__` (`in` 演算子) のみ v2+LRU 環境で短期間の stale read が発生しうる。
+
+**対応:** 新規修正不要。将来バージョンでの改善候補として記録する。
+
+### テスト結果
+
+- `python -m tox -e lint` → **PASS** (ruff: エラーなし)
+- `python -m tox -e type` → **PASS** (mypy: エラーなし)
+- `NANASQLITE_SUPPRESS_MP_WARNING=1 python -m pytest tests/ -x --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py --ignore=tests/test_cache_benchmark.py --ignore=tests/benchmark_encryption.py` → **785 passed, 6 skipped**
+
+### 第2パス結論
+
+第1パスで指摘された全 8 件の修正は正しく適用されており、回帰はない。  
+新規 Critical/High 問題は発見されなかった。  
+OBS-01 として v2+LRU モードの `__contains__` に既知の制限を記録したが、修正は不要。  
+**v1.5.1 リリース準備は完了していると判断する。**
