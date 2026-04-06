@@ -106,19 +106,15 @@ db.create_index("idx_user_age", "data", ["age"])
 
 We analyzed `etc/bench-data-split1.json` and `etc/bench-data-split2.json` (combined dataset) and confirmed that additional branching in read hot paths was a meaningful contributor to the observed slowdown.
 
-In v1.5.2, we applied a non-breaking optimization for Unbounded-cache read paths (`__getitem__`, `get`, `__contains__`, `_ensure_cached`) by prioritizing `_data` lookup first.
+In v1.5.2, we applied a read-path optimization for Unbounded cache (`__getitem__`, `get`, `__contains__`, `_ensure_cached`) by prioritizing `_data` lookup first.
 
-### Non-breaking changes implemented
-- Reduced `_cached_keys`-first checks on positive cache-hit paths
-- Kept `_cached_keys` for known-absent (negative cache) fast return
+### Changes implemented
+- Prioritized `_data` on positive cache-hit paths
+- Switched known-absent tracking to dedicated `_absent_keys` in Unbounded mode
 - Preserved public API behavior and negative-cache semantics
 
-### Potential breaking options (NOT implemented in v1.5.2)
-- **Option 1: Split negative-cache metadata into separate present/absent structures**
-  - Why: Simplifies branching and reduces ambiguity in hot paths
-  - Impact: Any user code relying on internal `_cached_keys` semantics would need refactoring
-  - User-code migration: stop reading internal fields directly; use public APIs (`in`, `get`, `is_cached`, etc.)
-- **Option 2: Remove `_cached_keys` from Unbounded mode and keep only an absent-only set**
-  - Why: Further simplifies and accelerates read fast paths
-  - Impact: Internal implementation compatibility break for advanced/debug integrations using `_cached_keys`
-  - User-code migration: replace internal `_cached_keys` logic with public API usage
+### Breaking change implemented in v1.5.2
+- In Unbounded mode, mixed-state `_cached_keys` metadata was replaced with dedicated known-absent metadata (`_absent_keys`).
+- Why: Simplifies hot-path branching and avoids mixed present/absent semantics in one structure.
+- Impact: Internal integrations relying on `_cached_keys` in Unbounded mode are no longer compatible.
+- Migration: stop depending on internal metadata fields; use public APIs (`in`, `get`, `is_cached`, etc.).

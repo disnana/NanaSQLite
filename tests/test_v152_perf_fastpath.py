@@ -22,7 +22,7 @@ def db_path():
 
 def test_unbounded_getitem_and_get_use_data_first(db_path):
     """
-    Unbounded モードでキャッシュヒット時は _cached_keys を見に行かず、
+    Unbounded モードでキャッシュヒット時は known-absent セットを見に行かず、
     _data だけで即時に値取得できることを確認する。
 
     注: このテストは公開API仕様ではなく、v1.5.2 の内部 fast-path
@@ -31,8 +31,8 @@ def test_unbounded_getitem_and_get_use_data_first(db_path):
     db = NanaSQLite(db_path)
     try:
         db["k1"] = {"v": 1}
-        # _cached_keys を意図的に壊しても、_data 優先なら読み出せる
-        db._cached_keys.discard("k1")
+        # _absent_keys を意図的に壊しても、_data 優先なら読み出せる
+        db._absent_keys.add("k1")
 
         assert db["k1"] == {"v": 1}
         assert db.get("k1") == {"v": 1}
@@ -52,7 +52,7 @@ def test_unbounded_contains_and_missing_semantics_preserved(db_path):
 
         # 1回目の contains で negative cache 化される
         assert "missing" not in db
-        assert "missing" in db._cached_keys
+        assert "missing" in db._absent_keys
         assert db.get("missing", "d") == "d"
         with pytest.raises(KeyError):
             _ = db["missing"]

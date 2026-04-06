@@ -339,12 +339,9 @@ class NanaSQLite(MutableMapping):
         )
 
         if not self._lru_mode:
-            # Unbounded 以外のモードでは内部辞書の直接参照を使用しない場合があるが、
-            # 現状の設計では _cached_keys を通じて存在チェックを行っている
-            self._cached_keys = self._cache._cached_keys  # type: ignore
-        else:
-            # LRU/TTL モードでは、データ保持自体が存在の証
-            self._cached_keys = self._data  # type: ignore
+            # Breaking change (v1.5.2): keep "known-absent" metadata separately
+            # from positive cache data to simplify and speed up read hot paths.
+            self._absent_keys: set[str] = set()
 
         self._all_loaded: bool = False  # 全データ読み込み済みフラグ
 
@@ -897,7 +894,7 @@ class NanaSQLite(MutableMapping):
             self._cache.set(key, value)
         else:
             self._data[key] = value
-            self._cached_keys.add(key)
+            self._absent_keys.discard(key)
 
     def _ensure_cached(self, key: str) -> bool:
         """
@@ -912,7 +909,7 @@ class NanaSQLite(MutableMapping):
             # Use .get(..., _NOT_FOUND) to combine existence+load in one dict lookup.
             if self._data.get(key, _NOT_FOUND) is not _NOT_FOUND:
                 return True
-            if key in self._cached_keys:
+            if key in self._absent_keys:
                 return False
         else:
             if key in self._data:
@@ -934,7 +931,7 @@ class NanaSQLite(MutableMapping):
                             self._cache.mark_cached(key)
                         else:
                             self._data.pop(key, None)
-                            self._cached_keys.add(key)
+                            self._absent_keys.add(key)
                     return False
 
         # DBから読み込み
@@ -951,7 +948,7 @@ class NanaSQLite(MutableMapping):
                 self._cache.mark_cached(key)
             else:
                 self._data.pop(key, None)
-                self._cached_keys.add(key)
+                self._absent_keys.add(key)
         return False
 
     # ==================== Dict Interface ====================
@@ -961,7 +958,7 @@ class NanaSQLite(MutableMapping):
         if not self._lru_mode:
             val = self._data.get(key, _NOT_FOUND)
             if val is _NOT_FOUND:
-                if key in self._cached_keys:
+                if key in self._absent_keys:
                     raise KeyError(key)
                 if not self._ensure_cached(key):
                     raise KeyError(key)
@@ -987,7 +984,7 @@ class NanaSQLite(MutableMapping):
         # v2 Architecture: Route to background staging buffer instead of blocking DB write
         if self._v2_mode and self._v2_engine:
             self._v2_engine.kvs_set(self._safe_table, key, value)
-            # In v2 mode, _update_cache only modifies in-memory structures (_data / _cached_keys).
+            # In v2 mode, _update_cache only modifies in-memory structures (_data / _absent_keys).
             # The background flush thread never accesses these structures; it only touches the
             # SQLite connection.  Acquiring the shared lock here creates contention with the
             # flush thread and causes significant throughput regression on slow CPUs (e.g. ARM).
@@ -1021,14 +1018,14 @@ class NanaSQLite(MutableMapping):
             self._cache.delete(key)
             if not self._lru_mode:
                 self._data.pop(key, None)
-                self._cached_keys.add(key)
+                self._absent_keys.add(key)
         else:
             with self._acquire_lock():
                 self._connection.execute(f"DELETE FROM {self._safe_table} WHERE key = ?", (key,))  # nosec
                 self._cache.delete(key)
                 if not self._lru_mode:
                     self._data.pop(key, None)
-                    self._cached_keys.add(key)
+                    self._absent_keys.add(key)
 
     def __contains__(self, key: str) -> bool:
         """
@@ -1042,7 +1039,7 @@ class NanaSQLite(MutableMapping):
             # Use .get(..., _NOT_FOUND) to avoid "in" + index double lookup.
             if self._data.get(key, _NOT_FOUND) is not _NOT_FOUND:
                 return True
-            if key in self._cached_keys:
+            if key in self._absent_keys:
                 return False
         else:
             if key in self._data:
@@ -1060,7 +1057,7 @@ class NanaSQLite(MutableMapping):
             # In unbounded mode, remember negative lookups so repeated
             # "key in dict" checks for missing keys don't keep hitting the DB.
             if not self._lru_mode and not exists:
-                self._cached_keys.add(key)
+                self._absent_keys.add(key)
             return exists
 
     def __len__(self) -> int:
@@ -1102,7 +1099,7 @@ class NanaSQLite(MutableMapping):
         if not self._lru_mode:
             val = self._data.get(key, _NOT_FOUND)
             if val is _NOT_FOUND:
-                if key in self._cached_keys:
+                if key in self._absent_keys:
                     return default
                 if not self._ensure_cached(key):
                     return default
@@ -1152,7 +1149,7 @@ class NanaSQLite(MutableMapping):
                 self._cache.delete(key)
             else:
                 self._data.pop(key, None)
-                self._cached_keys.add(key)
+                self._absent_keys.add(key)
         return default
 
     def batch_get(self, keys: list[str]) -> dict[str, Any]:
@@ -1181,15 +1178,15 @@ class NanaSQLite(MutableMapping):
         # 1. キャッシュから取得可能なものをチェック
         # `cache_data` はライブデータそのもの（ExpiringDict 等）を指すため、
         # TTL 期限切れで実データから削除されたキーは False になり、
-        # 正しく missing_keys に回される（is_cached() の _cached_keys 残留バグを回避）
+        # 正しく missing_keys に回される
         cache_data = self._cache.get_data()
         for key in keys:
             if key in cache_data:
                 val = cache_data[key]
                 if val is not MISSING:
                     results[key] = val
-            elif not self._lru_mode and key in self._cached_keys:
-                # BUG-02 fix: key is "known absent" (_cached_keys records it was checked
+            elif not self._lru_mode and key in self._absent_keys:
+                # BUG-02 fix: key is "known absent" (_absent_keys records it was checked
                 # and not found, or was explicitly deleted).  Honour this status rather
                 # than falling back to a DB query that may return a stale value,
                 # particularly in v2 non-immediate modes where a pending delete has not
@@ -1246,7 +1243,7 @@ class NanaSQLite(MutableMapping):
                 self._cache.delete(key)
                 if not self._lru_mode:
                     self._data.pop(key, None)
-                    self._cached_keys.add(key)
+                    self._absent_keys.add(key)
             else:
                 # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
                 self._delete_from_db(key)
@@ -1322,6 +1319,8 @@ class NanaSQLite(MutableMapping):
         with self._acquire_lock():
             self._connection.execute(f"DELETE FROM {self._safe_table}")  # nosec
         self._cache.clear()
+        if not self._lru_mode:
+            self._absent_keys.clear()
         self._all_loaded = False
 
     def setdefault(self, key: str, default: Any = None) -> Any:
@@ -1355,6 +1354,8 @@ class NanaSQLite(MutableMapping):
         for key, value in rows:
             self._cache.set(key, self._deserialize(value))
 
+        if not self._lru_mode:
+            self._absent_keys.clear()
         self._all_loaded = True
 
     def refresh(self, key: str | None = None) -> None:
@@ -1368,7 +1369,7 @@ class NanaSQLite(MutableMapping):
             # FAST PATH for performance
             if not self._lru_mode:
                 self._data.pop(key, None)
-                self._cached_keys.discard(key)
+                self._absent_keys.discard(key)
             else:
                 self._cache.invalidate(key)
             self._ensure_cached(key)
@@ -1379,7 +1380,7 @@ class NanaSQLite(MutableMapping):
         """キーがキャッシュ済みかどうか"""
         # FAST PATH for performance
         if not self._lru_mode:
-            return key in self._cached_keys
+            return key in self._data or key in self._absent_keys
         return self._cache.is_cached(key)
 
     def batch_update(self, mapping: dict[str, Any]) -> None:
@@ -1445,7 +1446,7 @@ class NanaSQLite(MutableMapping):
                     self._cache.set(key, value)
                 else:
                     self._data[key] = value
-                    self._cached_keys.add(key)
+                    self._absent_keys.discard(key)
             return
 
         with self._acquire_lock():
@@ -1464,7 +1465,7 @@ class NanaSQLite(MutableMapping):
                         self._cache.set(key, value)
                     else:
                         self._data[key] = value
-                        self._cached_keys.add(key)
+                        self._absent_keys.discard(key)
                 cursor.execute("COMMIT")
             except Exception:
                 cursor.execute("ROLLBACK")
@@ -1530,7 +1531,7 @@ class NanaSQLite(MutableMapping):
                         self._cache.set(key, value)
                     else:
                         self._data[key] = value
-                        self._cached_keys.add(key)
+                        self._absent_keys.discard(key)
             return failed
 
         with self._acquire_lock():
@@ -1546,7 +1547,7 @@ class NanaSQLite(MutableMapping):
                         self._cache.set(key, value)
                     else:
                         self._data[key] = value
-                        self._cached_keys.add(key)
+                        self._absent_keys.discard(key)
                 cursor.execute("COMMIT")
             except Exception:
                 cursor.execute("ROLLBACK")
@@ -1585,7 +1586,7 @@ class NanaSQLite(MutableMapping):
                 self._cache.delete(key)
                 if not self._lru_mode:
                     self._data.pop(key, None)
-                    self._cached_keys.add(key)
+                    self._absent_keys.add(key)
             return
 
         with self._acquire_lock():
@@ -1627,6 +1628,8 @@ class NanaSQLite(MutableMapping):
         DBのデータは削除せず、メモリ上のキャッシュのみ破棄します。
         """
         self._cache.clear()
+        if not self._lru_mode:
+            self._absent_keys.clear()
         self._all_loaded = False
 
     def _delete_from_db_on_expire(self, key: str) -> None:

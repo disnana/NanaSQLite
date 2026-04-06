@@ -13,6 +13,12 @@ outline: [2, 3]
   - `_data` 優先の fast-path と negative cache（known-absent）専用分岐に再編し、不要な `_ensure_cached()` 呼び出しを削減しました。
   - **効果**: キャッシュ済み読み取り・存在確認の追加オーバーヘッドを削減（既存 API/挙動は維持）。
 
+#### 破壊的変更（許可済み対応）
+
+- Unbounded モードの内部メタデータを `_cached_keys` から `_absent_keys`（known-absent 専用）へ分離しました。
+  - 公開 API への影響はありませんが、内部属性 `_cached_keys` に依存するコードは互換性がありません。
+  - 移行: `in` / `get` / `is_cached` 等の公開 API を利用してください。
+
 #### テスト
 
 - `tests/test_v152_perf_fastpath.py` を追加し、`_data` 優先 fast-path と negative cache セマンティクス維持を検証。

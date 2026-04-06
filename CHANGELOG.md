@@ -17,6 +17,12 @@
   - 3. `__getitem__` / `get` でも同様の fast-path を適用し、不要な `_ensure_cached()` 呼び出しを回避
   - **効果**: キャッシュ済み読み取り・存在確認の追加オーバーヘッドを削減（既存 API/挙動は維持）。
 
+#### 破壊的変更（許可済み対応）
+
+- Unbounded モードの内部メタデータを `_cached_keys` から `_absent_keys`（known-absent 専用）へ分離しました。
+  - 公開 API への影響はありませんが、内部属性 `_cached_keys` に依存するコードは互換性がありません。
+  - 移行: `in` / `get` / `is_cached` 等の公開 API を利用してください。
+
 #### テスト
 
 - `tests/test_v152_perf_fastpath.py` を追加し、以下を検証:
@@ -1029,6 +1035,12 @@
     2. Use `_cached_keys` only for known-absent early return
     3. Apply the same fast-path pattern in `__getitem__` / `get` to reduce unnecessary `_ensure_cached()` calls
   - **Impact**: Reduces overhead on cached read / contains hot paths while preserving existing public behavior.
+
+#### Breaking Change (approved)
+
+- In Unbounded mode, internal mixed-state metadata was split from `_cached_keys` to `_absent_keys` (known-absent only).
+  - No public API change, but code depending on internal `_cached_keys` semantics is not compatible.
+  - Migration: use public APIs (`in`, `get`, `is_cached`) instead of internal metadata fields.
 
 #### Tests
 

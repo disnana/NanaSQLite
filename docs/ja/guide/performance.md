@@ -112,12 +112,9 @@ v1.5.2 では破壊的変更なしで、Unbounded キャッシュの `__getitem_
 - `_cached_keys` は known-absent（負キャッシュ）判定に限定
 - 既存 API / 例外仕様 / negative cache の意味は維持
 
-### 破壊的変更候補（今回は未実施）
-- **候補1: negative cache のデータ構造分離（present/absent を別管理）**
-  - 理由: `_cached_keys` が在/不在を同居させる設計のため、分岐が複雑化しやすい
-  - 影響: 内部属性への依存コード（`_cached_keys` を直接参照する利用者コード）があれば変更が必要
-  - 利用者コード変更例: 内部属性アクセスをやめ、`in` / `get` / `is_cached` 等の公開APIへ移行
-- **候補2: Unbounded モードで `_cached_keys` を廃止し、専用 absent セットのみ保持**
-  - 理由: read hot-path をさらに単純化できる
-  - 影響: 内部実装に依存したデバッグ/拡張コードの互換性低下
-  - 利用者コード変更例: `_cached_keys` 参照ロジックの削除または置換
+### 破壊的変更（v1.5.2で実施）
+- **negative cache のデータ構造を分離**
+  - Unbounded モードで在/不在混在の `_cached_keys` を廃止し、known-absent 専用の `_absent_keys` を導入しました。
+  - 理由: read hot-path での分岐単純化と不要判定削減のため。
+  - 影響: `_cached_keys` を直接参照していた内部実装依存コードは互換性がありません。
+  - 利用者コード変更: 内部属性参照をやめ、`in` / `get` / `is_cached` 等の公開APIを利用してください。
