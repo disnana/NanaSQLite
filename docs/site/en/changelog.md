@@ -4,6 +4,154 @@ outline: [2, 3]
 
 # Changelog
 
+### [1.5.1] - 2026-04-05
+
+#### Security Fixes (v1.5.1 Pre-Release Audit)
+
+- **[Medium] SEC-01: Apply `_validate_expression()` to `exists()` WHERE clause** (`core.py`)
+  - `query()` / `count()` / `query_with_pagination()` all validate the WHERE clause through `_validate_expression()`, enforcing `forbidden_sql_functions` and `strict_sql_validation` policies. `exists()` skipped this validation, allowing a forbidden function to be used in its WHERE clause while being rejected by all other query methods — an inconsistency that undermined application-level SQL policy enforcement. Fixed by adding `_validate_expression(where, context="where")` to `exists()`.
+
+- **[Medium] SEC-02: Apply `_validate_expression()` to `sql_update()` / `sql_delete()` WHERE clause** (`core.py`)
+  - Same as SEC-01: `sql_update()` and `sql_delete()` did not validate their WHERE clause, so `strict_sql_validation` / `forbidden_sql_functions` settings had no effect on these methods. Fixed with `_validate_expression(where, context="where")` in both methods.
+
+#### Bug Fixes (v1.5.1 Pre-Release Audit)
+
+- **[High] BUG-01: Fix `pop()` bypassing v2 engine staging buffer** (`core.py`)
+  - In v2 mode, `pop()` called `_delete_from_db()` directly instead of routing through `v2_engine.kvs_delete()`. If the key had a pending SET in the staging buffer (not yet flushed), the direct DB DELETE was a no-op (key not in DB yet), but the staging SET was left intact. On the next `flush()`, the SET was applied to the DB, resurrecting the deleted key. Fixed by routing v2-mode `pop()` through `v2_engine.kvs_delete()`, matching `__delitem__`.
+
+- **[Medium] BUG-02: Fix `batch_get()` ignoring `_cached_keys` "known absent" status** (`core.py`)
+  - After `__delitem__`, the key is recorded as "known absent" in `_cached_keys` but removed from `_data`. `get()` (via `_ensure_cached`) correctly honours this and returns the default. `batch_get()` only checked `_data`, so a cache miss caused it to fall through to a DB query — in v2 non-immediate mode, the pending delete may not yet be in DB, so `batch_get()` would return the stale old value while `get()` returned absent. Fixed by checking `_cached_keys` in `batch_get()`'s cache-miss path.
+
+- **[Low] BUG-03: Fix `to_dict()` returning `MISSING` sentinel in LRU/TTL mode** (`core.py`)
+  - In LRU/TTL cache mode, lookups for non-existent keys write the `MISSING` sentinel into the cache as a negative entry. `to_dict()` returned `dict(self._data)` which included these sentinel values, unlike `items()` which correctly filtered them. Fixed by using a dict comprehension with `if v is not MISSING`.
+
+#### Performance Improvements (v1.5.1 Pre-Release Audit)
+
+- **[Low] PERF-05: Pre-compute `_SAFE_SQL_CHARS` as a module-level `frozenset`** (`sql_utils.py`)
+  - `fast_validate_sql_chars()` re-created a `set(...)` object on every call. Because this function is called on every `_validate_expression()` invocation (hot path for all query methods), building the same immutable set repeatedly wasted ~200–300 ns per call. Moved to a module-level `frozenset` constant `_SAFE_SQL_CHARS` computed once at import time.
+
+#### Performance Fixes (Regression since v1.5.0dev1)
+
+Fixed performance regressions observed in RPI benchmarks that appeared starting from v1.5.0dev1.
+
+- **[Critical] PERF-01: Remove hook hot-path overhead** (`core.py`)
+  - All read/write operations (`__getitem__`, `__setitem__`, `__delitem__`, `get`, `batch_get`, `setdefault`, `pop`, `batch_update_partial`, `batch_delete`) were calling `getattr(self, "_hooks", [])` on every invocation, causing measurable overhead even when no hooks are registered. Changed to direct `self._hooks` access (always initialized) with an `if self._hooks:` early-exit guard.
+  - **Impact**: ~30% throughput improvement for cached reads (RPI: ~1.74M → ~2.3M ops/sec equivalent).
+
+- **[Critical] PERF-02: Eliminate shared-lock contention in v2 mode** (`core.py`)
+  - In the v2-mode paths of `__setitem__`, `__delitem__`, `batch_update`, and `batch_delete`, the in-memory cache update (`_data[key] = value`, etc.) was being wrapped in the same lock used by the background flush thread for database transactions. On slow CPUs (Raspberry Pi and similar ARM devices) this caused severe throughput degradation because the main thread and background flush thread constantly competed for the same lock.
+  - In v2 mode, in-memory-only updates are atomic under Python's GIL, and the background flush thread never accesses `_data` or `_cached_keys` directly, so no explicit lock is required for these operations.
+  - **Impact**: ~3.7× throughput improvement for v2 immediate-mode writes (RPI: ~169 → ~600+ calls/sec equivalent).
+
+- **[Medium] PERF-03: Pre-compute `_update_cache` dispatch flag** (`core.py`)
+  - `_update_cache()` called `hasattr(self._cache, "_max_size")` on every invocation, adding unnecessary overhead on the write hot path. The result is now pre-computed as `_use_cache_set` during `__init__`, eliminating the `hasattr()` call entirely.
+  - **Impact**: ~2-3% write throughput improvement.
+
+- **[Medium] PERF-04: Replace `@contextmanager` with direct RLock return in `_acquire_lock()`** (`core.py`)
+  - `_acquire_lock()` used a `@contextmanager` generator, incurring `contextlib` overhead (object allocation, `next()` calls) on every lock acquisition. For the common case (no timeout), the method now returns `self._lock` (a `threading.RLock`) directly — `RLock` is itself a context manager with highly-optimised C-level `__enter__`/`__exit__`. When `lock_timeout` is set, a lightweight `_TimedLockContext` helper is returned instead.
+  - **Impact**: ~7% write throughput improvement for non-v2 paths.
+
+### [1.5.0] - 2026-04-04
+
+#### Security Fixes (v1.5.0 Pre-Release Audit)
+
+- **[Critical] SEC-03**: Documented and added warnings for the TOCTOU (Time-of-check/Time-of-use) race condition in `UniqueHook`. The uniqueness check occurs outside the database write transaction, meaning multiple threads can bypass the constraint in concurrent environments. Class docstring now clearly warns against this and recommends using SQLite native `UNIQUE` constraints or application-level exclusive locks.
+- **[Critical] SEC-04**: Similarly documented and added warnings for the TOCTOU race condition in `ForeignKeyHook`, where a referenced key can be deleted between the constraint check and the write operation. Class docstring recommends `PRAGMA foreign_keys=ON` for strict referential integrity.
+- **[High] SEC-05**: Fixed a ReDoS (Regular Expression Denial of Service) vulnerability in `BaseHook`'s `key_pattern` regex parameter. Malicious regex patterns could cause excessive CPU load. Pattern validation is now enforced at construction time.
+- **[High] SEC-06**: Fixed information leakage in hook constraint violation error messages that exposed field names and values. Error messages are now generic, with detailed information logged server-side only.
+
+#### Bug Fixes (v1.5.0 Pre-Release Audit)
+
+- **[Critical] BUG-05**: Fixed `PydanticHook` silently converting all exceptions to `ValidationError`. System-level errors such as `ConnectionError` and `MemoryError` are now properly re-raised.
+- **[High] BUG-06**: Fixed unnecessary dictionary copying in hook processing when no values were actually changed. Introduced change detection to allocate new dicts only when values are actually modified (improves memory efficiency in batch operations).
+
+#### Code Quality Fixes (PR Review Follow-up)
+
+- **[Low] BANDIT-B110**: Replaced empty `try/except/pass` around `atexit.unregister` in `v2_engine.py` with `contextlib.suppress(Exception)` to resolve the Bandit B110 warning.
+- **[Low] POC Cleanup**: Fixed all CodeQL and Bandit warnings raised in POC scripts (unused imports, unused variables, bare `except`, and hard-coded ReDoS pattern literals). Removed duplicate `import sqlite3` in test file.
+
+#### Packaging and IDE Support Improvements
+
+- **[High] PEP 561 Compliance and Autocompletion Fix**:
+  - Refactored `tool.setuptools` in `pyproject.toml` to use standard `src-layout` auto-discovery. Fixed the issue where IntelliSense/autocompletion failed for the PyPI distribution.
+  - Enabled `include-package-data = true` and added `MANIFEST.in` to ensure the `py.typed` file is correctly bundled in both wheel (.whl) and source distributions (sdist).
+  - This enables full autocompletion support for `NanaSQLite`, `PydanticHook`, and other exports in major IDEs like VS Code (Pylance) and PyCharm out of the box.
+
+#### Improvements from Release Audit
+
+- **[Critical] BUG-01**: Fixed a bug where `batch_update`, `batch_update_partial`, and `batch_delete` methods bypassed V2 mode and performed direct database writes. Routed these operations through the V2 engine's staging buffer to ensure data integrity and FIFO order.
+- **[Critical] BUG-02**: Resolved "Ghost Re-inserts" in `clear()` and `load_all()` methods, where database operations executed before the V2 engine's background `flush()` completed. Introduced synchronous waiting via `flush(wait=True)`.
+- **[High] QUAL-01**: Refactored `AsyncNanaSQLite.add_hook()` implementation to harden hook registration logic before and after base database initialization, improving stability in asynchronous environments.
+- **[Non-Breaking] API Extension**: Added a `wait` parameter to `flush()` (sync) and `aflush()` (async) methods, allowing for synchronous waiting of background worker completion.
+- **[High] Full Restoration of Python 3.9 Compatibility**:
+  - Added `from __future__ import annotations` to all source files, allowing Python 3.10+ `|` (Union) operators in type hints to function correctly on Python 3.9.
+  - Introduced an `EllipsisType` compatibility layer in `compat.py` to ensure stable `mypy` static analysis and runtime type validation on Python 3.9.
+  - Updated `pyproject.toml` to target `mypy` for Python 3.9, guaranteeing continuous compatibility.
+
+#### New Features: Ultimate Hooks (General-purpose Hook & Constraint Architecture)
+
+- **Powerful Hook Mechanism**:
+  - Introduced the `NanaHook` protocol, allowing interception of 3 lifecycle events: `before_write`, `after_read`, and `before_delete`.
+  - Custom hooks can be easily authored to implement data validation, custom encryption, logging, or integrations with external systems.
+- **Built-in Standard Constraints**:
+  - `CheckHook`: Provides function-based validation similar to SQLite's `CHECK` constraint.
+  - `UniqueHook`: Ensures uniqueness of values for a specified key or nested field (TOCTOU warning applies, see SEC-03).
+  - `ForeignKeyHook`: Grants referential integrity against keys in other `NanaSQLite` tables (TOCTOU warning applies, see SEC-04).
+- **Transparent External Library Integrations**:
+  - `ValidkitHook`: Maintains 100% backward compatibility with the legacy `validator` parameter, providing high-performance validation via `validkit-py`.
+  - `PydanticHook`: Allows direct registration of `Pydantic` models as hooks, enabling automatic serialization/deserialization and strict type validation on read/write.
+- **Method Extensions**:
+  - Added `NanaSQLite.add_hook()` and `AsyncNanaSQLite.add_hook()` for dynamic hook registration.
+
+#### Architectural Enhancements & Backward Compatibility
+
+- The legacy `validator` parameter is internally converted to a `ValidkitHook`, preserving 100% backward compatibility.
+- Internal logic has been unified and hardened to ensure hooks are equally applied across all access paths, including `batch_update`, `get`, `batch_get`, `setdefault`, and `pop`.
+
+#### Audit & Testing
+
+- Updated pre-release audit report (`audit.md`) — documented 12 findings for v1.5.0.
+- Added 5 POC scripts to `etc/poc/`.
+- Added 14 POC verification tests to `tests/test_audit_poc.py`.
+
+### [1.5.0dev2] - 2026-03-28 *(released — consolidated into v1.5.0)*
+
+#### Packaging and IDE Support Improvements
+- **[High] PEP 561 Compliance and Autocompletion Fix**:
+  - Refactored `tool.setuptools` in `pyproject.toml` to use standard `src-layout` auto-discovery. Fixed the issue where IntelliSense/autocompletion failed for the PyPI distribution.
+  - Enabled `include-package-data = true` and added `MANIFEST.in` to ensure the `py.typed` file is correctly bundled in both wheel (.whl) and source distributions (sdist).
+  - This enables full autocompletion support for `NanaSQLite`, `PydanticHook`, and other exports in major IDEs like VS Code (Pylance) and PyCharm out of the box.
+
+### [1.5.0dev1] - 2026-03-28
+
+#### Improvements from Release Audit
+- **[Critical] BUG-01**: Fixed a bug where `batch_update`, `batch_update_partial`, and `batch_delete` methods bypassed V2 mode and performed direct database writes. Routed these operations through the V2 engine's staging buffer to ensure data integrity and FIFO order.
+- **[Critical] BUG-02**: Resolved "Ghost Re-inserts" in `clear()` and `load_all()` methods, where database operations executed before the V2 engine's background `flush()` completed. Introduced synchronous waiting via `flush(wait=True)`.
+- **[High] QUAL-01**: Refactored `AsyncNanaSQLite.add_hook()` implementation to harden hook registration logic before and after base database initialization, improving stability in asynchronous environments.
+- **[Non-Breaking] API Extension**: Added a `wait` parameter to `flush()` (sync) and `aflush()` (async) methods, allowing for synchronous waiting of background worker completion.
+- **[High] Full Restoration of Python 3.9 Compatibility**:
+  - Added `from __future__ import annotations` to all source files, allowing Python 3.10+ `|` (Union) operators in type hints to function correctly on Python 3.9.
+  - Introduced an `EllipsisType` compatibility layer in `compat.py` to ensure stable `mypy` static analysis and runtime type validation on Python 3.9.
+  - Updated `pyproject.toml` to target `mypy` for Python 3.9, guaranteeing continuous compatibility.
+
+#### New Features: Ultimate Hooks (General-purpose Hook & Constraint Architecture)
+- **Powerful Hook Mechanism**:
+  - Introduced the `NanaHook` protocol, allowing interception of 3 lifecycle events: `before_write`, `after_read`, and `before_delete`.
+  - Custom hooks can be easily authored to implement data validation, custom encryption, logging, or integrations with external systems.
+- **Built-in Standard Constraints**:
+  - `CheckHook`: Provides function-based validation similar to SQLite's `CHECK` constraint.
+  - `UniqueHook`: Ensures uniqueness of values for a specified key (or nested field).
+  - `ForeignKeyHook`: Grants referential integrity against keys in other `NanaSQLite` tables.
+- **Transparent External Library Integrations**:
+  - `ValidkitHook`: Maintains 100% backward compatibility with the legacy `validator` parameter, providing high-performance validation via `validkit-py`.
+  - `PydanticHook`: Allows direct registration of `Pydantic` models as hooks, enabling automatic serialization/deserialization and strict type validation on read/write.
+- **Method Extensions**:
+  - Added `NanaSQLite.add_hook()` and `AsyncNanaSQLite.add_hook()` for dynamic hook registration.
+
+#### Architectural Enhancements & Backward Compatibility
+- The legacy `validator` parameter is internally converted to a `ValidkitHook`, preserving 100% backward compatibility.
+- Internal logic has been unified and hardened to ensure hooks are equally applied across all access paths, including `batch_update`, `get`, `batch_get`, `setdefault`, and `pop`.
+
 ### [1.4.1] - 2026-03-25
 
 #### Security Fixes
