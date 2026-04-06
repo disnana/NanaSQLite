@@ -1213,7 +1213,12 @@ class NanaSQLite(MutableMapping):
         found_keys = set(results.keys())
         for key in missing_keys:
             if key not in found_keys:
-                self._cache.mark_cached(key)
+                # self._lru_mode == False means Unbounded mode.
+                if self._lru_mode:
+                    self._cache.mark_cached(key)
+                else:
+                    self._data.pop(key, None)
+                    self._absent_keys.add(key)
 
         # Apply after_read hooks
         if self._hooks:
@@ -1248,6 +1253,9 @@ class NanaSQLite(MutableMapping):
                 # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
                 self._delete_from_db(key)
                 self._cache.delete(key)
+                if not self._lru_mode:
+                    self._data.pop(key, None)
+                    self._absent_keys.add(key)
 
             if self._hooks:
                 for hook in self._hooks:
@@ -1602,6 +1610,9 @@ class NanaSQLite(MutableMapping):
                 # キャッシュ更新
                 for key in keys:
                     self._cache.delete(key)
+                    if not self._lru_mode:
+                        self._data.pop(key, None)
+                        self._absent_keys.add(key)
                 cursor.execute("COMMIT")
             except Exception:
                 cursor.execute("ROLLBACK")

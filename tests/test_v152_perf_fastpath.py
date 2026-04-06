@@ -58,3 +58,27 @@ def test_unbounded_contains_and_missing_semantics_preserved(db_path):
             _ = db["missing"]
     finally:
         db.close()
+
+
+def test_unbounded_delete_paths_keep_known_absent_metadata_consistent(db_path):
+    """
+    Verify known-absent metadata is consistently updated after delete APIs
+    in unbounded mode.
+    """
+    db = NanaSQLite(db_path)
+    try:
+        db["k1"] = "v1"
+        db["k2"] = "v2"
+        db["k3"] = "v3"
+
+        assert db.pop("k1") == "v1"
+        db.batch_delete(["k2", "k3"])
+
+        assert "k1" in db._absent_keys
+        assert "k2" in db._absent_keys
+        assert "k3" in db._absent_keys
+        assert db.get("k1", "d") == "d"
+        assert db.get("k2", "d") == "d"
+        assert db.get("k3", "d") == "d"
+    finally:
+        db.close()
