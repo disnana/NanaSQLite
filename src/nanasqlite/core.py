@@ -909,6 +909,7 @@ class NanaSQLite(MutableMapping):
             # Fast path for the common positive-cache case:
             # check _data first (single dict lookup), then fallback to the
             # "known absent" marker set.
+            # Use .get(..., _NOT_FOUND) to combine existence+load in one dict lookup.
             if self._data.get(key, _NOT_FOUND) is not _NOT_FOUND:
                 return True
             if key in self._cached_keys:
@@ -1038,6 +1039,7 @@ class NanaSQLite(MutableMapping):
         """
         # FAST PATH: already cached
         if not self._lru_mode:
+            # Use .get(..., _NOT_FOUND) to avoid "in" + index double lookup.
             if self._data.get(key, _NOT_FOUND) is not _NOT_FOUND:
                 return True
             if key in self._cached_keys:

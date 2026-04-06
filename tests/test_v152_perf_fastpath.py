@@ -24,6 +24,9 @@ def test_unbounded_getitem_and_get_use_data_first(db_path):
     """
     Unbounded モードでキャッシュヒット時は _cached_keys を見に行かず、
     _data だけで即時に値取得できることを確認する。
+
+    注: このテストは公開API仕様ではなく、v1.5.2 の内部 fast-path
+    最適化（実装詳細）を固定化する目的で内部状態を直接操作する。
     """
     db = NanaSQLite(db_path)
     try:
