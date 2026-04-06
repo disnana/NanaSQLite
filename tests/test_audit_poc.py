@@ -1007,3 +1007,298 @@ class TestV150Perf02UniqueHookScaling:
                 conn.execute("INSERT INTO users (id, email, name) VALUES ('u2', 'test@example.com', 'User 2')")
         finally:
             conn.close()
+
+
+# ===========================================================================
+# v1.5.1 Audit Findings
+# ===========================================================================
+
+# ===========================================================================
+# BUG-01 [High]: pop() bypasses v2 engine staging buffer
+# ===========================================================================
+class TestBug01V2PopBypass:
+    """BUG-01: pop() in v2 mode calls _delete_from_db() directly, bypassing
+    the v2 staging buffer.  A pending SET in the staging buffer is left intact
+    and gets flushed to DB after pop(), resurrecting the deleted key."""
+
+    @pytest.mark.skipif(
+        os.environ.get("NANASQLITE_SUPPRESS_MP_WARNING", "") != "1",
+        reason="Set NANASQLITE_SUPPRESS_MP_WARNING=1 to run v2 tests",
+    )
+    def test_pop_v2_no_resurrection_after_flush(self, db_path):
+        """pop() in v2 manual mode must not allow data resurrection after flush()."""
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            with NanaSQLite(db_path, v2_mode=True, flush_mode="manual") as db:
+                db["mykey"] = "hello"
+                val = db.pop("mykey", None)
+                assert val == "hello", "pop() should return the value"
+
+                db.flush(wait=True)
+                db.clear_cache()
+
+                result = db.get("mykey", "DELETED")
+                assert result == "DELETED", (
+                    f"pop() した 'mykey' が flush() + clear_cache() 後に復活した: {result!r}"
+                )
+
+    @pytest.mark.skipif(
+        os.environ.get("NANASQLITE_SUPPRESS_MP_WARNING", "") != "1",
+        reason="Set NANASQLITE_SUPPRESS_MP_WARNING=1 to run v2 tests",
+    )
+    def test_pop_v2_key_not_in_db_after_flush(self, db_path):
+        """After pop() in v2 mode and flush, the key must not exist in DB."""
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            with NanaSQLite(db_path, v2_mode=True, flush_mode="manual") as db:
+                db["k1"] = {"data": "value"}
+                db["k2"] = {"data": "other"}
+
+                db.pop("k1", None)
+                db.flush(wait=True)
+                db.clear_cache()
+
+                assert db.get("k1") is None, "k1 should be absent after pop() + flush()"
+                assert db.get("k2") == {"data": "other"}, "k2 should still be present"
+
+    def test_pop_v1_normal_behavior(self, db_path):
+        """pop() in non-v2 mode should still work correctly."""
+        with NanaSQLite(db_path) as db:
+            db["key"] = "value"
+            result = db.pop("key", "DEFAULT")
+            assert result == "value"
+            assert db.get("key") is None
+
+    def test_pop_missing_key_with_default(self, db_path):
+        """pop() on missing key with default should return default."""
+        with NanaSQLite(db_path) as db:
+            result = db.pop("nonexistent", "default_val")
+            assert result == "default_val"
+
+    def test_pop_missing_key_no_default_raises(self, db_path):
+        """pop() on missing key without default should raise KeyError."""
+        with NanaSQLite(db_path) as db:
+            with pytest.raises(KeyError):
+                db.pop("nonexistent")
+
+
+# ===========================================================================
+# BUG-02 [Medium]: batch_get() ignores _cached_keys "known absent" status
+# ===========================================================================
+class TestBug02BatchGetCachedKeys:
+    """BUG-02: batch_get() only checks _data but not _cached_keys.
+    After __delitem__, the key is 'known absent' in _cached_keys but not in _data.
+    In v2 non-immediate mode the staging delete hasn't hit DB yet, so batch_get()
+    falls through to DB and finds the stale value."""
+
+    @pytest.mark.skipif(
+        os.environ.get("NANASQLITE_SUPPRESS_MP_WARNING", "") != "1",
+        reason="Set NANASQLITE_SUPPRESS_MP_WARNING=1 to run v2 tests",
+    )
+    def test_batch_get_consistent_with_get_after_delete_v2(self, db_path):
+        """After __delitem__ in v2 manual mode, batch_get and get should agree."""
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            with NanaSQLite(db_path, v2_mode=True, flush_mode="manual") as db:
+                db["key1"] = "value1"
+                db.flush(wait=True)
+
+                del db["key1"]
+
+                get_result = db.get("key1", "NOT_FOUND")
+                batch_result = db.batch_get(["key1"])
+
+                assert get_result == "NOT_FOUND", "get() should say key1 is absent"
+                assert "key1" not in batch_result, (
+                    f"batch_get() returned stale value for deleted key: {batch_result}"
+                )
+
+    def test_batch_get_after_pop_v1(self, db_path):
+        """After pop() in v1 mode, batch_get should not return the deleted key."""
+        with NanaSQLite(db_path) as db:
+            db["k1"] = "v1"
+            db["k2"] = "v2"
+            db.pop("k1")
+
+            result = db.batch_get(["k1", "k2"])
+            assert "k1" not in result, "k1 was popped, batch_get should not return it"
+            assert result.get("k2") == "v2"
+
+    def test_batch_get_after_del_v1(self, db_path):
+        """After __delitem__ in v1 mode, batch_get should not return the deleted key."""
+        with NanaSQLite(db_path) as db:
+            db["x"] = "data"
+            del db["x"]
+
+            result = db.batch_get(["x"])
+            assert "x" not in result
+
+
+# ===========================================================================
+# SEC-01 [Medium]: exists() WHERE clause not validated
+# ===========================================================================
+class TestSec01ExistsNoValidation:
+    """SEC-01: exists() does not call _validate_expression() on the WHERE clause.
+    forbidden_sql_functions settings are not enforced for exists()."""
+
+    def test_exists_honours_forbidden_sql_functions(self, db_path):
+        """exists() must reject WHERE with forbidden function when strict mode active."""
+        with NanaSQLite(
+            db_path,
+            strict_sql_validation=True,
+            forbidden_sql_functions=["UPPER"],
+        ) as db:
+            db.create_table("users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT"})
+            db.sql_insert("users", {"id": 1, "name": "Alice"})
+
+            # query() rejects forbidden function
+            with pytest.raises(NanaSQLiteValidationError):
+                db.query("users", where="UPPER(name) = ?", parameters=("ALICE",))
+
+            # exists() must also reject it
+            with pytest.raises(NanaSQLiteValidationError):
+                db.exists("users", "UPPER(name) = ?", ("ALICE",))
+
+    def test_exists_normal_usage_works(self, db_path):
+        """exists() must still work correctly with valid WHERE clauses."""
+        with NanaSQLite(db_path, strict_sql_validation=True) as db:
+            db.create_table("items", {"id": "INTEGER PRIMARY KEY"})
+            db.sql_insert("items", {"id": 42})
+
+            assert db.exists("items", "id = ?", (42,)) is True
+            assert db.exists("items", "id = ?", (99,)) is False
+
+    def test_exists_rejects_dangerous_where(self, db_path):
+        """exists() must reject WHERE with semicolons in strict mode."""
+        with NanaSQLite(db_path, strict_sql_validation=True) as db:
+            db.create_table("t", {"id": "INTEGER PRIMARY KEY"})
+            with pytest.raises((NanaSQLiteValidationError, ValueError)):
+                db.exists("t", "1=1; DROP TABLE t--")
+
+
+# ===========================================================================
+# SEC-02 [Medium]: sql_update()/sql_delete() WHERE not validated
+# ===========================================================================
+class TestSec02SqlUpdateDeleteNoValidation:
+    """SEC-02: sql_update() and sql_delete() do not call _validate_expression()
+    on the WHERE clause, inconsistent with count() / query()."""
+
+    def test_sql_update_honours_forbidden_sql_functions(self, db_path):
+        """sql_update() must reject WHERE with forbidden function in strict mode."""
+        with NanaSQLite(
+            db_path,
+            strict_sql_validation=True,
+            forbidden_sql_functions=["UPPER"],
+        ) as db:
+            db.create_table("items", {"id": "INTEGER PRIMARY KEY", "val": "TEXT"})
+            db.sql_insert("items", {"id": 1, "val": "a"})
+
+            with pytest.raises(NanaSQLiteValidationError):
+                db.sql_update("items", {"val": "x"}, "UPPER(val) = ?", ("A",))
+
+    def test_sql_delete_honours_forbidden_sql_functions(self, db_path):
+        """sql_delete() must reject WHERE with forbidden function in strict mode."""
+        with NanaSQLite(
+            db_path,
+            strict_sql_validation=True,
+            forbidden_sql_functions=["UPPER"],
+        ) as db:
+            db.create_table("items", {"id": "INTEGER PRIMARY KEY", "val": "TEXT"})
+            db.sql_insert("items", {"id": 1, "val": "a"})
+
+            with pytest.raises(NanaSQLiteValidationError):
+                db.sql_delete("items", "UPPER(val) = ?", ("A",))
+
+    def test_sql_update_normal_usage_works(self, db_path):
+        """sql_update() must work with valid WHERE in strict mode."""
+        with NanaSQLite(db_path, strict_sql_validation=True) as db:
+            db.create_table("users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT"})
+            db.sql_insert("users", {"id": 1, "name": "Alice"})
+            count = db.sql_update("users", {"name": "Bob"}, "id = ?", (1,))
+            assert count == 1
+            row = db.query("users", where="id = ?", parameters=(1,))
+            assert row[0]["name"] == "Bob"
+
+    def test_sql_delete_normal_usage_works(self, db_path):
+        """sql_delete() must work with valid WHERE in strict mode."""
+        with NanaSQLite(db_path, strict_sql_validation=True) as db:
+            db.create_table("users", {"id": "INTEGER PRIMARY KEY", "name": "TEXT"})
+            db.sql_insert("users", {"id": 1, "name": "Alice"})
+            count = db.sql_delete("users", "id = ?", (1,))
+            assert count == 1
+
+
+# ===========================================================================
+# PERF-05 [Low]: fast_validate_sql_chars module-level constant
+# ===========================================================================
+class TestPerf05FastValidateSqlChars:
+    """PERF-05: fast_validate_sql_chars() should use a module-level frozenset
+    constant rather than creating a new set on each call."""
+
+    def test_module_level_constant_exists(self):
+        """_SAFE_SQL_CHARS should be a module-level frozenset constant."""
+        from nanasqlite.sql_utils import _SAFE_SQL_CHARS
+
+        assert isinstance(_SAFE_SQL_CHARS, frozenset)
+        assert "a" in _SAFE_SQL_CHARS
+        assert "Z" in _SAFE_SQL_CHARS
+        assert ";" not in _SAFE_SQL_CHARS
+
+    def test_fast_validate_accepts_safe_chars(self):
+        """fast_validate_sql_chars() must accept expressions with safe chars."""
+        from nanasqlite.sql_utils import fast_validate_sql_chars
+
+        assert fast_validate_sql_chars("age > ?") is True
+        assert fast_validate_sql_chars("name = ?") is True
+        assert fast_validate_sql_chars("") is True
+
+    def test_fast_validate_rejects_unsafe_chars(self):
+        """fast_validate_sql_chars() must reject expressions with unsafe chars."""
+        from nanasqlite.sql_utils import fast_validate_sql_chars
+
+        assert fast_validate_sql_chars("age > 0; DROP TABLE users") is False
+
+
+# ===========================================================================
+# BUG-03 [Low]: to_dict() leaks MISSING sentinel in LRU/TTL mode
+# ===========================================================================
+class TestBug03ToDictMissingSentinel:
+    """BUG-03: to_dict() did not filter out MISSING sentinel values which can
+    appear in LRU/TTL cache mode as negative-cache entries."""
+
+    def test_to_dict_no_missing_sentinel_lru(self, db_path):
+        """to_dict() must not include MISSING sentinel for LRU cache."""
+        from nanasqlite.cache import MISSING
+
+        db = NanaSQLite(db_path, cache_strategy="lru", cache_size=10)
+        try:
+            db["real_key"] = "real_value"
+            # Trigger a "known absent" lookup which sets MISSING in LRU cache
+            _ = db.get("missing_key", None)  # causes MISSING sentinel to be cached
+
+            result = db.to_dict()
+            for v in result.values():
+                assert v is not MISSING, "to_dict() should not contain MISSING sentinel"
+            assert result.get("real_key") == "real_value"
+        finally:
+            db.close()
+
+    def test_to_dict_no_missing_sentinel_unbounded(self, db_path):
+        """to_dict() must not include MISSING sentinel for unbounded cache."""
+        from nanasqlite.cache import MISSING
+
+        db = NanaSQLite(db_path)
+        try:
+            db["key1"] = "value1"
+            result = db.to_dict()
+            for v in result.values():
+                assert v is not MISSING
+            assert result == {"key1": "value1"}
+        finally:
+            db.close()
