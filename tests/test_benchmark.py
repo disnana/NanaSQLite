@@ -1090,6 +1090,31 @@ class TestCacheStrategyBenchmarks:
 
             benchmark(read_op)
 
+    @pytest.mark.parametrize("strategy", ["lru", "ttl"])
+    def test_cache_hit(self, benchmark, tmp_path, strategy):
+        """キャッシュヒット時の単一キー読み込み性能 (LRU / TTL)
+
+        このテストは単一キーへの繰り返しアクセスに絞り、キャッシュヒットパスの
+        オーバーヘッドを直接計測する。
+        """
+        from nanasqlite import CacheType, NanaSQLite
+
+        if strategy == "lru":
+            kwargs = {"cache_strategy": CacheType.LRU, "cache_size": 128}
+        else:
+            kwargs = {"cache_strategy": CacheType.TTL, "cache_ttl": 300}
+
+        db_path = tmp_path / f"cache_hit_{strategy}.db"
+        with NanaSQLite(str(db_path), **kwargs) as db:
+            db["hit_key"] = {"payload": "x" * 64}
+            # Warm up: ensure key is in cache
+            _ = db["hit_key"]
+
+            def hit_op():
+                return db["hit_key"]
+
+            benchmark(hit_op)
+
 
 # ==================== Mixed (Encryption + Cache) Benchmarks ====================
 

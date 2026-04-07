@@ -4,6 +4,41 @@ outline: [2, 3]
 
 # Changelog
 
+### [1.5.3rc1] - 2026-04-07
+
+#### Performance Fixes (v1.5.3 pre-release audit)
+
+- **[High] PERF-07: Pre-compute common SQL strings at `__init__`** (`core.py`)
+  - All KV hot paths were rebuilding the same table-qualified SQL via f-strings on every call. Six SQL template strings are now pre-computed once at init time and stored as instance attributes.
+  - **Impact**: Eliminates string-construction overhead from all KV operations (write, read, delete, contains, count).
+
+- **[Medium] PERF-08: Skip MISSING filter in `to_dict()` / `copy()` for Unbounded mode** (`core.py`)
+  - MISSING is never stored in Unbounded `_data`, so `dict(self._data)` is returned directly without a per-element predicate.
+  - **Impact**: Improves `test_to_dict_1000` / `test_copy`.
+
+- **[Medium] PERF-09: Eliminate double cache lookup in LRU/TTL `__getitem__`** (`core.py`)
+  - Restructured to check `_data` membership first, then one `cache.get()` call — eliminating a redundant `move_to_end()` on every cache hit.
+  - **Impact**: Reduces cache-hit overhead for LRU/TTL `__getitem__`.
+
+- **[Medium] PERF-10: Regex consolidation and function-scan skip in `_validate_expression()`** (`core.py`)
+  - Four separate `re.search()` calls replaced by one pre-compiled module-level `_DANGEROUS_SQL_RE`. Expressions with no `(` skip the function-scan entirely.
+  - **Note**: In non-strict mode, multiple dangerous patterns in one expression now emit a single `UserWarning` instead of one per pattern. Strict mode (exception) behavior unchanged.
+
+- **[Medium] PERF-11: Lock-free fast path in `ExpiringDict._check_expiry()`** (`utils.py`)
+  - Adds an optimistic lock-free pre-check for live keys, skipping the `RLock` acquire/release for the common non-expired case.
+  - **Impact**: Reduces lock acquisitions on TTL cache hit paths.
+
+- **[High] PERF-12: Eliminate double cache lookup in LRU/TTL `get()`** (`core.py`) *(found by v1.5.3 audit)*
+  - Applied the same fix as PERF-09 to `get()`, which had the same double-lookup issue.
+
+- **[Medium] PERF-13: Skip MISSING filter in `values()` / `items()` for Unbounded mode** (`core.py`) *(found by v1.5.3 audit)*
+  - Applied the same PERF-08 optimisation to `values()` and `items()`.
+
+#### Tests
+
+- Added `tests/test_v153_perf_fixes.py` (19 regression tests covering PERF-07 through PERF-11).
+- Added `TestPerf12GetDoubleLookup` / `TestPerf13ValuesItemsFilter` to `tests/test_audit_poc.py`.
+
 ### [1.5.2] - 2026-04-06
 
 #### Performance Fixes (Follow-up for regression since v1.5.0dev1)

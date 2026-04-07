@@ -77,6 +77,14 @@ _NOT_FOUND = object()
 # SQL literals to avoid duplication
 _BEGIN_IMMEDIATE = "BEGIN IMMEDIATE"
 
+# PERF-10: Pre-compile combined dangerous-SQL-patterns regex at module level.
+# Combining 4 separate re.search() calls into one avoids redundant scanning
+# and Python regex compilation overhead on every _validate_expression() call.
+_DANGEROUS_SQL_RE = re.compile(
+    r";|--|/\*|\b(?:DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER)\b",
+    re.IGNORECASE,
+)
+
 
 @dataclass
 class V2Config:
@@ -208,6 +216,21 @@ class NanaSQLite(MutableMapping):
         self._table: str = table
         # Use the sanitized/quoted form for all SQL to avoid keyword/name edge cases
         self._safe_table: str = sanitized_table
+
+        # PERF-07: Pre-compute the most-frequently used SQL strings once at init
+        # time.  These strings include the (constant) quoted table name and are
+        # reconstructed on every call as f-strings otherwise, adding measurable
+        # overhead to the write/read/delete/contains hot paths.
+        self._sql_kv_insert: str = (
+            f"INSERT OR REPLACE INTO {sanitized_table} (key, value) VALUES (?, ?)"  # nosec
+        )
+        self._sql_kv_delete: str = f"DELETE FROM {sanitized_table} WHERE key = ?"  # nosec
+        self._sql_kv_select: str = f"SELECT value FROM {sanitized_table} WHERE key = ?"  # nosec
+        self._sql_kv_contains: str = (
+            f"SELECT 1 FROM {sanitized_table} WHERE key = ? LIMIT 1"  # nosec
+        )
+        self._sql_kv_select_all: str = f"SELECT key, value FROM {sanitized_table}"  # nosec
+        self._sql_kv_count: str = f"SELECT COUNT(*) FROM {sanitized_table}"  # nosec
         # lock_timeout を __init__ で一度だけ検証・正規化する（_acquire_lock の高頻度パスでの検証を省く）
         if lock_timeout is not None:
             invalid = (
@@ -685,13 +708,6 @@ class NanaSQLite(MutableMapping):
         else:
             full_msg = f"Invalid: {warning_text}"
 
-        dangerous_patterns = [
-            (r";", full_msg),
-            (r"--", full_msg),
-            (r"/\*", full_msg),
-            (r"\b(DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER)\b", full_msg),
-        ]
-
         # 0.5. Fast character-set validation (ReDoS countermeasure)
         if not fast_validate_sql_chars(str(expr)):
             # If invalid characters are found, we apply strict or warning
@@ -702,12 +718,13 @@ class NanaSQLite(MutableMapping):
                 raise ValueError(msg)
             warnings.warn(msg, UserWarning, stacklevel=2)
 
-        for pattern, msg in dangerous_patterns:
-            if re.search(pattern, str(expr), re.IGNORECASE):
-                # Block highly dangerous patterns in strict mode, but only warn in non-strict
-                if strict or (strict is None and self.strict_sql_validation):
-                    raise ValueError(msg)
-                warnings.warn(msg, UserWarning, stacklevel=2)
+        # PERF-10: Use the module-level pre-compiled combined regex instead of
+        # four separate re.search() calls.  A single pass over the expression
+        # string is faster and avoids rebuilding the pattern list per call.
+        if _DANGEROUS_SQL_RE.search(str(expr)):
+            if strict or (strict is None and self.strict_sql_validation):
+                raise ValueError(full_msg)
+            warnings.warn(full_msg, UserWarning, stacklevel=2)
 
         # 1. 長さ制限 (ReDoS対策)
         max_len = self.max_clause_length
@@ -739,10 +756,17 @@ class NanaSQLite(MutableMapping):
         effective_allowed -= forbidden_list
 
         # 4. 関数呼び出しの抽出
+        # PERF-10: Skip the function-scan entirely when the expression contains no
+        # '(' character.  The vast majority of WHERE clauses ("id = ?",
+        # "email = ?", etc.) have no function calls, so the sanitize+findall
+        # overhead would be wasted.
         # 文字列リテラルやコメントをマスクした上で関数呼び出しを検索
         # これにより、SELECT 'COUNT(' ... のようなパターンでの誤検知を防ぐ
         # Note: sanitize_sql_for_function_scan() preserves double-quoted identifier
         # content so that "FUNC"() patterns are detected.
+        if "(" not in expr:
+            return
+
         sanitized_expr = sanitize_sql_for_function_scan(expr)
         matches = re.findall(r"([a-zA-Z_]\w*)\s*\(", sanitized_expr)
 
@@ -851,20 +875,12 @@ class NanaSQLite(MutableMapping):
         """即時書き込み: SQLiteに値を保存"""
         serialized = self._serialize(value)
         with self._acquire_lock():
-            table_name = self._safe_table
-            self._connection.execute(
-                f"INSERT OR REPLACE INTO {table_name} (key, value) VALUES (?, ?)",  # nosec
-                (key, serialized),
-            )
+            self._connection.execute(self._sql_kv_insert, (key, serialized))
 
     def _read_from_db(self, key: str) -> Any:
         """SQLiteから値を読み込み"""
         with self._acquire_lock():
-            table_name = self._safe_table
-            cursor = self._connection.execute(
-                f"SELECT value FROM {table_name} WHERE key = ?",  # nosec
-                (key,),
-            )
+            cursor = self._connection.execute(self._sql_kv_select, (key,))
             row = cursor.fetchone()
             if row is None:
                 return _NOT_FOUND
@@ -873,18 +889,13 @@ class NanaSQLite(MutableMapping):
     def _delete_from_db(self, key: str) -> None:
         """SQLiteから値を削除"""
         with self._acquire_lock():
-            table_name = self._safe_table
-            self._connection.execute(
-                f"DELETE FROM {table_name} WHERE key = ?",  # nosec
-                (key,),
-            )
+            self._connection.execute(self._sql_kv_delete, (key,))
 
     def _get_all_keys_from_db(self) -> list[str]:
         """SQLiteから全キーを取得"""
         with self._acquire_lock():
-            table_name = self._safe_table
             cursor = self._connection.execute(
-                f"SELECT key FROM {table_name}"  # nosec
+                f"SELECT key FROM {self._safe_table}"  # nosec
             )
             return [row[0] for row in cursor]
 
@@ -966,10 +977,23 @@ class NanaSQLite(MutableMapping):
                     raise KeyError(key)
                 val = self._data[key]
         else:
-            if not self._ensure_cached(key):
-                raise KeyError(key)
-            # LRU updates order even on __getitem__
-            val = self._cache.get(key)
+            # PERF-09: Avoid calling _cache.get() twice on a cache hit.
+            # _ensure_cached() for LRU mode calls self._cache.get() internally
+            # (which moves the key to MRU position).  If we then call
+            # self._cache.get() again here, we pay the move_to_end cost twice
+            # for the same lookup.
+            # Optimised path: check _data membership first (O(1), no LRU side
+            # effect), then do a single self._cache.get() to obtain the value
+            # *and* update LRU order in one call.  Fall back to _ensure_cached
+            # only when the key is not yet in the cache.
+            if key in self._data:
+                val = self._cache.get(key)
+                if val is MISSING:
+                    raise KeyError(key)
+            else:
+                if not self._ensure_cached(key):
+                    raise KeyError(key)
+                val = self._cache.get(key)
         if self._hooks:
             for hook in self._hooks:
                 val = hook.after_read(self, key, val)
@@ -997,10 +1021,7 @@ class NanaSQLite(MutableMapping):
             # DB書き込みとキャッシュ更新をアトミックに実行
             serialized = self._serialize(value)
             with self._acquire_lock():
-                self._connection.execute(
-                    f"INSERT OR REPLACE INTO {self._safe_table} (key, value) VALUES (?, ?)",  # nosec
-                    (key, serialized),
-                )
+                self._connection.execute(self._sql_kv_insert, (key, serialized))
                 self._update_cache(key, value)
 
     def __delitem__(self, key: str) -> None:
@@ -1024,7 +1045,7 @@ class NanaSQLite(MutableMapping):
                 self._absent_keys.add(key)
         else:
             with self._acquire_lock():
-                self._connection.execute(f"DELETE FROM {self._safe_table} WHERE key = ?", (key,))  # nosec
+                self._connection.execute(self._sql_kv_delete, (key,))
                 if self._lru_mode:
                     self._cache.delete(key)
                 else:
@@ -1052,11 +1073,7 @@ class NanaSQLite(MutableMapping):
 
         # Lightweight existence check against DB
         with self._acquire_lock():
-            table_name = self._safe_table
-            cursor = self._connection.execute(
-                f"SELECT 1 FROM {table_name} WHERE key = ? LIMIT 1",  # nosec
-                (key,),
-            )
+            cursor = self._connection.execute(self._sql_kv_contains, (key,))
             exists = cursor.fetchone() is not None
             # In unbounded mode, remember negative lookups so repeated
             # "key in dict" checks for missing keys don't keep hitting the DB.
@@ -1067,10 +1084,7 @@ class NanaSQLite(MutableMapping):
     def __len__(self) -> int:
         """len(dict) - DBの実際の件数を返す"""
         with self._acquire_lock():
-            table_name = self._safe_table
-            cursor = self._connection.execute(
-                f"SELECT COUNT(*) FROM {table_name}"  # nosec
-            )
+            cursor = self._connection.execute(self._sql_kv_count)
             return cursor.fetchone()[0]
 
     def __iter__(self) -> Iterator[str]:
@@ -1090,12 +1104,19 @@ class NanaSQLite(MutableMapping):
         """全値を取得（一括ロードしてからメモリから）"""
         self._check_connection()
         self.load_all()
+        # PERF-13: In Unbounded mode, MISSING is never stored in _data, so skip
+        # the per-element predicate and return a plain list directly.
+        if not self._lru_mode:
+            return list(self._data.values())
         return [v for v in self._cache.get_data().values() if v is not MISSING]
 
     def items(self) -> list:
         """全アイテムを取得（一括ロードしてからメモリから）"""
         self._check_connection()
         self.load_all()
+        # PERF-13: Same Unbounded-mode optimisation as values() and to_dict().
+        if not self._lru_mode:
+            return list(self._data.items())
         return [(k, v) for k, v in self._cache.get_data().items() if v is not MISSING]
 
     def get(self, key: str, default: Any = None) -> Any:
@@ -1109,9 +1130,19 @@ class NanaSQLite(MutableMapping):
                     return default
                 val = self._data[key]
         else:
-            if not self._ensure_cached(key):
-                return default
-            val = self._cache.get(key)
+            # PERF-12: Same optimisation as PERF-09 in __getitem__.
+            # _ensure_cached() calls cache.get() internally (move_to_end for LRU),
+            # and the caller would call cache.get() again to retrieve the value —
+            # two move_to_end() for one cache hit.  Check _data membership first
+            # (O(1), no LRU side effect), then do a single cache.get().
+            if key in self._data:
+                val = self._cache.get(key)
+                if val is MISSING:
+                    return default
+            else:
+                if not self._ensure_cached(key):
+                    return default
+                val = self._cache.get(key)
         if self._hooks:
             for hook in self._hooks:
                 val = hook.after_read(self, key, val)
@@ -1360,9 +1391,7 @@ class NanaSQLite(MutableMapping):
             self._v2_engine.flush(wait=True)
 
         with self._acquire_lock():
-            cursor = self._connection.execute(
-                f"SELECT key, value FROM {self._safe_table}"  # nosec
-            )
+            cursor = self._connection.execute(self._sql_kv_select_all)
             rows = list(cursor)  # ロック内でフェッチ
 
         for key, value in rows:
@@ -1469,10 +1498,7 @@ class NanaSQLite(MutableMapping):
             try:
                 # 事前にシリアライズしてexecutemany用のタプルリストを作成
                 params = [(key, self._serialize(value)) for key, value in mapping.items()]
-                cursor.executemany(
-                    f"INSERT OR REPLACE INTO {self._safe_table} (key, value) VALUES (?, ?)",  # nosec
-                    params,
-                )
+                cursor.executemany(self._sql_kv_insert, params)
                 # キャッシュ更新
                 for key, value in mapping.items():
                     if self._lru_mode:
@@ -1552,10 +1578,7 @@ class NanaSQLite(MutableMapping):
             cursor = self._connection.cursor()
             cursor.execute(_BEGIN_IMMEDIATE)
             try:
-                cursor.executemany(
-                    f"INSERT OR REPLACE INTO {self._safe_table} (key, value) VALUES (?, ?)",  # nosec
-                    params,
-                )
+                cursor.executemany(self._sql_kv_insert, params)
                 for key, value in accepted_values.items():
                     if self._lru_mode:
                         self._cache.set(key, value)
@@ -1610,10 +1633,7 @@ class NanaSQLite(MutableMapping):
             try:
                 # executemany用のタプルリストを作成
                 params = [(key,) for key in keys]
-                cursor.executemany(
-                    f"DELETE FROM {self._safe_table} WHERE key = ?",  # nosec
-                    params,
-                )
+                cursor.executemany(self._sql_kv_delete, params)
                 # キャッシュ更新
                 for key in keys:
                     if self._lru_mode:
@@ -1634,6 +1654,13 @@ class NanaSQLite(MutableMapping):
         # mode as negative-cache entries (keys known to be absent).  Without this
         # filter, callers would receive {key: <MISSING>} in the result dict which
         # is inconsistent with items() and other API methods.
+        #
+        # PERF-08: In Unbounded mode, MISSING is never stored in _data (absent keys
+        # are tracked in a separate _absent_keys set), so we can skip the per-item
+        # filter and use dict() directly — O(n) vs O(n) but without a Python-level
+        # predicate call per element.
+        if not self._lru_mode:
+            return dict(self._data)
         return {k: v for k, v in self._data.items() if v is not MISSING}
 
     def copy(self) -> dict:

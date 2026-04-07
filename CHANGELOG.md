@@ -6,6 +6,56 @@
 
 ## 日本語
 
+### [1.5.3rc1] - 2026-04-07
+
+#### パフォーマンス修正（v1.5.3 プレリリース監査）
+
+- **[High] PERF-07: 共通 SQL 文字列の `__init__` 時事前計算**（`core.py`）
+  - `__setitem__`・`__delitem__`・`__contains__`・`__len__`・`_write_to_db`・`_read_from_db`・`_delete_from_db`・`load_all`・`batch_update`・`batch_delete` の全ホットパスで、毎呼び出し f-string によって同一の SQL 文字列（テーブル名を含む INSERT / DELETE / SELECT 等）を再構築していました。`__init__` 時に 6 種類の SQL テンプレートを事前計算してインスタンス変数に保持し、ホットパスでは直接参照するよう変更しました。
+  - **効果**: 書き込み・読み込み・削除・カウント等の全 KV 操作で文字列構築コストを排除。`test_single_write` / `test_execute_raw` / `test_sql_insert_single` の改善に寄与。
+
+- **[Medium] PERF-08: Unbounded モードでの `to_dict()` / `copy()` MISSING フィルタ省略**（`core.py`）
+  - Unbounded モードでは `_data` に MISSING センチネルが格納されることはないため、毎回 `{k: v for k, v in _data.items() if v is not MISSING}` で全要素の同一性比較を行う必要はありませんでした。Unbounded モードでは `dict(self._data)` を直接返すよう変更し、LRU/TTL モードでのみフィルタを適用します。
+  - **効果**: `test_to_dict_1000` / `test_copy` の改善に寄与。
+
+- **[Medium] PERF-09: LRU `__getitem__` での二重キャッシュルックアップ排除**（`core.py`）
+  - LRU/TTL モードの `__getitem__` は `_ensure_cached()` 内部で `self._cache.get()`（LRU では `move_to_end()` を伴う）を 1 回呼び、さらに戻り値取得のために同じキーで `self._cache.get()` を再度呼んでいました。キャッシュヒット時の `_data` 在籍確認を先行させ、`self._cache.get()` を 1 回の呼び出しで完結するよう変更しました。
+  - **効果**: LRU/TTL キャッシュヒット時の `move_to_end()` 冗長呼び出しを排除。`test_cache_hit[lru]` / `test_cache_hit[ttl]` の改善に寄与。
+
+- **[Medium] PERF-10: `_validate_expression()` の正規表現最適化と関数スキャン早期スキップ**（`core.py`）
+  - `_validate_expression()` が毎呼び出し 4 つの危険パターン文字列を `re.search()` で個別にスキャンしていました。4 パターンをモジュールレベルで事前コンパイルした単一正規表現 `_DANGEROUS_SQL_RE` に統合し、1 回のスキャンで検出するよう変更しました。また、式に `(` が含まれない場合（典型的な `id = ?` 等）は高コストな `sanitize_sql_for_function_scan()` + `re.findall()` の実行を完全にスキップします。
+  - **注意**: 非 strict モードでは、複数の危険パターンが同時にマッチしても警告は 1 件のみ発行されます（以前は複数件）。strict モード（例外発生）の挙動は変わりません。
+  - **効果**: `exists()` / `sql_update()` / `sql_delete()` のホットパスで複数のシングルパターン regex 走査を排除。`test_sql_update_single` / `test_exists_check` / `test_execute_raw` の改善に寄与。
+
+- **[Medium] PERF-11: `ExpiringDict._check_expiry()` のロックフリー早期リターン最適化**（`utils.py`）
+  - `_check_expiry()` は毎呼び出し `threading.RLock` を取得していました。TTL キャッシュのヒットパスでは 1 回のキーアクセスにつき複数回 `_check_expiry()` が呼ばれるため、このロック取得コストが積み重なっていました。CPython の GIL 下では `dict.get()` はアトミックであるため、ロックなしで `_exptimes.get(key)` を読み取り、期限切れでない場合は即座に `False` を返す楽観的プレチェックを追加しました。
+  - **効果**: TTL キャッシュのキャッシュヒット時のロック取得回数を削減。`test_cache_hit[ttl]` / `test_ttl_expiry_check` の改善に寄与。
+
+- **[High] PERF-12: LRU/TTL モードの `get()` における二重キャッシュルックアップ排除**（`core.py`）（v1.5.3 監査で発見）
+  - PERF-09 で `__getitem__` を最適化した際、同じ二重ルックアップ問題が `get()` メソッドに残存していました。`get()` は `to_dict()` / `items()` のホットパスでも利用されるため影響が大きい問題です。`__getitem__` と同じパターン（`_data` 在籍確認 → `cache.get()` 1 回）を適用しました。
+  - **効果**: LRU/TTL キャッシュヒット時の `move_to_end()` 冗長呼び出しを `get()` でも排除。`test_cache_hit[lru]` / `test_cache_hit[ttl]` のさらなる改善に寄与。
+
+- **[Medium] PERF-13: Unbounded モードの `values()` / `items()` における MISSING フィルタ省略**（`core.py`）（v1.5.3 監査で発見）
+  - PERF-08 で `to_dict()` を最適化した際、同じ最適化が `values()` と `items()` に適用されていませんでした。Unbounded モードではこれらも `list(self._data.values())` / `list(self._data.items())` を直接返すよう変更しました。
+  - **効果**: `test_to_dict_1000` / 全データ取得系ホットパスのさらなる改善に寄与。
+
+#### 新規ベンチマークテスト追加
+
+- `tests/test_benchmark.py` に `test_cache_hit[lru]` / `test_cache_hit[ttl]` を追加。単一キーへの繰り返しアクセスによるキャッシュヒットパスのオーバーヘッドを計測する。
+
+#### テスト
+
+- `tests/test_v153_perf_fixes.py` を追加し、以下を検証:
+  - PERF-07: `_sql_kv_*` 事前計算属性の存在と正確性
+  - PERF-08: `to_dict()` / `copy()` が Unbounded / LRU 両モードで MISSING を含まないこと
+  - PERF-09: LRU / TTL `__getitem__` がキャッシュヒット・不在キーで正しく動作すること
+  - PERF-10: 単純な WHERE 句・関数付き WHERE 句・危険パターンの検出が正しく機能すること
+  - PERF-11: `ExpiringDict._check_expiry()` の有効期限前後の挙動が正しいこと
+- `tests/test_audit_poc.py` に `TestPerf12GetDoubleLookup` / `TestPerf13ValuesItemsFilter` を追加:
+  - PERF-12: LRU/TTL `get()` がキャッシュヒット・不在キーで正しく動作すること
+  - PERF-13: `values()` / `items()` が Unbounded / LRU 両モードで MISSING を含まないこと
+
+
 ### [1.5.2] - 2026-04-06
 
 #### パフォーマンス修正（v1.5.0dev1 以降の性能低下 継続対応）
@@ -1023,6 +1073,56 @@
 
 
 ## English
+
+### [1.5.3rc1] - 2026-04-07
+
+#### Performance Fixes (v1.5.3 pre-release audit)
+
+- **[High] PERF-07: Pre-compute common SQL strings at `__init__` time** (`core.py`)
+  - Hot paths (`__setitem__`, `__delitem__`, `__contains__`, `__len__`, `_write_to_db`, `_read_from_db`, `_delete_from_db`, `load_all`, `batch_update`, `batch_delete`) were re-building the same SQL strings (containing the quoted table name) via f-strings on every call. Six SQL template strings are now pre-computed at instance creation time and referenced directly on the hot paths.
+  - **Impact**: Eliminates string-building overhead on every KV operation. Improves `test_single_write` / `test_execute_raw` / `test_sql_insert_single`.
+
+- **[Medium] PERF-08: Skip MISSING sentinel filter in `to_dict()` / `copy()` for Unbounded mode** (`core.py`)
+  - In Unbounded mode `_data` never holds the MISSING sentinel, so the per-element `if v is not MISSING` predicate in the dict comprehension was unnecessary overhead. Unbounded mode now returns `dict(self._data)` directly; LRU/TTL mode still applies the filter.
+  - **Impact**: Reduces overhead for `test_to_dict_1000` / `test_copy`.
+
+- **[Medium] PERF-09: Eliminate double LRU cache lookup in `__getitem__`** (`core.py`)
+  - In LRU/TTL mode, `__getitem__` called `_ensure_cached()` (which internally calls `self._cache.get()`, invoking `move_to_end()`) and then called `self._cache.get()` a second time to retrieve the value — two `move_to_end()` calls for a single cache hit. Restructured to check `_data` membership first and call `self._cache.get()` exactly once for the cache-hit path.
+  - **Impact**: Removes redundant `move_to_end()` on LRU cache hits. Improves `test_cache_hit[lru]` / `test_cache_hit[ttl]`.
+
+- **[Medium] PERF-10: Pre-compiled regex and early skip for `_validate_expression()`** (`core.py`)
+  - `_validate_expression()` ran four separate `re.search()` calls with individual pattern strings on every invocation. Combined into a single module-level pre-compiled regex `_DANGEROUS_SQL_RE`. Also added an early return when the expression contains no `(`, skipping the expensive `sanitize_sql_for_function_scan()` + `re.findall()` that is only needed when function calls are present.
+  - **Impact**: Reduces regex overhead for typical parameterised WHERE clauses. Improves `test_sql_update_single` / `test_exists_check` / `test_execute_raw`.
+
+- **[Medium] PERF-11: Lock-free fast-path in `ExpiringDict._check_expiry()`** (`utils.py`)
+  - `_check_expiry()` always acquired `threading.RLock` even for keys that were clearly not expired. Under CPython's GIL, individual `dict.get()` is atomic, so an optimistic lock-free pre-check against `_exptimes` is safe. When the expiry time has not been reached the method now returns `False` immediately without touching the lock.
+  - **Impact**: Reduces lock-acquire overhead on TTL cache hit path. Improves `test_cache_hit[ttl]` / `test_ttl_expiry_check`.
+
+#### New Benchmark Tests
+
+- Added `test_cache_hit[lru]` / `test_cache_hit[ttl]` to `tests/test_benchmark.py` to measure the cache hit overhead for a single key with repeated reads.
+
+#### Tests
+
+- Added `tests/test_v153_perf_fixes.py` covering:
+  - PERF-07: Presence and correctness of `_sql_kv_*` pre-computed attributes
+  - PERF-08: `to_dict()` / `copy()` returns no MISSING sentinels in both Unbounded and LRU modes
+  - PERF-09: LRU / TTL `__getitem__` returns correct values on cache hit / miss / MISSING sentinel
+  - PERF-10: Simple WHERE clauses, function-bearing WHERE clauses, and dangerous patterns all handled correctly
+  - PERF-11: `ExpiringDict._check_expiry()` behaves correctly before and after expiry
+- Added `TestPerf12GetDoubleLookup` / `TestPerf13ValuesItemsFilter` to `tests/test_audit_poc.py`:
+  - PERF-12: LRU / TTL `get()` returns correct values on cache hit / known-absent / miss
+  - PERF-13: `values()` / `items()` contains no MISSING sentinels in both Unbounded and LRU modes
+
+- **[High] PERF-12: Eliminate double cache lookup in `get()` for LRU/TTL mode** (`core.py`) *(found by v1.5.3 audit)*
+  - When PERF-09 fixed `__getitem__`, the same double-lookup issue remained in `get()`. The `get()` method called `_ensure_cached()` (which calls `cache.get()` → `move_to_end()` internally) and then called `cache.get()` again to retrieve the value. Applied the same `_data` membership check + single `cache.get()` pattern as PERF-09.
+  - **Impact**: Eliminates redundant `move_to_end()` in `get()` for LRU/TTL cache hits. Further improves `test_cache_hit[lru]` / `test_cache_hit[ttl]`.
+
+- **[Medium] PERF-13: Skip MISSING sentinel filter in `values()` / `items()` for Unbounded mode** (`core.py`) *(found by v1.5.3 audit)*
+  - When PERF-08 optimised `to_dict()`, the same optimisation was not applied to `values()` and `items()`. Unbounded mode now returns `list(_data.values())` / `list(_data.items())` directly without the per-element `if v is not MISSING` predicate.
+  - **Impact**: Reduces per-element overhead in `values()` and `items()` for Unbounded mode.
+
+- **Note (QUAL-01)**: In non-strict mode, `_validate_expression()` now emits a single `UserWarning` even when multiple dangerous patterns match (e.g., `; DROP TABLE`). Previously, one warning was emitted per matching pattern. In strict mode (exception-raising), behaviour is unchanged. Code that relies on the count of `UserWarning`s emitted for a single expression should be updated.
 
 ### [1.5.2] - 2026-04-06
 
