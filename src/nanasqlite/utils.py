@@ -130,7 +130,18 @@ class ExpiringDict(collections.abc.MutableMapping):
 
     def _check_expiry(self, key: str) -> bool:
         """Check if a key is expired and remove it if it is (Lazy eviction)."""
+        # PERF-11: Optimistic lock-free pre-check before acquiring the lock.
+        # Individual dict.get() is atomic under CPython's GIL, so reading
+        # _exptimes without the lock is safe.  The common case for a
+        # non-expired key avoids the RLock acquire/release overhead entirely.
+        expiry = self._exptimes.get(key)
+        if expiry is None:
+            return False  # Key is not tracked; treat as not expired.
         now = time.time()
+        if expiry > now:
+            return False  # Still valid — fast path, no lock needed.
+
+        # Key might be expired.  Do the full check under the lock.
         callback_args: tuple[str, Any] | None = None
         expired = False
         with self._lock:
