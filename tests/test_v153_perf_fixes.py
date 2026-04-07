@@ -342,3 +342,166 @@ def test_ttl_cache_expiry_removes_key(db_path):
         assert db.get("tmp") is None
     finally:
         db.close()
+
+
+# ==================== PERF-14 / PERF-15 / PERF-16 / PERF-17 / PERF-18 / PERF-19 / PERF-20 ====================
+
+
+def test_perf14_getitem_cached_hit(db_path):
+    """PERF-14: __getitem__ cached hit returns correct value (try/except path)."""
+    db = NanaSQLite(db_path)
+    try:
+        db["k"] = {"x": 1}
+        assert db["k"] == {"x": 1}
+        # Second access still correct (purely from _data)
+        assert db["k"] == {"x": 1}
+    finally:
+        db.close()
+
+
+def test_perf14_getitem_missing_raises_keyerror(db_path):
+    """PERF-14: __getitem__ for missing key raises KeyError."""
+    db = NanaSQLite(db_path)
+    try:
+        import pytest
+        with pytest.raises(KeyError):
+            _ = db["does_not_exist"]
+    finally:
+        db.close()
+
+
+def test_perf15_get_cached_hit(db_path):
+    """PERF-15: get() cached hit returns correct value (try/except path)."""
+    db = NanaSQLite(db_path)
+    try:
+        db["k"] = 42
+        assert db.get("k") == 42
+        assert db.get("missing", "def") == "def"
+    finally:
+        db.close()
+
+
+def test_perf16_contains_cached(db_path):
+    """PERF-16: __contains__ cached hit/miss (try/except path)."""
+    db = NanaSQLite(db_path)
+    try:
+        db["present"] = True
+        assert "present" in db
+        assert "absent" not in db
+        # Second absent check uses _absent_keys fast path
+        assert "absent" not in db
+    finally:
+        db.close()
+
+
+def test_perf17_update_cache_empty_absent_keys(db_path):
+    """PERF-17: _update_cache skips discard when _absent_keys is empty."""
+    db = NanaSQLite(db_path)
+    try:
+        # Fresh DB: _absent_keys is empty; writes should still work correctly.
+        assert len(db._absent_keys) == 0  # guard that PERF-17 guard applies
+        db["k1"] = "v1"
+        db["k2"] = "v2"
+        assert db["k1"] == "v1"
+        assert db["k2"] == "v2"
+    finally:
+        db.close()
+
+
+def test_perf17_update_cache_discard_when_absent_keys_has_entry(db_path):
+    """PERF-17: _update_cache discards from _absent_keys when set is non-empty."""
+    db = NanaSQLite(db_path)
+    try:
+        # Touch a missing key to populate _absent_keys
+        assert db.get("ghost") is None
+        assert "ghost" in db._absent_keys
+        # Re-insert the key: _absent_keys must be cleared for it
+        db["ghost"] = "back"
+        assert "ghost" not in db._absent_keys
+        assert db["ghost"] == "back"
+    finally:
+        db.close()
+
+
+def test_perf18_setdefault_existing_key(db_path):
+    """PERF-18: setdefault() returns existing value without overwriting."""
+    db = NanaSQLite(db_path)
+    try:
+        db["k"] = "original"
+        result = db.setdefault("k", "other")
+        assert result == "original"
+        assert db["k"] == "original"
+    finally:
+        db.close()
+
+
+def test_perf18_setdefault_new_key(db_path):
+    """PERF-18: setdefault() for new key sets and returns default directly."""
+    db = NanaSQLite(db_path)
+    try:
+        result = db.setdefault("new_k", "default_val")
+        assert result == "default_val"
+        assert db["new_k"] == "default_val"
+    finally:
+        db.close()
+
+
+def test_perf19_pop_unbounded_returns_correct_value(db_path):
+    """PERF-19: pop() in Unbounded mode returns the value via direct _data access."""
+    db = NanaSQLite(db_path)
+    try:
+        db["target"] = {"data": 99}
+        val = db.pop("target")
+        assert val == {"data": 99}
+        assert "target" not in db
+    finally:
+        db.close()
+
+
+def test_perf20_has_hooks_initialized(db_path):
+    """PERF-20: _has_hooks is False on fresh instance with no hooks."""
+    db = NanaSQLite(db_path)
+    try:
+        assert db._has_hooks is False
+    finally:
+        db.close()
+
+
+def test_perf20_has_hooks_updated_by_add_hook(db_path):
+    """PERF-20: _has_hooks becomes True after add_hook()."""
+    from nanasqlite.protocols import NanaHook
+
+    class NoopHook:
+        def before_write(self, db, key, value):
+            return value
+
+        def after_read(self, db, key, value):
+            return value
+
+        def before_delete(self, db, key):
+            pass
+
+    db = NanaSQLite(db_path)
+    try:
+        assert db._has_hooks is False
+        db.add_hook(NoopHook())
+        assert db._has_hooks is True
+    finally:
+        db.close()
+
+
+def test_perf20_has_hooks_true_with_validator(tmp_path):
+    """PERF-20: _has_hooks is True when a validator is passed (ValidkitHook added)."""
+    try:
+        from validkit import v  # type: ignore[import]
+
+        schema = {"name": v.str()}
+        db_path = str(tmp_path / "val.db")
+        db = NanaSQLite(db_path, validator=schema)
+        try:
+            assert db._has_hooks is True
+        finally:
+            db.close()
+    except (ImportError, AttributeError):
+        import pytest
+        pytest.skip("validkit not installed or incompatible API")

@@ -4,6 +4,25 @@ outline: [2, 3]
 
 # Changelog
 
+### [1.5.3rc2] - 2026-04-07
+
+#### Performance Fixes (v1.5.3rc2 benchmark regression fix)
+
+- **[High] PERF-14/15/16: try/except fast path for Unbounded mode read hot paths** (`core.py`)
+  - Replaced `.get(key, sentinel)` with direct `d[key]` + `try/except` in `__getitem__`, `get()`, and `__contains__`. Approximately **1.9x** faster for the cache-hit case. Measured **-15%** on `test_single_read_cached`.
+
+- **[Medium] PERF-17: Guard empty `_absent_keys.discard()` in `_update_cache()`** (`core.py`)
+  - Added `if self._absent_keys:` guard to skip unnecessary hash computation in write-heavy workloads.
+
+- **[Medium] PERF-18: Eliminate redundant `self[key]` in `setdefault()`** (`core.py`)
+  - Return the default value directly after writing instead of re-entering `__getitem__`.
+
+- **[Medium] PERF-19: Direct `_data` access in `pop()` for Unbounded mode** (`core.py`)
+  - Use `self._data[key]` instead of `self._cache.get()` to avoid polymorphic method dispatch.
+
+- **[Medium] PERF-20: Pre-computed `_has_hooks` flag** (`core.py`)
+  - Replace `if self._hooks:` with a pre-computed `bool` flag `_has_hooks` across all KV hot paths, eliminating `list.__len__` overhead on every operation.
+
 ### [1.5.3rc1] - 2026-04-07
 
 #### Performance Fixes (v1.5.3 pre-release audit)

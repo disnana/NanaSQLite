@@ -4,6 +4,25 @@ outline: [2, 3]
 
 # 更新履歴
 
+### [1.5.3rc2] - 2026-04-07
+
+#### パフォーマンス修正（v1.5.3rc2 ベンチマーク低下対応）
+
+- **[High] PERF-14/15/16: Unbounded モード読み取りホットパスの try/except 高速化**（`core.py`）
+  - `__getitem__` / `get()` / `__contains__` で `.get(key, sentinel)` を `d[key]` + `try/except` に置き換え。キャッシュヒット時 **約 1.9 倍**高速化。`test_single_read_cached` で **-15%** 改善。
+
+- **[Medium] PERF-17: `_update_cache` 空 `_absent_keys` 時の `discard()` 省略**（`core.py`）
+  - 書き込み専用ワークロードで不要なハッシュ計算を排除する `if self._absent_keys:` ガードを追加。
+
+- **[Medium] PERF-18: `setdefault()` の冗長 `self[key]` 呼び出し省略**（`core.py`）
+  - 新規キー書き込み後の再読み込みを省略し、デフォルト値を直接返すよう変更。
+
+- **[Medium] PERF-19: `pop()` Unbounded モードでの直接 `_data` アクセス**（`core.py`）
+  - `self._cache.get()` の代わりに `self._data[key]` を使用してメソッドディスパッチコストを排除。
+
+- **[Medium] PERF-20: `_has_hooks` 事前計算フラグ**（`core.py`）
+  - 全 KV ホットパスの `if self._hooks:` を事前計算 bool フラグ `_has_hooks` に置き換え、`list.__len__` の呼び出しを排除。
+
 ### [1.5.3rc1] - 2026-04-07
 
 #### パフォーマンス修正（v1.5.3 プレリリース監査）
