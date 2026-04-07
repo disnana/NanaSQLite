@@ -1426,7 +1426,7 @@ class NanaSQLite(MutableMapping):
         # calling self[key] again (which would re-enter __getitem__ and perform
         # another cache lookup).
         # However, if before_write hooks transform the value (e.g. coerce=True),
-        # we must read from cache to get the stored value — not the original default.
+        # we must read from cache to get the stored value -- not the original default.
         self[key] = default
         if self._has_hooks:
             # before_write may have transformed the value; read what was stored.
