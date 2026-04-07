@@ -6,6 +6,49 @@
 
 ## 日本語
 
+### [1.5.3rc2] - 2026-04-07
+
+#### バグ修正
+
+- **[Medium] BUG-01: `setdefault()` + `before_write` 変換フック組み合わせ時の返値誤り**（`core.py`）
+  - PERF-18 最適化で `self[key] = default` 後に `self[key]` を再読み込みせず直接 `default` を `after_read` フックに渡す実装としましたが、`ValidkitHook(coerce=True)` や `PydanticHook` のように `before_write` フックが値を変換する場合に誤った値を返す問題がありました（例: `"hello"` → `"HELLO"` と変換されるフックがあっても `"hello"` を返してしまう）。
+  - **修正**: `self[key] = default` の後、`_has_hooks` が True の場合はキャッシュから実際に格納された値を読み直してから `after_read` フックを適用するよう変更しました。フックがない場合は従来どおり `default` を直接返します（パフォーマンス最適化を維持）。
+  - 対応する POC: `etc/poc/poc_bug01_setdefault_coerce_hook.py`
+
+#### パフォーマンス修正（v1.5.3rc2 ベンチマーク低下対応）
+
+- **[High] PERF-14: Unbounded モード `__getitem__` の try/except 高速パス**（`core.py`）
+  - キャッシュヒット時のホットパスで `.get(key, _NOT_FOUND)` + センチネル同一性比較を使用していました。Python の辞書直接アクセス `d[key]` は `try/except KeyError` パターンで呼び出すと、センチネルオブジェクト生成・キーワード引数処理・同一性比較が不要になり約 1.9 倍高速になります。`test_single_read_cached` で **-15%** の改善を確認。
+  - `_ensure_cached()`・`__getitem__`・`get()` のすべての Unbounded ホットパスに適用しました。
+
+- **[High] PERF-15: Unbounded モード `get()` の try/except 高速パス**（`core.py`）
+  - PERF-14 と同様の最適化を `get()` メソッドに適用しました。`test_read_encryption[fernet]` で **-11.6%** の改善を確認。
+
+- **[High] PERF-16: Unbounded モード `__contains__` の try/except 高速パス**（`core.py`）
+  - PERF-14 と同様の最適化を `__contains__` メソッドに適用しました。
+
+- **[Medium] PERF-17: `_update_cache` での空セット `discard()` 呼び出し省略**（`core.py`）
+  - v1.5.2 の `_absent_keys` 導入以降、`_update_cache()` は毎回 `self._absent_keys.discard(key)` を呼んでいました。書き込み中心のワークロードでは `_absent_keys` は空のままのため、無駄なハッシュ計算が発生していました。`if self._absent_keys:` ガードを追加し、空セットの場合はスキップするよう変更しました。
+
+- **[Medium] PERF-18: `setdefault()` の冗長な `self[key]` 呼び出し省略**（`core.py`）
+  - `setdefault()` はキーが存在しない場合に `self[key] = default` で書き込み後、さらに `self[key]` で読み戻していました。書き込み後の値はすでに既知であるため、再度の `__getitem__` 呼び出しを省略してデフォルト値を直接返すよう変更しました。また Unbounded モードでは `_cache.get()` のポリモーフィックな呼び出しを `_data[key]` 直接アクセスに置き換えました。
+
+- **[Medium] PERF-19: `pop()` の Unbounded モードでの直接 `_data` アクセス**（`core.py`）
+  - `pop()` は値の取得に `self._cache.get(key)` を使用していました。Unbounded モードでは `_data` に実値が直接格納されているため、`self._data[key]` で取得することでポリモーフィックなメソッドディスパッチ（LRU では `move_to_end()` を伴う）を回避できます。
+
+- **[Medium] PERF-20: `_has_hooks` 事前計算フラグによる全ホットパスの高速化**（`core.py`）
+  - `__getitem__`・`__setitem__`・`__delitem__`・`get()`・`get_fresh()`・`batch_get()`・`pop()`・`setdefault()`・`batch_update_partial()`・`batch_delete()` のすべてのホットパスで `if self._hooks:` を使用していました。これは毎回リストの `__len__` を呼び出すオーバーヘッドがあります。`__init__` 時に `self._has_hooks: bool = bool(self._hooks)` を事前計算し、`add_hook()` 時も更新するよう変更しました。
+
+#### テスト
+
+- `tests/test_v153_perf_fixes.py` に以下を追加（PERF-14〜20 の動作検証 および BUG-01 回帰テスト）:
+  - キャッシュヒット時の `__getitem__` / `get()` / `__contains__` の正確性
+  - `_update_cache` の空 `_absent_keys` 時のスキップ動作
+  - `setdefault()` の新キー・既存キーの返値（フックあり・なし）
+  - `pop()` の Unbounded モードでの正確性
+  - `_has_hooks` の初期化・`add_hook()` 後の更新確認
+  - BUG-01: `before_write` 変換フック付き `setdefault()` の正確な返値検証
+
 ### [1.5.3rc1] - 2026-04-07
 
 #### パフォーマンス修正（v1.5.3 プレリリース監査）
@@ -1073,6 +1116,42 @@
 
 
 ## English
+
+### [1.5.3rc2] - 2026-04-07
+
+#### Bug Fixes
+
+- **[Medium] BUG-01: `setdefault()` returns wrong value when `before_write` hook transforms the default** (`core.py`)
+  - The PERF-18 optimisation applied `after_read` hooks to the original `default` argument rather than the potentially hook-transformed value actually stored in cache. For example, with `ValidkitHook(coerce=True)` or `PydanticHook` that transforms values on write, `setdefault("k", "hello")` would store `"HELLO"` but return `"hello"`.
+  - **Fix**: When `_has_hooks` is True, the new code reads the stored (potentially transformed) value from `_data`/cache after the write and applies `after_read` hooks to that. When `_has_hooks` is False no hooks can transform values, so returning `default` directly (the PERF-18 fast path) remains valid.
+  - POC: `etc/poc/poc_bug01_setdefault_coerce_hook.py`
+
+#### Performance Fixes (v1.5.3rc2 benchmark regression fix)
+
+- **[High] PERF-14: try/except fast path for `__getitem__` in Unbounded mode** (`core.py`)
+  - The cache-hit hot path used `.get(key, _NOT_FOUND)` plus a sentinel identity check. Direct dict access `d[key]` via `try/except KeyError` eliminates sentinel creation, keyword-argument processing, and the identity compare — approximately **1.9x** faster for the common cache-hit case. Applied to `_ensure_cached()`, `__getitem__`, and `get()`. Measured **-15%** improvement on `test_single_read_cached`.
+
+- **[High] PERF-15: try/except fast path for `get()` in Unbounded mode** (`core.py`)
+  - Same optimisation as PERF-14 applied to `get()`. Measured **-11.6%** improvement on `test_read_encryption[fernet]`.
+
+- **[High] PERF-16: try/except fast path for `__contains__` in Unbounded mode** (`core.py`)
+  - Same optimisation as PERF-14 applied to `__contains__`.
+
+- **[Medium] PERF-17: Guard empty `_absent_keys.discard()` in `_update_cache()`** (`core.py`)
+  - Since v1.5.2's `_absent_keys` introduction, `_update_cache()` called `self._absent_keys.discard(key)` on every write — even when the set was empty (common in write-heavy workloads). Added an `if self._absent_keys:` guard so the hash computation is skipped when unnecessary.
+
+- **[Medium] PERF-18: Eliminate redundant `self[key]` round-trip in `setdefault()`** (`core.py`)
+  - After writing a new default, `setdefault()` re-read the value via `self[key]` (a full `__getitem__` call). Since the value is already known, it is now returned directly. Also switched Unbounded mode to use `_data[key]` instead of the polymorphic `_cache.get()`.
+
+- **[Medium] PERF-19: Direct `_data` access in `pop()` for Unbounded mode** (`core.py`)
+  - `pop()` retrieved the value via `self._cache.get(key)`. In Unbounded mode `_data` holds the real value; using `self._data[key]` avoids the polymorphic method dispatch (and `move_to_end()` overhead in LRU mode).
+
+- **[Medium] PERF-20: Pre-computed `_has_hooks` flag to speed up all hot paths** (`core.py`)
+  - All hot paths (`__getitem__`, `__setitem__`, `__delitem__`, `get()`, `get_fresh()`, `batch_get()`, `pop()`, `setdefault()`, `batch_update_partial()`, `batch_delete()`) were calling `if self._hooks:` which triggers `list.__len__` on every operation. A `self._has_hooks: bool` flag is now pre-computed at `__init__` time and kept in sync by `add_hook()`.
+
+#### Tests
+
+- Extended `tests/test_v153_perf_fixes.py` to cover PERF-14 through PERF-20 correctness and BUG-01 regression tests.
 
 ### [1.5.3rc1] - 2026-04-07
 
