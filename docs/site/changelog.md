@@ -4,6 +4,41 @@ outline: [2, 3]
 
 # 更新履歴
 
+### [1.5.3rc1] - 2026-04-07
+
+#### パフォーマンス修正（v1.5.3 プレリリース監査）
+
+- **[High] PERF-07: 共通 SQL 文字列の `__init__` 時事前計算**（`core.py`）
+  - 全 KV ホットパスで f-string による SQL 文字列再構築を排除。`__init__` 時に 6 種の SQL テンプレートを事前計算してインスタンス変数に保持します。
+  - **効果**: 書き込み・読み込み・削除・カウント等の全 KV 操作で文字列構築コストを排除。
+
+- **[Medium] PERF-08: Unbounded モードでの `to_dict()` / `copy()` MISSING フィルタ省略**（`core.py`）
+  - Unbounded モードでは `_data` に MISSING センチネルが格納されないため、`dict(self._data)` を直接返すよう変更しました。
+  - **効果**: `test_to_dict_1000` / `test_copy` の改善に寄与。
+
+- **[Medium] PERF-09: LRU `__getitem__` での二重キャッシュルックアップ排除**（`core.py`）
+  - キャッシュヒット時の `_data` 在籍確認を先行させ、`self._cache.get()` を 1 回の呼び出しで完結するよう変更しました。
+  - **効果**: LRU/TTL キャッシュヒット時の `move_to_end()` 冗長呼び出しを排除。
+
+- **[Medium] PERF-10: `_validate_expression()` の正規表現最適化と関数スキャン早期スキップ**（`core.py`）
+  - 4 パターンをモジュールレベルで事前コンパイルした単一正規表現 `_DANGEROUS_SQL_RE` に統合。`(` が含まれない式では関数スキャンをスキップします。
+  - **注意**: 非 strict モードでは複数の危険パターンが同時マッチしても警告は 1 件のみ発行されます。
+
+- **[Medium] PERF-11: `ExpiringDict._check_expiry()` のロックフリー早期リターン最適化**（`utils.py`）
+  - 期限切れでないキーのロック取得をスキップするロックフリー楽観的プレチェックを追加しました。
+  - **効果**: TTL キャッシュのキャッシュヒット時のロック取得回数を削減。
+
+- **[High] PERF-12: LRU/TTL モードの `get()` における二重キャッシュルックアップ排除**（`core.py`）（v1.5.3 監査で発見）
+  - PERF-09 で `__getitem__` を最適化した際に `get()` に同じ問題が残存していました。同パターンを適用しました。
+
+- **[Medium] PERF-13: Unbounded モードの `values()` / `items()` における MISSING フィルタ省略**（`core.py`）（v1.5.3 監査で発見）
+  - PERF-08 と同様の最適化を `values()` / `items()` にも適用しました。
+
+#### テスト
+
+- `tests/test_v153_perf_fixes.py` を追加（PERF-07〜11 の回帰テスト 19 件）。
+- `tests/test_audit_poc.py` に `TestPerf12GetDoubleLookup` / `TestPerf13ValuesItemsFilter` を追加。
+
 ### [1.5.2] - 2026-04-06
 
 #### パフォーマンス修正（v1.5.0dev1 以降の性能低下 継続対応）

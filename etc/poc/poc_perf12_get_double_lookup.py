@@ -83,14 +83,14 @@ try:
         try:
             os.unlink(path + "2")
         except OSError:
-            pass
+            pass  # Ignore cleanup errors; file may already be absent.
 
     finally:
         try:
             if not db._is_closed:
                 db.close()
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001
+            pass  # Suppress any db.close() error during POC teardown.
         os.unlink(path)
 
 except Exception as e:
