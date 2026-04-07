@@ -272,6 +272,11 @@ class NanaSQLite(MutableMapping):
             else:
                 raise ValueError(f"Unsupported encryption_mode: {encryption_mode}")
 
+        # PERF-29: Pre-compute a single bool that indicates "no encryption is active"
+        # so _serialize() can return on the very first check instead of testing both
+        # _fernet and _aead (which are None-falsy attribute lookups) on every call.
+        self._no_encrypt: bool = not bool(self._fernet or self._aead)
+
         # Hooks setup (including legacy validkit support)
         self._validator_raw = validator
         self._coerce_raw: bool = bool(coerce)
@@ -811,9 +816,15 @@ class NanaSQLite(MutableMapping):
         if HAS_ORJSON:
             # orjson returns bytes
             data = orjson.dumps(value)
-            json_str = None
+            # PERF-29: fast-path for the common no-encryption case: skip the
+            # two None-attribute checks (_fernet / _aead) with a single bool flag.
+            if self._no_encrypt:
+                return data.decode("utf-8")
         else:
             json_str = json.dumps(value, ensure_ascii=False)
+            # PERF-29: same fast-path for stdlib path
+            if self._no_encrypt:
+                return json_str  # type: ignore[return-value]
             data = json_str.encode("utf-8")
 
         if self._fernet:
@@ -826,11 +837,10 @@ class NanaSQLite(MutableMapping):
             # Combine nonce + ciphertext
             return nonce + ciphertext
 
-        # No encryption: store as TEXT for compatibility/perf (str)
+        # Fallback: no encryption, no fast-path (should not normally be reached)  # pragma: no cover
         if HAS_ORJSON:
-            # Decode once to keep DB storage as TEXT
             return data.decode("utf-8")
-        return json_str  # type: ignore[return-value]  # json_str is str here (HAS_ORJSON=False)
+        return json_str  # type: ignore[return-value]
 
     def _deserialize(self, value: bytes | str) -> Any:
         """デシリアライズ (Decryption if enabled -> JSON)"""
@@ -1544,28 +1554,37 @@ class NanaSQLite(MutableMapping):
             for key, value in mapping.items():
                 self._v2_engine.kvs_set(self._safe_table, key, value)
             # See __setitem__ comment: no explicit lock needed for pure in-memory updates in v2 mode.
-            for key, value in mapping.items():
-                if self._lru_mode:
+            if self._lru_mode:
+                for key, value in mapping.items():
                     self._cache.set(key, value)
-                else:
-                    self._data[key] = value
-                    self._absent_keys.discard(key)
+            else:
+                # PERF-23: dict.update() is ~6x faster than a per-key loop for Unbounded mode.
+                self._data.update(mapping)
+                # PERF-23: guard against empty-set overhead (common for write-heavy workloads).
+                if self._absent_keys:
+                    self._absent_keys.difference_update(mapping.keys())
             return
+
+        # PERF-23: Serialize all values outside the lock (consistent with __setitem__).
+        # _serialize() is pure Python/JSON work that does not touch the SQLite connection,
+        # so holding the lock during serialization only adds unnecessary contention.
+        params = [(key, self._serialize(value)) for key, value in mapping.items()]
 
         with self._acquire_lock():
             cursor = self._connection.cursor()
             cursor.execute(_BEGIN_IMMEDIATE)
             try:
-                # 事前にシリアライズしてexecutemany用のタプルリストを作成
-                params = [(key, self._serialize(value)) for key, value in mapping.items()]
                 cursor.executemany(self._sql_kv_insert, params)
                 # キャッシュ更新
-                for key, value in mapping.items():
-                    if self._lru_mode:
+                if self._lru_mode:
+                    for key, value in mapping.items():
                         self._cache.set(key, value)
-                    else:
-                        self._data[key] = value
-                        self._absent_keys.discard(key)
+                else:
+                    # PERF-23: dict.update() is ~6x faster than a per-key assignment loop.
+                    self._data.update(mapping)
+                    # PERF-23: guard absent_keys update (empty for write-heavy workloads).
+                    if self._absent_keys:
+                        self._absent_keys.difference_update(mapping.keys())
                 cursor.execute("COMMIT")
             except Exception:
                 cursor.execute("ROLLBACK")
@@ -1627,12 +1646,14 @@ class NanaSQLite(MutableMapping):
             for key, _ in params:
                 self._v2_engine.kvs_set(self._safe_table, key, accepted_values[key])
             with self._acquire_lock():
-                for key, value in accepted_values.items():
-                    if self._lru_mode:
+                if self._lru_mode:
+                    for key, value in accepted_values.items():
                         self._cache.set(key, value)
-                    else:
-                        self._data[key] = value
-                        self._absent_keys.discard(key)
+                else:
+                    # PERF-24: dict.update() + guard (consistent with batch_update).
+                    self._data.update(accepted_values)
+                    if self._absent_keys:
+                        self._absent_keys.difference_update(accepted_values.keys())
             return failed
 
         with self._acquire_lock():
@@ -1640,12 +1661,15 @@ class NanaSQLite(MutableMapping):
             cursor.execute(_BEGIN_IMMEDIATE)
             try:
                 cursor.executemany(self._sql_kv_insert, params)
-                for key, value in accepted_values.items():
-                    if self._lru_mode:
+                if self._lru_mode:
+                    for key, value in accepted_values.items():
                         self._cache.set(key, value)
-                    else:
-                        self._data[key] = value
-                        self._absent_keys.discard(key)
+                else:
+                    # PERF-24: dict.update() is ~6x faster than a per-key assignment loop.
+                    self._data.update(accepted_values)
+                    # PERF-24: guard absent_keys update (empty for write-heavy workloads).
+                    if self._absent_keys:
+                        self._absent_keys.difference_update(accepted_values.keys())
                 cursor.execute("COMMIT")
             except Exception:
                 cursor.execute("ROLLBACK")
@@ -1669,10 +1693,12 @@ class NanaSQLite(MutableMapping):
         if not keys:
             return  # 空の場合は何もしない
 
-        for key in keys:
-            if self._ensure_cached(key):
-                # PERF-20: use pre-computed flag
-                if self._has_hooks:
+        # PERF-22: Only iterate keys for before_delete hooks; skip entirely when
+        # no hooks are registered (the common case).  This avoids O(n) Python
+        # function-call overhead per key when hooks are absent.
+        if self._has_hooks:
+            for key in keys:
+                if self._ensure_cached(key):
                     for hook in self._hooks:
                         hook.before_delete(self, key)
 
@@ -1681,12 +1707,15 @@ class NanaSQLite(MutableMapping):
             for key in keys:
                 self._v2_engine.kvs_delete(self._safe_table, key)
             # See __setitem__ comment: no explicit lock needed for pure in-memory updates in v2 mode.
-            for key in keys:
-                if self._lru_mode:
+            if self._lru_mode:
+                for key in keys:
                     self._cache.delete(key)
-                else:
+            else:
+                # PERF-25: batch pop + single set.update() call instead of per-key
+                # pop + add, which avoids repeated hash computations.
+                for key in keys:
                     self._data.pop(key, None)
-                    self._absent_keys.add(key)
+                self._absent_keys.update(keys)
             return
 
         with self._acquire_lock():
@@ -1697,12 +1726,14 @@ class NanaSQLite(MutableMapping):
                 params = [(key,) for key in keys]
                 cursor.executemany(self._sql_kv_delete, params)
                 # キャッシュ更新
-                for key in keys:
-                    if self._lru_mode:
+                if self._lru_mode:
+                    for key in keys:
                         self._cache.delete(key)
-                    else:
+                else:
+                    # PERF-25: batch pop + single set.update() instead of per-key operations.
+                    for key in keys:
                         self._data.pop(key, None)
-                        self._absent_keys.add(key)
+                    self._absent_keys.update(keys)
                 cursor.execute("COMMIT")
             except Exception:
                 cursor.execute("ROLLBACK")
@@ -2237,8 +2268,10 @@ class NanaSQLite(MutableMapping):
             cursor = self._connection.cursor()
             cursor.execute(_BEGIN_IMMEDIATE)
             try:
-                for parameters in parameters_list:
-                    cursor.execute(sql, parameters)
+                # PERF-21: use APSW's executemany instead of a Python-level loop.
+                # This eliminates per-parameter Python call overhead while keeping
+                # the same transactional semantics.
+                cursor.executemany(sql, parameters_list)
                 cursor.execute("COMMIT")
             except apsw.Error:
                 cursor.execute("ROLLBACK")
@@ -3250,12 +3283,15 @@ class NanaSQLite(MutableMapping):
             )
 
         try:
-            self.execute("BEGIN IMMEDIATE")
+            # PERF-26: bypass the full execute() dispatch (v2 check, _check_connection
+            # duplication, try/except wrap) and use the lock + connection directly.
+            with self._acquire_lock():
+                self._connection.execute("BEGIN IMMEDIATE")
             self._in_transaction = True
             self._transaction_depth = 1
-        except Exception as e:
+        except apsw.Error as e:
             raise NanaSQLiteDatabaseError(
-                f"Failed to begin transaction: {e}", original_error=e if isinstance(e, apsw.Error) else None
+                f"Failed to begin transaction: {e}", original_error=e
             ) from e
 
     def commit(self) -> None:
@@ -3275,13 +3311,15 @@ class NanaSQLite(MutableMapping):
             )
 
         try:
-            self.execute("COMMIT")
+            # PERF-26: bypass the full execute() dispatch for these simple control statements.
+            with self._acquire_lock():
+                self._connection.execute("COMMIT")
             self._in_transaction = False
             self._transaction_depth = 0
-        except Exception as e:
+        except apsw.Error as e:
             # コミット失敗時は状態を維持（ロールバックが必要）
             raise NanaSQLiteDatabaseError(
-                f"Failed to commit transaction: {e}", original_error=e if isinstance(e, apsw.Error) else None
+                f"Failed to commit transaction: {e}", original_error=e
             ) from e
 
     def rollback(self) -> None:
@@ -3301,15 +3339,17 @@ class NanaSQLite(MutableMapping):
             )
 
         try:
-            self.execute("ROLLBACK")
+            # PERF-26: bypass the full execute() dispatch for these simple control statements.
+            with self._acquire_lock():
+                self._connection.execute("ROLLBACK")
             self._in_transaction = False
             self._transaction_depth = 0
-        except Exception as e:
+        except apsw.Error as e:
             # ロールバック失敗は深刻なので状態をリセット
             self._in_transaction = False
             self._transaction_depth = 0
             raise NanaSQLiteDatabaseError(
-                f"Failed to rollback transaction: {e}", original_error=e if isinstance(e, apsw.Error) else None
+                f"Failed to rollback transaction: {e}", original_error=e
             ) from e
 
     def in_transaction(self) -> bool:

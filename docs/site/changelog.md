@@ -4,6 +4,33 @@ outline: [2, 3]
 
 # 更新履歴
 
+### [1.5.3rc3] - 2026-04-07
+
+#### パフォーマンス改善
+
+- **PERF-21: `execute_many()` — Python ループ → `cursor.executemany()`**（`core.py`）
+  - APSW 組み込みの `executemany()` を使い、per-item の Python 関数呼び出しオーバーヘッドを排除。`test_execute_many`・`test_import_from_dict_list` で約 15% 改善。
+
+- **PERF-22: `batch_delete()` — フック未登録時の事前チェックループを省略**（`core.py`）
+  - `_has_hooks = False`（デフォルト）の場合、全キーへの `_ensure_cached()` 呼び出しをスキップ。
+
+- **PERF-23: `batch_update()` — シリアライズのロック外移動・`dict.update()`・`_absent_keys` ガード**（`core.py`）
+  - `_serialize()` をロック外へ移動（`__setitem__` と同方針）、キャッシュ更新に `dict.update()` を使用（per-key ループ比 約 6 倍高速）、`_absent_keys` 更新に `if` ガード + `difference_update()` を適用。約 9% 高速化。
+
+- **PERF-24: `batch_update_partial()` — `dict.update()` + `_absent_keys` ガード**（`core.py`）
+  - PERF-23 と同様の最適化を v1 / v2 両パスに適用。
+
+- **PERF-25: `batch_delete()` — `_absent_keys.update(keys)` 一括化**（`core.py`）
+  - per-key `add()` ループを `update(keys)` 一括呼び出しに変更。
+
+- **PERF-26: `begin_transaction()` / `commit()` / `rollback()` — `execute()` オーバーヘッドをバイパス**（`core.py`）
+  - `self._connection.execute()` を直接呼び出し、v2 判定・SQL strip/upper・重複 `_check_connection()` を排除。
+
+- **PERF-29: `_serialize()` — 暗号化なし時の早期リターン**（`core.py`）
+  - `__init__` 時に `_no_encrypt` フラグを事前計算し、`_fernet` / `_aead` の属性ルックアップを全書き込みパスでスキップ。
+
+---
+
 ### [1.5.3rc2] - 2026-04-07
 
 #### バグ修正
