@@ -1457,3 +1457,88 @@ class TestPerf13ValuesItemsFilter:
             assert sorted(db.items()) == sorted(d.items())
         finally:
             db.close()
+
+
+# ---------------------------------------------------------------------------
+# BUG-02: execute_many transaction leak on non-apsw exceptions (rc3 audit)
+# ---------------------------------------------------------------------------
+
+
+class TestBug02ExecuteManyTxnLeak:
+    """BUG-02: execute_many の非 apsw.Error 例外でトランザクションがリークしない"""
+
+    def test_execute_many_bad_params_no_txn_leak(self, db_path):
+        """非apsw例外後も後続の書き込みが成功することを確認"""
+        db = NanaSQLite(db_path)
+        try:
+            db["seed"] = "ok"
+            # object() は展開できず TypeError が発生するはず
+            try:
+                db.execute_many(
+                    "INSERT OR REPLACE INTO data(key, value) VALUES (?, ?)",
+                    [("k1", "v1"), object()],
+                )
+            except Exception:
+                pass
+            # 修正後: リークなし → 書き込み成功
+            db["after"] = "still_works"
+            assert db["after"] == "still_works"
+        finally:
+            db.close()
+
+    def test_execute_many_apsw_error_rollback(self, db_path):
+        """apsw.Error でも ROLLBACK が実行され後続書き込みが成功する"""
+        db = NanaSQLite(db_path)
+        try:
+            db["x"] = 1
+            try:
+                db.execute_many("INVALID SQL ??", [("a",)])
+            except Exception:
+                pass
+            db["y"] = 2
+            assert db["y"] == 2
+        finally:
+            db.close()
+
+
+# ---------------------------------------------------------------------------
+# BUG-03: begin_transaction _in_transaction state outside lock (rc3 audit)
+# ---------------------------------------------------------------------------
+
+
+class TestBug03BeginTxnRace:
+    """BUG-03: begin_transaction の _in_transaction フラグがロック内で設定される"""
+
+    def test_begin_transaction_flag_set_inside_lock(self, db_path):
+        """begin_transaction 後に _in_transaction が True になっている"""
+        db = NanaSQLite(db_path)
+        try:
+            db.begin_transaction()
+            assert db.in_transaction() is True
+            db.rollback()
+            assert db.in_transaction() is False
+        finally:
+            db.close()
+
+    def test_commit_clears_flag(self, db_path):
+        """commit 後に _in_transaction が False になっている"""
+        db = NanaSQLite(db_path)
+        try:
+            db.begin_transaction()
+            db.commit()
+            assert db.in_transaction() is False
+        finally:
+            db.close()
+
+    def test_no_double_begin_raises(self, db_path):
+        """二重 begin_transaction は NanaSQLiteTransactionError を送出する"""
+        from nanasqlite.exceptions import NanaSQLiteTransactionError
+
+        db = NanaSQLite(db_path)
+        try:
+            db.begin_transaction()
+            with pytest.raises(NanaSQLiteTransactionError):
+                db.begin_transaction()
+            db.rollback()
+        finally:
+            db.close()

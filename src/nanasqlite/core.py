@@ -2273,7 +2273,7 @@ class NanaSQLite(MutableMapping):
                 # the same transactional semantics.
                 cursor.executemany(sql, parameters_list)
                 cursor.execute("COMMIT")
-            except apsw.Error:
+            except Exception:
                 cursor.execute("ROLLBACK")
                 raise
 
@@ -3285,10 +3285,12 @@ class NanaSQLite(MutableMapping):
         try:
             # PERF-26: bypass the full execute() dispatch (v2 check, _check_connection
             # duplication, try/except wrap) and use the lock + connection directly.
+            # BUG-03 fix: update _in_transaction INSIDE the lock so the Python-level
+            # guard stays in sync with the SQLite transaction state atomically.
             with self._acquire_lock():
                 self._connection.execute("BEGIN IMMEDIATE")
-            self._in_transaction = True
-            self._transaction_depth = 1
+                self._in_transaction = True
+                self._transaction_depth = 1
         except apsw.Error as e:
             raise NanaSQLiteDatabaseError(
                 f"Failed to begin transaction: {e}", original_error=e
@@ -3312,10 +3314,11 @@ class NanaSQLite(MutableMapping):
 
         try:
             # PERF-26: bypass the full execute() dispatch for these simple control statements.
+            # QUAL-03 fix: update _in_transaction INSIDE the lock for atomicity.
             with self._acquire_lock():
                 self._connection.execute("COMMIT")
-            self._in_transaction = False
-            self._transaction_depth = 0
+                self._in_transaction = False
+                self._transaction_depth = 0
         except apsw.Error as e:
             # コミット失敗時は状態を維持（ロールバックが必要）
             raise NanaSQLiteDatabaseError(
@@ -3340,10 +3343,11 @@ class NanaSQLite(MutableMapping):
 
         try:
             # PERF-26: bypass the full execute() dispatch for these simple control statements.
+            # QUAL-03 fix: update _in_transaction INSIDE the lock for atomicity.
             with self._acquire_lock():
                 self._connection.execute("ROLLBACK")
-            self._in_transaction = False
-            self._transaction_depth = 0
+                self._in_transaction = False
+                self._transaction_depth = 0
         except apsw.Error as e:
             # ロールバック失敗は深刻なので状態をリセット
             self._in_transaction = False
