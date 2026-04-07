@@ -6,6 +6,11 @@ outline: [2, 3]
 
 ### [1.5.3rc2] - 2026-04-07
 
+#### Bug Fixes
+
+- **[Medium] BUG-01: `setdefault()` returns wrong value when `before_write` hook transforms the default** (`core.py`)
+  - With `ValidkitHook(coerce=True)` or `PydanticHook`, PERF-18 was applying `after_read` to the original `default` rather than the stored (transformed) value. Fixed by reading from cache when `_has_hooks` is True.
+
 #### Performance Fixes (v1.5.3rc2 benchmark regression fix)
 
 - **[High] PERF-14/15/16: try/except fast path for Unbounded mode read hot paths** (`core.py`)

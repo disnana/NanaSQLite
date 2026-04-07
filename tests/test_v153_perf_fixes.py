@@ -504,3 +504,59 @@ def test_perf20_has_hooks_true_with_validator(tmp_path):
     except (ImportError, AttributeError):
         import pytest
         pytest.skip("validkit not installed or incompatible API")
+
+
+# ==================== BUG-01 ====================
+
+
+class _UpperCaseHook:
+    """before_write で str 値を大文字化する変換フック（コーション相当）"""
+
+    def before_write(self, db, key, value):
+        if isinstance(value, str):
+            return value.upper()
+        return value
+
+    def after_read(self, db, key, value):
+        return value
+
+    def before_delete(self, db, key):
+        pass
+
+
+def test_bug01_setdefault_new_key_with_transforming_hook(db_path):
+    """BUG-01: setdefault() with a before_write hook that transforms the value returns the transformed value."""
+    db = NanaSQLite(db_path)
+    db.add_hook(_UpperCaseHook())
+    try:
+        result = db.setdefault("k", "hello")
+        stored = db["k"]
+        # before_write transforms "hello" → "HELLO"; the returned value must match
+        # what was actually stored, not the original default.
+        assert result == "HELLO", f"Expected 'HELLO', got {result!r}"
+        assert stored == "HELLO"
+    finally:
+        db.close()
+
+
+def test_bug01_setdefault_existing_key_with_transforming_hook(db_path):
+    """BUG-01: setdefault() for an existing key returns the cached (stored) value."""
+    db = NanaSQLite(db_path)
+    db.add_hook(_UpperCaseHook())
+    try:
+        db["k"] = "world"  # stores "WORLD"
+        result = db.setdefault("k", "other")
+        assert result == "WORLD", f"Expected 'WORLD', got {result!r}"
+    finally:
+        db.close()
+
+
+def test_bug01_setdefault_no_hook_returns_default_directly(db_path):
+    """BUG-01 (regression): setdefault() without hooks still returns default for new keys."""
+    db = NanaSQLite(db_path)
+    try:
+        result = db.setdefault("k", "plain")
+        assert result == "plain"
+        assert db["k"] == "plain"
+    finally:
+        db.close()

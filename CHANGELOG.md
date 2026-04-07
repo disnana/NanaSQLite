@@ -8,6 +8,13 @@
 
 ### [1.5.3rc2] - 2026-04-07
 
+#### バグ修正
+
+- **[Medium] BUG-01: `setdefault()` + `before_write` 変換フック組み合わせ時の返値誤り**（`core.py`）
+  - PERF-18 最適化で `self[key] = default` 後に `self[key]` を再読み込みせず直接 `default` を `after_read` フックに渡す実装としましたが、`ValidkitHook(coerce=True)` や `PydanticHook` のように `before_write` フックが値を変換する場合に誤った値を返す問題がありました（例: `"hello"` → `"HELLO"` と変換されるフックがあっても `"hello"` を返してしまう）。
+  - **修正**: `self[key] = default` の後、`_has_hooks` が True の場合はキャッシュから実際に格納された値を読み直してから `after_read` フックを適用するよう変更しました。フックがない場合は従来どおり `default` を直接返します（パフォーマンス最適化を維持）。
+  - 対応する POC: `etc/poc/poc_bug01_setdefault_coerce_hook.py`
+
 #### パフォーマンス修正（v1.5.3rc2 ベンチマーク低下対応）
 
 - **[High] PERF-14: Unbounded モード `__getitem__` の try/except 高速パス**（`core.py`）
@@ -34,12 +41,13 @@
 
 #### テスト
 
-- `tests/test_v153_perf_fixes.py` に以下を追加（PERF-14〜20 の動作検証）:
+- `tests/test_v153_perf_fixes.py` に以下を追加（PERF-14〜20 の動作検証 および BUG-01 回帰テスト）:
   - キャッシュヒット時の `__getitem__` / `get()` / `__contains__` の正確性
   - `_update_cache` の空 `_absent_keys` 時のスキップ動作
-  - `setdefault()` の新キー・既存キーの返値
+  - `setdefault()` の新キー・既存キーの返値（フックあり・なし）
   - `pop()` の Unbounded モードでの正確性
   - `_has_hooks` の初期化・`add_hook()` 後の更新確認
+  - BUG-01: `before_write` 変換フック付き `setdefault()` の正確な返値検証
 
 ### [1.5.3rc1] - 2026-04-07
 
@@ -1111,6 +1119,13 @@
 
 ### [1.5.3rc2] - 2026-04-07
 
+#### Bug Fixes
+
+- **[Medium] BUG-01: `setdefault()` returns wrong value when `before_write` hook transforms the default** (`core.py`)
+  - The PERF-18 optimisation applied `after_read` hooks to the original `default` argument rather than the potentially hook-transformed value actually stored in cache. For example, with `ValidkitHook(coerce=True)` or `PydanticHook` that transforms values on write, `setdefault("k", "hello")` would store `"HELLO"` but return `"hello"`.
+  - **Fix**: When `_has_hooks` is True, the new code reads the stored (potentially transformed) value from `_data`/cache after the write and applies `after_read` hooks to that. When `_has_hooks` is False no hooks can transform values, so returning `default` directly (the PERF-18 fast path) remains valid.
+  - POC: `etc/poc/poc_bug01_setdefault_coerce_hook.py`
+
 #### Performance Fixes (v1.5.3rc2 benchmark regression fix)
 
 - **[High] PERF-14: try/except fast path for `__getitem__` in Unbounded mode** (`core.py`)
@@ -1136,7 +1151,7 @@
 
 #### Tests
 
-- Extended `tests/test_v153_perf_fixes.py` to cover PERF-14 through PERF-20 correctness.
+- Extended `tests/test_v153_perf_fixes.py` to cover PERF-14 through PERF-20 correctness and BUG-01 regression tests.
 
 ### [1.5.3rc1] - 2026-04-07
 

@@ -288,7 +288,8 @@ class NanaSQLite(MutableMapping):
 
         # PERF-20: Pre-compute a single bool so hot-path read/write code avoids
         # the cost of checking ``bool(self._hooks)`` (which must call __len__ on
-        # the list) on every operation.  Hooks can only be added, never removed.
+        # the list) on every operation.  Once set to True via add_hook(), this
+        # flag is never reset to False within the same instance lifetime.
         self._has_hooks: bool = bool(self._hooks)
 
         # v2 Architecture Setup
@@ -1424,9 +1425,15 @@ class NanaSQLite(MutableMapping):
         # PERF-18: After writing the default value, return it directly instead of
         # calling self[key] again (which would re-enter __getitem__ and perform
         # another cache lookup).
+        # However, if before_write hooks transform the value (e.g. coerce=True),
+        # we must read from cache to get the stored value — not the original default.
         self[key] = default
         if self._has_hooks:
-            val = default
+            # before_write may have transformed the value; read what was stored.
+            if not self._lru_mode:
+                val = self._data[key]
+            else:
+                val = self._cache.get(key)
             for hook in self._hooks:
                 val = hook.after_read(self, key, val)
             return val

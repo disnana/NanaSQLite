@@ -6,6 +6,11 @@ outline: [2, 3]
 
 ### [1.5.3rc2] - 2026-04-07
 
+#### バグ修正
+
+- **[Medium] BUG-01: `setdefault()` + `before_write` 変換フック組み合わせ時の返値誤り**（`core.py`）
+  - `before_write` フックが値を変換する場合（`ValidkitHook(coerce=True)` / `PydanticHook` 等）、PERF-18 最適化で元の `default` に対して `after_read` を適用してしまう問題を修正。`_has_hooks` が True の場合はキャッシュから変換後の値を読み直してから `after_read` を適用するよう変更。
+
 #### パフォーマンス修正（v1.5.3rc2 ベンチマーク低下対応）
 
 - **[High] PERF-14/15/16: Unbounded モード読み取りホットパスの try/except 高速化**（`core.py`）
