@@ -286,6 +286,11 @@ class NanaSQLite(MutableMapping):
 
             self._hooks.append(ValidkitHook(self._validator_raw, self._coerce_raw))
 
+        # PERF-20: Pre-compute a single bool so hot-path read/write code avoids
+        # the cost of checking ``bool(self._hooks)`` (which must call __len__ on
+        # the list) on every operation.  Hooks can only be added, never removed.
+        self._has_hooks: bool = bool(self._hooks)
+
         # v2 Architecture Setup
         # v2_config が渡された場合はその値を優先し、個別パラメータより上書きする（後方互換のため個別引数も維持）
         if v2_config is not None:
