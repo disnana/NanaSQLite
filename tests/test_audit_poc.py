@@ -1478,8 +1478,8 @@ class TestBug02ExecuteManyTxnLeak:
                     "INSERT OR REPLACE INTO data(key, value) VALUES (?, ?)",
                     [("k1", "v1"), object()],
                 )
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001  # expected: testing recovery after intentional error
+                pass  # exception expected; we're testing recovery, not the exception itself
             # 修正後: リークなし → 書き込み成功
             db["after"] = "still_works"
             assert db["after"] == "still_works"
@@ -1493,8 +1493,8 @@ class TestBug02ExecuteManyTxnLeak:
             db["x"] = 1
             try:
                 db.execute_many("INVALID SQL ??", [("a",)])
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001  # expected: testing recovery after intentional error
+                pass  # exception expected; we're testing recovery, not the exception itself
             db["y"] = 2
             assert db["y"] == 2
         finally:
@@ -1540,5 +1540,203 @@ class TestBug03BeginTxnRace:
             with pytest.raises(NanaSQLiteTransactionError):
                 db.begin_transaction()
             db.rollback()
+        finally:
+            db.close()
+
+
+# ---------------------------------------------------------------------------
+# PERF-21~26,29: coverage for new code paths added in v1.5.3rc3
+# ---------------------------------------------------------------------------
+
+
+class TestPerf23AbsentKeysGuard:
+    """PERF-23/24/25: _absent_keys guard branches must be exercised."""
+
+    def test_batch_update_flushes_absent_keys(self, db_path):
+        """batch_update が _absent_keys に含まれるキーを正しく除去する。"""
+        db = NanaSQLite(db_path)
+        try:
+            db["k1"] = "v1"
+            db["k2"] = "v2"
+            # After delete, k1 and k2 enter _absent_keys (Unbounded mode always has this attr)
+            del db["k1"]
+            del db["k2"]
+            # Confirm keys are now marked absent before batch_update
+            assert "k1" in db._absent_keys
+            assert "k2" in db._absent_keys
+            # batch_update must exercise the difference_update() branch
+            db.batch_update({"k1": "new1", "k2": "new2"})
+            assert db["k1"] == "new1"
+            assert db["k2"] == "new2"
+            # Keys must no longer be in _absent_keys
+            assert "k1" not in db._absent_keys
+            assert "k2" not in db._absent_keys
+        finally:
+            db.close()
+
+    def test_batch_update_partial_flushes_absent_keys(self, db_path):
+        """batch_update_partial が _absent_keys に含まれるキーを正しく除去する。"""
+        db = NanaSQLite(db_path)
+        try:
+            db["a"] = 1
+            db["b"] = 2
+            del db["a"]
+            del db["b"]
+            # Confirm both keys are absent
+            assert "a" in db._absent_keys
+            assert "b" in db._absent_keys
+            # This exercises the if self._absent_keys: difference_update() branch
+            failed = db.batch_update_partial({"a": 10, "b": 20})
+            assert failed == {}
+            assert db["a"] == 10
+            assert db["b"] == 20
+            assert "a" not in db._absent_keys
+            assert "b" not in db._absent_keys
+        finally:
+            db.close()
+
+    def test_batch_delete_absent_keys_bulk_update(self, db_path):
+        """batch_delete が _absent_keys.update(keys) で一括登録する。"""
+        db = NanaSQLite(db_path)
+        try:
+            for i in range(5):
+                db[f"del_{i}"] = i
+            db.batch_delete([f"del_{i}" for i in range(5)])
+            # _absent_keys must contain all deleted keys (Unbounded mode)
+            for i in range(5):
+                assert f"del_{i}" in db._absent_keys
+            # Keys should no longer be retrievable
+            for i in range(5):
+                assert db.get(f"del_{i}") is None
+        finally:
+            db.close()
+
+    def test_batch_delete_after_absent_keys_populated(self, db_path):
+        """batch_delete が既に _absent_keys がある状態でも正しく動作する。"""
+        db = NanaSQLite(db_path)
+        try:
+            for i in range(10):
+                db[f"x_{i}"] = i
+            # Populate _absent_keys via single deletes
+            del db["x_0"]
+            del db["x_1"]
+            # Now batch_delete remaining
+            db.batch_delete([f"x_{i}" for i in range(2, 10)])
+            for i in range(10):
+                assert db.get(f"x_{i}") is None
+        finally:
+            db.close()
+
+    def test_no_encrypt_serialize_fast_path(self, db_path):
+        """_no_encrypt=True の場合、_serialize は JSON str を直接返す。"""
+        db = NanaSQLite(db_path)
+        try:
+            assert db._no_encrypt is True
+            result = db._serialize({"key": "value"})
+            assert isinstance(result, str)
+            assert '"key"' in result
+        finally:
+            db.close()
+
+
+class TestPerf23V2ModePaths:
+    """PERF-23/24/25: v2 mode パスのカバレッジ確保。"""
+
+    def test_batch_update_v2_absent_keys_guard(self, db_path):
+        """v2 mode で batch_update が _absent_keys を正しく更新する。"""
+        db = NanaSQLite(db_path, v2_mode=True, flush_mode="immediate")
+        try:
+            db["a"] = 1
+            db["b"] = 2
+            del db["a"]
+            del db["b"]
+            # v2 path: exercises the absent_keys guard
+            db.batch_update({"a": 10, "b": 20})
+            # Flush to ensure data is persisted
+            db._v2_engine.flush()
+            assert db["a"] == 10
+            assert db["b"] == 20
+        finally:
+            db.close()
+
+    def test_batch_update_partial_v2_absent_keys_guard(self, db_path):
+        """v2 mode で batch_update_partial が _absent_keys を正しく更新する。"""
+        db = NanaSQLite(db_path, v2_mode=True, flush_mode="immediate")
+        try:
+            db["x"] = 1
+            del db["x"]
+            failed = db.batch_update_partial({"x": 99})
+            assert failed == {}
+            db._v2_engine.flush()
+            assert db["x"] == 99
+        finally:
+            db.close()
+
+    def test_batch_delete_v2_absent_keys_update(self, db_path):
+        """v2 mode で batch_delete が _absent_keys.update(keys) を呼ぶ。"""
+        db = NanaSQLite(db_path, v2_mode=True, flush_mode="immediate")
+        try:
+            for i in range(5):
+                db[f"k_{i}"] = i
+            db._v2_engine.flush()
+            db.batch_delete([f"k_{i}" for i in range(5)])
+            db._v2_engine.flush()
+            for i in range(5):
+                assert db.get(f"k_{i}") is None
+        finally:
+            db.close()
+
+
+class TestPerf26TxnErrorPaths:
+    """PERF-26: begin_transaction/commit/rollback の通常パスを検証。"""
+
+    def test_begin_commit_cycle(self, db_path):
+        """begin_transaction → 書き込み → commit のフルサイクル。"""
+        db = NanaSQLite(db_path)
+        db.create_table("tx", {"id": "INTEGER", "val": "TEXT"})
+        try:
+            db.begin_transaction()
+            db.sql_insert("tx", {"id": 1, "val": "test"})
+            db.commit()
+            rows = db.fetch_all("SELECT val FROM tx WHERE id=1")
+            assert rows[0][0] == "test"
+        finally:
+            db.close()
+
+    def test_begin_rollback_cycle(self, db_path):
+        """begin_transaction → 書き込み → rollback のフルサイクル。"""
+        db = NanaSQLite(db_path)
+        db.create_table("tx2", {"id": "INTEGER", "val": "TEXT"})
+        try:
+            db.begin_transaction()
+            db.sql_insert("tx2", {"id": 1, "val": "should_not_persist"})
+            db.rollback()
+            rows = db.fetch_all("SELECT val FROM tx2")
+            assert rows == []
+        finally:
+            db.close()
+
+
+class TestPerf29NoEncryptFlag:
+    """PERF-29: _no_encrypt フラグ動作の確認。"""
+
+    def test_no_encrypt_true_by_default(self, db_path):
+        """暗号化なしの場合 _no_encrypt=True であること。"""
+        db = NanaSQLite(db_path)
+        try:
+            assert db._no_encrypt is True
+        finally:
+            db.close()
+
+    def test_no_encrypt_false_with_encryption(self, tmp_path):
+        """暗号化ありの場合 _no_encrypt=False であること。"""
+        from cryptography.fernet import Fernet
+
+        key = Fernet.generate_key()
+        db = NanaSQLite(str(tmp_path / "enc.db"), encryption_key=key, encryption_mode="fernet")
+        try:
+            assert db._no_encrypt is False
+            db["secret"] = {"payload": "hidden"}
+            assert db["secret"] == {"payload": "hidden"}
         finally:
             db.close()
