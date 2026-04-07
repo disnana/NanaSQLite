@@ -469,7 +469,6 @@ def test_perf20_has_hooks_initialized(db_path):
 
 def test_perf20_has_hooks_updated_by_add_hook(db_path):
     """PERF-20: _has_hooks becomes True after add_hook()."""
-    from nanasqlite.protocols import NanaHook
 
     class NoopHook:
         def before_write(self, db, key, value):
