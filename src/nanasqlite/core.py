@@ -1104,12 +1104,19 @@ class NanaSQLite(MutableMapping):
         """全値を取得（一括ロードしてからメモリから）"""
         self._check_connection()
         self.load_all()
+        # PERF-13: In Unbounded mode, MISSING is never stored in _data, so skip
+        # the per-element predicate and return a plain list directly.
+        if not self._lru_mode:
+            return list(self._data.values())
         return [v for v in self._cache.get_data().values() if v is not MISSING]
 
     def items(self) -> list:
         """全アイテムを取得（一括ロードしてからメモリから）"""
         self._check_connection()
         self.load_all()
+        # PERF-13: Same Unbounded-mode optimisation as values() and to_dict().
+        if not self._lru_mode:
+            return list(self._data.items())
         return [(k, v) for k, v in self._cache.get_data().items() if v is not MISSING]
 
     def get(self, key: str, default: Any = None) -> Any:
@@ -1123,9 +1130,19 @@ class NanaSQLite(MutableMapping):
                     return default
                 val = self._data[key]
         else:
-            if not self._ensure_cached(key):
-                return default
-            val = self._cache.get(key)
+            # PERF-12: Same optimisation as PERF-09 in __getitem__.
+            # _ensure_cached() calls cache.get() internally (move_to_end for LRU),
+            # and the caller would call cache.get() again to retrieve the value —
+            # two move_to_end() for one cache hit.  Check _data membership first
+            # (O(1), no LRU side effect), then do a single cache.get().
+            if key in self._data:
+                val = self._cache.get(key)
+                if val is MISSING:
+                    return default
+            else:
+                if not self._ensure_cached(key):
+                    return default
+                val = self._cache.get(key)
         if self._hooks:
             for hook in self._hooks:
                 val = hook.after_read(self, key, val)

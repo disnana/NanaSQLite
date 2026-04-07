@@ -1302,3 +1302,158 @@ class TestBug03ToDictMissingSentinel:
             assert result == {"key1": "value1"}
         finally:
             db.close()
+
+
+# ===========================================================================
+# PERF-12: get() LRU/TTL mode double-lookup fix
+# ===========================================================================
+class TestPerf12GetDoubleLookup:
+    """PERF-12: get() method in LRU/TTL mode called _ensure_cached() (which
+    internally calls cache.get() / move_to_end()) and then called cache.get()
+    again directly — two move_to_end() invocations per cache hit.
+    Fixed by checking _data membership first then a single cache.get()."""
+
+    def test_get_lru_cache_hit_returns_correct_value(self, db_path):
+        """get() must return the cached value on LRU cache hit."""
+        db = NanaSQLite(db_path, cache_strategy="lru", cache_size=128)
+        try:
+            db["alpha"] = {"data": [1, 2, 3]}
+            _ = db["alpha"]  # warm up cache
+            assert db.get("alpha") == {"data": [1, 2, 3]}
+        finally:
+            db.close()
+
+    def test_get_lru_cache_miss_returns_default(self, db_path):
+        """get() must return default when the key does not exist."""
+        db = NanaSQLite(db_path, cache_strategy="lru", cache_size=64)
+        try:
+            assert db.get("nonexistent", "fallback") == "fallback"
+        finally:
+            db.close()
+
+    def test_get_lru_known_absent_returns_default_not_missing(self, db_path):
+        """get() must return the default value (not MISSING sentinel) for a
+        key that has been accessed before and is known-absent in LRU mode."""
+        from nanasqlite.cache import MISSING
+
+        db = NanaSQLite(db_path, cache_strategy="lru", cache_size=64)
+        try:
+            db.get("ghost", None)  # populates negative cache (MISSING sentinel)
+            result = db.get("ghost", "fallback")
+            assert result == "fallback"
+            assert result is not MISSING
+        finally:
+            db.close()
+
+    def test_get_ttl_cache_hit_returns_correct_value(self, db_path):
+        """get() must return the cached value on TTL cache hit."""
+        db = NanaSQLite(db_path, cache_strategy="ttl", cache_ttl=300)
+        try:
+            db["beta"] = {"nums": list(range(5))}
+            _ = db["beta"]  # warm up
+            assert db.get("beta") == {"nums": list(range(5))}
+        finally:
+            db.close()
+
+    def test_get_ttl_missing_key_returns_default(self, db_path):
+        """get() must return default for missing key in TTL mode."""
+        db = NanaSQLite(db_path, cache_strategy="ttl", cache_ttl=300)
+        try:
+            assert db.get("no_such_key", 99) == 99
+        finally:
+            db.close()
+
+    def test_get_unbounded_still_works(self, db_path):
+        """get() must still work correctly in Unbounded mode (not regression)."""
+        db = NanaSQLite(db_path)
+        try:
+            db["u1"] = "hello"
+            assert db.get("u1") == "hello"
+            assert db.get("missing") is None
+            assert db.get("missing", "def") == "def"
+        finally:
+            db.close()
+
+
+# ===========================================================================
+# PERF-13: values() / items() Unbounded mode MISSING filter skip
+# ===========================================================================
+class TestPerf13ValuesItemsFilter:
+    """PERF-13: values() and items() applied `if v is not MISSING` filter even
+    in Unbounded mode where MISSING is never stored in _data.
+    Fixed to use list(_data.values()) / list(_data.items()) directly for
+    Unbounded mode, matching the PERF-08 optimisation in to_dict()."""
+
+    def test_values_unbounded_no_missing(self, db_path):
+        """values() in Unbounded mode must not contain MISSING sentinel."""
+        from nanasqlite.cache import MISSING
+
+        db = NanaSQLite(db_path)
+        try:
+            for i in range(30):
+                db[f"k{i}"] = i
+            vals = db.values()
+            assert MISSING not in vals
+            assert len(vals) == 30
+            assert set(vals) == set(range(30))
+        finally:
+            db.close()
+
+    def test_items_unbounded_no_missing(self, db_path):
+        """items() in Unbounded mode must not contain MISSING sentinel."""
+        from nanasqlite.cache import MISSING
+
+        db = NanaSQLite(db_path)
+        try:
+            data = {f"x{i}": i * 2 for i in range(20)}
+            db.batch_update(data)
+            pairs = db.items()
+            assert not any(v is MISSING for _, v in pairs)
+            assert len(pairs) == 20
+            assert dict(pairs) == data
+        finally:
+            db.close()
+
+    def test_values_lru_no_missing(self, db_path):
+        """values() in LRU mode must not contain MISSING sentinel (BUG-03 regression)."""
+        from nanasqlite.cache import MISSING
+
+        db = NanaSQLite(db_path, cache_strategy="lru", cache_size=128)
+        try:
+            for i in range(15):
+                db[f"m{i}"] = i
+            # Trigger negative cache entries
+            db.get("ghost_val")
+            vals = db.values()
+            assert MISSING not in vals
+            assert len(vals) == 15
+        finally:
+            db.close()
+
+    def test_items_lru_no_missing(self, db_path):
+        """items() in LRU mode must not contain MISSING sentinel (BUG-03 regression)."""
+        from nanasqlite.cache import MISSING
+
+        db = NanaSQLite(db_path, cache_strategy="lru", cache_size=128)
+        try:
+            for i in range(10):
+                db[f"n{i}"] = i * 3
+            # Trigger negative cache
+            db.get("absent_item")
+            pairs = db.items()
+            assert not any(v is MISSING for _, v in pairs)
+            assert len(pairs) == 10
+        finally:
+            db.close()
+
+    def test_values_items_consistent_with_to_dict(self, db_path):
+        """values() and items() must be consistent with to_dict() in Unbounded mode."""
+        db = NanaSQLite(db_path)
+        try:
+            data = {f"p{i}": i for i in range(25)}
+            db.batch_update(data)
+            d = db.to_dict()
+            assert sorted(db.values()) == sorted(d.values())
+            assert sorted(db.items()) == sorted(d.items())
+        finally:
+            db.close()
