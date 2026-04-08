@@ -232,6 +232,8 @@ class NanaSQLite(MutableMapping):
         )
         self._sql_kv_select_all: str = f"SELECT key, value FROM {sanitized_table}"  # nosec
         self._sql_kv_count: str = f"SELECT COUNT(*) FROM {sanitized_table}"  # nosec
+        # PERF-E: Pre-compute SELECT key query used by _get_all_keys_from_db() (keys() / __iter__).
+        self._sql_kv_select_keys: str = f"SELECT key FROM {sanitized_table}"  # nosec
         # lock_timeout を __init__ で一度だけ検証・正規化する（_acquire_lock の高頻度パスでの検証を省く）
         if lock_timeout is not None:
             invalid = (
@@ -276,6 +278,8 @@ class NanaSQLite(MutableMapping):
         # PERF-29: Pre-compute a single bool that indicates "no encryption is active"
         # so _serialize() can return on the very first check instead of testing both
         # _fernet and _aead (which are None-falsy attribute lookups) on every call.
+        # QUAL-04: _fernet / _aead must NOT be mutated after __init__; if they were,
+        # _no_encrypt would become stale and serialization would behave incorrectly.
         self._no_encrypt: bool = not bool(self._fernet or self._aead)
 
         # Hooks setup (including legacy validkit support)
@@ -932,9 +936,9 @@ class NanaSQLite(MutableMapping):
     def _get_all_keys_from_db(self) -> list[str]:
         """SQLiteから全キーを取得"""
         with self._acquire_lock():
-            cursor = self._connection.execute(
-                f"SELECT key FROM {self._safe_table}"  # nosec
-            )
+            # PERF-E: use pre-computed SQL string (set in __init__) instead of
+            # building an f-string on every keys() / __iter__ call.
+            cursor = self._connection.execute(self._sql_kv_select_keys)
             return [row[0] for row in cursor]
 
     def _update_cache(self, key: str, value: Any) -> None:
