@@ -1740,3 +1740,258 @@ class TestPerf29NoEncryptFlag:
             assert db["secret"] == {"payload": "hidden"}
         finally:
             db.close()
+
+
+# ---------------------------------------------------------------------------
+# PERF-23/24/25: LRU キャッシュモードでのバッチ操作カバレッジ
+# ---------------------------------------------------------------------------
+
+
+class TestBatchLruModePaths:
+    """batch_update / batch_update_partial / batch_delete の LRU モード分岐を検証。
+
+    デフォルトの Unbounded キャッシュでは _lru_mode=False となるため、
+    LRU モード内のキャッシュ更新ループ (cache.set / cache.delete) が
+    未カバーになる。cache_strategy="lru" を使って確認する。
+    """
+
+    def test_batch_update_lru_mode(self, db_path):
+        """LRU モードで batch_update がキャッシュを正しく更新する。"""
+        db = NanaSQLite(db_path, cache_strategy="lru", cache_size=50)
+        try:
+            assert db._lru_mode is True
+            db["a"] = 1
+            db["b"] = 2
+            db.batch_update({"a": 10, "b": 20})
+            assert db["a"] == 10
+            assert db["b"] == 20
+        finally:
+            db.close()
+
+    def test_batch_update_partial_lru_mode(self, db_path):
+        """LRU モードで batch_update_partial がキャッシュを正しく更新する。"""
+        db = NanaSQLite(db_path, cache_strategy="lru", cache_size=50)
+        try:
+            assert db._lru_mode is True
+            db["x"] = 1
+            failed = db.batch_update_partial({"x": 99, "bad": object()})
+            assert "bad" in failed
+            assert "x" not in failed
+            assert db["x"] == 99
+        finally:
+            db.close()
+
+    def test_batch_delete_lru_mode(self, db_path):
+        """LRU モードで batch_delete がキャッシュエントリを削除する。"""
+        db = NanaSQLite(db_path, cache_strategy="lru", cache_size=50)
+        try:
+            assert db._lru_mode is True
+            for i in range(5):
+                db[f"k_{i}"] = i
+            db.batch_delete([f"k_{i}" for i in range(5)])
+            for i in range(5):
+                assert db.get(f"k_{i}") is None
+        finally:
+            db.close()
+
+    def test_batch_update_partial_lru_v2_mode(self, db_path):
+        """v2 + LRU モードで batch_update_partial がキャッシュを更新する。"""
+        db = NanaSQLite(db_path, cache_strategy="lru", cache_size=50, v2_mode=True, flush_mode="immediate")
+        try:
+            assert db._lru_mode is True
+            assert db._v2_mode is True
+            db["p"] = "old"
+            failed = db.batch_update_partial({"p": "new"})
+            assert failed == {}
+            db._v2_engine.flush()
+            assert db["p"] == "new"
+        finally:
+            db.close()
+
+    def test_batch_delete_lru_v2_mode(self, db_path):
+        """v2 + LRU モードで batch_delete がキャッシュを削除する。"""
+        db = NanaSQLite(db_path, cache_strategy="lru", cache_size=50, v2_mode=True, flush_mode="immediate")
+        try:
+            assert db._lru_mode is True
+            assert db._v2_mode is True
+            db["q"] = "val"
+            db._v2_engine.flush()
+            db.batch_delete(["q"])
+            db._v2_engine.flush()
+            assert db.get("q") is None
+        finally:
+            db.close()
+
+
+# ---------------------------------------------------------------------------
+# PERF-24: batch_update_partial の部分失敗パスと全失敗パスのカバレッジ
+# ---------------------------------------------------------------------------
+
+
+class TestBatchUpdatePartialErrorPaths:
+    """batch_update_partial のシリアライズ失敗パスを検証。"""
+
+    def test_partial_batch_serialization_error_skips_bad_key(self, db_path):
+        """シリアライズ不可能な値は failed に記録され、正常な値は書き込まれる。"""
+        db = NanaSQLite(db_path)
+        try:
+            failed = db.batch_update_partial({"good": 42, "bad": object()})
+            # シリアライズ失敗キーは failed に含まれる
+            assert "bad" in failed
+            # 正常なキーは書き込まれている
+            assert db["good"] == 42
+        finally:
+            db.close()
+
+    def test_partial_batch_all_fail_returns_early(self, db_path):
+        """全キーが失敗した場合、DB書き込みなしで failed を返す (line: if not params)。"""
+        db = NanaSQLite(db_path)
+        try:
+            failed = db.batch_update_partial({"k1": object(), "k2": object()})
+            # 両方とも失敗
+            assert set(failed.keys()) == {"k1", "k2"}
+            # DB には何も書き込まれていない
+            assert db.get("k1") is None
+            assert db.get("k2") is None
+        finally:
+            db.close()
+
+
+# ---------------------------------------------------------------------------
+# PERF-26: begin_transaction / commit / rollback の apsw.Error パス
+# ---------------------------------------------------------------------------
+
+
+class TestTxnApswErrorPaths:
+    """begin_transaction / commit / rollback の apsw.Error 処理を検証。
+
+    apsw.Connection.execute は read-only なため直接モックできない。
+    代わりに、_connection を軽量なラッパーに差し替えて apsw.Error を注入する。
+    """
+
+    class _BrokenConn:
+        """execute() が常に apsw.Error を送出するラッパー。"""
+
+        def __init__(self, real: object) -> None:
+            self._real = real
+
+        def execute(self, sql: str, *args: object, **kwargs: object) -> None:
+            import apsw
+
+            raise apsw.Error("simulated apsw error")
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._real, name)
+
+    def test_begin_transaction_apsw_error(self, db_path):
+        """BEGIN IMMEDIATE が apsw.Error → NanaSQLiteDatabaseError に変換される。"""
+        from nanasqlite.exceptions import NanaSQLiteDatabaseError
+
+        db = NanaSQLite(db_path)
+        real_conn = db._connection
+        try:
+            db._connection = self._BrokenConn(real_conn)
+            with pytest.raises(NanaSQLiteDatabaseError, match="Failed to begin transaction"):
+                db.begin_transaction()
+        finally:
+            db._connection = real_conn
+            db._in_transaction = False
+            db._transaction_depth = 0
+            db.close()
+
+    def test_commit_apsw_error(self, db_path):
+        """COMMIT が apsw.Error → NanaSQLiteDatabaseError に変換される。"""
+        from nanasqlite.exceptions import NanaSQLiteDatabaseError
+
+        db = NanaSQLite(db_path)
+        real_conn = db._connection
+        try:
+            # Python-level フラグを手動で設定してロック前チェックを通過させる
+            db._in_transaction = True
+            db._transaction_depth = 1
+            db._connection = self._BrokenConn(real_conn)
+            with pytest.raises(NanaSQLiteDatabaseError, match="Failed to commit transaction"):
+                db.commit()
+        finally:
+            db._connection = real_conn
+            db._in_transaction = False
+            db._transaction_depth = 0
+            db.close()
+
+    def test_rollback_apsw_error(self, db_path):
+        """ROLLBACK が apsw.Error → NanaSQLiteDatabaseError に変換される。"""
+        from nanasqlite.exceptions import NanaSQLiteDatabaseError
+
+        db = NanaSQLite(db_path)
+        real_conn = db._connection
+        try:
+            db._in_transaction = True
+            db._transaction_depth = 1
+            db._connection = self._BrokenConn(real_conn)
+            with pytest.raises(NanaSQLiteDatabaseError, match="Failed to rollback transaction"):
+                db.rollback()
+        finally:
+            db._connection = real_conn
+            db._in_transaction = False
+            db._transaction_depth = 0
+            db.close()
+
+
+# ---------------------------------------------------------------------------
+# PERF-23/24/25: batch 操作の DB エラー時 ROLLBACK ハンドラのカバレッジ
+# ---------------------------------------------------------------------------
+
+
+class TestBatchDbErrorRollback:
+    """batch_update / batch_update_partial / batch_delete の例外発生時の
+    ROLLBACK パスを検証する。
+
+    テーブルを事前に削除してから batch 操作を呼び出すことで、
+    executemany() 内で apsw.SQLError を発生させ、
+    except: cursor.execute("ROLLBACK"); raise のパスを踏む。
+    """
+
+    def test_batch_update_db_error_triggers_rollback(self, db_path):
+        """executemany 失敗時に ROLLBACK され例外が伝播する。"""
+        db = NanaSQLite(db_path)
+        try:
+            db["seed"] = 1
+            # 基盤テーブルを削除して executemany を強制的に失敗させる
+            db._connection.execute('DROP TABLE IF EXISTS "data"')
+            with pytest.raises(Exception):
+                db.batch_update({"k1": "v1", "k2": "v2"})
+        finally:
+            db.close()
+
+    def test_batch_update_partial_db_error_triggers_rollback(self, db_path):
+        """executemany 失敗時に ROLLBACK され例外が伝播する。"""
+        db = NanaSQLite(db_path)
+        try:
+            db._connection.execute('DROP TABLE IF EXISTS "data"')
+            with pytest.raises(Exception):
+                db.batch_update_partial({"k1": "v1"})
+        finally:
+            db.close()
+
+    def test_batch_delete_db_error_triggers_rollback(self, db_path):
+        """executemany 失敗時に ROLLBACK され例外が伝播する。"""
+        db = NanaSQLite(db_path)
+        try:
+            db._connection.execute('DROP TABLE IF EXISTS "data"')
+            with pytest.raises(Exception):
+                db.batch_delete(["k1"])
+        finally:
+            db.close()
+
+
+class TestBatchUpdatePartialEdgePaths:
+    """batch_update_partial の境界パスを検証。"""
+
+    def test_empty_mapping_returns_empty_failed(self, db_path):
+        """空の mapping は early return {} (if not mapping: return {})。"""
+        db = NanaSQLite(db_path)
+        try:
+            result = db.batch_update_partial({})
+            assert result == {}
+        finally:
+            db.close()
