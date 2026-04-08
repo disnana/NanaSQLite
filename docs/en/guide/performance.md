@@ -99,3 +99,22 @@ db.create_index("idx_user_age", "data", ["age"])
 - [ ] Have you applied `create_index` for frequent searches?
 - [ ] Are you using the default `optimize=True`?
 - [ ] Is the database running on an SSD?
+
+---
+
+## v1.5.2 Regression Tracking Notes (since v1.5.0dev1)
+
+We analyzed `etc/bench-data-split1.json` and `etc/bench-data-split2.json` (combined dataset) and confirmed that additional branching in read hot paths was a meaningful contributor to the observed slowdown.
+
+In v1.5.2, we applied a read-path optimization for Unbounded cache (`__getitem__`, `get`, `__contains__`, `_ensure_cached`) by prioritizing `_data` lookup first.
+
+### Changes implemented
+- Prioritized `_data` on positive cache-hit paths
+- Switched known-absent tracking to dedicated `_absent_keys` in Unbounded mode
+- Preserved public API behavior and negative-cache semantics
+
+### Breaking change implemented in v1.5.2
+- In Unbounded mode, mixed-state `_cached_keys` metadata was replaced with dedicated known-absent metadata (`_absent_keys`).
+- Why: Simplifies hot-path branching and avoids mixed present/absent semantics in one structure.
+- Impact: Internal integrations relying on `_cached_keys` in Unbounded mode are no longer compatible.
+- Migration: stop depending on internal metadata fields; use public APIs (`in`, `get`, `is_cached`, etc.).

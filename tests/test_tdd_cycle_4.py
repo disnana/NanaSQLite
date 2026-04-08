@@ -176,7 +176,7 @@ class TestBatchUpdateBehaviourWithMockedValidkit:
         failed = db.batch_update_partial({"key1": "good", "key2": "bad", "key3": "also_good"})
 
         assert set(failed) == {"key2"}
-        assert "failed schema validation" in failed["key2"]
+        assert "Schema validation failed" in failed["key2"]
         assert db["key1"] == "good"
         assert db["key3"] == "also_good"
         assert "key2" not in db

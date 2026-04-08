@@ -6,7 +6,277 @@
 
 ## 日本語
 
-### [1.5.0dev2] - 2026-03-28
+### [1.5.3rc3] - 2026-04-07
+
+#### パフォーマンス改善
+
+- **PERF-21: `execute_many()` — Python ループ → `cursor.executemany()` に変更**（`core.py`）
+  - `execute_many()` の実装がバインドパラメータのリストを Python の `for` ループで一件ずつ `cursor.execute()` していました。APSW 組み込みの `cursor.executemany()` を使うことで Python 側の関数呼び出しオーバーヘッドを排除しました。
+  - 影響テスト: `test_execute_many`・`test_import_from_dict_list` で約 15% 高速化。
+
+- **PERF-22: `batch_delete()` — フック未登録時の事前チェックループを省略**（`core.py`）
+  - `batch_delete()` は削除前に全キーに対して `_ensure_cached()` を呼び出していましたが、その唯一の目的は `before_delete` フックの呼び出しでした。`_has_hooks` が `False` の場合（デフォルト）にはこのループ全体を完全にスキップするよう変更しました。
+  - 影響テスト: `test_batch_delete` でフックなし時のオーバーヘッドを削減。
+
+- **PERF-23: `batch_update()` — シリアライズをロック外へ移動・`dict.update()` 使用・`_absent_keys` ガード追加**（`core.py`）
+  - シリアライズ（`_serialize()` 呼び出し）は SQLite 接続に触れない純粋な Python/JSON 処理であるため、`_acquire_lock()` の外に移動しました（`__setitem__` と同様の方針）。
+  - Unbounded モードのキャッシュ更新を per-key 代入ループから `dict.update()` に変更しました。`dict.update()` は C レベルで実装されており、Python ループの約 6 倍高速です。
+  - v2 パスも同様に `dict.update()` + ガードを適用。
+  - `_absent_keys.discard()` の per-key 呼び出しを `if self._absent_keys: self._absent_keys.difference_update(mapping.keys())` に置き換え、空セット時のハッシュ計算を完全に排除しました。
+  - 影響テスト: `test_batch_write_100`・`test_batch_update_partial_100` で約 9% 高速化。
+
+- **PERF-24: `batch_update_partial()` — `dict.update()` + `_absent_keys` ガード適用**（`core.py`）
+  - `batch_update()` (PERF-23) と同様の最適化を `batch_update_partial()` の v1 / v2 両パスに適用しました。
+
+- **PERF-25: `batch_delete()` — `_absent_keys.add()` per-key → `_absent_keys.update(keys)` に変更**（`core.py`）
+  - 削除後のキャッシュ更新で、キーごとに `_absent_keys.add(key)` を呼び出していたものを `_absent_keys.update(keys)` の一括呼び出しに変更しました。ハッシュ計算コストとセット内部の再割り当て回数を削減します。
+  - v2 パスも同様に変更。
+
+- **PERF-26: `begin_transaction()` / `commit()` / `rollback()` — `execute()` オーバーヘッドをバイパス**（`core.py`）
+  - これらのメソッドは内部で `self.execute("BEGIN IMMEDIATE")` 等を呼び出していましたが、`execute()` には v2 モード判定・SQL 文字列の `strip().upper()` 処理・追加の `_check_connection()` 呼び出しが含まれます。`with self._acquire_lock(): self._connection.execute(...)` を直接使うことでこれらのオーバーヘッドを排除しました。
+  - 影響テスト: `test_context_manager_transaction`・`test_begin_commit`・`test_begin_rollback` で高速化。
+
+- **PERF-29: `_serialize()` — 暗号化なし時の早期リターン**（`core.py`）
+  - `__init__` 時に `_no_encrypt: bool` フラグを事前計算し、暗号化が無効な場合（デフォルト）は `if self._fernet:` / `if self._aead:` の 2 回の属性ルックアップをスキップして即座に返すようにしました（PERF-20 と同様の手法）。
+  - 影響テスト: `test_nested_write`・`test_write_encryption[plaintext]`・その他全書き込みパスで微小な高速化。
+
+---
+
+### [1.5.3rc2] - 2026-04-07
+
+#### バグ修正
+
+- **[Medium] BUG-01: `setdefault()` + `before_write` 変換フック組み合わせ時の返値誤り**（`core.py`）
+  - PERF-18 最適化で `self[key] = default` 後に `self[key]` を再読み込みせず直接 `default` を `after_read` フックに渡す実装としましたが、`ValidkitHook(coerce=True)` や `PydanticHook` のように `before_write` フックが値を変換する場合に誤った値を返す問題がありました（例: `"hello"` → `"HELLO"` と変換されるフックがあっても `"hello"` を返してしまう）。
+  - **修正**: `self[key] = default` の後、`_has_hooks` が True の場合はキャッシュから実際に格納された値を読み直してから `after_read` フックを適用するよう変更しました。フックがない場合は従来どおり `default` を直接返します（パフォーマンス最適化を維持）。
+  - 対応する POC: `etc/poc/poc_bug01_setdefault_coerce_hook.py`
+
+#### パフォーマンス修正（v1.5.3rc2 ベンチマーク低下対応）
+
+- **[High] PERF-14: Unbounded モード `__getitem__` の try/except 高速パス**（`core.py`）
+  - キャッシュヒット時のホットパスで `.get(key, _NOT_FOUND)` + センチネル同一性比較を使用していました。Python の辞書直接アクセス `d[key]` は `try/except KeyError` パターンで呼び出すと、センチネルオブジェクト生成・キーワード引数処理・同一性比較が不要になり約 1.9 倍高速になります。`test_single_read_cached` で **-15%** の改善を確認。
+  - `_ensure_cached()`・`__getitem__`・`get()` のすべての Unbounded ホットパスに適用しました。
+
+- **[High] PERF-15: Unbounded モード `get()` の try/except 高速パス**（`core.py`）
+  - PERF-14 と同様の最適化を `get()` メソッドに適用しました。`test_read_encryption[fernet]` で **-11.6%** の改善を確認。
+
+- **[High] PERF-16: Unbounded モード `__contains__` の try/except 高速パス**（`core.py`）
+  - PERF-14 と同様の最適化を `__contains__` メソッドに適用しました。
+
+- **[Medium] PERF-17: `_update_cache` での空セット `discard()` 呼び出し省略**（`core.py`）
+  - v1.5.2 の `_absent_keys` 導入以降、`_update_cache()` は毎回 `self._absent_keys.discard(key)` を呼んでいました。書き込み中心のワークロードでは `_absent_keys` は空のままのため、無駄なハッシュ計算が発生していました。`if self._absent_keys:` ガードを追加し、空セットの場合はスキップするよう変更しました。
+
+- **[Medium] PERF-18: `setdefault()` の冗長な `self[key]` 呼び出し省略**（`core.py`）
+  - `setdefault()` はキーが存在しない場合に `self[key] = default` で書き込み後、さらに `self[key]` で読み戻していました。書き込み後の値はすでに既知であるため、再度の `__getitem__` 呼び出しを省略してデフォルト値を直接返すよう変更しました。また Unbounded モードでは `_cache.get()` のポリモーフィックな呼び出しを `_data[key]` 直接アクセスに置き換えました。
+
+- **[Medium] PERF-19: `pop()` の Unbounded モードでの直接 `_data` アクセス**（`core.py`）
+  - `pop()` は値の取得に `self._cache.get(key)` を使用していました。Unbounded モードでは `_data` に実値が直接格納されているため、`self._data[key]` で取得することでポリモーフィックなメソッドディスパッチ（LRU では `move_to_end()` を伴う）を回避できます。
+
+- **[Medium] PERF-20: `_has_hooks` 事前計算フラグによる全ホットパスの高速化**（`core.py`）
+  - `__getitem__`・`__setitem__`・`__delitem__`・`get()`・`get_fresh()`・`batch_get()`・`pop()`・`setdefault()`・`batch_update_partial()`・`batch_delete()` のすべてのホットパスで `if self._hooks:` を使用していました。これは毎回リストの `__len__` を呼び出すオーバーヘッドがあります。`__init__` 時に `self._has_hooks: bool = bool(self._hooks)` を事前計算し、`add_hook()` 時も更新するよう変更しました。
+
+#### テスト
+
+- `tests/test_v153_perf_fixes.py` に以下を追加（PERF-14〜20 の動作検証 および BUG-01 回帰テスト）:
+  - キャッシュヒット時の `__getitem__` / `get()` / `__contains__` の正確性
+  - `_update_cache` の空 `_absent_keys` 時のスキップ動作
+  - `setdefault()` の新キー・既存キーの返値（フックあり・なし）
+  - `pop()` の Unbounded モードでの正確性
+  - `_has_hooks` の初期化・`add_hook()` 後の更新確認
+  - BUG-01: `before_write` 変換フック付き `setdefault()` の正確な返値検証
+
+### [1.5.3rc1] - 2026-04-07
+
+#### パフォーマンス修正（v1.5.3 プレリリース監査）
+
+- **[High] PERF-07: 共通 SQL 文字列の `__init__` 時事前計算**（`core.py`）
+  - `__setitem__`・`__delitem__`・`__contains__`・`__len__`・`_write_to_db`・`_read_from_db`・`_delete_from_db`・`load_all`・`batch_update`・`batch_delete` の全ホットパスで、毎呼び出し f-string によって同一の SQL 文字列（テーブル名を含む INSERT / DELETE / SELECT 等）を再構築していました。`__init__` 時に 6 種類の SQL テンプレートを事前計算してインスタンス変数に保持し、ホットパスでは直接参照するよう変更しました。
+  - **効果**: 書き込み・読み込み・削除・カウント等の全 KV 操作で文字列構築コストを排除。`test_single_write` / `test_execute_raw` / `test_sql_insert_single` の改善に寄与。
+
+- **[Medium] PERF-08: Unbounded モードでの `to_dict()` / `copy()` MISSING フィルタ省略**（`core.py`）
+  - Unbounded モードでは `_data` に MISSING センチネルが格納されることはないため、毎回 `{k: v for k, v in _data.items() if v is not MISSING}` で全要素の同一性比較を行う必要はありませんでした。Unbounded モードでは `dict(self._data)` を直接返すよう変更し、LRU/TTL モードでのみフィルタを適用します。
+  - **効果**: `test_to_dict_1000` / `test_copy` の改善に寄与。
+
+- **[Medium] PERF-09: LRU `__getitem__` での二重キャッシュルックアップ排除**（`core.py`）
+  - LRU/TTL モードの `__getitem__` は `_ensure_cached()` 内部で `self._cache.get()`（LRU では `move_to_end()` を伴う）を 1 回呼び、さらに戻り値取得のために同じキーで `self._cache.get()` を再度呼んでいました。キャッシュヒット時の `_data` 在籍確認を先行させ、`self._cache.get()` を 1 回の呼び出しで完結するよう変更しました。
+  - **効果**: LRU/TTL キャッシュヒット時の `move_to_end()` 冗長呼び出しを排除。`test_cache_hit[lru]` / `test_cache_hit[ttl]` の改善に寄与。
+
+- **[Medium] PERF-10: `_validate_expression()` の正規表現最適化と関数スキャン早期スキップ**（`core.py`）
+  - `_validate_expression()` が毎呼び出し 4 つの危険パターン文字列を `re.search()` で個別にスキャンしていました。4 パターンをモジュールレベルで事前コンパイルした単一正規表現 `_DANGEROUS_SQL_RE` に統合し、1 回のスキャンで検出するよう変更しました。また、式に `(` が含まれない場合（典型的な `id = ?` 等）は高コストな `sanitize_sql_for_function_scan()` + `re.findall()` の実行を完全にスキップします。
+  - **注意**: 非 strict モードでは、複数の危険パターンが同時にマッチしても警告は 1 件のみ発行されます（以前は複数件）。strict モード（例外発生）の挙動は変わりません。
+  - **効果**: `exists()` / `sql_update()` / `sql_delete()` のホットパスで複数のシングルパターン regex 走査を排除。`test_sql_update_single` / `test_exists_check` / `test_execute_raw` の改善に寄与。
+
+- **[Medium] PERF-11: `ExpiringDict._check_expiry()` のロックフリー早期リターン最適化**（`utils.py`）
+  - `_check_expiry()` は毎呼び出し `threading.RLock` を取得していました。TTL キャッシュのヒットパスでは 1 回のキーアクセスにつき複数回 `_check_expiry()` が呼ばれるため、このロック取得コストが積み重なっていました。CPython の GIL 下では `dict.get()` はアトミックであるため、ロックなしで `_exptimes.get(key)` を読み取り、期限切れでない場合は即座に `False` を返す楽観的プレチェックを追加しました。
+  - **効果**: TTL キャッシュのキャッシュヒット時のロック取得回数を削減。`test_cache_hit[ttl]` / `test_ttl_expiry_check` の改善に寄与。
+
+- **[High] PERF-12: LRU/TTL モードの `get()` における二重キャッシュルックアップ排除**（`core.py`）（v1.5.3 監査で発見）
+  - PERF-09 で `__getitem__` を最適化した際、同じ二重ルックアップ問題が `get()` メソッドに残存していました。`get()` は `to_dict()` / `items()` のホットパスでも利用されるため影響が大きい問題です。`__getitem__` と同じパターン（`_data` 在籍確認 → `cache.get()` 1 回）を適用しました。
+  - **効果**: LRU/TTL キャッシュヒット時の `move_to_end()` 冗長呼び出しを `get()` でも排除。`test_cache_hit[lru]` / `test_cache_hit[ttl]` のさらなる改善に寄与。
+
+- **[Medium] PERF-13: Unbounded モードの `values()` / `items()` における MISSING フィルタ省略**（`core.py`）（v1.5.3 監査で発見）
+  - PERF-08 で `to_dict()` を最適化した際、同じ最適化が `values()` と `items()` に適用されていませんでした。Unbounded モードではこれらも `list(self._data.values())` / `list(self._data.items())` を直接返すよう変更しました。
+  - **効果**: `test_to_dict_1000` / 全データ取得系ホットパスのさらなる改善に寄与。
+
+#### 新規ベンチマークテスト追加
+
+- `tests/test_benchmark.py` に `test_cache_hit[lru]` / `test_cache_hit[ttl]` を追加。単一キーへの繰り返しアクセスによるキャッシュヒットパスのオーバーヘッドを計測する。
+
+#### テスト
+
+- `tests/test_v153_perf_fixes.py` を追加し、以下を検証:
+  - PERF-07: `_sql_kv_*` 事前計算属性の存在と正確性
+  - PERF-08: `to_dict()` / `copy()` が Unbounded / LRU 両モードで MISSING を含まないこと
+  - PERF-09: LRU / TTL `__getitem__` がキャッシュヒット・不在キーで正しく動作すること
+  - PERF-10: 単純な WHERE 句・関数付き WHERE 句・危険パターンの検出が正しく機能すること
+  - PERF-11: `ExpiringDict._check_expiry()` の有効期限前後の挙動が正しいこと
+- `tests/test_audit_poc.py` に `TestPerf12GetDoubleLookup` / `TestPerf13ValuesItemsFilter` を追加:
+  - PERF-12: LRU/TTL `get()` がキャッシュヒット・不在キーで正しく動作すること
+  - PERF-13: `values()` / `items()` が Unbounded / LRU 両モードで MISSING を含まないこと
+
+
+### [1.5.2] - 2026-04-06
+
+#### パフォーマンス修正（v1.5.0dev1 以降の性能低下 継続対応）
+
+- **[High] PERF-06: Unbounded キャッシュ読み取りホットパスの分岐最適化**（`core.py`）
+  - `__getitem__` / `get` / `__contains__` / `_ensure_cached` の Unbounded モードで、内部メタデータ参照を優先してから `_data` を確認する経路が残っており、正のキャッシュヒット時にも不要な membership 判定が追加され、キャッシュ済み読み取りで無視できないオーバーヘッドになっていました。
+  - 1. `_data` を先に確認する fast-path に変更（ヒット時は即 return）
+  - 2. known-absent の早期 return は `_absent_keys` に限定
+  - 3. `__getitem__` / `get` でも同様の fast-path を適用し、不要な `_ensure_cached()` 呼び出しを回避
+  - **効果**: キャッシュ済み読み取り・存在確認の追加オーバーヘッドを削減（既存 API/挙動は維持）。
+
+#### 破壊的変更（許可済み対応）
+
+- Unbounded モードの内部メタデータを `_cached_keys` から `_absent_keys`（known-absent 専用）へ分離しました。
+  - 公開 API への影響はありませんが、内部属性 `_cached_keys` に依存するコードは互換性がありません。
+  - 移行: `in` / `get` / `is_cached` 等の公開 API を利用してください。
+
+#### テスト
+
+- `tests/test_v152_perf_fastpath.py` を追加し、以下を検証:
+  - Unbounded モードで `_data` 優先 fast-path が機能すること
+  - 既知の不在キー（negative cache）挙動が維持されること
+
+#### 監査（`etc/audit/audit_prompt.md` 準拠）
+
+- フェーズ1〜6の観点で差分監査を実施し、今回の修正範囲（read/contains ホットパス）において:
+  - 後方互換性を壊す変更なし
+  - 新規セキュリティ問題の導入なし
+  - 既存の negative cache セマンティクス維持を確認
+
+### [1.5.1] - 2026-04-05
+
+#### セキュリティ修正（v1.5.1 プレリリース監査）
+
+- **[Medium] SEC-01: `exists()` の WHERE 句に `_validate_expression()` 未適用を修正**（`core.py`）
+  - `query()` / `count()` / `query_with_pagination()` は WHERE 句を `_validate_expression()` で検証して `forbidden_sql_functions` などのポリシーを適用していましたが、`exists()` はこの検証を行っていませんでした。アプリケーションが `forbidden_sql_functions` を設定していても `exists()` のみポリシーが無視されるという不整合を修正しました。
+  - `exists()` を呼び出す前に `_validate_expression(where, context="where")` を実行するよう変更しました。
+
+- **[Medium] SEC-02: `sql_update()` / `sql_delete()` の WHERE 句に `_validate_expression()` 未適用を修正**（`core.py`）
+  - `sql_update()` と `sql_delete()` の WHERE 句も同様に `_validate_expression()` が呼ばれていませんでした。`strict_sql_validation=True` / `forbidden_sql_functions` の設定がこれらのメソッドでは機能しない不整合を修正しました。
+
+#### バグ修正（v1.5.1 プレリリース監査）
+
+- **[High] BUG-01: `pop()` が v2 モードで v2 エンジンをバイパスする問題を修正**（`core.py`）
+  - v2 モードで `pop()` を呼ぶと `_delete_from_db()` が直接 DB へ DELETE を発行し、v2 staging buffer を完全にバイパスしていました。staging buffer に SET 操作が残留している状態でこの直接 DELETE が実行されると、その後の `flush()` で staging の SET が DB に書き込まれてキーが「復活」するデータ整合性バグが発生していました。`__delitem__` と同様に v2 モードでは `v2_engine.kvs_delete()` を経由するよう修正しました。
+
+- **[Medium] BUG-02: `batch_get()` が `_cached_keys` の「存在しない」ステータスを尊重しない問題を修正**（`core.py`）
+  - `__delitem__` 実行後、キーは `_cached_keys` に「存在しない」として記録されますが、`batch_get()` は `_data` のみを確認して `_cached_keys` を参照しないため、v2 non-immediate モードでは staging の DELETE がまだ DB に反映されていない状態で `batch_get()` が DB の旧値を返してしまう不整合がありました。`batch_get()` でも `_cached_keys` を確認して「既知の不在キー」をスキップするよう修正しました。
+
+- **[Low] BUG-03: `to_dict()` が LRU/TTL モードで `MISSING` センチネル値を含む問題を修正**（`core.py`）
+  - LRU/TTL キャッシュモードでは、存在しないキーへのアクセス時に `MISSING` センチネルがキャッシュに書き込まれます（負キャッシュ）。`to_dict()` がこれをフィルタリングせずに返していたため、結果に `{key: <MISSING sentinel>}` が混入する可能性がありました。`items()` と同様に `MISSING` をフィルタリングするよう修正しました。
+
+#### パフォーマンス修正（v1.5.1 プレリリース監査）
+
+- **[Low] PERF-05: `fast_validate_sql_chars()` のホットパス最適化**（`sql_utils.py`）
+  - `fast_validate_sql_chars()` が呼び出しごとに `set(...)` で文字セットオブジェクトを新規生成していました。この関数は全てのクエリメソッドのバリデーション経路（ホットパス）から呼ばれるため、モジュールレベルの `frozenset` 定数 `_SAFE_SQL_CHARS` として事前計算するよう変更しました。約 200–300 ns / 呼び出しのオーバーヘッドを削減します。
+
+#### パフォーマンス修正（v1.5.0dev1 以降の性能低下対応）
+
+ベンチマーク（RPI 実機）で確認された v1.5.0dev1 以降の性能低下を修正しました。
+
+- **[Critical] PERF-01: フックホットパスのオーバーヘッド除去**（`core.py`）
+  - `__getitem__`・`__setitem__`・`__delitem__`・`get`・`batch_get`・`setdefault`・`pop`・`batch_update_partial`・`batch_delete` の全ての読み書き操作で、毎呼び出し `getattr(self, "_hooks", [])` を実行していたため、フックが未設定の場合でも無視できないオーバーヘッドが発生していました。`self._hooks`（常に初期化済み）への直接アクセスと `if self._hooks:` による早期スキップに変更しました。
+  - **効果**: キャッシュ済みキーの読み込み速度が約 30% 向上（実機 RPI: ~1.74M → ~2.3M ops/sec 相当）。
+
+- **[Critical] PERF-02: v2 モードにおける共有ロック競合の解消**（`core.py`）
+  - `__setitem__`・`__delitem__`・`batch_update`・`batch_delete` の v2 モードパスで、インメモリキャッシュの更新（`_data[key] = value` 等）に対して DB フラッシュスレッドと共有するロックを使用していました。このため、バックグラウンドフラッシュスレッドが DB トランザクションのためにロックを保持している間、メインスレッドのキャッシュ更新がブロックされ、特に低速 CPU（Raspberry Pi 等）で深刻なスループット低下を引き起こしていました。
+  - v2 モードにおいてインメモリのみの更新操作は Python の GIL によるアトミック性が保証されており、バックグラウンドフラッシュスレッドは `_data` / `_cached_keys` に直接アクセスしないため、これらの操作に対する明示的なロック取得は不要です。
+  - **効果**: v2 immediate モードの書き込みスループットが約 3.7 倍向上（実機 RPI: ~169 → ~600+ calls/sec 相当）。
+
+- **[Medium] PERF-03: `_update_cache` 内の `hasattr()` 呼び出しを事前計算に変更**（`core.py`）
+  - `_update_cache()` が毎呼び出し `hasattr(self._cache, "_max_size")` を実行していたため、書き込みパスで不要なオーバーヘッドが発生していました。`__init__` 時に `_use_cache_set` フラグとして事前計算するように変更し、ホットパスから `hasattr()` 呼び出しを除去しました。
+  - **効果**: 書き込みパスで約 2-3% の速度改善。
+
+- **[Medium] PERF-04: `_acquire_lock()` を `@contextmanager` ジェネレータから直接 RLock 返却に変更**（`core.py`）
+  - `_acquire_lock()` が `@contextmanager` デコレータを使用していたため、毎呼び出しでジェネレータオブジェクトの生成・`next()` 呼び出し・`contextlib` のオーバーヘッドが発生していました。タイムアウト未設定（共通ケース）の場合は `threading.RLock` オブジェクトをそのまま返し、タイムアウト設定時のみ新設の `_TimedLockContext` を返すよう変更しました。`RLock` は C レベルの `__enter__`/`__exit__` を持つため、ジェネレータより大幅に高速です。
+  - **効果**: 非 v2 書き込みで約 7% の速度改善。
+
+### [1.5.0] - 2026-04-04
+
+#### セキュリティ修正（v1.5.0 プレリリース監査）
+
+- **[Critical] SEC-03**: `UniqueHook` における TOCTOU (Time-of-check/Time-of-use) 競合状態を文書化・警告追加。ユニーク制約チェックが DB 書き込みの外側で行われるため、マルチスレッド環境では制約をバイパスされる可能性があることをクラス docstring に明記しました。本質的な修正には SQLite ネイティブ制約 (`UNIQUE`) または排他ロックの適用を推奨します。
+- **[Critical] SEC-04**: `ForeignKeyHook` における TOCTOU 競合状態を同様に文書化・警告追加。参照整合性制約チェックとDB書き込みの間に参照先キーが削除される可能性を docstring に明記。本質的な修正には `PRAGMA foreign_keys=ON` の使用を推奨します。
+- **[High] SEC-05**: `BaseHook` の `key_pattern` 正規表現パターンに ReDoS (正規表現によるサービス拒否) 脆弱性が存在しました。悪意ある正規表現パターンにより CPU 負荷を引き起こす可能性があったため、コンストラクト時にパターン検証を行うよう修正しました。
+- **[High] SEC-06**: フック制約違反時のエラーメッセージに詳細なフィールド名・値が含まれ、情報漏洩の恐れがありました。エラーメッセージを汎用化し、詳細情報はサーバーサイドのログのみに記録するように修正しました。
+
+#### バグ修正（v1.5.0 プレリリース監査）
+
+- **[Critical] BUG-05**: `PydanticHook` が全ての例外を `ValidationError` として一律に変換・抑制していた問題を修正。`ConnectionError`, `MemoryError` 等のシステムエラーは正しく再送出されるようになりました。
+- **[High] BUG-06**: フック処理において値が変更されない場合も不要な辞書コピーを行っていた問題を修正。変更検出ロジックを導入し、実際に値が変更された場合のみ新しい辞書を生成するようにしました（バッチ処理でのメモリ効率改善）。
+
+#### コード品質修正（PR レビュー指摘対応）
+
+- **[Low] BANDIT-B110**: `v2_engine.py` にて Bandit が指摘した `try/except/pass` パターン（`atexit.unregister` の空キャッチ）を `contextlib.suppress(Exception)` に置き換え。
+- **[Low] POC クリーンアップ**: CodeQL・Bandit が指摘した POC スクリプト内の問題（未使用インポート、未使用変数、bare `except`、ReDoS パターンのリテラル埋め込み）をすべて修正。テストファイル内の重複 `import sqlite3` も解消。
+
+#### パッケージングとIDE支援の改善
+
+- **[High] PEP 561 準拠と型補完の修正**:
+  - `pyproject.toml` の `tool.setuptools` 設定を標準的な `src-layout` 用に刷新。これまで PyPI 配布版で `import nanasqlite` した際に型補完（IntelliSense）が効かなかった問題を修正しました。
+  - `include-package-data = true` を有効化し、`MANIFEST.in` を追加することで、ビルドされたパッケージ (.whl, sdist) に確実に `py.typed` ファイルが含まれるようにしました。
+  - これにより、VS Code (Pylance) や PyCharm 等の主要な IDE で、インストール直後から `NanaSQLite` や `PydanticHook` などの完全な型補完が利用可能になりました。
+
+#### リリース品質監査 (Release Audit) による改善
+
+- **[Critical] BUG-01**: `batch_update`, `batch_update_partial`, `batch_delete` メソッドにおいて V2 モードをバイパスして直接 DB を書き換えていた不具合を修正。V2 エンジンのステージングバッファを経由するようにルーティングし、データの整合性と順序を保証しました。
+- **[Critical] BUG-02**: `clear()` および `load_all()` メソッドにおいて、V2 エンジンの `flush()` が完了する前に DB 操作が実行され、古いデータが再挿入される「幽霊書き込み（Ghost Re-inserts）」が発生する問題を修正。`flush(wait=True)` による同期的待機を導入しました。
+- **[High] QUAL-01**: `AsyncNanaSQLite.add_hook()` の実装を整理。ベース DB 初期化前後のフック登録処理を堅牢化し、非同期実行時の安定性を向上させました。
+- **[Non-Breaking] API 拡張**: `flush()` (同期) および `aflush()` (非同期) に `wait` 引数を追加。バックグラウンド処理の完了を待機できるようになりました。
+- **[High] Python 3.9 互換性の完全復旧**:
+  - 全てのソースファイルに `from __future__ import annotations` を追加し、Python 3.10+ の `|` (Union) 演算子を型ヒントで使用していても Python 3.9 で動作するように修正しました。
+  - `compat.py` に `EllipsisType` の互換レイヤーを導入し、Python 3.9 環境での `mypy` チェックと実行時の型検証の安定性を向上させました。
+  - `pyproject.toml` の `mypy` 設定を `3.9` に更新し、継続的な互換性を保証しました。
+
+#### 新機能: Ultimate Hooks (汎用フック＆制約アーキテクチャ)
+
+- **強力なフック機構の導入**:
+  - `NanaHook` プロトコルを新設し、`before_write`, `after_read`, `before_delete` の3つのライフサイクルイベントをフック可能にしました。
+  - カスタムフックを自作することで、データの検証、暗号化の拡張、ロギング、他システムへの通知などを自由に実装できます。
+- **標準制約（Standard Constraints）の組み込み**:
+  - `CheckHook`: SQLite の `CHECK` 制約のような関数ベースの検証を提供。
+  - `UniqueHook`: 指定したキー（またはフィールド）の値の一意性を保証（TOCTOU 警告あり、詳細は SEC-03 参照）。
+  - `ForeignKeyHook`: 他の `NanaSQLite` テーブルのキーに対する参照整合性を保証（TOCTOU 警告あり、詳細は SEC-04 参照）。
+- **外部ライブラリ統合の透過的サポート**:
+  - `ValidkitHook`: 従来の `validator` 引数と互換性を持ち、`validkit-py` による高性能バリデーションを提供。
+  - `PydanticHook`: `Pydantic` モデルを直接フックに登録することで、読み書き時の自動シリアライズ/デシリアライズおよび厳格な型検証を実現。
+- **メソッドの拡張**:
+  - `NanaSQLite.add_hook()` および `AsyncNanaSQLite.add_hook()` を追加しました。
+
+#### アーキテクチャ強化と後方互換性
+
+- 従来の `validator` パラメータは内部的に `ValidkitHook` へと自動変換されるようになり、後方互換性が100%維持されています。
+- `batch_update`, `get`, `batch_get`, `setdefault`, `pop` など、あらゆるアクセス経路でフックが等しく適用されるように内部ロジックを統合・堅牢化しました。
+
+#### 監査・テスト
+
+- プレリリース監査レポート (`audit.md`) を更新 — v1.5.0 向け 12 件の発見事項を文書化。
+- POC スクリプト 5 件を `etc/poc/` に追加。
+- POC 検証テスト 14 件を `tests/test_audit_poc.py` に追加。
+
+### [1.5.0dev2] - 2026-03-28 *(リリース済みバージョン — v1.5.0 に統合)*
 
 #### パッケージングとIDE支援の改善
 - **[High] PEP 561 準拠と型補完の修正**:
@@ -883,7 +1153,266 @@
 
 ## English
 
-### [1.5.0dev2] - 2026-03-28
+### [1.5.3rc3] - 2026-04-07
+
+#### Performance Improvements
+
+- **PERF-21: `execute_many()` — Python loop replaced with `cursor.executemany()`** (`core.py`)
+  - `execute_many()` was iterating `parameters_list` with a `for` loop calling `cursor.execute()` per item. Switching to APSW's built-in `cursor.executemany()` eliminates per-parameter Python call overhead. ~15% improvement for `test_execute_many` and `test_import_from_dict_list`.
+
+- **PERF-22: `batch_delete()` — skip pre-check loop when no hooks are registered** (`core.py`)
+  - `batch_delete()` iterated all keys calling `_ensure_cached()` before deletion. Its only purpose was firing `before_delete` hooks. When `_has_hooks` is `False` (the default), this loop is now skipped entirely, saving O(n) function-call overhead per batch.
+
+- **PERF-23: `batch_update()` — serialize outside lock, `dict.update()`, `_absent_keys` guard** (`core.py`)
+  - Serialization (`_serialize()`) is pure Python/JSON work that does not touch the SQLite connection; moved it outside the lock (consistent with `__setitem__`).
+  - Unbounded-mode cache update changed from a per-key assignment loop to `dict.update()`, which is ~6× faster (C-level implementation).
+  - `_absent_keys.discard()` per-key calls replaced with `if self._absent_keys: self._absent_keys.difference_update(mapping.keys())`, eliminating all hash operations when the set is empty (the common write-heavy case).
+  - Same improvements applied to the v2 path.
+  - ~9% overall improvement for `test_batch_write_100`.
+
+- **PERF-24: `batch_update_partial()` — `dict.update()` + `_absent_keys` guard** (`core.py`)
+  - Same optimizations as PERF-23 applied to both v1 and v2 paths of `batch_update_partial()`.
+
+- **PERF-25: `batch_delete()` — per-key `_absent_keys.add()` → `_absent_keys.update(keys)`** (`core.py`)
+  - After deletion, all absent keys are now added to `_absent_keys` with a single `update(keys)` call instead of individual `add(key)` calls in a loop, reducing hash-computation overhead.
+  - Same change applied to the v2 path.
+
+- **PERF-26: `begin_transaction()` / `commit()` / `rollback()` — bypass `execute()` overhead** (`core.py`)
+  - These methods previously called `self.execute("BEGIN IMMEDIATE")` etc., routing through the full `execute()` dispatch (v2-mode check, `strip().upper()`, duplicate `_check_connection()` call). They now call `self._connection.execute()` directly under the acquired lock, saving several redundant operations per transaction. Improvement observed in `test_context_manager_transaction`, `test_begin_commit`, and `test_begin_rollback`.
+
+- **PERF-29: `_serialize()` — early return for no-encryption case** (`core.py`)
+  - A `_no_encrypt: bool` flag is pre-computed in `__init__` (same pattern as PERF-20's `_has_hooks`). When encryption is disabled (the default), `_serialize()` now returns immediately after JSON encoding without evaluating the `if self._fernet:` and `if self._aead:` attribute-lookup branches. Small but consistent improvement across all write paths.
+
+---
+
+### [1.5.3rc2] - 2026-04-07
+
+#### Bug Fixes
+
+- **[Medium] BUG-01: `setdefault()` returns wrong value when `before_write` hook transforms the default** (`core.py`)
+  - The PERF-18 optimisation applied `after_read` hooks to the original `default` argument rather than the potentially hook-transformed value actually stored in cache. For example, with `ValidkitHook(coerce=True)` or `PydanticHook` that transforms values on write, `setdefault("k", "hello")` would store `"HELLO"` but return `"hello"`.
+  - **Fix**: When `_has_hooks` is True, the new code reads the stored (potentially transformed) value from `_data`/cache after the write and applies `after_read` hooks to that. When `_has_hooks` is False no hooks can transform values, so returning `default` directly (the PERF-18 fast path) remains valid.
+  - POC: `etc/poc/poc_bug01_setdefault_coerce_hook.py`
+
+#### Performance Fixes (v1.5.3rc2 benchmark regression fix)
+
+- **[High] PERF-14: try/except fast path for `__getitem__` in Unbounded mode** (`core.py`)
+  - The cache-hit hot path used `.get(key, _NOT_FOUND)` plus a sentinel identity check. Direct dict access `d[key]` via `try/except KeyError` eliminates sentinel creation, keyword-argument processing, and the identity compare — approximately **1.9x** faster for the common cache-hit case. Applied to `_ensure_cached()`, `__getitem__`, and `get()`. Measured **-15%** improvement on `test_single_read_cached`.
+
+- **[High] PERF-15: try/except fast path for `get()` in Unbounded mode** (`core.py`)
+  - Same optimisation as PERF-14 applied to `get()`. Measured **-11.6%** improvement on `test_read_encryption[fernet]`.
+
+- **[High] PERF-16: try/except fast path for `__contains__` in Unbounded mode** (`core.py`)
+  - Same optimisation as PERF-14 applied to `__contains__`.
+
+- **[Medium] PERF-17: Guard empty `_absent_keys.discard()` in `_update_cache()`** (`core.py`)
+  - Since v1.5.2's `_absent_keys` introduction, `_update_cache()` called `self._absent_keys.discard(key)` on every write — even when the set was empty (common in write-heavy workloads). Added an `if self._absent_keys:` guard so the hash computation is skipped when unnecessary.
+
+- **[Medium] PERF-18: Eliminate redundant `self[key]` round-trip in `setdefault()`** (`core.py`)
+  - After writing a new default, `setdefault()` re-read the value via `self[key]` (a full `__getitem__` call). Since the value is already known, it is now returned directly. Also switched Unbounded mode to use `_data[key]` instead of the polymorphic `_cache.get()`.
+
+- **[Medium] PERF-19: Direct `_data` access in `pop()` for Unbounded mode** (`core.py`)
+  - `pop()` retrieved the value via `self._cache.get(key)`. In Unbounded mode `_data` holds the real value; using `self._data[key]` avoids the polymorphic method dispatch (and `move_to_end()` overhead in LRU mode).
+
+- **[Medium] PERF-20: Pre-computed `_has_hooks` flag to speed up all hot paths** (`core.py`)
+  - All hot paths (`__getitem__`, `__setitem__`, `__delitem__`, `get()`, `get_fresh()`, `batch_get()`, `pop()`, `setdefault()`, `batch_update_partial()`, `batch_delete()`) were calling `if self._hooks:` which triggers `list.__len__` on every operation. A `self._has_hooks: bool` flag is now pre-computed at `__init__` time and kept in sync by `add_hook()`.
+
+#### Tests
+
+- Extended `tests/test_v153_perf_fixes.py` to cover PERF-14 through PERF-20 correctness and BUG-01 regression tests.
+
+### [1.5.3rc1] - 2026-04-07
+
+#### Performance Fixes (v1.5.3 pre-release audit)
+
+- **[High] PERF-07: Pre-compute common SQL strings at `__init__` time** (`core.py`)
+  - Hot paths (`__setitem__`, `__delitem__`, `__contains__`, `__len__`, `_write_to_db`, `_read_from_db`, `_delete_from_db`, `load_all`, `batch_update`, `batch_delete`) were re-building the same SQL strings (containing the quoted table name) via f-strings on every call. Six SQL template strings are now pre-computed at instance creation time and referenced directly on the hot paths.
+  - **Impact**: Eliminates string-building overhead on every KV operation. Improves `test_single_write` / `test_execute_raw` / `test_sql_insert_single`.
+
+- **[Medium] PERF-08: Skip MISSING sentinel filter in `to_dict()` / `copy()` for Unbounded mode** (`core.py`)
+  - In Unbounded mode `_data` never holds the MISSING sentinel, so the per-element `if v is not MISSING` predicate in the dict comprehension was unnecessary overhead. Unbounded mode now returns `dict(self._data)` directly; LRU/TTL mode still applies the filter.
+  - **Impact**: Reduces overhead for `test_to_dict_1000` / `test_copy`.
+
+- **[Medium] PERF-09: Eliminate double LRU cache lookup in `__getitem__`** (`core.py`)
+  - In LRU/TTL mode, `__getitem__` called `_ensure_cached()` (which internally calls `self._cache.get()`, invoking `move_to_end()`) and then called `self._cache.get()` a second time to retrieve the value — two `move_to_end()` calls for a single cache hit. Restructured to check `_data` membership first and call `self._cache.get()` exactly once for the cache-hit path.
+  - **Impact**: Removes redundant `move_to_end()` on LRU cache hits. Improves `test_cache_hit[lru]` / `test_cache_hit[ttl]`.
+
+- **[Medium] PERF-10: Pre-compiled regex and early skip for `_validate_expression()`** (`core.py`)
+  - `_validate_expression()` ran four separate `re.search()` calls with individual pattern strings on every invocation. Combined into a single module-level pre-compiled regex `_DANGEROUS_SQL_RE`. Also added an early return when the expression contains no `(`, skipping the expensive `sanitize_sql_for_function_scan()` + `re.findall()` that is only needed when function calls are present.
+  - **Impact**: Reduces regex overhead for typical parameterised WHERE clauses. Improves `test_sql_update_single` / `test_exists_check` / `test_execute_raw`.
+
+- **[Medium] PERF-11: Lock-free fast-path in `ExpiringDict._check_expiry()`** (`utils.py`)
+  - `_check_expiry()` always acquired `threading.RLock` even for keys that were clearly not expired. Under CPython's GIL, individual `dict.get()` is atomic, so an optimistic lock-free pre-check against `_exptimes` is safe. When the expiry time has not been reached the method now returns `False` immediately without touching the lock.
+  - **Impact**: Reduces lock-acquire overhead on TTL cache hit path. Improves `test_cache_hit[ttl]` / `test_ttl_expiry_check`.
+
+#### New Benchmark Tests
+
+- Added `test_cache_hit[lru]` / `test_cache_hit[ttl]` to `tests/test_benchmark.py` to measure the cache hit overhead for a single key with repeated reads.
+
+#### Tests
+
+- Added `tests/test_v153_perf_fixes.py` covering:
+  - PERF-07: Presence and correctness of `_sql_kv_*` pre-computed attributes
+  - PERF-08: `to_dict()` / `copy()` returns no MISSING sentinels in both Unbounded and LRU modes
+  - PERF-09: LRU / TTL `__getitem__` returns correct values on cache hit / miss / MISSING sentinel
+  - PERF-10: Simple WHERE clauses, function-bearing WHERE clauses, and dangerous patterns all handled correctly
+  - PERF-11: `ExpiringDict._check_expiry()` behaves correctly before and after expiry
+- Added `TestPerf12GetDoubleLookup` / `TestPerf13ValuesItemsFilter` to `tests/test_audit_poc.py`:
+  - PERF-12: LRU / TTL `get()` returns correct values on cache hit / known-absent / miss
+  - PERF-13: `values()` / `items()` contains no MISSING sentinels in both Unbounded and LRU modes
+
+- **[High] PERF-12: Eliminate double cache lookup in `get()` for LRU/TTL mode** (`core.py`) *(found by v1.5.3 audit)*
+  - When PERF-09 fixed `__getitem__`, the same double-lookup issue remained in `get()`. The `get()` method called `_ensure_cached()` (which calls `cache.get()` → `move_to_end()` internally) and then called `cache.get()` again to retrieve the value. Applied the same `_data` membership check + single `cache.get()` pattern as PERF-09.
+  - **Impact**: Eliminates redundant `move_to_end()` in `get()` for LRU/TTL cache hits. Further improves `test_cache_hit[lru]` / `test_cache_hit[ttl]`.
+
+- **[Medium] PERF-13: Skip MISSING sentinel filter in `values()` / `items()` for Unbounded mode** (`core.py`) *(found by v1.5.3 audit)*
+  - When PERF-08 optimised `to_dict()`, the same optimisation was not applied to `values()` and `items()`. Unbounded mode now returns `list(_data.values())` / `list(_data.items())` directly without the per-element `if v is not MISSING` predicate.
+  - **Impact**: Reduces per-element overhead in `values()` and `items()` for Unbounded mode.
+
+- **Note (QUAL-01)**: In non-strict mode, `_validate_expression()` now emits a single `UserWarning` even when multiple dangerous patterns match (e.g., `; DROP TABLE`). Previously, one warning was emitted per matching pattern. In strict mode (exception-raising), behaviour is unchanged. Code that relies on the count of `UserWarning`s emitted for a single expression should be updated.
+
+### [1.5.2] - 2026-04-06
+
+#### Performance Fixes (Follow-up for regression since v1.5.0dev1)
+
+- **[High] PERF-06: Fast-path optimization for Unbounded cache reads** (`core.py`)
+  - In Unbounded mode, read-heavy paths (`__getitem__`, `get`, `__contains__`, `_ensure_cached`) still had metadata checks before looking at `_data`, adding avoidable membership checks even for positive cache hits.
+  - Changes:
+    1. Prioritize `_data` lookup as the primary fast-path for positive cache hits
+    2. Use `_absent_keys` only for known-absent early return
+    3. Apply the same fast-path pattern in `__getitem__` / `get` to reduce unnecessary `_ensure_cached()` calls
+  - **Impact**: Reduces overhead on cached read / contains hot paths while preserving existing public behavior.
+
+#### Breaking Change (approved)
+
+- In Unbounded mode, internal mixed-state metadata was split from `_cached_keys` to `_absent_keys` (known-absent only).
+  - No public API change, but code depending on internal `_cached_keys` semantics is not compatible.
+  - Migration: use public APIs (`in`, `get`, `is_cached`) instead of internal metadata fields.
+
+#### Tests
+
+- Added `tests/test_v152_perf_fastpath.py` to verify:
+  - `_data`-first fast-path behavior in Unbounded mode
+  - Preserved negative-cache semantics for known-absent keys
+
+#### Audit (`etc/audit/audit_prompt.md` aligned)
+
+- Performed focused audit checks (Phase 1-6 perspective) on the changed scope:
+  - No backward-incompatible API change
+  - No new security issue introduced
+  - Negative-cache semantics preserved
+
+### [1.5.1] - 2026-04-05
+
+#### Security Fixes (v1.5.1 Pre-Release Audit)
+
+- **[Medium] SEC-01: Apply `_validate_expression()` to `exists()` WHERE clause** (`core.py`)
+  - `query()` / `count()` / `query_with_pagination()` all validate the WHERE clause through `_validate_expression()`, enforcing `forbidden_sql_functions` and `strict_sql_validation` policies. `exists()` skipped this validation, allowing a forbidden function to be used in its WHERE clause while being rejected by all other query methods — an inconsistency that undermined application-level SQL policy enforcement. Fixed by adding `_validate_expression(where, context="where")` to `exists()`.
+
+- **[Medium] SEC-02: Apply `_validate_expression()` to `sql_update()` / `sql_delete()` WHERE clause** (`core.py`)
+  - Same as SEC-01: `sql_update()` and `sql_delete()` did not validate their WHERE clause, so `strict_sql_validation` / `forbidden_sql_functions` settings had no effect on these methods. Fixed with `_validate_expression(where, context="where")` in both methods.
+
+#### Bug Fixes (v1.5.1 Pre-Release Audit)
+
+- **[High] BUG-01: Fix `pop()` bypassing v2 engine staging buffer** (`core.py`)
+  - In v2 mode, `pop()` called `_delete_from_db()` directly instead of routing through `v2_engine.kvs_delete()`. If the key had a pending SET in the staging buffer (not yet flushed), the direct DB DELETE was a no-op (key not in DB yet), but the staging SET was left intact. On the next `flush()`, the SET was applied to the DB, resurrecting the deleted key. Fixed by routing v2-mode `pop()` through `v2_engine.kvs_delete()`, matching `__delitem__`.
+
+- **[Medium] BUG-02: Fix `batch_get()` ignoring `_cached_keys` "known absent" status** (`core.py`)
+  - After `__delitem__`, the key is recorded as "known absent" in `_cached_keys` but removed from `_data`. `get()` (via `_ensure_cached`) correctly honours this and returns the default. `batch_get()` only checked `_data`, so a cache miss caused it to fall through to a DB query — in v2 non-immediate mode, the pending delete may not yet be in DB, so `batch_get()` would return the stale old value while `get()` returned absent. Fixed by checking `_cached_keys` in `batch_get()`'s cache-miss path.
+
+- **[Low] BUG-03: Fix `to_dict()` returning `MISSING` sentinel in LRU/TTL mode** (`core.py`)
+  - In LRU/TTL cache mode, lookups for non-existent keys write the `MISSING` sentinel into the cache as a negative entry. `to_dict()` returned `dict(self._data)` which included these sentinel values, unlike `items()` which correctly filtered them. Fixed by using a dict comprehension with `if v is not MISSING`.
+
+#### Performance Improvements (v1.5.1 Pre-Release Audit)
+
+- **[Low] PERF-05: Pre-compute `_SAFE_SQL_CHARS` as a module-level `frozenset`** (`sql_utils.py`)
+  - `fast_validate_sql_chars()` re-created a `set(...)` object on every call. Because this function is called on every `_validate_expression()` invocation (hot path for all query methods), building the same immutable set repeatedly wasted ~200–300 ns per call. Moved to a module-level `frozenset` constant `_SAFE_SQL_CHARS` computed once at import time.
+
+#### Performance Fixes (Regression since v1.5.0dev1)
+
+Fixed performance regressions observed in RPI benchmarks that appeared starting from v1.5.0dev1.
+
+- **[Critical] PERF-01: Remove hook hot-path overhead** (`core.py`)
+  - All read/write operations (`__getitem__`, `__setitem__`, `__delitem__`, `get`, `batch_get`, `setdefault`, `pop`, `batch_update_partial`, `batch_delete`) were calling `getattr(self, "_hooks", [])` on every invocation, causing measurable overhead even when no hooks are registered. Changed to direct `self._hooks` access (always initialized) with an `if self._hooks:` early-exit guard.
+  - **Impact**: ~30% throughput improvement for cached reads (RPI: ~1.74M → ~2.3M ops/sec equivalent).
+
+- **[Critical] PERF-02: Eliminate shared-lock contention in v2 mode** (`core.py`)
+  - In the v2-mode paths of `__setitem__`, `__delitem__`, `batch_update`, and `batch_delete`, the in-memory cache update (`_data[key] = value`, etc.) was being wrapped in the same lock used by the background flush thread for database transactions. On slow CPUs (Raspberry Pi and similar ARM devices) this caused severe throughput degradation because the main thread and background flush thread constantly competed for the same lock.
+  - In v2 mode, in-memory-only updates are atomic under Python's GIL, and the background flush thread never accesses `_data` or `_cached_keys` directly, so no explicit lock is required for these operations.
+  - **Impact**: ~3.7× throughput improvement for v2 immediate-mode writes (RPI: ~169 → ~600+ calls/sec equivalent).
+
+- **[Medium] PERF-03: Pre-compute `_update_cache` dispatch flag** (`core.py`)
+  - `_update_cache()` called `hasattr(self._cache, "_max_size")` on every invocation, adding unnecessary overhead on the write hot path. The result is now pre-computed as `_use_cache_set` during `__init__`, eliminating the `hasattr()` call entirely.
+  - **Impact**: ~2-3% write throughput improvement.
+
+- **[Medium] PERF-04: Replace `@contextmanager` with direct RLock return in `_acquire_lock()`** (`core.py`)
+  - `_acquire_lock()` used a `@contextmanager` generator, incurring `contextlib` overhead (object allocation, `next()` calls) on every lock acquisition. For the common case (no timeout), the method now returns `self._lock` (a `threading.RLock`) directly — `RLock` is itself a context manager with highly-optimised C-level `__enter__`/`__exit__`. When `lock_timeout` is set, a lightweight `_TimedLockContext` helper is returned instead.
+  - **Impact**: ~7% write throughput improvement for non-v2 paths.
+
+### [1.5.0] - 2026-04-04
+
+#### Security Fixes (v1.5.0 Pre-Release Audit)
+
+- **[Critical] SEC-03**: Documented and added warnings for the TOCTOU (Time-of-check/Time-of-use) race condition in `UniqueHook`. The uniqueness check occurs outside the database write transaction, meaning multiple threads can bypass the constraint in concurrent environments. Class docstring now clearly warns against this and recommends using SQLite native `UNIQUE` constraints or application-level exclusive locks.
+- **[Critical] SEC-04**: Similarly documented and added warnings for the TOCTOU race condition in `ForeignKeyHook`, where a referenced key can be deleted between the constraint check and the write operation. Class docstring recommends `PRAGMA foreign_keys=ON` for strict referential integrity.
+- **[High] SEC-05**: Fixed a ReDoS (Regular Expression Denial of Service) vulnerability in `BaseHook`'s `key_pattern` regex parameter. Malicious regex patterns could cause excessive CPU load. Pattern validation is now enforced at construction time.
+- **[High] SEC-06**: Fixed information leakage in hook constraint violation error messages that exposed field names and values. Error messages are now generic, with detailed information logged server-side only.
+
+#### Bug Fixes (v1.5.0 Pre-Release Audit)
+
+- **[Critical] BUG-05**: Fixed `PydanticHook` silently converting all exceptions to `ValidationError`. System-level errors such as `ConnectionError` and `MemoryError` are now properly re-raised.
+- **[High] BUG-06**: Fixed unnecessary dictionary copying in hook processing when no values were actually changed. Introduced change detection to allocate new dicts only when values are actually modified (improves memory efficiency in batch operations).
+
+#### Code Quality Fixes (PR Review Follow-up)
+
+- **[Low] BANDIT-B110**: Replaced empty `try/except/pass` around `atexit.unregister` in `v2_engine.py` with `contextlib.suppress(Exception)` to resolve the Bandit B110 warning.
+- **[Low] POC Cleanup**: Fixed all CodeQL and Bandit warnings raised in POC scripts (unused imports, unused variables, bare `except`, and hard-coded ReDoS pattern literals). Removed duplicate `import sqlite3` in test file.
+
+#### Packaging and IDE Support Improvements
+
+- **[High] PEP 561 Compliance and Autocompletion Fix**:
+  - Refactored `tool.setuptools` in `pyproject.toml` to use standard `src-layout` auto-discovery. Fixed the issue where IntelliSense/autocompletion failed for the PyPI distribution.
+  - Enabled `include-package-data = true` and added `MANIFEST.in` to ensure the `py.typed` file is correctly bundled in both wheel (.whl) and source distributions (sdist).
+  - This enables full autocompletion support for `NanaSQLite`, `PydanticHook`, and other exports in major IDEs like VS Code (Pylance) and PyCharm out of the box.
+
+#### Improvements from Release Audit
+
+- **[Critical] BUG-01**: Fixed a bug where `batch_update`, `batch_update_partial`, and `batch_delete` methods bypassed V2 mode and performed direct database writes. Routed these operations through the V2 engine's staging buffer to ensure data integrity and FIFO order.
+- **[Critical] BUG-02**: Resolved "Ghost Re-inserts" in `clear()` and `load_all()` methods, where database operations executed before the V2 engine's background `flush()` completed. Introduced synchronous waiting via `flush(wait=True)`.
+- **[High] QUAL-01**: Refactored `AsyncNanaSQLite.add_hook()` implementation to harden hook registration logic before and after base database initialization, improving stability in asynchronous environments.
+- **[Non-Breaking] API Extension**: Added a `wait` parameter to `flush()` (sync) and `aflush()` (async) methods, allowing for synchronous waiting of background worker completion.
+- **[High] Full Restoration of Python 3.9 Compatibility**:
+  - Added `from __future__ import annotations` to all source files, allowing Python 3.10+ `|` (Union) operators in type hints to function correctly on Python 3.9.
+  - Introduced an `EllipsisType` compatibility layer in `compat.py` to ensure stable `mypy` static analysis and runtime type validation on Python 3.9.
+  - Updated `pyproject.toml` to target `mypy` for Python 3.9, guaranteeing continuous compatibility.
+
+#### New Features: Ultimate Hooks (General-purpose Hook & Constraint Architecture)
+
+- **Powerful Hook Mechanism**:
+  - Introduced the `NanaHook` protocol, allowing interception of 3 lifecycle events: `before_write`, `after_read`, and `before_delete`.
+  - Custom hooks can be easily authored to implement data validation, custom encryption, logging, or integrations with external systems.
+- **Built-in Standard Constraints**:
+  - `CheckHook`: Provides function-based validation similar to SQLite's `CHECK` constraint.
+  - `UniqueHook`: Ensures uniqueness of values for a specified key or nested field (TOCTOU warning applies, see SEC-03).
+  - `ForeignKeyHook`: Grants referential integrity against keys in other `NanaSQLite` tables (TOCTOU warning applies, see SEC-04).
+- **Transparent External Library Integrations**:
+  - `ValidkitHook`: Maintains 100% backward compatibility with the legacy `validator` parameter, providing high-performance validation via `validkit-py`.
+  - `PydanticHook`: Allows direct registration of `Pydantic` models as hooks, enabling automatic serialization/deserialization and strict type validation on read/write.
+- **Method Extensions**:
+  - Added `NanaSQLite.add_hook()` and `AsyncNanaSQLite.add_hook()` for dynamic hook registration.
+
+#### Architectural Enhancements & Backward Compatibility
+
+- The legacy `validator` parameter is internally converted to a `ValidkitHook`, preserving 100% backward compatibility.
+- Internal logic has been unified and hardened to ensure hooks are equally applied across all access paths, including `batch_update`, `get`, `batch_get`, `setdefault`, and `pop`.
+
+#### Audit & Testing
+
+- Updated pre-release audit report (`audit.md`) — documented 12 findings for v1.5.0.
+- Added 5 POC scripts to `etc/poc/`.
+- Added 14 POC verification tests to `tests/test_audit_poc.py`.
+
+### [1.5.0dev2] - 2026-03-28 *(released — consolidated into v1.5.0)*
 
 #### Packaging and IDE Support Improvements
 - **[High] PEP 561 Compliance and Autocompletion Fix**:

@@ -17,6 +17,7 @@ Features:
 from __future__ import annotations
 
 import atexit
+import contextlib
 import itertools
 import logging
 import queue
@@ -505,10 +506,8 @@ class V2Engine:
             # Do not join timer thread here to avoid deadlocks in atexit, let it die daemonically if needed
 
         # Unregister to avoid multiple calls from atexit and manual close()
-        try:
+        with contextlib.suppress(Exception):  # pragma: no cover
             atexit.unregister(self.shutdown)
-        except Exception:  # pragma: no cover
-            pass
 
         # Shutdown worker executor.
         # cancel_futures=True ensures we don't start new flushes if they were already queued.
