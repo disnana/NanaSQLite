@@ -6,6 +6,42 @@
 
 ## 日本語
 
+### [1.5.3rc3] - 2026-04-07
+
+#### パフォーマンス改善
+
+- **PERF-21: `execute_many()` — Python ループ → `cursor.executemany()` に変更**（`core.py`）
+  - `execute_many()` の実装がバインドパラメータのリストを Python の `for` ループで一件ずつ `cursor.execute()` していました。APSW 組み込みの `cursor.executemany()` を使うことで Python 側の関数呼び出しオーバーヘッドを排除しました。
+  - 影響テスト: `test_execute_many`・`test_import_from_dict_list` で約 15% 高速化。
+
+- **PERF-22: `batch_delete()` — フック未登録時の事前チェックループを省略**（`core.py`）
+  - `batch_delete()` は削除前に全キーに対して `_ensure_cached()` を呼び出していましたが、その唯一の目的は `before_delete` フックの呼び出しでした。`_has_hooks` が `False` の場合（デフォルト）にはこのループ全体を完全にスキップするよう変更しました。
+  - 影響テスト: `test_batch_delete` でフックなし時のオーバーヘッドを削減。
+
+- **PERF-23: `batch_update()` — シリアライズをロック外へ移動・`dict.update()` 使用・`_absent_keys` ガード追加**（`core.py`）
+  - シリアライズ（`_serialize()` 呼び出し）は SQLite 接続に触れない純粋な Python/JSON 処理であるため、`_acquire_lock()` の外に移動しました（`__setitem__` と同様の方針）。
+  - Unbounded モードのキャッシュ更新を per-key 代入ループから `dict.update()` に変更しました。`dict.update()` は C レベルで実装されており、Python ループの約 6 倍高速です。
+  - v2 パスも同様に `dict.update()` + ガードを適用。
+  - `_absent_keys.discard()` の per-key 呼び出しを `if self._absent_keys: self._absent_keys.difference_update(mapping.keys())` に置き換え、空セット時のハッシュ計算を完全に排除しました。
+  - 影響テスト: `test_batch_write_100`・`test_batch_update_partial_100` で約 9% 高速化。
+
+- **PERF-24: `batch_update_partial()` — `dict.update()` + `_absent_keys` ガード適用**（`core.py`）
+  - `batch_update()` (PERF-23) と同様の最適化を `batch_update_partial()` の v1 / v2 両パスに適用しました。
+
+- **PERF-25: `batch_delete()` — `_absent_keys.add()` per-key → `_absent_keys.update(keys)` に変更**（`core.py`）
+  - 削除後のキャッシュ更新で、キーごとに `_absent_keys.add(key)` を呼び出していたものを `_absent_keys.update(keys)` の一括呼び出しに変更しました。ハッシュ計算コストとセット内部の再割り当て回数を削減します。
+  - v2 パスも同様に変更。
+
+- **PERF-26: `begin_transaction()` / `commit()` / `rollback()` — `execute()` オーバーヘッドをバイパス**（`core.py`）
+  - これらのメソッドは内部で `self.execute("BEGIN IMMEDIATE")` 等を呼び出していましたが、`execute()` には v2 モード判定・SQL 文字列の `strip().upper()` 処理・追加の `_check_connection()` 呼び出しが含まれます。`with self._acquire_lock(): self._connection.execute(...)` を直接使うことでこれらのオーバーヘッドを排除しました。
+  - 影響テスト: `test_context_manager_transaction`・`test_begin_commit`・`test_begin_rollback` で高速化。
+
+- **PERF-29: `_serialize()` — 暗号化なし時の早期リターン**（`core.py`）
+  - `__init__` 時に `_no_encrypt: bool` フラグを事前計算し、暗号化が無効な場合（デフォルト）は `if self._fernet:` / `if self._aead:` の 2 回の属性ルックアップをスキップして即座に返すようにしました（PERF-20 と同様の手法）。
+  - 影響テスト: `test_nested_write`・`test_write_encryption[plaintext]`・その他全書き込みパスで微小な高速化。
+
+---
+
 ### [1.5.3rc2] - 2026-04-07
 
 #### バグ修正
@@ -1116,6 +1152,38 @@
 
 
 ## English
+
+### [1.5.3rc3] - 2026-04-07
+
+#### Performance Improvements
+
+- **PERF-21: `execute_many()` — Python loop replaced with `cursor.executemany()`** (`core.py`)
+  - `execute_many()` was iterating `parameters_list` with a `for` loop calling `cursor.execute()` per item. Switching to APSW's built-in `cursor.executemany()` eliminates per-parameter Python call overhead. ~15% improvement for `test_execute_many` and `test_import_from_dict_list`.
+
+- **PERF-22: `batch_delete()` — skip pre-check loop when no hooks are registered** (`core.py`)
+  - `batch_delete()` iterated all keys calling `_ensure_cached()` before deletion. Its only purpose was firing `before_delete` hooks. When `_has_hooks` is `False` (the default), this loop is now skipped entirely, saving O(n) function-call overhead per batch.
+
+- **PERF-23: `batch_update()` — serialize outside lock, `dict.update()`, `_absent_keys` guard** (`core.py`)
+  - Serialization (`_serialize()`) is pure Python/JSON work that does not touch the SQLite connection; moved it outside the lock (consistent with `__setitem__`).
+  - Unbounded-mode cache update changed from a per-key assignment loop to `dict.update()`, which is ~6× faster (C-level implementation).
+  - `_absent_keys.discard()` per-key calls replaced with `if self._absent_keys: self._absent_keys.difference_update(mapping.keys())`, eliminating all hash operations when the set is empty (the common write-heavy case).
+  - Same improvements applied to the v2 path.
+  - ~9% overall improvement for `test_batch_write_100`.
+
+- **PERF-24: `batch_update_partial()` — `dict.update()` + `_absent_keys` guard** (`core.py`)
+  - Same optimizations as PERF-23 applied to both v1 and v2 paths of `batch_update_partial()`.
+
+- **PERF-25: `batch_delete()` — per-key `_absent_keys.add()` → `_absent_keys.update(keys)`** (`core.py`)
+  - After deletion, all absent keys are now added to `_absent_keys` with a single `update(keys)` call instead of individual `add(key)` calls in a loop, reducing hash-computation overhead.
+  - Same change applied to the v2 path.
+
+- **PERF-26: `begin_transaction()` / `commit()` / `rollback()` — bypass `execute()` overhead** (`core.py`)
+  - These methods previously called `self.execute("BEGIN IMMEDIATE")` etc., routing through the full `execute()` dispatch (v2-mode check, `strip().upper()`, duplicate `_check_connection()` call). They now call `self._connection.execute()` directly under the acquired lock, saving several redundant operations per transaction. Improvement observed in `test_context_manager_transaction`, `test_begin_commit`, and `test_begin_rollback`.
+
+- **PERF-29: `_serialize()` — early return for no-encryption case** (`core.py`)
+  - A `_no_encrypt: bool` flag is pre-computed in `__init__` (same pattern as PERF-20's `_has_hooks`). When encryption is disabled (the default), `_serialize()` now returns immediately after JSON encoding without evaluating the `if self._fernet:` and `if self._aead:` attribute-lookup branches. Small but consistent improvement across all write paths.
+
+---
 
 ### [1.5.3rc2] - 2026-04-07
 

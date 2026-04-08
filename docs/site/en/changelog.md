@@ -4,6 +4,33 @@ outline: [2, 3]
 
 # Changelog
 
+### [1.5.3rc3] - 2026-04-07
+
+#### Performance Improvements
+
+- **PERF-21: `execute_many()` — Python loop → `cursor.executemany()`** (`core.py`)
+  - Eliminates per-item Python function-call overhead. ~15% improvement for `test_execute_many` and `test_import_from_dict_list`.
+
+- **PERF-22: `batch_delete()` — skip pre-check loop when no hooks** (`core.py`)
+  - When `_has_hooks=False` (default), the full `_ensure_cached()` loop over all keys is skipped entirely.
+
+- **PERF-23: `batch_update()` — serialize outside lock, `dict.update()`, `_absent_keys` guard** (`core.py`)
+  - Serialization moved outside the lock. Cache update uses `dict.update()` (~6× faster than a per-key loop). `_absent_keys` update guarded and batched with `difference_update()`. ~9% overall improvement.
+
+- **PERF-24: `batch_update_partial()` — `dict.update()` + `_absent_keys` guard** (`core.py`)
+  - Same optimizations as PERF-23 applied to both v1 and v2 paths.
+
+- **PERF-25: `batch_delete()` — `_absent_keys.update(keys)` bulk call** (`core.py`)
+  - Per-key `add()` loop replaced with a single `update(keys)` call.
+
+- **PERF-26: `begin_transaction()` / `commit()` / `rollback()` — bypass `execute()` overhead** (`core.py`)
+  - Call `self._connection.execute()` directly under the lock, skipping v2-mode dispatch, SQL `strip().upper()`, and redundant `_check_connection()`.
+
+- **PERF-29: `_serialize()` — early return for no-encryption case** (`core.py`)
+  - `_no_encrypt` bool flag pre-computed in `__init__`. Eliminates `_fernet`/`_aead` attribute lookups on every write when encryption is disabled.
+
+---
+
 ### [1.5.3rc2] - 2026-04-07
 
 #### Bug Fixes

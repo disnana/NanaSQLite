@@ -161,7 +161,7 @@ class StdLRUCache(CacheStrategy):
 
     def set(self, key: str, value: Any) -> None:
         self._data[key] = value
-        self._data.move_to_end(key)
+        self._data.move_to_end(key)  # Mark used
         if len(self._data) > self._max_size:
             self._data.popitem(last=False)  # Evict oldest
 
