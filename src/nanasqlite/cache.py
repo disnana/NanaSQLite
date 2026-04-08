@@ -113,7 +113,10 @@ class UnboundedCache(CacheStrategy):
     def delete(self, key: str) -> None:
         if key in self._data:
             del self._data[key]
-        self._cached_keys.add(key)
+        # BUG-03 fix: key is no longer cached after deletion; use discard()
+        # (previously used .add() which incorrectly marked deleted keys as "cached",
+        # causing NanaSQLite to skip DB re-fetches for re-inserted keys).
+        self._cached_keys.discard(key)
 
     def invalidate(self, key: str) -> None:
         if key in self._data:

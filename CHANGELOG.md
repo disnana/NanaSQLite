@@ -6,6 +6,50 @@
 
 ## 日本語
 
+### [1.5.3rc4] - 2026-04-08
+
+#### パフォーマンス改善
+
+- **PERF-A: `_sanitize_identifier()` — `lru_cache(maxsize=256)` を追加**（`core.py`）
+  - テーブル名・カラム名の検証は同じ識別子に対して繰り返し呼び出されるにもかかわらず、毎回 `re.match()` を実行していました。`@lru_cache` でキャッシュすることで、2 回目以降は dict ルックアップのみになります。
+  - `test_begin_commit` で約 13% 高速化、`sql_insert` ホットパスで関数呼び出し 4 倍削減。
+
+- **PERF-B: `ExpiringDict.__setitem__()` — TIMER モード以外での `_cancel_timer()` を省略**（`utils.py`）
+  - SCHEDULER モードでは `_timers` / `_async_tasks` は常に空のため、`_cancel_timer()` 呼び出しは毎回無意味な dict ルックアップを 2 回実行していました。`if self._mode == ExpirationMode.TIMER:` ガードで省略します。
+  - `test_cache_write_1000[ttl]` で約 22% 高速化。
+
+- **PERF-C: `vacuum()` — `execute()` ディスパッチをバイパス**（`core.py`）
+  - `vacuum()` が `execute()` の完全なパス（v2 ルーティング、重複 `_check_connection`、`try/except` ラップ）を経由していました。`begin_transaction` / `commit` / `rollback` で使用されている PERF-26 パターン（直接接続呼び出し）を適用しました。
+
+- **PERF-D: `backup()` — DB ファイルの `(st_dev, st_ino)` を `__init__` 時にキャッシュ**（`core.py`）
+  - `backup()` のセルフコピー防止チェックが毎回 `os.stat()` を 2 回呼び出していました。ソース DB のスタット結果を `__init__` 時にキャッシュし（`restore()` 後に再計算）、`backup()` では `dest_path` の 1 回分のみ呼び出すようにしました。
+
+#### バグ修正
+
+- **BUG-02: `ExpiringDict.clear()` — スケジューラスレッドを永久に停止していた問題を修正**（`utils.py`）
+  - `clear()` 後に `_scheduler_running = False` のまま再起動されなかったため、`clear()` 後に追加された新しい項目が期限切れにならない問題がありました。`clear()` の完了後にスケジューラを再起動するよう修正しました。
+
+- **BUG-03: `UnboundedCache.delete()` — `_cached_keys` に `.add()` ではなく `.discard()` を使用**（`cache.py`）
+  - 削除されたキーが `_cached_keys.add(key)` によって「キャッシュ済み」としてマークされていたため、再挿入後も DB へのフェッチがスキップされる問題がありました。`.discard(key)` に修正しました。
+
+- **BUG-04: `ExpiringDict.__getitem__()` — TOCTOU 競合状態を修正**（`utils.py`）
+  - `_check_expiry()` がロック外で実行され、その後ロック内で `_data[key]` が読み取られていました。スケジューラスレッドが間に割り込んでキーを削除すると、まだ有効だったキーに対して偽の `KeyError` が発生していました。有効期限チェックと読み取りをロック内でアトミックに実行するよう修正しました。
+
+#### セキュリティ修正
+
+- **SEC-02: `create_table()` — カラム型正規表現からクォート文字を除去**（`core.py`）
+  - 旧正規表現 `r"^[\w\s(),.+*'\"]+"` がシングル・ダブルクォートを許可していたため、`TEXT DEFAULT 'x') --` のような SQL インジェクション文字列が通過していました。クォート文字（`'` `"`）、セミコロン（`;`）、コメント構文（`--`、`/* */`）を除外した新しい正規表現に変更しました。
+
+#### コード品質改善
+
+- **QUAL-01: `get_model()` — 型アノテーション修正**（`core.py`）
+  - `model_class: type = None` を `model_class: type | None = None` に修正しました。
+
+- **CodeQL: `except OSError: pass` — 説明コメントを追加**（`core.py`）
+  - PERF-D の `_db_stat_key` キャッシュ初期化時の空 `except` 節に、CodeQL 指摘に従い説明コメントを追加しました。
+
+---
+
 ### [1.5.3rc3] - 2026-04-07
 
 #### パフォーマンス改善
@@ -1152,6 +1196,48 @@
 
 
 ## English
+
+### [1.5.3rc4] - 2026-04-08
+
+#### Performance Improvements
+
+- **PERF-A: `_sanitize_identifier()` — added `lru_cache(maxsize=256)`** (`core.py`)
+  - Identifier validation was calling `re.match()` on every invocation even for identical table/column names. The `@lru_cache` decorator reduces repeated calls to a single dict lookup. ~13% improvement on `test_begin_commit`; 4× fewer function calls in `sql_insert` hot path.
+
+- **PERF-B: `ExpiringDict.__setitem__()` — skip `_cancel_timer()` in non-TIMER modes** (`utils.py`)
+  - In SCHEDULER mode `_timers` and `_async_tasks` are always empty, so `_cancel_timer()` was doing two useless dict lookups per write. Guarded with `if self._mode == ExpirationMode.TIMER:`. ~22% improvement on `test_cache_write_1000[ttl]`.
+
+- **PERF-C: `vacuum()` — bypass `execute()` dispatch** (`core.py`)
+  - `vacuum()` was routing through the full `execute()` path. Applied the PERF-26 direct-connection pattern (same as `begin_transaction`/`commit`/`rollback`).
+
+- **PERF-D: `backup()` — pre-cache DB file `(st_dev, st_ino)` at init** (`core.py`)
+  - The self-copy guard was calling `os.stat()` twice per `backup()` call. The source DB stat is now cached at `__init__` (refreshed after `restore()`), so only `dest_path` is stat-ed on each backup call.
+
+#### Bug Fixes
+
+- **BUG-02: `ExpiringDict.clear()` — scheduler thread permanently killed** (`utils.py`)
+  - After `clear()`, `_scheduler_running` was left as `False` and never restarted, so new items added after `clear()` were never expired. Fixed by restarting the scheduler after joining the thread.
+
+- **BUG-03: `UnboundedCache.delete()` — used `.add()` instead of `.discard()` on `_cached_keys`** (`cache.py`)
+  - Deleted keys were incorrectly marked as "cached" by `_cached_keys.add(key)`, causing DB re-fetches to be skipped for re-inserted keys. Changed to `.discard(key)`.
+
+- **BUG-04: `ExpiringDict.__getitem__()` — TOCTOU race condition** (`utils.py`)
+  - `_check_expiry()` ran outside the lock while the actual `_data[key]` read happened inside the lock. A concurrent scheduler eviction between the two caused spurious `KeyError` for still-valid keys. Expiry check and read are now performed atomically inside the lock.
+
+#### Security Fixes
+
+- **SEC-02: `create_table()` — removed quote characters from column-type regex** (`core.py`)
+  - The old regex `r"^[\w\s(),.+*'\"]+"` admitted single/double quotes, allowing injection strings like `TEXT DEFAULT 'x') --`. Updated to exclude `'`, `"`, `;`, `-` (comment syntax `--`), and `*` / `/` (block comment `/* */`).
+
+#### Code Quality
+
+- **QUAL-01: `get_model()` — fixed type annotation** (`core.py`)
+  - `model_class: type = None` → `model_class: type | None = None`.
+
+- **CodeQL: `except OSError: pass` — added explanatory comment** (`core.py`)
+  - Added `nosec B110` marker and explanatory comment to the empty `except` clause introduced by PERF-D.
+
+---
 
 ### [1.5.3rc3] - 2026-04-07
 

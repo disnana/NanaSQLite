@@ -560,3 +560,54 @@ def test_bug01_setdefault_no_hook_returns_default_directly(db_path):
         assert db["k"] == "plain"
     finally:
         db.close()
+
+
+# ==================== PERF-D coverage: _db_stat_key edge cases ====================
+
+
+def test_perfd_stat_failure_on_init_leaves_db_stat_key_none(db_path, monkeypatch):
+    """PERF-D (core.py:456-460): when os.stat raises OSError during __init__,
+    _db_stat_key stays None and the fallback samefile path is used in backup()."""
+    import os
+
+    real_stat = os.stat
+
+    def failing_stat(path, *args, **kwargs):
+        if path == db_path:
+            raise OSError("simulated stat failure")
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", failing_stat)
+    db = NanaSQLite(db_path)
+    try:
+        assert db._db_stat_key is None, "_db_stat_key must be None when stat fails at init"
+    finally:
+        db.close()
+
+
+def test_perfd_backup_samefile_fallback_raises_when_db_stat_key_none(db_path, monkeypatch):
+    """PERF-D (core.py:1841-1842): when _db_stat_key is None, backup() falls back to
+    os.path.samefile() to detect self-copy and raises NanaSQLiteValidationError."""
+    import os
+
+    from nanasqlite.exceptions import NanaSQLiteValidationError
+
+    real_stat = os.stat
+
+    def failing_stat(path, *args, **kwargs):
+        if path == db_path:
+            raise OSError("simulated stat failure")
+        return real_stat(path, *args, **kwargs)
+
+    # Use failing stat only at init time so _db_stat_key becomes None
+    monkeypatch.setattr(os, "stat", failing_stat)
+    db = NanaSQLite(db_path)
+    monkeypatch.undo()  # restore os.stat so backup can stat dest_path
+
+    try:
+        assert db._db_stat_key is None
+        # backup() to the same file path → samefile fallback must reject it
+        with pytest.raises(NanaSQLiteValidationError):
+            db.backup(db_path)
+    finally:
+        db.close()

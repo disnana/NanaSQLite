@@ -22,6 +22,7 @@ import warnings
 import weakref
 from collections.abc import Iterator, MutableMapping
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Literal
 
 import apsw
@@ -444,6 +445,20 @@ class NanaSQLite(MutableMapping):
                 )
             """)
 
+        # PERF-D: Pre-cache the (st_dev, st_ino) pair for _db_path so that
+        # backup() can avoid stat-ing the source file on every call.  This
+        # is only meaningful for file-backed databases; skip for in-memory.
+        self._db_stat_key: tuple[int, int] | None = None
+        if not self._is_in_memory_path(db_path):
+            try:
+                _st = os.stat(db_path)
+                self._db_stat_key = (_st.st_dev, _st.st_ino)
+            except OSError:
+                # The file may not exist yet (new database) or be on a filesystem
+                # that does not support stat.  Treat as unknown and fall back to
+                # the os.path.samefile() path in backup().  nosec B110
+                pass  # nosec B110
+
         # Initialize V2 Engine if enabled and we own the connection (or even if shared, engine owns the queue)
         # Note: We now share the V2Engine instance if provided (from table() call)
         # to avoid thread/atexit leaks.
@@ -500,9 +515,14 @@ class NanaSQLite(MutableMapping):
         cursor.execute("PRAGMA page_size = 4096")
 
     @staticmethod
+    @lru_cache(maxsize=256)
     def _sanitize_identifier(identifier: str) -> str:
         """
         SQLiteの識別子（テーブル名、カラム名など）を検証
+
+        PERF-A: Results are cached (lru_cache, 256 entries) because the same
+        table/column names are sanitized repeatedly across the lifetime of a
+        connection.  This avoids the regex compile+match overhead on each call.
 
         Args:
             identifier: 検証する識別子
@@ -1808,11 +1828,22 @@ class NanaSQLite(MutableMapping):
         if self._is_in_memory_path(dest_path):
             raise NanaSQLiteValidationError("dest_path must be a file path, not an in-memory database string")
         # dest_path が DB ファイル自身と同一の場合は自己コピーになり破損する恐れがあるため拒否する
+        # PERF-D: Use the pre-cached (st_dev, st_ino) pair for the source database
+        # to avoid stat-ing it on every backup call.  Only stat dest_path (which
+        # is new/different each call) and compare against the cached key.
         try:
-            if os.path.samefile(dest_path, self._db_path):
+            dest_stat = os.stat(dest_path)
+            dest_key = (dest_stat.st_dev, dest_stat.st_ino)
+            if self._db_stat_key is not None and dest_key == self._db_stat_key:
                 raise NanaSQLiteValidationError("dest_path must not be the same as the current database file")
+            elif self._db_stat_key is None:
+                # Fallback for in-memory or stat-failed source: check via samefile
+                if os.path.samefile(dest_path, self._db_path):
+                    raise NanaSQLiteValidationError("dest_path must not be the same as the current database file")
         except FileNotFoundError:
             pass  # dest_path がまだ存在しない場合は問題なし
+        except NanaSQLiteValidationError:
+            raise
         except OSError as e:
             # パスの同一性チェックに失敗した場合は、自己コピー防止チェックをスキップし、
             # 実際のバックアップ処理側での失敗として扱う
@@ -1960,6 +1991,14 @@ class NanaSQLite(MutableMapping):
                 if self._optimize:
                     self._apply_optimizations(self._cache_size_mb)
 
+                # PERF-D: Refresh the pre-cached stat key after restore since
+                # the database file has been replaced.
+                try:
+                    _st = os.stat(self._db_path)
+                    self._db_stat_key = (_st.st_dev, _st.st_ino)
+                except OSError:
+                    self._db_stat_key = None
+
                 # v2 Architecture: Re-initialize engine with new connection
                 if self._v2_mode:
                     self._v2_engine = V2Engine(
@@ -2104,7 +2143,7 @@ class NanaSQLite(MutableMapping):
         except Exception as e:
             raise TypeError(f"Failed to serialize Pydantic model: {e}") from e
 
-    def get_model(self, key: str, model_class: type = None) -> Any:
+    def get_model(self, key: str, model_class: type | None = None) -> Any:
         """
         Pydanticモデルを取得
 
@@ -2345,14 +2384,17 @@ class NanaSQLite(MutableMapping):
         column_defs = []
         for col_name, col_type in columns.items():
             safe_col_name = self._sanitize_identifier(col_name)
-            # Reject column type definitions containing SQL injection patterns.
-            # Unlike alter_table_add_column() which uses a strict whitelist,
-            # create_table() uses a whitelist subset for permitted characters.
+            # SEC-02 fix: Remove quote characters from the allowed set.
+            # The original regex r"^[\w\s(),.+*'\"]+$" admitted single/double
+            # quotes, enabling injections like: TEXT DEFAULT 'x') --
+            # The new regex keeps all reasonable column-type characters (including
+            # SQL constraint keywords, numeric defaults, REFERENCES, etc.) but
+            # explicitly excludes ' and " which have no safe use in type strings.
             _col_type_str = str(col_type)
-            if not re.match(r"^[\w\s(),.+*'\"]+$", _col_type_str):
+            if not re.match(r"^[\w\s(),=<>!@#%.]+$", _col_type_str):
                 raise NanaSQLiteValidationError(
                     f"Invalid or dangerous column type for '{col_name}': "
-                    "contains unauthorized characters. Permitted: alphanumeric, spaces, parentheses, quotes, and basic operators."
+                    "contains unauthorized characters. Quote characters and semicolons are not permitted."
                 )
             column_defs.append(f"{safe_col_name} {col_type}")
 
@@ -3092,7 +3134,15 @@ class NanaSQLite(MutableMapping):
         Example:
             >>> db.vacuum()
         """
-        self.execute("VACUUM")
+        # PERF-C: Bypass the full execute() dispatch (v2 check, _check_connection
+        # duplicate, try/except wrapping) and use the lock + connection directly,
+        # identical to the PERF-26 pattern used in begin_transaction/commit/rollback.
+        self._check_connection()
+        try:
+            with self._acquire_lock():
+                self._connection.execute("VACUUM")
+        except apsw.Error as e:
+            raise NanaSQLiteDatabaseError(f"Failed to execute SQL: {e}", original_error=e) from e
 
     def get_db_size(self) -> int:
         """
