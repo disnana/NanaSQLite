@@ -2676,7 +2676,7 @@ class NanaSQLite(MutableMapping):
             sql += f" DEFAULT {default}"
         self.execute(sql)
 
-    def get_table_schema(self, table_name: str = None) -> list[dict]:
+    def get_table_schema(self, table_name: str | None = None) -> list[dict]:
         """
         テーブル構造を取得
 
@@ -2826,7 +2826,7 @@ class NanaSQLite(MutableMapping):
         self.execute(sql, parameters)
         return self._connection.changes()
 
-    def upsert(self, table_name: str | Any = None, data: Any = None, conflict_columns: list[str] = None) -> int | None:
+    def upsert(self, table_name: str | Any = None, data: Any = None, conflict_columns: list[str] | None = None) -> int | None:
         """
         INSERT OR REPLACE の簡易版（upsert）
         v2モードが有効で、キー/値のペアとして呼び出された場合はバックグラウンドキューに送られます。
