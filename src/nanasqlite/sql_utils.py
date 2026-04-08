@@ -8,6 +8,12 @@ and handle edge cases in SQL parsing.
 
 from __future__ import annotations
 
+try:
+    # Rust拡張モジュールがあればインポートを試みる
+    import nanalib
+except ImportError:
+    nanalib = None
+
 
 def sanitize_sql_for_function_scan(sql: str) -> str:
     """
@@ -54,6 +60,9 @@ def sanitize_sql_for_function_scan(sql: str) -> str:
         - Line comments end at the first newline
         - Block comments may span multiple lines
     """
+    if nanalib:
+        return nanalib.sanitize_sql_for_function_scan(sql)
+
     if not sql:
         return sql
 
@@ -190,6 +199,9 @@ def fast_validate_sql_chars(expr: str) -> bool:
     Returns:
         True if all characters are within the safe set, False otherwise.
     """
+    if nanalib:
+        return nanalib.fast_validate_sql_chars(expr)
+
     if not expr:
         return True
 

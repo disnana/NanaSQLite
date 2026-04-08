@@ -1,0 +1,157 @@
+name: nanalib-release.yml
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/nanalib/**"
+
+# Trusted Publisher (OIDC) に必要な権限
+permissions:
+  contents: read
+
+jobs:
+  # ── Linux (manylinux) ──────────────────────────────────────────────────────
+  build-linux:
+    name: Linux (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Build wheels (manylinux)
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: auto          # manylinux2014 コンテナを自動選択
+          sccache: "true"          # Rust ビルドキャッシュ
+          args: >-
+            --release
+            --out dist
+            --find-interpreter
+          working-directory: src/nanalib
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-${{ matrix.target }}
+          path: src/nanalib/dist
+          if-no-files-found: error
+
+  # ── macOS (x86_64 + Apple Silicon) ────────────────────────────────────────
+  build-macos:
+    name: macOS (${{ matrix.target }})
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          sccache: "true"
+          args: >-
+            --release
+            --out dist
+            --find-interpreter
+          working-directory: src/nanalib
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-${{ matrix.target }}
+          path: src/nanalib/dist
+          if-no-files-found: error
+
+  # ── Windows (64-bit / 32-bit) ──────────────────────────────────────────────
+  build-windows:
+    name: Windows (${{ matrix.target }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x64, x86]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+          architecture: ${{ matrix.target }}
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          sccache: "true"
+          args: >-
+            --release
+            --out dist
+            --find-interpreter
+          working-directory: src/nanalib
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows-${{ matrix.target }}
+          path: src/nanalib/dist
+          if-no-files-found: error
+
+  # ── sdist (ソース配布物) ───────────────────────────────────────────────────
+  build-sdist:
+    name: Source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+          working-directory: src/nanalib
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-sdist
+          path: src/nanalib/dist
+          if-no-files-found: error
+
+  # ── PyPI 公開 (Trusted Publisher / OIDC) ──────────────────────────────────
+  publish:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs:
+      - build-linux
+      - build-macos
+      - build-windows
+      - build-sdist
+    # Trusted Publisher に必要な OIDC トークン発行権限
+    permissions:
+      id-token: write
+    environment:
+      name: pypi
+      url: https://pypi.org/p/nanalib
+    steps:
+      - name: Download all wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # API キー不要。OIDC で自動認証される。
