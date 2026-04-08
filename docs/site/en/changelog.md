@@ -4,6 +4,71 @@ outline: [2, 3]
 
 # Changelog
 
+### [1.5.3] - 2026-04-08
+
+#### Performance Improvements
+
+- **PERF-E: `_get_all_keys_from_db()` — pre-compute SQL string** (`core.py`)
+  - `keys()` / `__iter__` was constructing `f"SELECT key FROM {self._safe_table}"` on every call. Added `_sql_kv_select_keys` to the PERF-07 group of pre-computed SQL strings in `__init__`.
+
+- **PERF-F: `batch_update_partial()` v2 + Unbounded mode — remove unnecessary lock** (`core.py`)
+  - The v2 + Unbounded code path was acquiring the instance lock for pure in-memory updates (`_data.update()` / `_absent_keys.difference_update()`). The GIL guarantees atomicity for individual dict/set operations, so no explicit lock is needed — consistent with the `batch_update()` v2 path. LRU/TTL mode continues to acquire the lock.
+
+#### Code Quality
+
+- **QUAL-04: `_no_encrypt` — added immutability comment** (`core.py`)
+  - Noted that `_fernet` / `_aead` must not be changed after `__init__`; mutating them would silently stale `_no_encrypt` and corrupt serialization (flagged in rc3 audit, now addressed).
+
+- **QUAL-05: type annotation — `parameters: tuple = None` → `parameters: tuple | None = None`** (`core.py`)
+  - Fixed in `fetch_one()`, `fetch_all()`, `create_table()` (`primary_key`), `sql_update()`, `sql_delete()`, and `exists()`.
+
+- **QUAL-06: `async_core.py` — unify `_ensure_initialized()` call** (`async_core.py`)
+  - `query_with_pagination()` and `table()` used an incomplete guard `if self._db is None: await self._ensure_initialized()`. Changed to unconditional `await self._ensure_initialized()`, consistent with all other async methods (`_ensure_initialized()` is idempotent).
+
+---
+
+### [1.5.3rc4] - 2026-04-08
+
+#### Performance Improvements
+
+- **PERF-A: `_sanitize_identifier()` — added `lru_cache(maxsize=256)`** (`core.py`)
+  - Identifier validation was calling `re.match()` on every invocation even for identical table/column names. The `@lru_cache` decorator reduces repeated calls to a single dict lookup. ~13% improvement on `test_begin_commit`; 4× fewer function calls in `sql_insert` hot path.
+
+- **PERF-B: `ExpiringDict.__setitem__()` — skip `_cancel_timer()` in non-TIMER modes** (`utils.py`)
+  - In SCHEDULER mode `_timers` and `_async_tasks` are always empty, so `_cancel_timer()` was doing two useless dict lookups per write. Guarded with `if self._mode == ExpirationMode.TIMER:`. ~22% improvement on `test_cache_write_1000[ttl]`.
+
+- **PERF-C: `vacuum()` — bypass `execute()` dispatch** (`core.py`)
+  - `vacuum()` was routing through the full `execute()` path. Applied the PERF-26 direct-connection pattern (same as `begin_transaction`/`commit`/`rollback`).
+
+- **PERF-D: `backup()` — pre-cache DB file `(st_dev, st_ino)` at init** (`core.py`)
+  - The self-copy guard was calling `os.stat()` twice per `backup()` call. The source DB stat is now cached at `__init__` (refreshed after `restore()`), so only `dest_path` is stat-ed on each backup call.
+
+#### Bug Fixes
+
+- **BUG-02: `ExpiringDict.clear()` — scheduler thread permanently killed** (`utils.py`)
+  - After `clear()`, `_scheduler_running` was left as `False` and never restarted, so new items added after `clear()` were never expired. Fixed by restarting the scheduler after joining the thread.
+
+- **BUG-03: `UnboundedCache.delete()` — used `.add()` instead of `.discard()` on `_cached_keys`** (`cache.py`)
+  - Deleted keys were incorrectly marked as "cached" by `_cached_keys.add(key)`, causing DB re-fetches to be skipped for re-inserted keys. Changed to `.discard(key)`.
+
+- **BUG-04: `ExpiringDict.__getitem__()` — TOCTOU race condition** (`utils.py`)
+  - `_check_expiry()` ran outside the lock while the actual `_data[key]` read happened inside the lock. A concurrent scheduler eviction between the two caused spurious `KeyError` for still-valid keys. Expiry check and read are now performed atomically inside the lock.
+
+#### Security Fixes
+
+- **SEC-02: `create_table()` — removed quote characters from column-type regex** (`core.py`)
+  - The old regex `r"^[\w\s(),.+*'\"]+"` admitted single/double quotes, allowing injection strings like `TEXT DEFAULT 'x') --`. Updated to exclude `'`, `"`, `;`, `-` (comment syntax `--`), and `*` / `/` (block comment `/* */`).
+
+#### Code Quality
+
+- **QUAL-01: `get_model()` — fixed type annotation** (`core.py`)
+  - `model_class: type = None` → `model_class: type | None = None`.
+
+- **CodeQL: `except OSError: pass` — added explanatory comment** (`core.py`)
+  - Added `nosec B110` marker and explanatory comment to the empty `except` clause introduced by PERF-D.
+
+---
+
 ### [1.5.3rc3] - 2026-04-07
 
 #### Performance Improvements
