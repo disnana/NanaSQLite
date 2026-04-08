@@ -232,6 +232,8 @@ class NanaSQLite(MutableMapping):
         )
         self._sql_kv_select_all: str = f"SELECT key, value FROM {sanitized_table}"  # nosec
         self._sql_kv_count: str = f"SELECT COUNT(*) FROM {sanitized_table}"  # nosec
+        # PERF-E: Pre-compute SELECT key query used by _get_all_keys_from_db() (keys() / __iter__).
+        self._sql_kv_select_keys: str = f"SELECT key FROM {sanitized_table}"  # nosec
         # lock_timeout を __init__ で一度だけ検証・正規化する（_acquire_lock の高頻度パスでの検証を省く）
         if lock_timeout is not None:
             invalid = (
@@ -276,6 +278,8 @@ class NanaSQLite(MutableMapping):
         # PERF-29: Pre-compute a single bool that indicates "no encryption is active"
         # so _serialize() can return on the very first check instead of testing both
         # _fernet and _aead (which are None-falsy attribute lookups) on every call.
+        # QUAL-04: _fernet / _aead must NOT be mutated after __init__; if they were,
+        # _no_encrypt would become stale and serialization would behave incorrectly.
         self._no_encrypt: bool = not bool(self._fernet or self._aead)
 
         # Hooks setup (including legacy validkit support)
@@ -932,9 +936,9 @@ class NanaSQLite(MutableMapping):
     def _get_all_keys_from_db(self) -> list[str]:
         """SQLiteから全キーを取得"""
         with self._acquire_lock():
-            cursor = self._connection.execute(
-                f"SELECT key FROM {self._safe_table}"  # nosec
-            )
+            # PERF-E: use pre-computed SQL string (set in __init__) instead of
+            # building an f-string on every keys() / __iter__ call.
+            cursor = self._connection.execute(self._sql_kv_select_keys)
             return [row[0] for row in cursor]
 
     def _update_cache(self, key: str, value: Any) -> None:
@@ -1665,15 +1669,20 @@ class NanaSQLite(MutableMapping):
         if self._v2_mode and self._v2_engine:
             for key, _ in params:
                 self._v2_engine.kvs_set(self._safe_table, key, accepted_values[key])
-            with self._acquire_lock():
-                if self._lru_mode:
+            # PERF-F: In v2 mode the cache update is a pure in-memory operation.
+            # LRU/TTL caches need their own lock because ExpiringDict is not
+            # thread-safe on its own.  Unbounded mode (_data + _absent_keys) is
+            # protected by the GIL for individual dict/set operations, so no
+            # explicit lock is required — consistent with batch_update() v2 path.
+            if self._lru_mode:
+                with self._acquire_lock():
                     for key, value in accepted_values.items():
                         self._cache.set(key, value)
-                else:
-                    # PERF-24: dict.update() + guard (consistent with batch_update).
-                    self._data.update(accepted_values)
-                    if self._absent_keys:
-                        self._absent_keys.difference_update(accepted_values.keys())
+            else:
+                # PERF-24: dict.update() + guard (consistent with batch_update).
+                self._data.update(accepted_values)
+                if self._absent_keys:
+                    self._absent_keys.difference_update(accepted_values.keys())
             return failed
 
         with self._acquire_lock():
@@ -2316,7 +2325,7 @@ class NanaSQLite(MutableMapping):
                 cursor.execute("ROLLBACK")
                 raise
 
-    def fetch_one(self, sql: str, parameters: tuple = None) -> tuple | None:
+    def fetch_one(self, sql: str, parameters: tuple | None = None) -> tuple | None:
         """
         SQLを実行して1行取得
 
@@ -2334,7 +2343,7 @@ class NanaSQLite(MutableMapping):
         cursor = self.execute(sql, parameters)
         return cursor.fetchone()
 
-    def fetch_all(self, sql: str, parameters: tuple = None) -> list[tuple]:
+    def fetch_all(self, sql: str, parameters: tuple | None = None) -> list[tuple]:
         """
         SQLを実行して全行取得
 
@@ -2355,7 +2364,7 @@ class NanaSQLite(MutableMapping):
 
     # ==================== SQLite Wrapper Functions ====================
 
-    def create_table(self, table_name: str, columns: dict, if_not_exists: bool = True, primary_key: str = None) -> None:
+    def create_table(self, table_name: str, columns: dict, if_not_exists: bool = True, primary_key: str | None = None) -> None:
         """
         テーブルを作成
 
@@ -2667,7 +2676,7 @@ class NanaSQLite(MutableMapping):
             sql += f" DEFAULT {default}"
         self.execute(sql)
 
-    def get_table_schema(self, table_name: str = None) -> list[dict]:
+    def get_table_schema(self, table_name: str | None = None) -> list[dict]:
         """
         テーブル構造を取得
 
@@ -2759,7 +2768,7 @@ class NanaSQLite(MutableMapping):
 
         return self.get_last_insert_rowid()
 
-    def sql_update(self, table_name: str, data: dict, where: str, parameters: tuple = None) -> int:
+    def sql_update(self, table_name: str, data: dict, where: str, parameters: tuple | None = None) -> int:
         """
         dictとwhere条件でUPDATE
 
@@ -2795,7 +2804,7 @@ class NanaSQLite(MutableMapping):
         self.execute(sql, tuple(values))
         return self._connection.changes()
 
-    def sql_delete(self, table_name: str, where: str, parameters: tuple = None) -> int:
+    def sql_delete(self, table_name: str, where: str, parameters: tuple | None = None) -> int:
         """
         where条件でDELETE
 
@@ -2817,7 +2826,7 @@ class NanaSQLite(MutableMapping):
         self.execute(sql, parameters)
         return self._connection.changes()
 
-    def upsert(self, table_name: str | Any = None, data: Any = None, conflict_columns: list[str] = None) -> int | None:
+    def upsert(self, table_name: str | Any = None, data: Any = None, conflict_columns: list[str] | None = None) -> int | None:
         """
         INSERT OR REPLACE の簡易版（upsert）
         v2モードが有効で、キー/値のペアとして呼び出された場合はバックグラウンドキューに送られます。
@@ -2948,7 +2957,7 @@ class NanaSQLite(MutableMapping):
         cursor = self.execute(sql, parameters)
         return cursor.fetchone()[0]
 
-    def exists(self, table_name: str, where: str, parameters: tuple = None) -> bool:
+    def exists(self, table_name: str, where: str, parameters: tuple | None = None) -> bool:
         """
         レコードの存在確認
 

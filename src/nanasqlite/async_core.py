@@ -917,7 +917,7 @@ class AsyncNanaSQLite:
     # ==================== Async SQLite Wrapper Functions ====================
 
     async def create_table(
-        self, table_name: str, columns: dict, if_not_exists: bool = True, primary_key: str = None
+        self, table_name: str, columns: dict, if_not_exists: bool = True, primary_key: str | None = None
     ) -> None:
         """
         非同期でテーブルを作成
@@ -965,15 +965,15 @@ class AsyncNanaSQLite:
 
     async def query(
         self,
-        table_name: str = None,
-        columns: list[str] = None,
-        where: str = None,
+        table_name: str | None = None,
+        columns: list[str] | None = None,
+        where: str | None = None,
         parameters: tuple | None = None,
-        order_by: str = None,
-        limit: int = None,
-        strict_sql_validation: bool = None,
-        allowed_sql_functions: list[str] = None,
-        forbidden_sql_functions: list[str] = None,
+        order_by: str | None = None,
+        limit: int | None = None,
+        strict_sql_validation: bool | None = None,
+        allowed_sql_functions: list[str] | None = None,
+        forbidden_sql_functions: list[str] | None = None,
         override_allowed: bool = False,
     ) -> list[dict]:
         """
@@ -1026,17 +1026,17 @@ class AsyncNanaSQLite:
 
     async def query_with_pagination(
         self,
-        table_name: str = None,
-        columns: list[str] = None,
-        where: str = None,
+        table_name: str | None = None,
+        columns: list[str] | None = None,
+        where: str | None = None,
         parameters: tuple | None = None,
-        order_by: str = None,
-        limit: int = None,
-        offset: int = None,
-        group_by: str = None,
-        strict_sql_validation: bool = None,
-        allowed_sql_functions: list[str] = None,
-        forbidden_sql_functions: list[str] = None,
+        order_by: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        group_by: str | None = None,
+        strict_sql_validation: bool | None = None,
+        allowed_sql_functions: list[str] | None = None,
+        forbidden_sql_functions: list[str] | None = None,
         override_allowed: bool = False,
     ) -> list[dict]:
         """
@@ -1070,8 +1070,7 @@ class AsyncNanaSQLite:
             ...     offset=0
             ... )
         """
-        if self._db is None:
-            await self._ensure_initialized()
+        await self._ensure_initialized()
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
@@ -1219,12 +1218,12 @@ class AsyncNanaSQLite:
 
     async def count(
         self,
-        table_name: str = None,
-        where: str = None,
+        table_name: str | None = None,
+        where: str | None = None,
         parameters: tuple | None = None,
-        strict_sql_validation: bool = None,
-        allowed_sql_functions: list[str] = None,
-        forbidden_sql_functions: list[str] = None,
+        strict_sql_validation: bool | None = None,
+        allowed_sql_functions: list[str] | None = None,
+        forbidden_sql_functions: list[str] | None = None,
         override_allowed: bool = False,
     ) -> int:
         """
@@ -1499,8 +1498,7 @@ class AsyncNanaSQLite:
             ...     await products_db.aset("prod1", {"name": "Laptop"})
         """
         # 親インスタンスが初期化済みであることを確認
-        if self._db is None:
-            await self._ensure_initialized()
+        await self._ensure_initialized()
 
         loop = asyncio.get_running_loop()
         sub_db = await loop.run_in_executor(
@@ -1657,7 +1655,7 @@ class AsyncNanaSQLite:
         )
 
     async def aupsert(
-        self, table_name: str | Any = None, data: Any = None, conflict_columns: list[str] = None
+        self, table_name: str | Any = None, data: Any = None, conflict_columns: list[str] | None = None
     ) -> int | None:
         """
         非同期で UPSERT 操作を実行します。

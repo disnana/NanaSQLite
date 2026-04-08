@@ -6,6 +6,29 @@
 
 ## 日本語
 
+### [1.5.3] - 2026-04-08
+
+#### パフォーマンス改善
+
+- **PERF-E: `_get_all_keys_from_db()` — SQL 文字列を事前計算**（`core.py`）
+  - `keys()` / `__iter__` が呼ばれるたびに `f"SELECT key FROM {self._safe_table}"` を構築していました。PERF-07 と同様に `_sql_kv_select_keys` を `__init__` 時に一度だけ計算し、以降はこれを再利用するよう変更しました。
+
+- **PERF-F: `batch_update_partial()` v2 + Unbounded モード — 不要ロックを除去**（`core.py`）
+  - v2 モード + Unbounded モードの組み合わせで、純粋なメモリ更新（`_data.update()` / `_absent_keys.difference_update()`）にまでロックを取得していました。`batch_update()` v2 パスと同様、GIL が個々の dict/set 操作をアトミックに保護するため明示的ロックは不要です。LRU/TTL モードは引き続きロックを取得します。
+
+#### コード品質改善
+
+- **QUAL-04: `_no_encrypt` — 変更不可であることのコメント追加**（`core.py`）
+  - `_fernet` / `_aead` が `__init__` 後に変更された場合、`_no_encrypt` がステールになりシリアライズが壊れることを明記しました（rc3 監査で指摘、今回対応）。
+
+- **QUAL-05: 型アノテーション修正 — `parameters: tuple = None` → `parameters: tuple | None = None`**（`core.py`）
+  - `fetch_one()`, `fetch_all()`, `create_table()` の `primary_key`、`sql_update()`, `sql_delete()`, `exists()` の 6 箇所で `tuple = None` を `tuple | None = None` に修正しました。
+
+- **QUAL-06: `async_core.py` — `_ensure_initialized()` 呼び出しの統一**（`async_core.py`）
+  - `query_with_pagination()` と `table()` で `if self._db is None: await self._ensure_initialized()` という不完全なガードが使われていました。他のメソッドと同様に無条件で `await self._ensure_initialized()` を呼ぶよう変更しました（`_ensure_initialized()` 自体がべき等です）。
+
+---
+
 ### [1.5.3rc4] - 2026-04-08
 
 #### パフォーマンス改善
@@ -1196,6 +1219,29 @@
 
 
 ## English
+
+### [1.5.3] - 2026-04-08
+
+#### Performance Improvements
+
+- **PERF-E: `_get_all_keys_from_db()` — pre-compute SQL string** (`core.py`)
+  - `keys()` / `__iter__` was constructing `f"SELECT key FROM {self._safe_table}"` on every call. Added `_sql_kv_select_keys` to the PERF-07 group of pre-computed SQL strings in `__init__`.
+
+- **PERF-F: `batch_update_partial()` v2 + Unbounded mode — remove unnecessary lock** (`core.py`)
+  - The v2 + Unbounded code path was acquiring the instance lock for pure in-memory updates (`_data.update()` / `_absent_keys.difference_update()`). The GIL guarantees atomicity for individual dict/set operations, so no explicit lock is needed — consistent with the `batch_update()` v2 path. LRU/TTL mode continues to acquire the lock.
+
+#### Code Quality
+
+- **QUAL-04: `_no_encrypt` — added immutability comment** (`core.py`)
+  - Noted that `_fernet` / `_aead` must not be changed after `__init__`; mutating them would silently stale `_no_encrypt` and corrupt serialization (flagged in rc3 audit, now addressed).
+
+- **QUAL-05: type annotation — `parameters: tuple = None` → `parameters: tuple | None = None`** (`core.py`)
+  - Fixed in `fetch_one()`, `fetch_all()`, `create_table()` (`primary_key`), `sql_update()`, `sql_delete()`, and `exists()`.
+
+- **QUAL-06: `async_core.py` — unify `_ensure_initialized()` call** (`async_core.py`)
+  - `query_with_pagination()` and `table()` used an incomplete guard `if self._db is None: await self._ensure_initialized()`. Changed to unconditional `await self._ensure_initialized()`, consistent with all other async methods (`_ensure_initialized()` is idempotent).
+
+---
 
 ### [1.5.3rc4] - 2026-04-08
 
