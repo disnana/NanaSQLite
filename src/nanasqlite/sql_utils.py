@@ -8,9 +8,14 @@ and handle edge cases in SQL parsing.
 
 from __future__ import annotations
 
+from typing import Any
+
+# Rust拡張モジュールがあればインポートを試みる
+# 型アノテーションを付けておくことで mypy がモジュールの属性参照を
+# 許容するようにします。
+nanalib: Any
 try:
-    # Rust拡張モジュールがあればインポートを試みる
-    import nanalib
+    import nanalib  # type: ignore
 except ImportError:
     nanalib = None
 
