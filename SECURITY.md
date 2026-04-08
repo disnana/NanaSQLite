@@ -65,8 +65,8 @@ We currently provide security updates for the following versions:
 
 | Version    | Supported          |
 | ---------- | ------------------ |
-| >= v1.3.4  | :white_check_mark: |
-| < v1.3.4   | :x:                |
+| >= v1.4.0  | :white_check_mark: |
+| < v1.4.0   | :x:                |
 
 ---
 
@@ -89,6 +89,14 @@ We currently provide security updates for the following versions:
 **Fix/Mitigation:**
 - A sentinel object (`_NOT_FOUND`) was introduced in the internal read mechanism to accurately distinguish between missing records and explicitly stored `None` values.
 - `__contains__` now performs a dedicated existence query without mutating the in-memory caches, avoiding inconsistent cache state while correctly handling explicitly stored `None` values in combination with the `_NOT_FOUND` sentinel.
+
+### 3. SQL Injection via Column Type in `create_table()` (Fixed in v1.4.0)
+
+**Severity:** Critical
+
+**Description:** Because APSW executes semicolon-separated multi-statement strings in a single call, arbitrary SQL could be injected through column type definitions passed to `create_table()`.
+
+**Fix:** Added validation that rejects strings containing semicolons (`;`), line comments (`--`), and block comments (`/*`).
 
 ## Built-in Security Features
 
