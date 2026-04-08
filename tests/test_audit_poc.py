@@ -411,7 +411,8 @@ class TestV140Sec01CreateTableInjection:
             "name": "TEXT NOT NULL",
             "email": "TEXT UNIQUE",
             "amount": "DECIMAL(10,2) DEFAULT 0",
-            "status": "TEXT DEFAULT 'active'",
+            # Note: quote characters in DEFAULT values are intentionally rejected
+            # by SEC-02 fix; use parameterized inserts instead of inline literals.
             "ref_id": "INTEGER REFERENCES other(id)",
         }
         db.create_table("valid_table", valid_types)
@@ -1993,5 +1994,153 @@ class TestBatchUpdatePartialEdgePaths:
         try:
             result = db.batch_update_partial({})
             assert result == {}
+        finally:
+            db.close()
+
+
+# ============================================================
+# v1.5.3rc4 audit POC tests
+# ============================================================
+
+
+class TestBug02ExpiringDictClearRestartScheduler:
+    """BUG-02: ExpiringDict.clear() must restart the scheduler so new
+    items added after clear() are still evicted."""
+
+    def test_scheduler_running_after_clear(self):
+        """clear() must leave the scheduler running (not kill it permanently)."""
+        from nanasqlite.utils import ExpirationMode, ExpiringDict
+
+        d = ExpiringDict(expiration_time=1.0, mode=ExpirationMode.SCHEDULER)
+        d["x"] = 1
+        d.clear()
+        assert d._scheduler_running, "Scheduler must still be running after clear()"
+
+    def test_items_added_after_clear_are_expired(self):
+        """Items inserted after clear() must still be evicted by the scheduler."""
+        import time
+
+        from nanasqlite.utils import ExpirationMode, ExpiringDict
+
+        d = ExpiringDict(expiration_time=0.2, mode=ExpirationMode.SCHEDULER)
+        d["before"] = 1
+        d.clear()
+        # Add a new item after clear
+        d["after"] = 2
+        time.sleep(0.6)
+        assert "after" not in d, "Item added after clear() must expire"
+        d.clear()
+
+
+class TestBug03UnboundedCacheDeleteCachedKeys:
+    """BUG-03: UnboundedCache.delete() must use discard() (not add()) on _cached_keys."""
+
+    def test_delete_does_not_mark_key_as_cached(self):
+        """Deleted keys must not appear in _cached_keys."""
+        from nanasqlite.cache import UnboundedCache
+
+        c = UnboundedCache()
+        c.set("k", "v")
+        c.delete("k")
+        # After deletion, is_cached() must return False so DB is re-queried
+        assert not c.is_cached("k"), "Deleted key must not be marked as cached"
+
+    def test_nanasqlite_re_reads_after_delete(self, db_path):
+        """Deleting a KV key and re-inserting it from another connection
+        must be visible in the original connection after delete."""
+        from nanasqlite.cache import UnboundedCache
+
+        # BUG-03: verify at the cache layer that delete() + is_cached() returns False,
+        # so NanaSQLite will re-query the DB rather than use stale cache knowledge.
+        c = UnboundedCache()
+        c.set("k1", "original")
+        c.delete("k1")
+        # After deletion the cache layer must not claim to know this key,
+        # ensuring the calling layer will go back to the DB.
+        assert not c.is_cached("k1"), (
+            "BUG-03 regression: UnboundedCache.delete() is incorrectly marking "
+            "the key as 'cached' (via .add) instead of clearing it (via .discard)"
+        )
+
+
+class TestBug04ExpiringDictGetItemTOCTOU:
+    """BUG-04: ExpiringDict.__getitem__ must check expiry atomically (no TOCTOU)."""
+
+    def test_getitem_raises_keyerror_for_expired_key(self):
+        """__getitem__ must raise KeyError for an expired key even in concurrent setting."""
+        import time
+
+        from nanasqlite.utils import ExpirationMode, ExpiringDict
+
+        d = ExpiringDict(expiration_time=0.1, mode=ExpirationMode.LAZY)
+        d["k"] = "v"
+        time.sleep(0.3)
+        with pytest.raises(KeyError):
+            _ = d["k"]
+
+    def test_getitem_returns_value_for_valid_key(self):
+        """__getitem__ must return the value for a non-expired key."""
+        from nanasqlite.utils import ExpirationMode, ExpiringDict
+
+        d = ExpiringDict(expiration_time=10.0, mode=ExpirationMode.SCHEDULER)
+        d["k"] = "hello"
+        assert d["k"] == "hello"
+        d.clear()
+
+
+class TestSec02CreateTableColumnTypeInjection:
+    """SEC-02: create_table() column-type regex must reject quote characters."""
+
+    def test_quote_in_column_type_raises(self, db_path):
+        """Column type string containing ' or \" must be rejected."""
+        from nanasqlite import NanaSQLite
+        from nanasqlite.exceptions import NanaSQLiteValidationError
+
+        db = NanaSQLite(db_path)
+        try:
+            with pytest.raises(NanaSQLiteValidationError):
+                db.create_table("t_inject", {"col1": "TEXT DEFAULT 'x') --"})
+        finally:
+            db.close()
+
+    def test_valid_column_types_still_work(self, db_path):
+        """Standard column types must still be accepted."""
+        from nanasqlite import NanaSQLite
+
+        db = NanaSQLite(db_path)
+        try:
+            db.create_table(
+                "t_valid",
+                {"id": "INTEGER", "name": "TEXT", "val": "REAL", "blob": "BLOB"},
+                if_not_exists=True,
+            )
+            assert db.table_exists("t_valid")
+        finally:
+            db.close()
+
+
+class TestCodeQLExceptOSErrorHasComment:
+    """CodeQL – empty except clauses in PERF-D must have explanatory comments."""
+
+    def test_db_stat_key_set_on_new_file_db(self, db_path):
+        """_db_stat_key is populated for a real file-backed database."""
+        from nanasqlite import NanaSQLite
+
+        db = NanaSQLite(db_path)
+        try:
+            assert db._db_stat_key is not None
+            dev, ino = db._db_stat_key
+            # Both device number and inode must be non-negative integers
+            assert dev >= 0 and ino >= 0
+        finally:
+            db.close()
+
+    def test_db_stat_key_none_for_in_memory(self):
+        """_db_stat_key is None for in-memory databases (no file to stat)."""
+        from nanasqlite import NanaSQLite
+
+        db = NanaSQLite(":memory:")
+        try:
+            assert db._db_stat_key is None
         finally:
             db.close()

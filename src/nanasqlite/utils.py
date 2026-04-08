@@ -205,9 +205,33 @@ class ExpiringDict(collections.abc.MutableMapping):
             del self._async_tasks[key]
 
     def __getitem__(self, key: str) -> Any:
-        self._check_expiry(key)
+        # BUG-04 fix: check expiry and read value atomically under the same lock.
+        # Previously _check_expiry() ran outside the lock, so a concurrent
+        # scheduler eviction between the check and the dict read caused a spurious
+        # KeyError for a key that was still valid at call time.
+        callback_args: tuple[str, Any] | None = None
+        key_expired = False
+        result: Any = None  # initialized here to satisfy static analysis
         with self._lock:
-            return self._data[key]
+            if key in self._exptimes and self._exptimes[key] <= time.time():
+                key_expired = True
+                value = self._data.pop(key, None)
+                self._exptimes.pop(key, None)
+                if value is not None and self._on_expire:
+                    callback_args = (key, value)
+            else:
+                result = self._data[key]  # may raise KeyError if absent
+
+        # Fire callback OUTSIDE the lock to prevent cross-lock deadlock
+        if callback_args is not None and self._on_expire is not None:
+            try:
+                self._on_expire(*callback_args)
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.error("Error in ExpiringDict on_expire callback for key '%s': %s", key, e)
+
+        if key_expired:
+            raise KeyError(key)
+        return result
 
     def __delitem__(self, key: str) -> None:
         with self._lock:
@@ -255,6 +279,12 @@ class ExpiringDict(collections.abc.MutableMapping):
                         "ExpiringDict scheduler thread did not exit within timeout; it will continue as daemon."
                     )
         self._scheduler_thread = None
+        # BUG-02 fix: restart the scheduler so future insertions are evicted.
+        # Without this, clear() permanently kills the background thread and new
+        # items added after clear() are never expired.
+        if self._mode == ExpirationMode.SCHEDULER:
+            self._stop_event.clear()
+            self._start_scheduler()
 
     def __del__(self):
         try:

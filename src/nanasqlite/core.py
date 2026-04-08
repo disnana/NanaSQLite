@@ -454,7 +454,10 @@ class NanaSQLite(MutableMapping):
                 _st = os.stat(db_path)
                 self._db_stat_key = (_st.st_dev, _st.st_ino)
             except OSError:
-                pass
+                # The file may not exist yet (new database) or be on a filesystem
+                # that does not support stat.  Treat as unknown and fall back to
+                # the os.path.samefile() path in backup().  nosec B110
+                pass  # nosec B110
 
         # Initialize V2 Engine if enabled and we own the connection (or even if shared, engine owns the queue)
         # Note: We now share the V2Engine instance if provided (from table() call)
@@ -2140,7 +2143,7 @@ class NanaSQLite(MutableMapping):
         except Exception as e:
             raise TypeError(f"Failed to serialize Pydantic model: {e}") from e
 
-    def get_model(self, key: str, model_class: type = None) -> Any:
+    def get_model(self, key: str, model_class: type | None = None) -> Any:
         """
         Pydanticモデルを取得
 
@@ -2381,14 +2384,17 @@ class NanaSQLite(MutableMapping):
         column_defs = []
         for col_name, col_type in columns.items():
             safe_col_name = self._sanitize_identifier(col_name)
-            # Reject column type definitions containing SQL injection patterns.
-            # Unlike alter_table_add_column() which uses a strict whitelist,
-            # create_table() uses a whitelist subset for permitted characters.
+            # SEC-02 fix: Remove quote characters from the allowed set.
+            # The original regex r"^[\w\s(),.+*'\"]+$" admitted single/double
+            # quotes, enabling injections like: TEXT DEFAULT 'x') --
+            # The new regex keeps all reasonable column-type characters (including
+            # SQL constraint keywords, numeric defaults, REFERENCES, etc.) but
+            # explicitly excludes ' and " which have no safe use in type strings.
             _col_type_str = str(col_type)
-            if not re.match(r"^[\w\s(),.+*'\"]+$", _col_type_str):
+            if not re.match(r"^[\w\s(),=<>!@#%.]+$", _col_type_str):
                 raise NanaSQLiteValidationError(
                     f"Invalid or dangerous column type for '{col_name}': "
-                    "contains unauthorized characters. Permitted: alphanumeric, spaces, parentheses, quotes, and basic operators."
+                    "contains unauthorized characters. Quote characters and semicolons are not permitted."
                 )
             column_defs.append(f"{safe_col_name} {col_type}")
 

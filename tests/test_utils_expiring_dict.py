@@ -112,8 +112,18 @@ def test_expiring_dict_clear():
     d["a"] = 1
     d.clear()
     assert len(d) == 0
-    # 内部的に _scheduler_running が False になる
-    assert not d._scheduler_running
+    # BUG-02 fix: the scheduler is restarted after clear() so future insertions
+    # are still evicted.  _scheduler_running must be True (not False) after clear().
+    assert d._scheduler_running
+    # Verify new items added after clear() are evicted correctly.
+    d2 = ExpiringDict(expiration_time=0.2, mode=ExpirationMode.SCHEDULER)
+    d2["b"] = 2
+    d2.clear()
+    d2["c"] = 3
+    time.sleep(0.5)
+    assert "c" not in d2
+    d2.clear()
+    d.clear()
 
 
 def test_expiring_dict_pop():
