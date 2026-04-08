@@ -136,3 +136,46 @@ def test_expiring_dict_pop():
     time.sleep(0.2)
     assert len(expired) == 0
     d.clear()
+
+
+def test_expiring_dict_timer_mode_key_update_cancels_existing_timer():
+    """PERF-B coverage: updating an existing key in TIMER mode calls _cancel_timer."""
+    d = ExpiringDict(expiration_time=5.0, mode=ExpirationMode.TIMER)
+    d["x"] = 1
+    # Overwrite the key – must cancel the existing timer (line 175 in utils.py)
+    d["x"] = 2
+    assert d["x"] == 2
+    d.clear()
+
+
+def test_expiring_dict_getitem_fires_on_expire_callback_for_expired_key():
+    """BUG-04 coverage: __getitem__ on an expired key fires the on_expire callback
+    and raises KeyError (lines 221 and 227-230 in utils.py)."""
+    fired = []
+
+    def callback(k, v):
+        fired.append((k, v))
+
+    d = ExpiringDict(expiration_time=0.1, mode=ExpirationMode.LAZY, on_expire=callback)
+    d["k"] = "hello"
+    time.sleep(0.3)
+    with pytest.raises(KeyError):
+        _ = d["k"]
+    # Callback must have been called
+    assert ("k", "hello") in fired
+
+
+def test_expiring_dict_getitem_on_expire_callback_exception_is_logged():
+    """BUG-04 coverage: exception from on_expire callback in __getitem__ is
+    caught and logged, does not propagate (lines 228-230 in utils.py)."""
+
+    def bad_callback(k, v):
+        raise RuntimeError("callback boom")
+
+    d = ExpiringDict(expiration_time=0.1, mode=ExpirationMode.LAZY, on_expire=bad_callback)
+    d["k"] = "v"
+    time.sleep(0.3)
+    # Even though the callback raises, __getitem__ must still raise KeyError
+    # (not RuntimeError) – the exception is swallowed/logged internally.
+    with pytest.raises(KeyError):
+        _ = d["k"]
