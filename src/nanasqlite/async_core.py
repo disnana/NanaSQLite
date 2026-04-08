@@ -1070,8 +1070,7 @@ class AsyncNanaSQLite:
             ...     offset=0
             ... )
         """
-        if self._db is None:
-            await self._ensure_initialized()
+        await self._ensure_initialized()
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
@@ -1499,8 +1498,7 @@ class AsyncNanaSQLite:
             ...     await products_db.aset("prod1", {"name": "Laptop"})
         """
         # 親インスタンスが初期化済みであることを確認
-        if self._db is None:
-            await self._ensure_initialized()
+        await self._ensure_initialized()
 
         loop = asyncio.get_running_loop()
         sub_db = await loop.run_in_executor(
