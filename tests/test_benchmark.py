@@ -17,7 +17,12 @@ pytest_benchmark_available = importlib.util.find_spec("pytest_benchmark") is not
 # テスト用のフィクスチャ
 @pytest.fixture
 def db_path():
-    with tempfile.TemporaryDirectory() as tmpdir:
+    base_dir = os.environ.get("NANASQLITE_BENCH_DIR")
+    if not base_dir and os.path.exists("/dev/shm") and os.access("/dev/shm", os.W_OK):
+        if os.environ.get("USE_RAMDISK") == "1":
+            base_dir = "/dev/shm"
+
+    with tempfile.TemporaryDirectory(dir=base_dir) as tmpdir:
         yield os.path.join(tmpdir, "bench.db")
 
 
