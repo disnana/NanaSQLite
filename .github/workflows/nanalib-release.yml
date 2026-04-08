@@ -153,5 +153,5 @@ jobs:
           path: dist
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@release/v1.13.0
         # API キー不要。OIDC で自動認証される。
