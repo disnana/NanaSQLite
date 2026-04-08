@@ -118,7 +118,7 @@ def upsert(..., conflict_columns: list[str] | None = None) -> int | None:
 
 ## 審査員コメント（PR レビュー）への回答
 
-PR レビューで「`tuple | None` は Python 3.10 以上が必要」との指摘がありましたが、`core.py` および `async_core.py` の両ファイルは先頭で `from __future__ import annotations` を宣言しており、これによりすべてのアノテーションが実行時に評価されない文字列として扱われます。したがって PEP 604 の `X | Y` 構文は Python 3.9 でも問題なく動作します（Python 3.7 以降で利用可能な機能）。コードベース全体で既に同様のパターンが使われており、変更不要と判断しました。
+PR レビューで「`tuple | None` は Python 3.10 以上が必要」との指摘がありましたが、`core.py` および `async_core.py` の両ファイルは先頭で `from __future__ import annotations` を宣言しており、これによりすべてのアノテーションが実行時に評価されない文字列として扱われます。`X | Y` 構文は実行時の型オブジェクトとして評価する場合は Python 3.10 以上が必要ですが、`from __future__ import annotations` によりアノテーションが遅延評価（文字列）される場合は Python 3.9 でも安全に使用できます（本プロジェクトの最低要件は Python 3.9 です）。コードベース全体で既に同様のパターンが使われており、変更不要と判断しました。
 
 ---
 
