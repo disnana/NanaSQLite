@@ -8,7 +8,7 @@ COPY pyproject.toml setup.cfg* uv.lock* ./
 
 RUN uv pip install --system --no-cache \
     pytest pytest-benchmark pytest-asyncio \
-    apsw pydantic cryptography orjson
+    apsw pydantic cryptography orjson nanalib
 
 COPY . .
 
