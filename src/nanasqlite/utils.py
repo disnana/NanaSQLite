@@ -169,7 +169,10 @@ class ExpiringDict(collections.abc.MutableMapping):
         with self._lock:
             # If item already exists, remove it first to maintain insertion order (for FIFO/Scheduler)
             if key in self._data:
-                self._cancel_timer(key)
+                # PERF-B: Only call _cancel_timer in TIMER mode; in SCHEDULER mode
+                # _timers/_async_tasks are always empty so the call is pure overhead.
+                if self._mode == ExpirationMode.TIMER:
+                    self._cancel_timer(key)
                 del self._data[key]
                 del self._exptimes[key]
 
