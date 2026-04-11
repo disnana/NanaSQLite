@@ -43,12 +43,20 @@
 
 **修正内容:** セミコロン (;)、ラインコメント (--)、ブロックコメント (/*) を含む文字列を拒否するバリデーションを追加しました。
 
+### 4. `UniqueHook` の TOCTOU 競合状態（v1.5.4 で修正済み）
+
+**深刻度:** 高 (High)
+
+**概要:** `NanaSQLite.__setitem__` が `before_write` フックをロックの外側で呼び出していたため、マルチスレッド環境で2つのスレッドが同時に `UniqueHook` の一意性チェックをすり抜け、重複値を書き込むことが可能でした（TOCTOU 競合状態）。
+
+**修正内容:** 非 v2 モードにおいて `before_write` の呼び出しを `_acquire_lock()` コンテキスト内に移動しました。`self._lock` は `threading.RLock` のためフック内からの再入呼び出しでもデッドロックは発生しません。v2 モードでの厳格な一意制約には SQLite UNIQUE 制約の使用を推奨します。
+
 ## 組み込みのセキュリティ機能
 
 NanaSQLite は複数のセキュリティ層を備えています（v1.2.0以降）。
 
 - **厳格なSQL検証 (Strict SQL Validation):** 未許可のSQL関数の実行を防止します。
-- **ReDoS対策 (ReDoS Protection):** SQL句の最大文字数制限により過負荷攻撃を防ぎます。
+- **ReDoS対策 (ReDoS Protection):** SQL句の最大文字数制限により過負荷攻撃を防ぎます。また `pip install nanasqlite[re2]` で `google-re2`（線形時間保証）を使用可能です。
 - **保存データの暗号化 (Encryption at Rest):** `cryptography` ライブラリによる `AES-GCM`、`ChaCha20Poly1305`、`Fernet` をサポートします。
 
 \pagebreak
@@ -98,10 +106,18 @@ We currently provide security updates for the following versions:
 
 **Fix:** Added validation that rejects strings containing semicolons (`;`), line comments (`--`), and block comments (`/*`).
 
+### 4. TOCTOU Race Condition in `UniqueHook` (Fixed in v1.5.4)
+
+**Severity:** High
+
+**Description:** `NanaSQLite.__setitem__` called `before_write` hooks outside the `_acquire_lock()` context. In a multi-threaded environment, two threads could simultaneously pass the `UniqueHook` uniqueness check and both write the same unique-field value, bypassing the constraint (Time-of-Check Time-of-Use race).
+
+**Fix:** In non-v2 mode, the `before_write` invocation is now inside the `_acquire_lock()` block, making the uniqueness check and the DB write atomic. `self._lock` is a `threading.RLock`, so reentrant calls from hooks (e.g., `db.items()`) do not deadlock. For strict uniqueness in v2 mode, use SQLite UNIQUE constraints.
+
 ## Built-in Security Features
 
 NanaSQLite is designed with multiple security layers (v1.2.0+):
 
 - **Strict SQL Validation:** Prevents execution of unauthorized SQL functions.
-- **ReDoS Protection:** Maximum clause length limits prevent regex denial-of-service attacks.
+- **ReDoS Protection:** Maximum clause length limits prevent regex denial-of-service attacks. Install `pip install nanasqlite[re2]` to enable the `google-re2` engine (linear-time complexity guarantee).
 - **Encryption at Rest:** Data-at-rest encryption via `AES-GCM`, `ChaCha20Poly1305`, and `Fernet` through the `cryptography` library.

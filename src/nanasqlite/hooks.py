@@ -5,7 +5,7 @@ import re
 from re import Pattern
 from typing import Any, Callable
 
-from .compat import HAS_VALIDKIT
+from .compat import HAS_RE2, HAS_VALIDKIT, re2_module
 from .exceptions import NanaSQLiteValidationError
 from .protocols import NanaHook as NanaHook
 
@@ -15,6 +15,12 @@ _logger = logging.getLogger(__name__)
 class BaseHook:
     """Base class providing default pass-through implementations for NanaHook.
     Supports filtering by key_pattern (regex) or key_filter (callable).
+
+    When google-re2 is installed (``pip install nanasqlite[re2]``), the RE2
+    engine is used for all regex compilation and matching.  RE2 guarantees
+    linear-time execution for any input, eliminating the risk of ReDoS attacks.
+    A ``logging.info`` message is emitted at module import time when RE2 is
+    active (see ``nanasqlite.compat``).
     """
 
     def __init__(
@@ -22,19 +28,35 @@ class BaseHook:
         key_pattern: str | Pattern | None = None,
         key_filter: Callable[[str], bool] | None = None,
     ):
-        # ReDoS protection: validate regex patterns before compilation/use
-        if isinstance(key_pattern, str):
-            self._validate_regex_pattern(key_pattern)
-            self._key_regex = re.compile(key_pattern)
-        elif isinstance(key_pattern, Pattern):
-            self._validate_regex_pattern(key_pattern.pattern)
-            self._key_regex = key_pattern
+        # Validate regex patterns for ReDoS risk (skipped when RE2 is available
+        # since RE2 guarantees linear-time complexity for all patterns).
+        if HAS_RE2:
+            # RE2 engine: linear time guaranteed, no ReDoS risk.
+            _compile = re2_module.compile
+            if isinstance(key_pattern, str):
+                self._key_regex = _compile(key_pattern)
+            elif isinstance(key_pattern, Pattern):
+                self._key_regex = _compile(key_pattern.pattern)
+            else:
+                self._key_regex = key_pattern
         else:
-            self._key_regex = key_pattern
+            # Standard re engine: validate patterns to prevent ReDoS.
+            if isinstance(key_pattern, str):
+                self._validate_regex_pattern(key_pattern)
+                self._key_regex = re.compile(key_pattern)
+            elif isinstance(key_pattern, Pattern):
+                self._validate_regex_pattern(key_pattern.pattern)
+                self._key_regex = key_pattern
+            else:
+                self._key_regex = key_pattern
         self._key_filter = key_filter
 
     def _validate_regex_pattern(self, pattern: str) -> None:
-        """Validate regex patterns to prevent ReDoS attacks."""
+        """Validate regex patterns to prevent ReDoS attacks.
+
+        This check is only performed when google-re2 is NOT available.
+        When RE2 is active, all patterns are inherently safe (linear-time).
+        """
         # Check for known dangerous patterns
         dangerous_patterns = [
             r'\([^)]*\+\)[*+]',     # (a+)+ or (a+)*
@@ -47,7 +69,8 @@ class BaseHook:
             if re.search(dangerous, pattern):
                 raise NanaSQLiteValidationError(
                     f"Potentially dangerous regex pattern detected: {pattern}. "
-                    "This pattern may cause ReDoS (Regular Expression Denial of Service) attacks."
+                    "This pattern may cause ReDoS (Regular Expression Denial of Service) attacks. "
+                    "Install google-re2 (pip install nanasqlite[re2]) for linear-time regex matching."
                 )
 
     def _should_run(self, key: str) -> bool:
@@ -101,16 +124,17 @@ class CheckHook(BaseHook):
 class UniqueHook(BaseHook):
     """Ensures a specific field in a dictionary value is unique across the table.
 
-    WARNING: This implementation has a known TOCTOU race condition in multi-threaded
-    environments. The uniqueness check occurs before the database write, creating
-    a race window where multiple threads can bypass the constraint.
+    In non-v2 (synchronous) mode, the uniqueness check and the database write
+    are executed inside the same RLock acquisition in NanaSQLite.__setitem__,
+    eliminating the TOCTOU race condition (SEC-05 fix).
 
-    For production applications requiring strict uniqueness guarantees:
-    1. Use SQLite UNIQUE constraints instead of this hook
-    2. Use single-threaded access patterns
-    3. Implement application-level locking around write operations
+    In v2 (write-back cache) mode, the check is still performed before the
+    asynchronous flush, so strict uniqueness is not guaranteed under high
+    concurrency.  For production applications requiring strict uniqueness in v2
+    mode, use SQLite UNIQUE constraints instead.
 
-    This issue is tracked as SEC-03 in the v1.5.0 audit report.
+    This issue was tracked as SEC-03 in the v1.5.0 audit report and resolved
+    as SEC-05 in v1.5.4.
     """
 
     def __init__(self, field: str | Callable[[str, Any], Any], **kwargs: Any):
@@ -210,7 +234,7 @@ class ValidkitHook(BaseHook):
                 "The 'validkit-py' library is required for validation. "
                 "Install it with: pip install nanasqlite[validation]"
             )
-        from .compat import validkit_validate
+        from .compat import validkit_validate  # noqa: F401
 
         self._validate_func = validkit_validate
 

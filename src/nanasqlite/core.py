@@ -1058,13 +1058,13 @@ class NanaSQLite(MutableMapping):
         """dict[key] = value - 即時書き込み + メモリ更新"""
         self._check_connection()
 
-        # PERF-20: use pre-computed flag instead of bool(self._hooks)
-        if self._has_hooks:
-            for hook in self._hooks:
-                value = hook.before_write(self, key, value)
-
         # v2 Architecture: Route to background staging buffer instead of blocking DB write
         if self._v2_mode and self._v2_engine:
+            # PERF-20: use pre-computed flag instead of bool(self._hooks)
+            # In v2 mode, hooks are called outside the lock (v2 uses its own concurrency model).
+            if self._has_hooks:
+                for hook in self._hooks:
+                    value = hook.before_write(self, key, value)
             self._v2_engine.kvs_set(self._safe_table, key, value)
             # In v2 mode, _update_cache only modifies in-memory structures (_data / _absent_keys).
             # The background flush thread never accesses these structures; it only touches the
@@ -1074,9 +1074,18 @@ class NanaSQLite(MutableMapping):
             # explicit lock is needed for the pure in-memory update.
             self._update_cache(key, value)
         else:
-            # DB書き込みとキャッシュ更新をアトミックに実行
-            serialized = self._serialize(value)
+            # SEC-05: hooks are called inside the lock so that the uniqueness check in
+            # UniqueHook and the subsequent DB write are atomic — preventing the TOCTOU
+            # race where two concurrent threads both pass the check and write duplicates.
+            # self._lock is a threading.RLock so reentrant calls from hooks (e.g. db.items())
+            # that also acquire the lock succeed without deadlock.
             with self._acquire_lock():
+                # PERF-20: use pre-computed flag instead of bool(self._hooks)
+                if self._has_hooks:
+                    for hook in self._hooks:
+                        value = hook.before_write(self, key, value)
+                # DB書き込みとキャッシュ更新をアトミックに実行
+                serialized = self._serialize(value)
                 self._connection.execute(self._sql_kv_insert, (key, serialized))
                 self._update_cache(key, value)
 
