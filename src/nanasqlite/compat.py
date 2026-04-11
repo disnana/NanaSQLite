@@ -26,7 +26,13 @@ try:
     from validkit import validate as validkit_validate  # noqa: F401
 except ImportError:
     HAS_VALIDKIT = False
-    validkit_validate = None  # type: ignore
+
+    def validkit_validate(*args: Any, **kwargs: Any) -> None:  # type: ignore[misc]
+        """Stub raised when validkit-py is not installed."""
+        raise ImportError(
+            "validkit-py is not installed. "
+            "Install it with: pip install nanasqlite[validkit]"
+        )
 
 # Optional orjson
 try:
