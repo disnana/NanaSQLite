@@ -24,7 +24,11 @@
   - RE2 利用時は `logging.info` でメッセージを出力します（`nanasqlite.compat` ロガー）。
   - RE2 非インストール時は従来通りの危険パターンブラックリスト検証が機能します。
   - `pyproject.toml` に `re2 = ["google-re2>=1.1"]` オプション依存と `all` extras への追加。
+  - `dev` extras にも `google-re2>=1.1` を追加し、CI テストで実際の RE2 エンジンを使用するよう変更。
   - エラーメッセージを更新し `pip install nanasqlite[re2]` への案内を追記。
+  - **`re_fallback` パラメータを `BaseHook` に追加**: RE2 が対応していないパターン（後方参照 `(\w)\1`、先読み `(?=...)` 等）を使用した場合のフォールバック動作を制御。
+    - `re_fallback=False`（デフォルト）: RE2 の `re2.Error` をそのまま伝播させ、ReDoS 保護を維持。
+    - `re_fallback=True`: `warnings.warn` を出力した上で標準 `re` エンジンにフォールバック。このパターンでは ReDoS 保護が無効になります。
 
 #### コード品質改善
 
@@ -1272,7 +1276,11 @@
   - A `logging.info` message is emitted at import time when RE2 is active (`nanasqlite.compat` logger).
   - Without RE2, the existing dangerous-pattern blacklist validation continues to function.
   - Added `re2 = ["google-re2>=1.1"]` optional dependency to `pyproject.toml` and included it in `all`.
+  - Added `google-re2>=1.1` to `dev` extras so that CI tests run with the real RE2 engine.
   - Updated error message in `_validate_regex_pattern` to suggest `pip install nanasqlite[re2]`.
+  - **Added `re_fallback` parameter to `BaseHook`**: controls fallback behaviour when RE2 rejects a pattern (e.g. backreferences `(\w)\1`, lookarounds `(?=...)`).
+    - `re_fallback=False` (default): propagates `re2.Error` unchanged; ReDoS protection is fully maintained.
+    - `re_fallback=True`: emits `warnings.warn` and falls back to the standard `re` engine; ReDoS protection is disabled for that pattern.
 
 #### Code Quality
 

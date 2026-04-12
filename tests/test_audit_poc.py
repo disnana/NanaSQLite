@@ -2313,119 +2313,120 @@ class TestRE2Integration:
 # Coverage: v1.5.4 new code paths (RE2 available + validkit absent branches)
 # ===========================================================================
 class TestNewCodeCoverageV154:
-    """Targeted tests to ensure 100% coverage on new code added in v1.5.4.
+    """Targeted tests for 100% coverage on new code added in v1.5.4.
 
-    Since google-re2 is not installed in the standard CI environment, the
-    RE2-available code paths in compat.py (HAS_RE2=True) and hooks.py
-    (if HAS_RE2: branch) are covered using sys.modules injection and
-    unittest.mock.patch respectively.
+    google-re2 is included in the dev extras (``pip install nanasqlite[dev]``),
+    so RE2 code paths are exercised with the real engine instead of mocks.
+    Tests are guarded with ``pytest.importorskip("re2")`` to remain skippable
+    in minimal environments.
 
-    The validkit-py stub body is covered by temporarily blocking the
-    validkit import so the except-block executes and the stub is callable.
+    The validkit-py stub body is covered by temporarily blocking the validkit
+    import so the except-block executes and the stub is callable.
     """
 
     # -----------------------------------------------------------------------
-    # hooks.py: RE2 available branch (lines 35-41)
+    # hooks.py: RE2 available branch – real google-re2 engine
     # -----------------------------------------------------------------------
 
-    def test_basehook_re2_str_pattern_coverage(self):
-        """Cover hooks.py RE2 branch: str key_pattern compiled via RE2 mock (L35-37)."""
-        import re
-        import types
-        from unittest.mock import patch
-
+    def test_basehook_re2_str_pattern(self):
+        """RE2 branch: str key_pattern compiled via the real google-re2 engine."""
+        pytest.importorskip("re2")
         from nanasqlite.hooks import BaseHook
 
-        mock_re2 = types.ModuleType("re2")
-        mock_re2.compile = re.compile  # type: ignore[attr-defined]
+        hook = BaseHook(key_pattern=r"^user_\d+$")
+        assert hook._should_run("user_123") is True
+        assert hook._should_run("admin_1") is False
 
-        with patch("nanasqlite.hooks.HAS_RE2", True), patch(
-            "nanasqlite.hooks.re2_module", mock_re2
-        ):
-            hook = BaseHook(key_pattern=r"^user_\d+$")
-            assert hook._should_run("user_123") is True
-            assert hook._should_run("admin_1") is False
-
-    def test_basehook_re2_compiled_pattern_coverage(self):
-        """Cover hooks.py RE2 branch: compiled re.Pattern input with RE2 mock (L38-39)."""
+    def test_basehook_re2_compiled_pattern(self):
+        """RE2 branch: compiled re.Pattern input re-compiled by real google-re2."""
         import re
-        import types
-        from unittest.mock import patch
 
+        pytest.importorskip("re2")
         from nanasqlite.hooks import BaseHook
-
-        mock_re2 = types.ModuleType("re2")
-        mock_re2.compile = re.compile  # type: ignore[attr-defined]
 
         compiled = re.compile(r"^admin_")
-        with patch("nanasqlite.hooks.HAS_RE2", True), patch(
-            "nanasqlite.hooks.re2_module", mock_re2
-        ):
-            hook = BaseHook(key_pattern=compiled)
-            assert hook._should_run("admin_1") is True
-            assert hook._should_run("user_1") is False
+        hook = BaseHook(key_pattern=compiled)
+        assert hook._should_run("admin_1") is True
+        assert hook._should_run("user_1") is False
 
-    def test_basehook_re2_none_pattern_coverage(self):
-        """Cover hooks.py RE2 branch: None key_pattern (L40-41 else body)."""
-        import re
-        import types
-        from unittest.mock import patch
-
+    def test_basehook_re2_none_pattern(self):
+        """RE2 branch: None key_pattern leaves _key_regex as None."""
+        pytest.importorskip("re2")
         from nanasqlite.hooks import BaseHook
 
-        mock_re2 = types.ModuleType("re2")
-        mock_re2.compile = re.compile  # type: ignore[attr-defined]
-
-        with patch("nanasqlite.hooks.HAS_RE2", True), patch(
-            "nanasqlite.hooks.re2_module", mock_re2
-        ):
-            hook = BaseHook(key_pattern=None)
-            assert hook._key_regex is None
-            assert hook._should_run("anything") is True
+        hook = BaseHook(key_pattern=None)
+        assert hook._key_regex is None
+        assert hook._should_run("anything") is True
 
     # -----------------------------------------------------------------------
-    # compat.py: RE2 try-block (HAS_RE2=True, re2_module assignment, logger.info)
+    # hooks.py: re_fallback parameter (new in v1.5.4)
     # -----------------------------------------------------------------------
 
-    def test_compat_re2_available_branch_coverage(self):
-        """Cover compat.py RE2 try-block by injecting a fake re2 into sys.modules (L51-53)."""
-        import importlib
-        import re
+    def test_basehook_re2_unsupported_raises_without_fallback(self):
+        """RE2 rejects backreferences; re_fallback=False (default) propagates the error."""
+        re2 = pytest.importorskip("re2")
+        from nanasqlite.hooks import BaseHook
+
+        with pytest.raises(re2.error):
+            BaseHook(key_pattern=r"(\w)\1")  # backreference – unsupported by RE2
+
+    def test_basehook_re2_unsupported_fallback_warns_and_works(self):
+        """re_fallback=True emits a warning and falls back to std re."""
+        pytest.importorskip("re2")
+        from nanasqlite.hooks import BaseHook
+
+        with pytest.warns(UserWarning, match="Falling back to the standard re engine"):
+            hook = BaseHook(key_pattern=r"(\w)\1", re_fallback=True)
+        # Pattern still works via std re
+        assert hook._should_run("aa") is True
+        assert hook._should_run("ab") is False
+
+    def test_basehook_re2_lookahead_fallback(self):
+        """Lookaheads trigger the re_fallback warning and work via std re."""
+        pytest.importorskip("re2")
+        from nanasqlite.hooks import BaseHook
+
+        with pytest.warns(UserWarning, match="Falling back to the standard re engine"):
+            hook = BaseHook(key_pattern=r"foo(?=bar)", re_fallback=True)
+        assert hook._should_run("foobar") is True
+        assert hook._should_run("foobaz") is False
+
+    def test_basehook_re2_supported_pattern_no_warning_with_fallback(self):
+        """re_fallback=True does NOT warn when the pattern is valid RE2."""
+        import warnings
+
+        pytest.importorskip("re2")
+        from nanasqlite.hooks import BaseHook
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # any warning fails the test
+            hook = BaseHook(key_pattern=r"^item_\d+$", re_fallback=True)
+        assert hook._should_run("item_1") is True
+
+    # -----------------------------------------------------------------------
+    # compat.py: RE2 branch verified via real installation
+    # -----------------------------------------------------------------------
+
+    def test_compat_has_re2_true(self):
+        """compat.HAS_RE2 is True because google-re2 is in dev extras."""
         import sys
-        import types
 
-        import nanasqlite.compat as compat_mod
-
-        _ABSENT = object()
-        re2_backup = sys.modules.get("re2", _ABSENT)
-
-        fake_re2 = types.ModuleType("re2")
-        fake_re2.compile = re.compile  # type: ignore[attr-defined]
-        fake_re2.__version__ = "fake"  # type: ignore[attr-defined]
-        sys.modules["re2"] = fake_re2
-
-        try:
-            importlib.reload(compat_mod)
-            assert compat_mod.HAS_RE2 is True
-            assert compat_mod.re2_module is fake_re2
-        finally:
-            if re2_backup is _ABSENT:
-                sys.modules.pop("re2", None)
-            else:
-                sys.modules["re2"] = re2_backup  # type: ignore[assignment]
-            # Restore compat to the real state (no re2 → HAS_RE2=False)
-            importlib.reload(compat_mod)
+        pytest.importorskip("re2")
+        compat_mod = sys.modules["nanasqlite.compat"]
+        assert compat_mod.HAS_RE2 is True
+        assert compat_mod.re2_module is not None
 
     # -----------------------------------------------------------------------
     # compat.py: validkit except-block (HAS_VALIDKIT=False, stub def, stub body)
     # -----------------------------------------------------------------------
 
     def test_compat_validkit_stub_def_and_call_coverage(self):
-        """Cover compat.py validkit except-block (L28-30) and stub body (L32)."""
+        """Cover compat.py validkit except-block and stub body."""
         import importlib
         import sys
 
-        import nanasqlite.compat as compat_mod
+        # Access via sys.modules to avoid CodeQL duplicate-import flag
+        compat_mod = sys.modules["nanasqlite.compat"]
 
         _ABSENT = object()
         validkit_backup = sys.modules.get("validkit", _ABSENT)
@@ -2437,7 +2438,7 @@ class TestNewCodeCoverageV154:
             importlib.reload(compat_mod)
             assert compat_mod.HAS_VALIDKIT is False
 
-            # Call the stub to cover the raise ImportError line (L32)
+            # Call the stub to cover the raise ImportError line
             with pytest.raises(ImportError, match="validkit-py is not installed"):
                 compat_mod.validkit_validate()
         finally:
@@ -2449,11 +2450,11 @@ class TestNewCodeCoverageV154:
             importlib.reload(compat_mod)
 
     # -----------------------------------------------------------------------
-    # hooks.py: non-RE2 branch – Pattern and None inputs (L47-51)
+    # hooks.py: non-RE2 branch – Pattern and None inputs
     # -----------------------------------------------------------------------
 
     def test_basehook_no_re2_compiled_pattern_coverage(self):
-        """Cover hooks.py non-RE2 elif Pattern branch (L47-49)."""
+        """Cover hooks.py non-RE2 elif Pattern branch."""
         import re
         from unittest.mock import patch
 
@@ -2466,7 +2467,7 @@ class TestNewCodeCoverageV154:
             assert hook._should_run("user_1") is False
 
     def test_basehook_no_re2_none_pattern_coverage(self):
-        """Cover hooks.py non-RE2 else branch: None key_pattern (L50-51)."""
+        """Cover hooks.py non-RE2 else branch: None key_pattern."""
         from unittest.mock import patch
 
         from nanasqlite.hooks import BaseHook

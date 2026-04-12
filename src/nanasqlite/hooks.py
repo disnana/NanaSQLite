@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import warnings
 from re import Pattern
 from typing import Any, Callable
 
@@ -21,22 +22,32 @@ class BaseHook:
     linear-time execution for any input, eliminating the risk of ReDoS attacks.
     A ``logging.info`` message is emitted at module import time when RE2 is
     active (see ``nanasqlite.compat``).
+
+    RE2 does not support some advanced regex features (backreferences such as
+    ``(\\w)\\1``, and lookarounds such as ``(?=...)``).  When such a pattern is
+    supplied and RE2 raises an error, the behaviour depends on *re_fallback*:
+
+    - ``re_fallback=False`` (default): the ``re2.Error`` propagates, failing
+      fast and keeping full ReDoS protection.
+    - ``re_fallback=True``: a :mod:`warnings` warning is emitted and the
+      pattern is compiled with the standard ``re`` module instead.  ReDoS
+      protection is disabled for that pattern.
     """
 
     def __init__(
         self,
         key_pattern: str | Pattern | None = None,
         key_filter: Callable[[str], bool] | None = None,
+        re_fallback: bool = False,
     ):
         # Validate regex patterns for ReDoS risk (skipped when RE2 is available
         # since RE2 guarantees linear-time complexity for all patterns).
         if HAS_RE2:
             # RE2 engine: linear time guaranteed, no ReDoS risk.
-            _compile = re2_module.compile
             if isinstance(key_pattern, str):
-                self._key_regex = _compile(key_pattern)
+                self._key_regex = self._compile_re2(key_pattern, re_fallback)
             elif isinstance(key_pattern, Pattern):
-                self._key_regex = _compile(key_pattern.pattern)
+                self._key_regex = self._compile_re2(key_pattern.pattern, re_fallback)
             else:
                 self._key_regex = key_pattern
         else:
@@ -50,6 +61,32 @@ class BaseHook:
             else:
                 self._key_regex = key_pattern
         self._key_filter = key_filter
+
+    def _compile_re2(self, pattern: str, re_fallback: bool) -> Any:
+        """Compile *pattern* with RE2, falling back to ``re`` when *re_fallback* is True.
+
+        RE2 rejects patterns that use features with super-linear worst-case
+        complexity (e.g. backreferences, lookarounds).  When *re_fallback* is
+        False (the default), the RE2 error propagates unchanged.  When True,
+        a :mod:`warnings` warning is emitted and the pattern is compiled with
+        the standard :mod:`re` engine instead.
+        """
+        # re2_module is guaranteed non-None here: _compile_re2 is only called
+        # from within the `if HAS_RE2:` branch in __init__.
+        try:
+            return re2_module.compile(pattern)  # type: ignore[union-attr]
+        except re2_module.error:  # type: ignore[union-attr]
+            if re_fallback:
+                warnings.warn(
+                    f"RE2 cannot compile pattern {pattern!r} (unsupported feature: "
+                    "backreferences or lookarounds are not supported by the RE2 engine). "
+                    "Falling back to the standard re engine. "
+                    "ReDoS protection is disabled for this pattern.",
+                    # stacklevel 3: warnings.warn → _compile_re2 → __init__ → user code
+                    stacklevel=3,
+                )
+                return re.compile(pattern)
+            raise
 
     def _validate_regex_pattern(self, pattern: str) -> None:
         """Validate regex patterns to prevent ReDoS attacks.
