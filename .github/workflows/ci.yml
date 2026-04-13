@@ -567,7 +567,7 @@ jobs:
       pull-requests: write
     steps:
     - name: Post CI results
-      uses: actions/github-script@v8
+      uses: actions/github-script@v9
       with:
         script: |
           const lint = '${{ needs.lint.result }}';
