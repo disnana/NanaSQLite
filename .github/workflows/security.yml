@@ -330,7 +330,7 @@ jobs:
     # PRに件数+具体内容をコメント投稿（再実行時は既存コメントを上書き更新）
     - name: Post PR Comment
       if: github.event_name == 'pull_request'
-      uses: actions/github-script@v8
+      uses: actions/github-script@v9
       with:
         script: |
           const fs = require('fs');
