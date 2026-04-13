@@ -481,7 +481,7 @@ jobs:
     # above. PyPI Trusted Publishing requires these attestations. This is correct
     # and desirable behaviour — no action is needed.
     - name: Publish to PyPI
-      uses: pypa/gh-action-pypi-publish@v1.13.0
+      uses: pypa/gh-action-pypi-publish@v1.14.0
 
   # ============================================
   # Release - Main branch only, after publish
