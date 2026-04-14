@@ -38,7 +38,7 @@ jobs:
             --find-interpreter
           working-directory: src/nanalib
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-linux-${{ matrix.target }}
           path: src/nanalib/dist
@@ -70,7 +70,7 @@ jobs:
             --find-interpreter
           working-directory: src/nanalib
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-macos-${{ matrix.target }}
           path: src/nanalib/dist
@@ -103,7 +103,7 @@ jobs:
             --find-interpreter
           working-directory: src/nanalib
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-windows-${{ matrix.target }}
           path: src/nanalib/dist
@@ -123,7 +123,7 @@ jobs:
           args: --out dist
           working-directory: src/nanalib
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-sdist
           path: src/nanalib/dist
