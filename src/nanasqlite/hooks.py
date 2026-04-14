@@ -47,7 +47,12 @@ class BaseHook:
             if isinstance(key_pattern, str):
                 self._key_regex = self._compile_re2(key_pattern, re_fallback)
             elif isinstance(key_pattern, Pattern):
-                self._key_regex = self._compile_re2(key_pattern.pattern, re_fallback)
+                # Preserve the original flags (IGNORECASE, MULTILINE, etc.) when
+                # re-compiling with RE2.  If RE2 does not support a given flag it
+                # will raise re2.Error, which is handled by the re_fallback logic.
+                self._key_regex = self._compile_re2(
+                    key_pattern.pattern, re_fallback, flags=key_pattern.flags
+                )
             else:
                 self._key_regex = key_pattern
         else:
@@ -62,7 +67,7 @@ class BaseHook:
                 self._key_regex = key_pattern
         self._key_filter = key_filter
 
-    def _compile_re2(self, pattern: str, re_fallback: bool) -> Any:
+    def _compile_re2(self, pattern: str, re_fallback: bool, flags: int = 0) -> Any:
         """Compile *pattern* with RE2, falling back to ``re`` when *re_fallback* is True.
 
         RE2 rejects patterns that use features with super-linear worst-case
@@ -70,11 +75,35 @@ class BaseHook:
         False (the default), the RE2 error propagates unchanged.  When True,
         a :mod:`warnings` warning is emitted and the pattern is compiled with
         the standard :mod:`re` engine instead.
+
+        *flags* are translated to an ``re2.Options`` object so that modifiers
+        such as ``re.IGNORECASE`` are preserved when re-compiling a
+        ``re.Pattern`` with RE2.  In the fallback path ``re.compile`` receives
+        the original *flags* integer unchanged.
         """
         # re2_module is guaranteed non-None here: _compile_re2 is only called
         # from within the `if HAS_RE2:` branch in __init__.
+
+        # Build re2.Options from the flags only when non-trivial flags are
+        # present. re.UNICODE (32) is Python-implicit and not meaningful for RE2.
+        effective_flags = flags & ~re.UNICODE
+        options: Any = None
+        if effective_flags:
+            # Only instantiate Options when at least one supported flag is set.
+            supported = re.IGNORECASE | re.DOTALL
+            if effective_flags & supported:
+                options = re2_module.Options()  # type: ignore[union-attr]
+                if effective_flags & re.IGNORECASE:
+                    options.case_sensitive = False
+                if effective_flags & re.DOTALL:
+                    options.dot_nl = True
+            # re.MULTILINE: RE2 treats ^ and $ as multiline by default; no action needed.
+            # Other flags (re.VERBOSE, re.LOCALE, …) have no RE2 equivalent; they are
+            # silently absent from the RE2 options, which may change behaviour.
+            # Users should set re_fallback=True when such flags are required.
+
         try:
-            return re2_module.compile(pattern)  # type: ignore[union-attr]
+            return re2_module.compile(pattern, options)  # type: ignore[union-attr]
         except re2_module.error:  # type: ignore[union-attr]
             if re_fallback:
                 warnings.warn(
@@ -85,7 +114,7 @@ class BaseHook:
                     # stacklevel 3: warnings.warn → _compile_re2 → __init__ → user code
                     stacklevel=3,
                 )
-                return re.compile(pattern)
+                return re.compile(pattern, flags)
             raise
 
     def _validate_regex_pattern(self, pattern: str) -> None:

@@ -31,7 +31,7 @@ except ImportError:
         """Stub raised when validkit-py is not installed."""
         raise ImportError(
             "validkit-py is not installed. "
-            "Install it with: pip install nanasqlite[validkit]"
+            "Install it with: pip install nanasqlite[validation]"
         )
 
 # Optional orjson

@@ -2171,43 +2171,46 @@ class TestSec05UniqueHookTOCTOUFix:
         db = NanaSQLite(db_path)
         db.add_hook(UniqueHook("email"))
 
-        errors = []
-        successes = []
+        try:
+            errors = []
+            successes = []
 
-        def write_user(key: str, email: str) -> None:
-            try:
-                db[key] = {"email": email, "name": key}
-                successes.append(key)
-            except Exception as exc:
-                errors.append((key, str(exc)))
+            def write_user(key: str, email: str) -> None:
+                try:
+                    db[key] = {"email": email, "name": key}
+                    successes.append(key)
+                except Exception as exc:
+                    errors.append((key, str(exc)))
 
-        # Fire 5 concurrent threads, each trying to write the same email
-        threads = [threading.Thread(target=write_user, args=(f"user{i}", "same@example.com")) for i in range(5)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+            # Fire 5 concurrent threads, each trying to write the same email
+            threads = [threading.Thread(target=write_user, args=(f"user{i}", "same@example.com")) for i in range(5)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
 
-        # Exactly one write must succeed
-        assert len(successes) == 1, f"Expected 1 success, got {len(successes)}: {successes}"
-        # All others must be rejected (either validation error or exactly one)
-        total = len(successes) + len(errors)
-        assert total == 5, f"Expected 5 total attempts, got {total}"
-
-        db.close()
+            # Exactly one write must succeed
+            assert len(successes) == 1, f"Expected 1 success, got {len(successes)}: {successes}"
+            # All others must be rejected (either validation error or exactly one)
+            total = len(successes) + len(errors)
+            assert total == 5, f"Expected 5 total attempts, got {total}"
+        finally:
+            db.close()
 
     def test_before_write_hook_called_inside_lock(self, db_path):
         """Verify hooks are invoked within the RLock context (non-v2 mode)."""
+        from contextlib import contextmanager
+        from unittest.mock import patch
+
         from nanasqlite import NanaSQLite
 
         lock_held_during_hook: list[bool] = []
+        # Mutable container so the inner class can update it without 'nonlocal'
+        in_lock_ref: list[bool] = [False]
 
         class LockInspectHook:
             def before_write(self, db: NanaSQLite, key: str, value: object) -> object:
-                # The RLock is reentrant; acquire(False) returns False if it's NOT locked,
-                # and True if we can acquire it again (which we can since RLock is reentrant).
-                # We instead check that the lock is already held by inspecting _lock._is_owned().
-                lock_held_during_hook.append(db._lock._is_owned())
+                lock_held_during_hook.append(in_lock_ref[0])
                 return value
 
             def after_read(self, db: object, key: str, value: object) -> object:
@@ -2219,8 +2222,23 @@ class TestSec05UniqueHookTOCTOUFix:
         db = NanaSQLite(db_path)
         db.add_hook(LockInspectHook())  # type: ignore[arg-type]
 
-        db["k"] = "v"
-        db.close()
+        # Wrap _acquire_lock so we can set in_lock_ref while inside the context
+        original_acquire_lock = db._acquire_lock
+
+        @contextmanager  # type: ignore[misc]
+        def tracking_acquire_lock():
+            in_lock_ref[0] = True
+            try:
+                with original_acquire_lock():
+                    yield
+            finally:
+                in_lock_ref[0] = False
+
+        try:
+            with patch.object(db, "_acquire_lock", tracking_acquire_lock):
+                db["k"] = "v"
+        finally:
+            db.close()
 
         assert lock_held_during_hook, "Hook was never called"
         assert all(lock_held_during_hook), "Lock was NOT held during hook execution"
@@ -2338,15 +2356,17 @@ class TestNewCodeCoverageV154:
         assert hook._should_run("admin_1") is False
 
     def test_basehook_re2_compiled_pattern(self):
-        """RE2 branch: compiled re.Pattern input re-compiled by real google-re2."""
+        """RE2 branch: compiled re.Pattern input re-compiled by real google-re2, flags preserved."""
         import re
 
         pytest.importorskip("re2")
         from nanasqlite.hooks import BaseHook
 
-        compiled = re.compile(r"^admin_")
+        compiled = re.compile(r"^admin_", re.IGNORECASE)
         hook = BaseHook(key_pattern=compiled)
+        # flags=re.IGNORECASE must be preserved after RE2 re-compilation
         assert hook._should_run("admin_1") is True
+        assert hook._should_run("ADMIN_1") is True   # IGNORECASE must be honoured
         assert hook._should_run("user_1") is False
 
     def test_basehook_re2_none_pattern(self):
@@ -2409,10 +2429,10 @@ class TestNewCodeCoverageV154:
 
     def test_compat_has_re2_true(self):
         """compat.HAS_RE2 is True because google-re2 is in dev extras."""
-        import sys
+        import importlib
 
         pytest.importorskip("re2")
-        compat_mod = sys.modules["nanasqlite.compat"]
+        compat_mod = importlib.import_module("nanasqlite.compat")
         assert compat_mod.HAS_RE2 is True
         assert compat_mod.re2_module is not None
 
@@ -2425,8 +2445,7 @@ class TestNewCodeCoverageV154:
         import importlib
         import sys
 
-        # Access via sys.modules to avoid CodeQL duplicate-import flag
-        compat_mod = sys.modules["nanasqlite.compat"]
+        compat_mod = importlib.import_module("nanasqlite.compat")
 
         _ABSENT = object()
         validkit_backup = sys.modules.get("validkit", _ABSENT)
