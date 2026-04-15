@@ -2452,14 +2452,18 @@ class TestNewCodeCoverageV154:
         """Cover compat.py validkit except-block and stub body."""
         import importlib
         import sys
+        import types
 
         compat_mod = importlib.import_module("nanasqlite.compat")
 
         _ABSENT = object()
         validkit_backup = sys.modules.get("validkit", _ABSENT)
 
-        # Block validkit import so the except ImportError branch executes
-        sys.modules["validkit"] = None  # type: ignore[assignment]
+        # Provide a real module object without ``validate`` so that
+        # ``from validkit import validate`` raises ImportError (reliably),
+        # rather than setting None which the import system treats as a
+        # failed import and may raise non-ImportError in some implementations.
+        sys.modules["validkit"] = types.ModuleType("validkit")
 
         try:
             importlib.reload(compat_mod)

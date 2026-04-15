@@ -121,7 +121,7 @@ class BaseHook:
                 "ReDoS protection is disabled for this pattern."
             )
             if re_fallback:
-                warnings.warn(msg, stacklevel=3)
+                warnings.warn(msg, stacklevel=4)
                 return re.compile(pattern, flags)
             raise re.error(
                 f"RE2 does not support Python re flags ({unsupported_desc}) "
@@ -149,8 +149,8 @@ class BaseHook:
                     f"RE2 cannot compile pattern {pattern!r}: {exc}. "
                     "Falling back to the standard re engine. "
                     "ReDoS protection is disabled for this pattern.",
-                    # stacklevel 3: warnings.warn → _compile_re2 → __init__ → user code
-                    stacklevel=3,
+                    # stacklevel 4: warnings.warn → _compile_re2 → __init__ → user code
+                    stacklevel=4,
                 )
                 return re.compile(pattern, flags)
             raise
