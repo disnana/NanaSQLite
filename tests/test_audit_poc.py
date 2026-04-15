@@ -765,7 +765,6 @@ class TestV150Sec05BaseHookRedos:
         """Dangerous regex patterns are detected and rejected when the non-RE2 path is active."""
         import nanasqlite.hooks as _hooks
         from nanasqlite.exceptions import NanaSQLiteValidationError
-        from nanasqlite.hooks import BaseHook
 
         # Force the non-RE2 branch so the blacklist is exercised regardless of
         # whether google-re2 is installed in this environment.
@@ -780,7 +779,7 @@ class TestV150Sec05BaseHookRedos:
 
         for pattern in dangerous_patterns:
             with pytest.raises(NanaSQLiteValidationError, match="dangerous regex pattern"):
-                BaseHook(key_pattern=pattern)
+                _hooks.BaseHook(key_pattern=pattern)
 
     def test_safe_regex_patterns_accepted(self, db_path):
         """Safe regex patterns are still accepted."""
@@ -2314,14 +2313,13 @@ class TestRE2Integration:
         """When RE2 is NOT installed, dangerous patterns are still rejected."""
         import nanasqlite.hooks as _hooks
         from nanasqlite.exceptions import NanaSQLiteValidationError
-        from nanasqlite.hooks import BaseHook
 
         # Force the non-RE2 branch so the blacklist is exercised regardless of
         # whether google-re2 is installed in this environment.
         monkeypatch.setattr(_hooks, "HAS_RE2", False)
 
         with pytest.raises(NanaSQLiteValidationError, match="dangerous regex pattern"):
-            BaseHook(key_pattern="(a+)+")
+            _hooks.BaseHook(key_pattern="(a+)+")
 
     def test_re2_module_exported_from_compat(self):
         """re2_module is None when not installed, or a module when installed."""

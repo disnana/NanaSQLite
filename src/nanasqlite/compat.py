@@ -50,7 +50,7 @@ try:
 
     HAS_RE2 = True
     re2_module = _re2_module
-    logger.info(
+    logger.debug(
         "NanaSQLite: google-re2 is available. "
         "Regex operations in hooks will use the RE2 engine (linear-time complexity, ReDoS-safe)."
     )
