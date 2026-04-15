@@ -27,11 +27,19 @@ class BaseHook:
     ``(\\w)\\1``, and lookarounds such as ``(?=...)``).  When such a pattern is
     supplied and RE2 raises an error, the behaviour depends on *re_fallback*:
 
-    - ``re_fallback=False`` (default): the ``re2.Error`` propagates, failing
+    - ``re_fallback=False`` (default): the ``re2.error`` propagates, failing
       fast and keeping full ReDoS protection.
     - ``re_fallback=True``: a :mod:`warnings` warning is emitted and the
       pattern is compiled with the standard ``re`` module instead.  ReDoS
       protection is disabled for that pattern.
+
+    If *key_pattern* is a :class:`re.Pattern` compiled with flags that RE2
+    cannot reproduce (e.g. ``re.VERBOSE``, ``re.LOCALE``, ``re.ASCII``), the
+    behaviour is also controlled by *re_fallback*:
+
+    - ``re_fallback=False`` (default): ``re.error`` is raised immediately.
+    - ``re_fallback=True``: a warning is emitted and ``re.compile`` is used
+      instead, preserving the original flags at the cost of ReDoS protection.
     """
 
     def __init__(

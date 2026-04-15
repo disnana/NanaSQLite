@@ -2172,15 +2172,18 @@ class TestSec05UniqueHookTOCTOUFix:
         db.add_hook(UniqueHook("email"))
 
         try:
-            errors = []
+            validation_errors = []
+            unexpected_errors = []
             successes = []
 
             def write_user(key: str, email: str) -> None:
                 try:
                     db[key] = {"email": email, "name": key}
                     successes.append(key)
+                except NanaSQLiteValidationError as exc:
+                    validation_errors.append((key, str(exc)))
                 except Exception as exc:
-                    errors.append((key, str(exc)))
+                    unexpected_errors.append((key, type(exc).__name__, str(exc)))
 
             # Fire 5 concurrent threads, each trying to write the same email
             threads = [threading.Thread(target=write_user, args=(f"user{i}", "same@example.com")) for i in range(5)]
@@ -2189,11 +2192,14 @@ class TestSec05UniqueHookTOCTOUFix:
             for t in threads:
                 t.join()
 
+            # No unexpected errors (e.g. DB errors) should have occurred
+            assert not unexpected_errors, f"Unexpected errors: {unexpected_errors}"
             # Exactly one write must succeed
             assert len(successes) == 1, f"Expected 1 success, got {len(successes)}: {successes}"
-            # All others must be rejected (either validation error or exactly one)
-            total = len(successes) + len(errors)
-            assert total == 5, f"Expected 5 total attempts, got {total}"
+            # All failures must be the expected validation error
+            assert len(validation_errors) == 4, (
+                f"Expected 4 validation errors, got {len(validation_errors)}: {validation_errors}"
+            )
         finally:
             db.close()
 
@@ -2249,13 +2255,15 @@ class TestSec05UniqueHookTOCTOUFix:
         from nanasqlite.hooks import UniqueHook
 
         db = NanaSQLite(db_path)
-        db.add_hook(UniqueHook("email"))
+        try:
+            db.add_hook(UniqueHook("email"))
 
-        db["user1"] = {"email": "alice@example.com"}
-        # Self-update: same key, same email — must succeed
-        db["user1"] = {"email": "alice@example.com", "updated": True}
-        assert db["user1"]["updated"] is True
-        db.close()
+            db["user1"] = {"email": "alice@example.com"}
+            # Self-update: same key, same email — must succeed
+            db["user1"] = {"email": "alice@example.com", "updated": True}
+            assert db["user1"]["updated"] is True
+        finally:
+            db.close()
 
 
 # ===========================================================================
@@ -2465,7 +2473,7 @@ class TestNewCodeCoverageV154:
                 sys.modules.pop("validkit", None)
             else:
                 sys.modules["validkit"] = validkit_backup  # type: ignore[assignment]
-            # Restore compat to the real state (validkit present → HAS_VALIDKIT=True)
+            # Restore compat to the environment's normal import state after cleanup.
             importlib.reload(compat_mod)
 
     # -----------------------------------------------------------------------
