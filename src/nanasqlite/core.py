@@ -1095,13 +1095,12 @@ class NanaSQLite(MutableMapping):
         if not self._ensure_cached(key):
             raise KeyError(key)
 
-        # PERF-20: use pre-computed flag instead of bool(self._hooks)
-        if self._has_hooks:
-            for hook in self._hooks:
-                hook.before_delete(self, key)
-
         # v2 Architecture: Route to background staging buffer
         if self._v2_mode and self._v2_engine:
+            # PERF-20: use pre-computed flag instead of bool(self._hooks)
+            if self._has_hooks:
+                for hook in self._hooks:
+                    hook.before_delete(self, key)
             self._v2_engine.kvs_delete(self._safe_table, key)
             # See __setitem__ comment: no explicit lock needed for pure in-memory updates in v2 mode.
             if self._lru_mode:
@@ -1111,6 +1110,12 @@ class NanaSQLite(MutableMapping):
                 self._absent_keys.add(key)
         else:
             with self._acquire_lock():
+                # SEC-05: hooks are called inside the lock for consistency with __setitem__,
+                # so that any hook-side uniqueness/invariant checks and the DB delete are atomic.
+                # self._lock is a threading.RLock so reentrant calls from hooks succeed.
+                if self._has_hooks:
+                    for hook in self._hooks:
+                        hook.before_delete(self, key)
                 self._connection.execute(self._sql_kv_delete, (key,))
                 if self._lru_mode:
                     self._cache.delete(key)

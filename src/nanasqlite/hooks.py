@@ -87,28 +87,58 @@ class BaseHook:
         # Build re2.Options from the flags only when non-trivial flags are
         # present. re.UNICODE (32) is Python-implicit and not meaningful for RE2.
         effective_flags = flags & ~re.UNICODE
+
+        # Flags RE2 supports natively or matches by default:
+        #   re.IGNORECASE → options.case_sensitive = False
+        #   re.DOTALL     → options.dot_nl = True
+        #   re.MULTILINE  → RE2 already treats ^ / $ as multiline; no action needed.
+        # Flags RE2 cannot reproduce (re.VERBOSE, re.LOCALE, re.ASCII, re.DEBUG, …)
+        # would silently change matching semantics.  Detect them early and either
+        # warn+fallback (re_fallback=True) or raise a clear error (re_fallback=False).
+        _re2_compatible = re.IGNORECASE | re.DOTALL | re.MULTILINE
+        unsupported = effective_flags & ~_re2_compatible
+        if unsupported:
+            unsupported_names = []
+            for _name in ("VERBOSE", "LOCALE", "ASCII", "DEBUG", "TEMPLATE"):
+                _val = getattr(re, _name, 0)
+                if unsupported & _val:
+                    unsupported_names.append(f"re.{_name}")
+            unsupported_desc = (
+                ", ".join(unsupported_names) if unsupported_names else hex(unsupported)
+            )
+            msg = (
+                f"RE2 cannot preserve Python re flags ({unsupported_desc}) "
+                f"for pattern {pattern!r}. "
+                "Falling back to the standard re engine. "
+                "ReDoS protection is disabled for this pattern."
+            )
+            if re_fallback:
+                warnings.warn(msg, stacklevel=3)
+                return re.compile(pattern, flags)
+            raise re.error(
+                f"RE2 does not support Python re flags ({unsupported_desc}) "
+                f"for pattern {pattern!r}. "
+                "Use re_fallback=True to fall back to the standard re engine "
+                "(ReDoS protection will be disabled for this pattern)."
+            )
+
         options: Any = None
-        if effective_flags:
-            # Only instantiate Options when at least one supported flag is set.
-            supported = re.IGNORECASE | re.DOTALL
-            if effective_flags & supported:
+        if effective_flags & _re2_compatible:
+            # Only instantiate Options when at least one translatable flag is set.
+            if effective_flags & (re.IGNORECASE | re.DOTALL):
                 options = re2_module.Options()  # type: ignore[union-attr]
                 if effective_flags & re.IGNORECASE:
                     options.case_sensitive = False
                 if effective_flags & re.DOTALL:
                     options.dot_nl = True
-            # re.MULTILINE: RE2 treats ^ and $ as multiline by default; no action needed.
-            # Other flags (re.VERBOSE, re.LOCALE, …) have no RE2 equivalent; they are
-            # silently absent from the RE2 options, which may change behaviour.
-            # Users should set re_fallback=True when such flags are required.
+            # re.MULTILINE: RE2 default; no Options attribute needed.
 
         try:
             return re2_module.compile(pattern, options)  # type: ignore[union-attr]
-        except re2_module.error:  # type: ignore[union-attr]
+        except re2_module.error as exc:  # type: ignore[union-attr]
             if re_fallback:
                 warnings.warn(
-                    f"RE2 cannot compile pattern {pattern!r} (unsupported feature: "
-                    "backreferences or lookarounds are not supported by the RE2 engine). "
+                    f"RE2 cannot compile pattern {pattern!r}: {exc}. "
                     "Falling back to the standard re engine. "
                     "ReDoS protection is disabled for this pattern.",
                     # stacklevel 3: warnings.warn → _compile_re2 → __init__ → user code
@@ -300,7 +330,7 @@ class ValidkitHook(BaseHook):
                 "The 'validkit-py' library is required for validation. "
                 "Install it with: pip install nanasqlite[validation]"
             )
-        from .compat import validkit_validate  # noqa: F401
+        from .compat import validkit_validate
 
         self._validate_func = validkit_validate
 

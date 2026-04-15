@@ -2270,15 +2270,15 @@ class TestRE2Integration:
 
         assert isinstance(HAS_RE2, bool)
 
-    def test_hook_compiles_patterns_without_error(self, db_path):
+    def test_hook_compiles_patterns_without_error(self):
         """BaseHook compiles key_pattern with either re or re2 engine without error."""
         from nanasqlite.hooks import BaseHook
 
         patterns = [r"^user_\d+$", r"[a-z]+", r"data_\w*"]
         for pat in patterns:
             hook = BaseHook(key_pattern=pat)
-            assert hook._should_run("user_123") in [True, False]
-            assert hook._should_run("") in [True, False]
+            assert isinstance(hook._should_run("user_123"), bool)
+            assert isinstance(hook._should_run(""), bool)
 
     def test_hook_search_works_with_re2_or_re(self, db_path):
         """_should_run produces correct results for prefix/suffix patterns."""
@@ -2495,3 +2495,36 @@ class TestNewCodeCoverageV154:
             hook = BaseHook(key_pattern=None)
             assert hook._key_regex is None
             assert hook._should_run("anything") is True
+
+    # -----------------------------------------------------------------------
+    # hooks.py: RE2 unsupported-flags detection
+    # -----------------------------------------------------------------------
+
+    def test_re2_unsupported_flags_raise_without_fallback(self):
+        """re.VERBOSE is not supported by RE2; should raise re.error when re_fallback=False."""
+        import re
+
+        import pytest
+
+        pytest.importorskip("re2")
+        from nanasqlite.hooks import BaseHook
+
+        with pytest.raises(re.error, match="RE2 does not support"):
+            BaseHook(key_pattern=re.compile(r"foo  # comment", re.VERBOSE), re_fallback=False)
+
+    def test_re2_unsupported_flags_fallback_warns(self):
+        """re.VERBOSE is not supported by RE2; should warn and use re.compile when re_fallback=True."""
+        import re
+        import warnings
+
+        pytest.importorskip("re2")
+        from nanasqlite.hooks import BaseHook
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            hook = BaseHook(
+                key_pattern=re.compile(r"foo  # comment", re.VERBOSE), re_fallback=True
+            )
+        assert any("RE2 cannot preserve" in str(wi.message) for wi in w), "Expected a warning"
+        # Should still work as a standard re pattern
+        assert isinstance(hook._should_run("foo"), bool)
