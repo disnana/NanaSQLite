@@ -761,15 +761,15 @@ class TestV150Sec04ForeignKeyHookRace:
 class TestV150Sec05BaseHookRedos:
     """SEC-05: BaseHook accepts dangerous regex patterns causing ReDoS."""
 
-    def test_dangerous_regex_patterns_rejected(self, db_path):
-        """Dangerous regex patterns are detected and rejected (when RE2 is NOT available)."""
-        from nanasqlite.compat import HAS_RE2
+    def test_dangerous_regex_patterns_rejected(self, monkeypatch):
+        """Dangerous regex patterns are detected and rejected when the non-RE2 path is active."""
+        import nanasqlite.hooks as _hooks
         from nanasqlite.exceptions import NanaSQLiteValidationError
         from nanasqlite.hooks import BaseHook
 
-        if HAS_RE2:
-            # RE2 engine guarantees linear time — no need to reject patterns.
-            pytest.skip("google-re2 is installed; dangerous-pattern validation is skipped (RE2 is inherently safe)")
+        # Force the non-RE2 branch so the blacklist is exercised regardless of
+        # whether google-re2 is installed in this environment.
+        monkeypatch.setattr(_hooks, "HAS_RE2", False)
 
         dangerous_patterns = [
             "(a+)+",
@@ -2310,14 +2310,15 @@ class TestRE2Integration:
             hook = BaseHook(key_pattern=pat)  # must not raise
             assert hook._key_regex is not None
 
-    def test_redos_blacklist_still_active_without_re2(self, db_path):
+    def test_redos_blacklist_still_active_without_re2(self, monkeypatch):
         """When RE2 is NOT installed, dangerous patterns are still rejected."""
-        from nanasqlite.compat import HAS_RE2
+        import nanasqlite.hooks as _hooks
         from nanasqlite.exceptions import NanaSQLiteValidationError
         from nanasqlite.hooks import BaseHook
 
-        if HAS_RE2:
-            pytest.skip("google-re2 is installed; blacklist validation skipped")
+        # Force the non-RE2 branch so the blacklist is exercised regardless of
+        # whether google-re2 is installed in this environment.
+        monkeypatch.setattr(_hooks, "HAS_RE2", False)
 
         with pytest.raises(NanaSQLiteValidationError, match="dangerous regex pattern"):
             BaseHook(key_pattern="(a+)+")
