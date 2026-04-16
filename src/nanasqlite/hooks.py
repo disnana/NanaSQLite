@@ -20,7 +20,7 @@ class BaseHook:
     When google-re2 is installed (``pip install nanasqlite[re2]``), the RE2
     engine is used for all regex compilation and matching.  RE2 guarantees
     linear-time execution for any input, eliminating the risk of ReDoS attacks.
-    A ``logging.info`` message is emitted at module import time when RE2 is
+    A ``logging.debug`` message is emitted at module import time when RE2 is
     active (see ``nanasqlite.compat``).
 
     RE2 does not support some advanced regex features (backreferences such as
@@ -99,7 +99,9 @@ class BaseHook:
         # Flags RE2 supports natively or matches by default:
         #   re.IGNORECASE → options.case_sensitive = False
         #   re.DOTALL     → options.dot_nl = True
-        #   re.MULTILINE  → RE2 already treats ^ / $ as multiline; no action needed.
+        #   re.MULTILINE  → prepend (?m) to pattern; RE2 recognises this per-pattern
+        #                   flag and makes ^ / $ match at line boundaries, which is
+        #                   exactly Python's re.MULTILINE semantics.
         # Flags RE2 cannot reproduce (re.VERBOSE, re.LOCALE, re.ASCII, re.DEBUG, …)
         # would silently change matching semantics.  Detect them early and either
         # warn+fallback (re_fallback=True) or raise a clear error (re_fallback=False).
@@ -132,14 +134,17 @@ class BaseHook:
 
         options: Any = None
         if effective_flags & _re2_compatible:
-            # Only instantiate Options when at least one translatable flag is set.
+            # Translate MULTILINE to the per-pattern (?m) inline flag.
+            if effective_flags & re.MULTILINE:
+                pattern = "(?m)" + pattern
+            # Only instantiate Options when at least one Options-level flag is set.
             if effective_flags & (re.IGNORECASE | re.DOTALL):
                 options = re2_module.Options()  # type: ignore[union-attr]
                 if effective_flags & re.IGNORECASE:
                     options.case_sensitive = False
                 if effective_flags & re.DOTALL:
                     options.dot_nl = True
-            # re.MULTILINE: RE2 default; no Options attribute needed.
+            # re.MULTILINE: handled above via (?m) prefix; no Options attribute needed.
 
         try:
             return re2_module.compile(pattern, options)  # type: ignore[union-attr]

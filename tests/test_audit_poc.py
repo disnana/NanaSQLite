@@ -763,12 +763,12 @@ class TestV150Sec05BaseHookRedos:
 
     def test_dangerous_regex_patterns_rejected(self, monkeypatch):
         """Dangerous regex patterns are detected and rejected when the non-RE2 path is active."""
-        import nanasqlite.hooks as _hooks
         from nanasqlite.exceptions import NanaSQLiteValidationError
+        from nanasqlite.hooks import BaseHook
 
         # Force the non-RE2 branch so the blacklist is exercised regardless of
         # whether google-re2 is installed in this environment.
-        monkeypatch.setattr(_hooks, "HAS_RE2", False)
+        monkeypatch.setattr("nanasqlite.hooks.HAS_RE2", False)
 
         dangerous_patterns = [
             "(a+)+",
@@ -779,7 +779,7 @@ class TestV150Sec05BaseHookRedos:
 
         for pattern in dangerous_patterns:
             with pytest.raises(NanaSQLiteValidationError, match="dangerous regex pattern"):
-                _hooks.BaseHook(key_pattern=pattern)
+                BaseHook(key_pattern=pattern)
 
     def test_safe_regex_patterns_accepted(self, db_path):
         """Safe regex patterns are still accepted."""
@@ -2287,7 +2287,7 @@ class TestRE2Integration:
             assert isinstance(hook._should_run("user_123"), bool)
             assert isinstance(hook._should_run(""), bool)
 
-    def test_hook_search_works_with_re2_or_re(self, db_path):
+    def test_hook_search_works_with_re2_or_re(self):
         """_should_run produces correct results for prefix/suffix patterns."""
         from nanasqlite.hooks import BaseHook
 
@@ -2295,7 +2295,7 @@ class TestRE2Integration:
         assert hook._should_run("user_1") is True
         assert hook._should_run("admin_1") is False
 
-    def test_re2_dangerous_patterns_accepted_when_re2_available(self, db_path):
+    def test_re2_dangerous_patterns_accepted_when_re2_available(self):
         """When RE2 is available, patterns that would fail blacklist are accepted (RE2 is safe)."""
         from nanasqlite.compat import HAS_RE2
         from nanasqlite.hooks import BaseHook
@@ -2311,15 +2311,15 @@ class TestRE2Integration:
 
     def test_redos_blacklist_still_active_without_re2(self, monkeypatch):
         """When RE2 is NOT installed, dangerous patterns are still rejected."""
-        import nanasqlite.hooks as _hooks
         from nanasqlite.exceptions import NanaSQLiteValidationError
+        from nanasqlite.hooks import BaseHook
 
         # Force the non-RE2 branch so the blacklist is exercised regardless of
         # whether google-re2 is installed in this environment.
-        monkeypatch.setattr(_hooks, "HAS_RE2", False)
+        monkeypatch.setattr("nanasqlite.hooks.HAS_RE2", False)
 
         with pytest.raises(NanaSQLiteValidationError, match="dangerous regex pattern"):
-            _hooks.BaseHook(key_pattern="(a+)+")
+            BaseHook(key_pattern="(a+)+")
 
     def test_re2_module_exported_from_compat(self):
         """re2_module is None when not installed, or a module when installed."""
@@ -2375,6 +2375,23 @@ class TestNewCodeCoverageV154:
         assert hook._should_run("admin_1") is True
         assert hook._should_run("ADMIN_1") is True   # IGNORECASE must be honoured
         assert hook._should_run("user_1") is False
+
+    def test_basehook_re2_multiline_flag_preserved(self):
+        """RE2 branch: re.MULTILINE is translated to (?m) so ^ / $ match at line boundaries."""
+        import re
+
+        pytest.importorskip("re2")
+        from nanasqlite.hooks import BaseHook
+
+        # With MULTILINE, ^user_ should match at the start of any line.
+        compiled = re.compile(r"^user_", re.MULTILINE)
+        hook = BaseHook(key_pattern=compiled)
+        # Matches at start of the string
+        assert hook._should_run("user_1") is True
+        # Matches at the start of a second line (requires MULTILINE / (?m))
+        assert hook._should_run("other\nuser_1") is True
+        # Does not match when no line starts with "user_"
+        assert hook._should_run("admin_1") is False
 
     def test_basehook_re2_none_pattern(self):
         """RE2 branch: None key_pattern leaves _key_regex as None."""

@@ -21,7 +21,7 @@
 - **SEC-06 opt-in: `google-re2` による ReDoS 対策強化**（`compat.py`, `hooks.py`, `pyproject.toml`）
   - `pip install nanasqlite[re2]` で `google-re2`（RE2 エンジン）をインストールすると、`BaseHook` のすべての正規表現コンパイルおよびマッチングに RE2 エンジンが使用されます。
   - RE2 エンジンは線形時間計算量を保証するため、どんなパターンでも ReDoS 攻撃が不可能になります。
-  - RE2 利用時は `logging.info` でメッセージを出力します（`nanasqlite.compat` ロガー）。
+  - RE2 利用時は `logging.debug` でメッセージを出力します（`nanasqlite.compat` ロガー）。
   - RE2 非インストール時は従来通りの危険パターンブラックリスト検証が機能します。
   - `pyproject.toml` に `re2 = ["google-re2>=1.1"]` オプション依存と `all` extras への追加。
   - `dev` extras にも `google-re2>=1.1` を追加し、CI テストで実際の RE2 エンジンを使用するよう変更。
@@ -1273,7 +1273,7 @@
 
 - **SEC-06 opt-in: `google-re2` ReDoS protection** (`compat.py`, `hooks.py`, `pyproject.toml`)
   - Installing `pip install nanasqlite[re2]` enables the RE2 engine for all regex compilation and matching in `BaseHook`. RE2 guarantees linear-time execution for any input, making ReDoS attacks impossible.
-  - A `logging.info` message is emitted at import time when RE2 is active (`nanasqlite.compat` logger).
+  - A `logging.debug` message is emitted at import time when RE2 is active (`nanasqlite.compat` logger).
   - Without RE2, the existing dangerous-pattern blacklist validation continues to function.
   - Added `re2 = ["google-re2>=1.1"]` optional dependency to `pyproject.toml` and included it in `all`.
   - Added `google-re2>=1.1` to `dev` extras so that CI tests run with the real RE2 engine.
