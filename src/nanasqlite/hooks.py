@@ -8,7 +8,6 @@ from typing import Any, Callable
 
 from .compat import HAS_RE2, HAS_VALIDKIT, re2_module
 from .exceptions import NanaSQLiteValidationError
-from .protocols import NanaHook as NanaHook
 
 _logger = logging.getLogger(__name__)
 
