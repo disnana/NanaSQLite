@@ -56,7 +56,7 @@ class BaseHook:
             elif isinstance(key_pattern, Pattern):
                 # Preserve the original flags (IGNORECASE, MULTILINE, etc.) when
                 # re-compiling with RE2.  If RE2 does not support a given flag it
-                # will raise re2.Error, which is handled by the re_fallback logic.
+                # will raise re2.error, which is handled by the re_fallback logic.
                 self._key_regex = self._compile_re2(
                     key_pattern.pattern, re_fallback, flags=key_pattern.flags
                 )
