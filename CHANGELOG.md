@@ -6,6 +6,45 @@
 
 ## 日本語
 
+### [1.5.4] - 2026-04-11
+
+#### セキュリティ修正
+
+- **SEC-05: `UniqueHook` TOCTOU 競合状態の修正**（`core.py`, `hooks.py`）
+  - `__setitem__` において `before_write` フックの呼び出しをロックの外側で行っていたため、マルチスレッド環境で UniqueHook の一意性チェックと DB 書き込みの間に別スレッドが割り込む TOCTOU 競合が発生していました。
+  - 非 v2 モードでは `__setitem__` の `before_write` および `__delitem__` の `before_delete` の呼び出しを `_acquire_lock()` の内側に移動し、一意性チェック・削除前チェックと DB 更新をアトミックに実行するよう修正しました。`self._lock` は `threading.RLock` のためフックからの再入呼び出しでもデッドロックは発生しません。
+  - UniqueHook の docstring を更新し「WARNING」を削除して修正済みの動作を記載しました（SEC-03 → SEC-05）。
+  - v2 モードでは非同期フラッシュ構造上の制約があるため、v2 モードでの厳格な一意制約には SQLite UNIQUE 制約の使用を推奨します。
+
+#### セキュリティ強化
+
+- **SEC-06 opt-in: `google-re2` による ReDoS 対策強化**（`compat.py`, `hooks.py`, `pyproject.toml`）
+  - `pip install nanasqlite[re2]` で `google-re2`（RE2 エンジン）をインストールすると、`BaseHook` のすべての正規表現コンパイルおよびマッチングに RE2 エンジンが使用されます。
+  - RE2 エンジンは線形時間計算量を保証するため、どんなパターンでも ReDoS 攻撃が不可能になります。
+  - RE2 利用時は `logging.debug` でメッセージを出力します（`nanasqlite.compat` ロガー）。
+  - RE2 非インストール時は従来通りの危険パターンブラックリスト検証が機能します。
+  - `pyproject.toml` に `re2 = ["google-re2>=1.1"]` オプション依存と `all` extras への追加。
+  - `dev` extras にも `google-re2>=1.1` を追加し、CI テストで実際の RE2 エンジンを使用するよう変更。
+  - エラーメッセージを更新し `pip install nanasqlite[re2]` への案内を追記。
+  - **`re_fallback` パラメータを `BaseHook` に追加**: RE2 が対応していないパターン（後方参照 `(\w)\1`、先読み `(?=...)` 等）を使用した場合のフォールバック動作を制御。
+    - `re_fallback=False`（デフォルト）: RE2 の `re2.Error` をそのまま伝播させ、ReDoS 保護を維持。
+    - `re_fallback=True`: `warnings.warn` を出力した上で標準 `re` エンジンにフォールバック。このパターンでは ReDoS 保護が無効になります。
+
+#### コード品質改善
+
+- **QUAL-10: `compat.py` — `validkit_validate = None` をダミー関数に変更**（`compat.py`）
+  - `validkit-py` 未インストール時に `validkit_validate` が `None` のままだと呼び出し時に不明瞭な `TypeError` が発生していました。`ImportError` を送出するスタブ関数に変更し、エラーメッセージが明確になるよう改善しました。
+
+#### テスト追加
+
+- `tests/test_audit_poc.py`:
+  - `TestSec05UniqueHookTOCTOUFix`: TOCTOU 修正を検証するテスト（並行書き込み、ロック内フック実行確認、自己更新テスト）を追加
+  - `TestRE2Integration`: google-re2 統合テスト（`HAS_RE2` フラグ、パターンコンパイル、RE2 危険パターン許容、RE2 なし時のブラックリスト維持）を追加
+  - `TestV150Sec03UniqueHookRace`: docstring 検証を旧「WARNING」から新「SEC-05/RLock」記述に更新
+  - `TestV150Sec05BaseHookRedos`: RE2 インストール時でも `HAS_RE2 = False` を強制して非 RE2 経路のブラックリスト検証を行うよう更新
+
+---
+
 ### [1.5.3] - 2026-04-08
 
 #### パフォーマンス改善
@@ -1219,6 +1258,44 @@
 
 
 ## English
+
+### [1.5.4] - 2026-04-11
+
+#### Security Fixes
+
+- **SEC-05: Fixed TOCTOU race condition in `UniqueHook`** (`core.py`, `hooks.py`)
+  - `before_write` hooks in `__setitem__` and `before_delete` hooks in `__delitem__` were called outside the `_acquire_lock()` context, allowing a race window where two concurrent threads could both pass the uniqueness check and write duplicate values, or a pre-delete consistency check could be violated by a concurrent operation.
+  - In non-v2 mode, both the `before_write` and `before_delete` invocations are now inside the `_acquire_lock()` block, making the hook check and the DB write/delete atomic. Since `self._lock` is a `threading.RLock`, reentrant calls from hooks (e.g., `db.items()`) do not deadlock.
+  - Updated `UniqueHook` docstring: removed the old `WARNING` and described the fix (SEC-03 → SEC-05).
+  - v2 mode is unaffected (asynchronous flush architecture); use SQLite UNIQUE constraints for strict uniqueness in v2 mode.
+
+#### Security Enhancement
+
+- **SEC-06 opt-in: `google-re2` ReDoS protection** (`compat.py`, `hooks.py`, `pyproject.toml`)
+  - Installing `pip install nanasqlite[re2]` enables the RE2 engine for all regex compilation and matching in `BaseHook`. RE2 guarantees linear-time execution for any input, making ReDoS attacks impossible.
+  - A `logging.debug` message is emitted at import time when RE2 is active (`nanasqlite.compat` logger).
+  - Without RE2, the existing dangerous-pattern blacklist validation continues to function.
+  - Added `re2 = ["google-re2>=1.1"]` optional dependency to `pyproject.toml` and included it in `all`.
+  - Added `google-re2>=1.1` to `dev` extras so that CI tests run with the real RE2 engine.
+  - Updated error message in `_validate_regex_pattern` to suggest `pip install nanasqlite[re2]`.
+  - **Added `re_fallback` parameter to `BaseHook`**: controls fallback behaviour when RE2 rejects a pattern (e.g. backreferences `(\w)\1`, lookarounds `(?=...)`).
+    - `re_fallback=False` (default): propagates `re2.Error` unchanged; ReDoS protection is fully maintained.
+    - `re_fallback=True`: emits `warnings.warn` and falls back to the standard `re` engine; ReDoS protection is disabled for that pattern.
+
+#### Code Quality
+
+- **QUAL-10: `compat.py` — replace `validkit_validate = None` with a stub function** (`compat.py`)
+  - When `validkit-py` is not installed, `validkit_validate = None` caused a confusing `TypeError: 'NoneType' object is not callable`. Changed to a stub that raises `ImportError` with a clear installation message.
+
+#### Tests
+
+- `tests/test_audit_poc.py`:
+  - Added `TestSec05UniqueHookTOCTOUFix`: concurrent-write test, lock-inspection test, self-update test
+  - Added `TestRE2Integration`: `HAS_RE2` flag, pattern compilation, RE2 safe patterns, and fallback blacklist
+  - Updated `TestV150Sec03UniqueHookRace`: docstring assertions updated to match the SEC-05 fix
+  - Updated `TestV150Sec05BaseHookRedos`: force the non-RE2 path via `monkeypatch.setattr("nanasqlite.hooks.HAS_RE2", False)` so blacklist validation still runs even when RE2 is installed
+
+---
 
 ### [1.5.3] - 2026-04-08
 

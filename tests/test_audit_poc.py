@@ -671,16 +671,16 @@ class TestV141Bug01UpsertAttributeError:
 # SEC-03 [Critical]: UniqueHook TOCTOU Race Condition
 # ===========================================================================
 class TestV150Sec03UniqueHookRace:
-    """SEC-03: UniqueHook has TOCTOU race condition in multi-threaded environments."""
+    """SEC-03/SEC-05: UniqueHook TOCTOU race condition — fixed in v1.5.4."""
 
-    def test_unique_hook_race_condition_documented(self, db_path):
-        """UniqueHook class has proper warning documentation about race conditions."""
+    def test_unique_hook_race_condition_fixed_documented(self, db_path):
+        """UniqueHook docstring describes the SEC-05 fix (TOCTOU resolved in non-v2 mode)."""
         from nanasqlite.hooks import UniqueHook
 
-        # Check that the class docstring contains race condition warning
-        assert "TOCTOU race condition" in UniqueHook.__doc__
-        assert "WARNING" in UniqueHook.__doc__
+        # The old WARNING is gone; the docstring now describes the fix.
+        assert "SEC-05" in UniqueHook.__doc__
         assert "SEC-03" in UniqueHook.__doc__
+        assert "RLock" in UniqueHook.__doc__
 
     def test_unique_hook_single_threaded_works(self, db_path):
         """UniqueHook works correctly in single-threaded scenarios."""
@@ -761,10 +761,14 @@ class TestV150Sec04ForeignKeyHookRace:
 class TestV150Sec05BaseHookRedos:
     """SEC-05: BaseHook accepts dangerous regex patterns causing ReDoS."""
 
-    def test_dangerous_regex_patterns_rejected(self, db_path):
-        """Dangerous regex patterns are detected and rejected."""
+    def test_dangerous_regex_patterns_rejected(self, monkeypatch):
+        """Dangerous regex patterns are detected and rejected when the non-RE2 path is active."""
         from nanasqlite.exceptions import NanaSQLiteValidationError
         from nanasqlite.hooks import BaseHook
+
+        # Force the non-RE2 branch so the blacklist is exercised regardless of
+        # whether google-re2 is installed in this environment.
+        monkeypatch.setattr("nanasqlite.hooks.HAS_RE2", False)
 
         dangerous_patterns = [
             "(a+)+",
@@ -2144,3 +2148,411 @@ class TestCodeQLExceptOSErrorHasComment:
             assert db._db_stat_key is None
         finally:
             db.close()
+
+
+# ===========================================================================
+# SEC-05 [High]: UniqueHook TOCTOU Fix (v1.5.4)
+# ===========================================================================
+class TestSec05UniqueHookTOCTOUFix:
+    """SEC-05: UniqueHook TOCTOU race condition is fixed in non-v2 mode (v1.5.4).
+
+    The fix moves before_write hook calls inside the RLock in __setitem__,
+    so that the uniqueness check and the DB write are atomic.
+    """
+
+    def test_unique_hook_concurrent_writes_prevent_duplicate(self, db_path):
+        """Concurrent writes with UniqueHook reject duplicates (TOCTOU fix)."""
+        import threading
+
+        from nanasqlite import NanaSQLite
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        db.add_hook(UniqueHook("email"))
+
+        try:
+            validation_errors = []
+            unexpected_errors = []
+            successes = []
+
+            def write_user(key: str, email: str) -> None:
+                try:
+                    db[key] = {"email": email, "name": key}
+                    successes.append(key)
+                except NanaSQLiteValidationError as exc:
+                    validation_errors.append((key, str(exc)))
+                except Exception as exc:
+                    unexpected_errors.append((key, type(exc).__name__, str(exc)))
+
+            # Fire 5 concurrent threads, each trying to write the same email
+            threads = [threading.Thread(target=write_user, args=(f"user{i}", "same@example.com")) for i in range(5)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+            # No unexpected errors (e.g. DB errors) should have occurred
+            assert not unexpected_errors, f"Unexpected errors: {unexpected_errors}"
+            # Exactly one write must succeed
+            assert len(successes) == 1, f"Expected 1 success, got {len(successes)}: {successes}"
+            # All failures must be the expected validation error
+            assert len(validation_errors) == 4, (
+                f"Expected 4 validation errors, got {len(validation_errors)}: {validation_errors}"
+            )
+        finally:
+            db.close()
+
+    def test_before_write_hook_called_inside_lock(self, db_path):
+        """Verify hooks are invoked within the RLock context (non-v2 mode)."""
+        from contextlib import contextmanager
+        from unittest.mock import patch
+
+        from nanasqlite import NanaSQLite
+
+        lock_held_during_hook: list[bool] = []
+        # Mutable container so the inner class can update it without 'nonlocal'
+        in_lock_ref: list[bool] = [False]
+
+        class LockInspectHook:
+            def before_write(self, db: NanaSQLite, key: str, value: object) -> object:
+                lock_held_during_hook.append(in_lock_ref[0])
+                return value
+
+            def after_read(self, db: object, key: str, value: object) -> object:
+                return value
+
+            def before_delete(self, db: object, key: str) -> None:
+                pass
+
+        db = NanaSQLite(db_path)
+        db.add_hook(LockInspectHook())  # type: ignore[arg-type]
+
+        # Wrap _acquire_lock so we can set in_lock_ref while inside the context
+        original_acquire_lock = db._acquire_lock
+
+        @contextmanager  # type: ignore[misc]
+        def tracking_acquire_lock():
+            in_lock_ref[0] = True
+            try:
+                with original_acquire_lock():
+                    yield
+            finally:
+                in_lock_ref[0] = False
+
+        try:
+            with patch.object(db, "_acquire_lock", tracking_acquire_lock):
+                db["k"] = "v"
+        finally:
+            db.close()
+
+        assert lock_held_during_hook, "Hook was never called"
+        assert all(lock_held_during_hook), "Lock was NOT held during hook execution"
+
+    def test_unique_hook_self_update_still_allowed(self, db_path):
+        """Updating a key with the same unique value (self-update) must not raise."""
+        from nanasqlite import NanaSQLite
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        try:
+            db.add_hook(UniqueHook("email"))
+
+            db["user1"] = {"email": "alice@example.com"}
+            # Self-update: same key, same email — must succeed
+            db["user1"] = {"email": "alice@example.com", "updated": True}
+            assert db["user1"]["updated"] is True
+        finally:
+            db.close()
+
+
+# ===========================================================================
+# RE2-01: Optional google-re2 Integration
+# ===========================================================================
+class TestRE2Integration:
+    """Verify optional google-re2 integration in BaseHook."""
+
+    def test_has_re2_flag_is_bool(self):
+        """HAS_RE2 flag is always a bool regardless of whether re2 is installed."""
+        from nanasqlite.compat import HAS_RE2
+
+        assert isinstance(HAS_RE2, bool)
+
+    def test_hook_compiles_patterns_without_error(self):
+        """BaseHook compiles key_pattern with either re or re2 engine without error."""
+        from nanasqlite.hooks import BaseHook
+
+        patterns = [r"^user_\d+$", r"[a-z]+", r"data_\w*"]
+        for pat in patterns:
+            hook = BaseHook(key_pattern=pat)
+            assert isinstance(hook._should_run("user_123"), bool)
+            assert isinstance(hook._should_run(""), bool)
+
+    def test_hook_search_works_with_re2_or_re(self):
+        """_should_run produces correct results for prefix/suffix patterns."""
+        from nanasqlite.hooks import BaseHook
+
+        hook = BaseHook(key_pattern=r"^user_")
+        assert hook._should_run("user_1") is True
+        assert hook._should_run("admin_1") is False
+
+    def test_re2_dangerous_patterns_accepted_when_re2_available(self):
+        """When RE2 is available, patterns that would fail blacklist are accepted (RE2 is safe)."""
+        from nanasqlite.compat import HAS_RE2
+        from nanasqlite.hooks import BaseHook
+
+        if not HAS_RE2:
+            pytest.skip("google-re2 not installed")
+
+        # These patterns would be rejected by the blacklist but are safe with RE2
+        patterns = ["(a+)+", "(a*)*", "(a|b)*"]
+        for pat in patterns:
+            hook = BaseHook(key_pattern=pat)  # must not raise
+            assert hook._key_regex is not None
+
+    def test_redos_blacklist_still_active_without_re2(self, monkeypatch):
+        """When RE2 is NOT installed, dangerous patterns are still rejected."""
+        from nanasqlite.exceptions import NanaSQLiteValidationError
+        from nanasqlite.hooks import BaseHook
+
+        # Force the non-RE2 branch so the blacklist is exercised regardless of
+        # whether google-re2 is installed in this environment.
+        monkeypatch.setattr("nanasqlite.hooks.HAS_RE2", False)
+
+        with pytest.raises(NanaSQLiteValidationError, match="dangerous regex pattern"):
+            BaseHook(key_pattern="(a+)+")
+
+    def test_re2_module_exported_from_compat(self):
+        """re2_module is None when not installed, or a module when installed."""
+        from nanasqlite.compat import HAS_RE2, re2_module
+
+        if HAS_RE2:
+            assert re2_module is not None
+            # Must have basic re-compatible API
+            assert hasattr(re2_module, "compile")
+            assert hasattr(re2_module, "search")
+        else:
+            assert re2_module is None
+
+
+# ===========================================================================
+# Coverage: v1.5.4 new code paths (RE2 available + validkit absent branches)
+# ===========================================================================
+class TestNewCodeCoverageV154:
+    """Targeted tests for 100% coverage on new code added in v1.5.4.
+
+    google-re2 is included in the dev extras (``pip install nanasqlite[dev]``),
+    so RE2 code paths are exercised with the real engine instead of mocks.
+    Tests are guarded with ``pytest.importorskip("re2")`` to remain skippable
+    in minimal environments.
+
+    The validkit-py stub body is covered by temporarily blocking the validkit
+    import so the except-block executes and the stub is callable.
+    """
+
+    # -----------------------------------------------------------------------
+    # hooks.py: RE2 available branch – real google-re2 engine
+    # -----------------------------------------------------------------------
+
+    def test_basehook_re2_str_pattern(self):
+        """RE2 branch: str key_pattern compiled via the real google-re2 engine."""
+        pytest.importorskip("re2")
+        from nanasqlite.hooks import BaseHook
+
+        hook = BaseHook(key_pattern=r"^user_\d+$")
+        assert hook._should_run("user_123") is True
+        assert hook._should_run("admin_1") is False
+
+    def test_basehook_re2_compiled_pattern(self):
+        """RE2 branch: compiled re.Pattern input re-compiled by real google-re2, flags preserved."""
+        import re
+
+        pytest.importorskip("re2")
+        from nanasqlite.hooks import BaseHook
+
+        compiled = re.compile(r"^admin_", re.IGNORECASE)
+        hook = BaseHook(key_pattern=compiled)
+        # flags=re.IGNORECASE must be preserved after RE2 re-compilation
+        assert hook._should_run("admin_1") is True
+        assert hook._should_run("ADMIN_1") is True   # IGNORECASE must be honoured
+        assert hook._should_run("user_1") is False
+
+    def test_basehook_re2_multiline_flag_preserved(self):
+        """RE2 branch: re.MULTILINE is translated to (?m) so ^ / $ match at line boundaries."""
+        import re
+
+        pytest.importorskip("re2")
+        from nanasqlite.hooks import BaseHook
+
+        # With MULTILINE, ^user_ should match at the start of any line.
+        compiled = re.compile(r"^user_", re.MULTILINE)
+        hook = BaseHook(key_pattern=compiled)
+        # Matches at start of the string
+        assert hook._should_run("user_1") is True
+        # Matches at the start of a second line (requires MULTILINE / (?m))
+        assert hook._should_run("other\nuser_1") is True
+        # Does not match when no line starts with "user_"
+        assert hook._should_run("admin_1") is False
+
+    def test_basehook_re2_none_pattern(self):
+        """RE2 branch: None key_pattern leaves _key_regex as None."""
+        pytest.importorskip("re2")
+        from nanasqlite.hooks import BaseHook
+
+        hook = BaseHook(key_pattern=None)
+        assert hook._key_regex is None
+        assert hook._should_run("anything") is True
+
+    # -----------------------------------------------------------------------
+    # hooks.py: re_fallback parameter (new in v1.5.4)
+    # -----------------------------------------------------------------------
+
+    def test_basehook_re2_unsupported_raises_without_fallback(self):
+        """RE2 rejects backreferences; re_fallback=False (default) propagates the error."""
+        re2 = pytest.importorskip("re2")
+        from nanasqlite.hooks import BaseHook
+
+        with pytest.raises(re2.error):
+            BaseHook(key_pattern=r"(\w)\1")  # backreference – unsupported by RE2
+
+    def test_basehook_re2_unsupported_fallback_warns_and_works(self):
+        """re_fallback=True emits a warning and falls back to std re."""
+        pytest.importorskip("re2")
+        from nanasqlite.hooks import BaseHook
+
+        with pytest.warns(UserWarning, match="Falling back to the standard re engine"):
+            hook = BaseHook(key_pattern=r"(\w)\1", re_fallback=True)
+        # Pattern still works via std re
+        assert hook._should_run("aa") is True
+        assert hook._should_run("ab") is False
+
+    def test_basehook_re2_lookahead_fallback(self):
+        """Lookaheads trigger the re_fallback warning and work via std re."""
+        pytest.importorskip("re2")
+        from nanasqlite.hooks import BaseHook
+
+        with pytest.warns(UserWarning, match="Falling back to the standard re engine"):
+            hook = BaseHook(key_pattern=r"foo(?=bar)", re_fallback=True)
+        assert hook._should_run("foobar") is True
+        assert hook._should_run("foobaz") is False
+
+    def test_basehook_re2_supported_pattern_no_warning_with_fallback(self):
+        """re_fallback=True does NOT warn when the pattern is valid RE2."""
+        import warnings
+
+        pytest.importorskip("re2")
+        from nanasqlite.hooks import BaseHook
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # any warning fails the test
+            hook = BaseHook(key_pattern=r"^item_\d+$", re_fallback=True)
+        assert hook._should_run("item_1") is True
+
+    # -----------------------------------------------------------------------
+    # compat.py: RE2 branch verified via real installation
+    # -----------------------------------------------------------------------
+
+    def test_compat_has_re2_true(self):
+        """compat.HAS_RE2 is True because google-re2 is in dev extras."""
+        import importlib
+
+        pytest.importorskip("re2")
+        compat_mod = importlib.import_module("nanasqlite.compat")
+        assert compat_mod.HAS_RE2 is True
+        assert compat_mod.re2_module is not None
+
+    # -----------------------------------------------------------------------
+    # compat.py: validkit except-block (HAS_VALIDKIT=False, stub def, stub body)
+    # -----------------------------------------------------------------------
+
+    def test_compat_validkit_stub_def_and_call_coverage(self):
+        """Cover compat.py validkit except-block and stub body."""
+        import importlib
+        import sys
+        import types
+
+        compat_mod = importlib.import_module("nanasqlite.compat")
+
+        _ABSENT = object()
+        validkit_backup = sys.modules.get("validkit", _ABSENT)
+
+        # Provide a real module object without ``validate`` so that
+        # ``from validkit import validate`` raises ImportError (reliably),
+        # rather than setting None which the import system treats as a
+        # failed import and may raise non-ImportError in some implementations.
+        sys.modules["validkit"] = types.ModuleType("validkit")
+
+        try:
+            importlib.reload(compat_mod)
+            assert compat_mod.HAS_VALIDKIT is False
+
+            # Call the stub to cover the raise ImportError line
+            with pytest.raises(ImportError, match="validkit-py is not installed"):
+                compat_mod.validkit_validate()
+        finally:
+            if validkit_backup is _ABSENT:
+                sys.modules.pop("validkit", None)
+            else:
+                sys.modules["validkit"] = validkit_backup  # type: ignore[assignment]
+            # Restore compat to the environment's normal import state after cleanup.
+            importlib.reload(compat_mod)
+
+    # -----------------------------------------------------------------------
+    # hooks.py: non-RE2 branch – Pattern and None inputs
+    # -----------------------------------------------------------------------
+
+    def test_basehook_no_re2_compiled_pattern_coverage(self):
+        """Cover hooks.py non-RE2 elif Pattern branch."""
+        import re
+        from unittest.mock import patch
+
+        from nanasqlite.hooks import BaseHook
+
+        compiled = re.compile(r"^admin_")
+        with patch("nanasqlite.hooks.HAS_RE2", False):
+            hook = BaseHook(key_pattern=compiled)
+            assert hook._should_run("admin_1") is True
+            assert hook._should_run("user_1") is False
+
+    def test_basehook_no_re2_none_pattern_coverage(self):
+        """Cover hooks.py non-RE2 else branch: None key_pattern."""
+        from unittest.mock import patch
+
+        from nanasqlite.hooks import BaseHook
+
+        with patch("nanasqlite.hooks.HAS_RE2", False):
+            hook = BaseHook(key_pattern=None)
+            assert hook._key_regex is None
+            assert hook._should_run("anything") is True
+
+    # -----------------------------------------------------------------------
+    # hooks.py: RE2 unsupported-flags detection
+    # -----------------------------------------------------------------------
+
+    def test_re2_unsupported_flags_raise_without_fallback(self):
+        """re.VERBOSE is not supported by RE2; should raise re.error when re_fallback=False."""
+        import re
+
+        import pytest
+
+        pytest.importorskip("re2")
+        from nanasqlite.hooks import BaseHook
+
+        with pytest.raises(re.error, match="RE2 does not support"):
+            BaseHook(key_pattern=re.compile(r"foo  # comment", re.VERBOSE), re_fallback=False)
+
+    def test_re2_unsupported_flags_fallback_warns(self):
+        """re.VERBOSE is not supported by RE2; should warn and use re.compile when re_fallback=True."""
+        import re
+        import warnings
+
+        pytest.importorskip("re2")
+        from nanasqlite.hooks import BaseHook
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            hook = BaseHook(
+                key_pattern=re.compile(r"foo  # comment", re.VERBOSE), re_fallback=True
+            )
+        assert any("RE2 cannot preserve" in str(wi.message) for wi in w), "Expected a warning"
+        # Should still work as a standard re pattern
+        assert isinstance(hook._should_run("foo"), bool)

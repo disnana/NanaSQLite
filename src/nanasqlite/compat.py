@@ -26,7 +26,13 @@ try:
     from validkit import validate as validkit_validate  # noqa: F401
 except ImportError:
     HAS_VALIDKIT = False
-    validkit_validate = None  # type: ignore
+
+    def validkit_validate(*args: Any, **kwargs: Any) -> None:  # type: ignore[misc]
+        """Stub raised when validkit-py is not installed."""
+        raise ImportError(
+            "validkit-py is not installed. "
+            "Install it with: pip install nanasqlite[validation]"
+        )
 
 # Optional orjson
 try:
@@ -36,6 +42,21 @@ try:
 except ImportError:
     orjson = None  # type: ignore
     HAS_ORJSON = False
+
+# Optional google-re2 (linear-time regex engine, prevents ReDoS)
+# Install with: pip install nanasqlite[re2]
+try:
+    import re2 as _re2_module  # type: ignore[import-untyped]
+
+    HAS_RE2 = True
+    re2_module = _re2_module
+    logger.debug(
+        "NanaSQLite: google-re2 is available. "
+        "Regex operations in hooks will use the RE2 engine (linear-time complexity, ReDoS-safe)."
+    )
+except ImportError:
+    HAS_RE2 = False
+    re2_module = None  # type: ignore[assignment]
 
 # Identifier pattern
 IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_]\w*$")
