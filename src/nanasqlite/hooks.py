@@ -133,10 +133,15 @@ class BaseHook:
             )
 
         options: Any = None
+        # Use a separate variable for the RE2 compile attempt so that the (?m)
+        # prefix is never applied to ``pattern`` itself.  The original ``pattern``
+        # is preserved for fallback re.compile() calls and warning/error messages.
+        re2_pattern = pattern
         if effective_flags & _re2_compatible:
             # Translate MULTILINE to the per-pattern (?m) inline flag.
+            # Apply only to the RE2-specific copy; do NOT mutate ``pattern``.
             if effective_flags & re.MULTILINE:
-                pattern = "(?m)" + pattern
+                re2_pattern = "(?m)" + pattern
             # Only instantiate Options when at least one Options-level flag is set.
             if effective_flags & (re.IGNORECASE | re.DOTALL):
                 options = re2_module.Options()  # type: ignore[union-attr]
@@ -147,7 +152,7 @@ class BaseHook:
             # re.MULTILINE: handled above via (?m) prefix; no Options attribute needed.
 
         try:
-            return re2_module.compile(pattern, options)  # type: ignore[union-attr]
+            return re2_module.compile(re2_pattern, options)  # type: ignore[union-attr]
         except re2_module.error as exc:  # type: ignore[union-attr]
             if re_fallback:
                 warnings.warn(

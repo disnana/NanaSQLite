@@ -12,7 +12,7 @@
 
 - **SEC-05: `UniqueHook` TOCTOU 競合状態の修正**（`core.py`, `hooks.py`）
   - `__setitem__` において `before_write` フックの呼び出しをロックの外側で行っていたため、マルチスレッド環境で UniqueHook の一意性チェックと DB 書き込みの間に別スレッドが割り込む TOCTOU 競合が発生していました。
-  - 非 v2 モードでは `before_write` の呼び出しを `_acquire_lock()` の内側に移動し、一意性チェックと DB 書き込みをアトミックに実行するよう修正しました。`self._lock` は `threading.RLock` のためフックからの再入呼び出しでもデッドロックは発生しません。
+  - 非 v2 モードでは `__setitem__` の `before_write` および `__delitem__` の `before_delete` の呼び出しを `_acquire_lock()` の内側に移動し、一意性チェック・削除前チェックと DB 更新をアトミックに実行するよう修正しました。`self._lock` は `threading.RLock` のためフックからの再入呼び出しでもデッドロックは発生しません。
   - UniqueHook の docstring を更新し「WARNING」を削除して修正済みの動作を記載しました（SEC-03 → SEC-05）。
   - v2 モードでは非同期フラッシュ構造上の制約があるため、v2 モードでの厳格な一意制約には SQLite UNIQUE 制約の使用を推奨します。
 
@@ -41,7 +41,7 @@
   - `TestSec05UniqueHookTOCTOUFix`: TOCTOU 修正を検証するテスト（並行書き込み、ロック内フック実行確認、自己更新テスト）を追加
   - `TestRE2Integration`: google-re2 統合テスト（`HAS_RE2` フラグ、パターンコンパイル、RE2 危険パターン許容、RE2 なし時のブラックリスト維持）を追加
   - `TestV150Sec03UniqueHookRace`: docstring 検証を旧「WARNING」から新「SEC-05/RLock」記述に更新
-  - `TestV150Sec05BaseHookRedos`: RE2 インストール時のスキップを追加
+  - `TestV150Sec05BaseHookRedos`: RE2 インストール時でも `HAS_RE2 = False` を強制して非 RE2 経路のブラックリスト検証を行うよう更新
 
 ---
 
@@ -1264,8 +1264,8 @@
 #### Security Fixes
 
 - **SEC-05: Fixed TOCTOU race condition in `UniqueHook`** (`core.py`, `hooks.py`)
-  - `before_write` hooks were called outside the `_acquire_lock()` context in `__setitem__`, allowing a race window where two concurrent threads could both pass the uniqueness check and write duplicate values.
-  - In non-v2 mode, the `before_write` invocation is now inside the `_acquire_lock()` block, making the uniqueness check and the DB write atomic. Since `self._lock` is a `threading.RLock`, reentrant calls from hooks (e.g., `db.items()`) do not deadlock.
+  - `before_write` hooks in `__setitem__` and `before_delete` hooks in `__delitem__` were called outside the `_acquire_lock()` context, allowing a race window where two concurrent threads could both pass the uniqueness check and write duplicate values, or a pre-delete consistency check could be violated by a concurrent operation.
+  - In non-v2 mode, both the `before_write` and `before_delete` invocations are now inside the `_acquire_lock()` block, making the hook check and the DB write/delete atomic. Since `self._lock` is a `threading.RLock`, reentrant calls from hooks (e.g., `db.items()`) do not deadlock.
   - Updated `UniqueHook` docstring: removed the old `WARNING` and described the fix (SEC-03 → SEC-05).
   - v2 mode is unaffected (asynchronous flush architecture); use SQLite UNIQUE constraints for strict uniqueness in v2 mode.
 
@@ -1293,7 +1293,7 @@
   - Added `TestSec05UniqueHookTOCTOUFix`: concurrent-write test, lock-inspection test, self-update test
   - Added `TestRE2Integration`: `HAS_RE2` flag, pattern compilation, RE2 safe patterns, and fallback blacklist
   - Updated `TestV150Sec03UniqueHookRace`: docstring assertions updated to match the SEC-05 fix
-  - Updated `TestV150Sec05BaseHookRedos`: skip when RE2 is installed
+  - Updated `TestV150Sec05BaseHookRedos`: force the non-RE2 path via `monkeypatch.setattr("nanasqlite.hooks.HAS_RE2", False)` so blacklist validation still runs even when RE2 is installed
 
 ---
 
