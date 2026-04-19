@@ -2556,3 +2556,219 @@ class TestNewCodeCoverageV154:
         assert any("RE2 cannot preserve" in str(wi.message) for wi in w), "Expected a warning"
         # Should still work as a standard re pattern
         assert isinstance(hook._should_run("foo"), bool)
+
+
+# ---------------------------------------------------------------------------
+# v1.5.4 Audit: BUG-01 — pop() before_delete hook inside lock
+# ---------------------------------------------------------------------------
+
+class TestBug01V154PopBeforeDeleteLock:
+    """BUG-01 (v1.5.4): pop() の before_delete フックはロック内で実行されるべき。"""
+
+    def test_pop_before_delete_hook_runs_inside_lock(self, db_path):
+        """pop() の非 v2 モードで before_delete フックが _lock 保持中に呼ばれることを確認する。"""
+        from nanasqlite.hooks import BaseHook
+
+        lock_held_flags: list[bool] = []
+
+        class LockInspectHook(BaseHook):
+            def before_delete(self_hook, db, key):  # noqa: N805
+                try:
+                    held = db._lock._is_owned()
+                except AttributeError:
+                    held = False
+                lock_held_flags.append(held)
+
+        db = NanaSQLite(db_path)
+        db.add_hook(LockInspectHook())
+        db["key"] = "value"
+        result = db.pop("key")
+        db.close()
+
+        assert result == "value"
+        assert len(lock_held_flags) == 1
+        assert lock_held_flags[0] is True, (
+            "pop() should call before_delete inside the lock (SEC-05 consistency)"
+        )
+
+    def test_pop_missing_key_does_not_trigger_hook(self, db_path):
+        """pop() でキーが存在しない場合、フックは呼び出されない。"""
+        from nanasqlite.hooks import BaseHook
+
+        delete_calls: list[str] = []
+
+        class RecordHook(BaseHook):
+            def before_delete(self_hook, db, key):  # noqa: N805
+                delete_calls.append(key)
+
+        db = NanaSQLite(db_path)
+        db.add_hook(RecordHook())
+        result = db.pop("nonexistent", "default")
+        db.close()
+
+        assert result == "default"
+        assert delete_calls == []
+
+    def test_pop_hook_abort_raises_and_key_persists(self, db_path):
+        """pop() 中に before_delete フックが例外を送出した場合、キーは削除されない。"""
+        from nanasqlite.hooks import BaseHook
+
+        class AbortDeleteHook(BaseHook):
+            def before_delete(self_hook, db, key):  # noqa: N805
+                raise NanaSQLiteValidationError("delete not allowed")
+
+        db = NanaSQLite(db_path)
+        db.add_hook(AbortDeleteHook())
+        db["protected"] = "secret"
+
+        with pytest.raises(NanaSQLiteValidationError, match="delete not allowed"):
+            db.pop("protected")
+
+        # キーはまだ存在すべき
+        assert db["protected"] == "secret"
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# v1.5.4 Audit: BUG-02 — batch_update() hook return value not discarded
+# ---------------------------------------------------------------------------
+
+class TestBug02V154BatchUpdateHookResult:
+    """BUG-02 (v1.5.4): batch_update() でフック変換値が適用されることを確認する。"""
+
+    def test_batch_update_transforming_hook_applied(self, db_path):
+        """batch_update() で変換フック（before_write の返り値）が正しく適用される。"""
+        from nanasqlite.hooks import BaseHook
+
+        class UpperCaseHook(BaseHook):
+            def before_write(self_hook, db, key, value):  # noqa: N805
+                if isinstance(value, str):
+                    return value.upper()
+                return value
+
+        db = NanaSQLite(db_path)
+        db.add_hook(UpperCaseHook())
+        db.batch_update({"greeting": "hello", "name": "world"})
+
+        assert db["greeting"] == "HELLO", "batch_update should apply hook transformations"
+        assert db["name"] == "WORLD"
+        db.close()
+
+    def test_batch_update_consistent_with_setitem(self, db_path):
+        """batch_update() と __setitem__ でフック変換の結果が一致することを確認する。"""
+        from nanasqlite.hooks import BaseHook
+
+        class PrefixHook(BaseHook):
+            def before_write(self_hook, db, key, value):  # noqa: N805
+                if isinstance(value, str):
+                    return "prefix_" + value
+                return value
+
+        db1 = NanaSQLite(db_path)
+        db1.add_hook(PrefixHook())
+
+        db1["single"] = "val"
+        db1.batch_update({"batch": "val"})
+
+        assert db1["single"] == "prefix_val"
+        assert db1["batch"] == "prefix_val", (
+            "batch_update() and __setitem__ should produce the same result for transforming hooks"
+        )
+        db1.close()
+
+    def test_batch_update_non_transforming_hook_unchanged(self, db_path):
+        """変換なし（バリデーションのみ）フックでは元の値が保持される。"""
+        from nanasqlite.hooks import CheckHook
+
+        db = NanaSQLite(db_path)
+        db.add_hook(CheckHook(lambda k, v: isinstance(v, str)))
+        db.batch_update({"a": "ok", "b": "also_ok"})
+
+        assert db["a"] == "ok"
+        assert db["b"] == "also_ok"
+        db.close()
+
+    def test_batch_update_copy_on_write_no_alloc_when_unchanged(self, db_path):
+        """フックが値を変更しない場合、copy-on-write により余分な dict は生成されない。"""
+        from nanasqlite.hooks import BaseHook
+
+        class PassthroughHook(BaseHook):
+            def before_write(self_hook, db, key, value):  # noqa: N805
+                return value  # 変更なし
+
+        db = NanaSQLite(db_path)
+        db.add_hook(PassthroughHook())
+        original = {"x": 1, "y": 2}
+        db.batch_update(original)
+
+        assert db["x"] == 1
+        assert db["y"] == 2
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# v1.5.4 Audit: BUG-03 — batch_delete() before_delete hook inside lock
+# ---------------------------------------------------------------------------
+
+class TestBug03V154BatchDeleteBeforeDeleteLock:
+    """BUG-03 (v1.5.4): batch_delete() の before_delete フックはロック内で実行されるべき。"""
+
+    def test_batch_delete_before_delete_hook_runs_inside_lock(self, db_path):
+        """batch_delete() の非 v2 モードで before_delete フックが _lock 保持中に呼ばれることを確認する。"""
+        from nanasqlite.hooks import BaseHook
+
+        lock_held_flags: list[bool] = []
+
+        class LockInspectHook(BaseHook):
+            def before_delete(self_hook, db, key):  # noqa: N805
+                try:
+                    held = db._lock._is_owned()
+                except AttributeError:
+                    held = False
+                lock_held_flags.append(held)
+
+        db = NanaSQLite(db_path)
+        db.add_hook(LockInspectHook())
+        db["k1"] = "v1"
+        db["k2"] = "v2"
+        db.batch_delete(["k1", "k2"])
+        db.close()
+
+        assert len(lock_held_flags) == 2
+        assert all(f is True for f in lock_held_flags), (
+            "batch_delete() should call before_delete inside the lock (SEC-05 consistency)"
+        )
+
+    def test_batch_delete_hook_abort_raises_and_keys_persist(self, db_path):
+        """batch_delete() 中に before_delete フックが例外を送出した場合、削除はロールバックされる。"""
+        from nanasqlite.hooks import BaseHook
+
+        class AbortDeleteHook(BaseHook):
+            def before_delete(self_hook, db, key):  # noqa: N805
+                if key == "protected":
+                    raise NanaSQLiteValidationError("cannot delete protected key")
+
+        db = NanaSQLite(db_path)
+        db.add_hook(AbortDeleteHook())
+        db["protected"] = "secret"
+        db["normal"] = "ok"
+
+        with pytest.raises(NanaSQLiteValidationError, match="cannot delete protected key"):
+            db.batch_delete(["protected", "normal"])
+
+        # protected キーはまだ存在するはず
+        assert db.get("protected") == "secret"
+        db.close()
+
+    def test_batch_delete_no_hooks_works_normally(self, db_path):
+        """フックなしの batch_delete() は正常に動作することを確認する。"""
+        db = NanaSQLite(db_path)
+        db["a"] = 1
+        db["b"] = 2
+        db["c"] = 3
+        db.batch_delete(["a", "b"])
+
+        assert "a" not in db
+        assert "b" not in db
+        assert db["c"] == 3
+        db.close()

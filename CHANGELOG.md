@@ -6,7 +6,23 @@
 
 ## 日本語
 
-### [1.5.4] - 2026-04-11
+### [1.5.4] - 2026-04-19
+
+#### バグ修正
+
+- **BUG-01 (pop hook lock): `pop()` の `before_delete` フックをロック内へ移動**（`core.py`）
+  - `pop()` の非 v2 モードで `before_delete` フックがロック外で呼ばれていたため、`__delitem__` の SEC-05 修正との一貫性が失われていました。
+  - 非 v2 パスで `before_delete` の呼び出しを `_acquire_lock()` ブロック内に移動し、フック実行と DB 削除をアトミックに実行するよう修正しました。`self._lock` は `threading.RLock` のため同一スレッドからの再入呼び出しもデッドロックしません。
+  - また、フックが例外を送出した場合に DB 削除が実行されず、キーが保持されることを確認しました。
+
+- **BUG-02 (batch_update hook result): `batch_update()` でフック変換値を常に適用**（`core.py`）
+  - `batch_update()` の非 coerce パスにおいて `before_write` フックの返り値が無視されていたため、`PydanticHook` などの変換フックが `__setitem__` では機能するのに `batch_update()` では機能しないサイレントな不整合が発生していました。
+  - `if self._coerce:` の 2 分岐構造を廃止し、統一された copy-on-write パターンに変更しました。フックが値を変更しない場合は新しい dict は生成されません（メモリ効率を維持）。
+  - `ValidkitHook` は `coerce=False` 時に自身でフック内部で変換を行わないため、既存の coerce=False テストとの後方互換性は維持されています。
+
+- **BUG-03 (batch_delete hook lock): `batch_delete()` の `before_delete` フックをロック内へ移動**（`core.py`）
+  - `batch_delete()` の非 v2 モードで `before_delete` フックがロック外で呼ばれていました。
+  - v2 モードではフックはロック外（`__delitem__` v2 パスと同様）、非 v2 モードではロック内で実行するよう修正しました。
 
 #### セキュリティ修正
 
@@ -38,10 +54,15 @@
 #### テスト追加
 
 - `tests/test_audit_poc.py`:
+  - `TestBug01V154PopBeforeDeleteLock`: `pop()` の `before_delete` フックがロック内で実行されることを確認（3 テスト）
+  - `TestBug02V154BatchUpdateHookResult`: `batch_update()` でフック変換値が正しく適用されることを確認（4 テスト）
+  - `TestBug03V154BatchDeleteBeforeDeleteLock`: `batch_delete()` の `before_delete` フックがロック内で実行されることを確認（3 テスト）
   - `TestSec05UniqueHookTOCTOUFix`: TOCTOU 修正を検証するテスト（並行書き込み、ロック内フック実行確認、自己更新テスト）を追加
   - `TestRE2Integration`: google-re2 統合テスト（`HAS_RE2` フラグ、パターンコンパイル、RE2 危険パターン許容、RE2 なし時のブラックリスト維持）を追加
   - `TestV150Sec03UniqueHookRace`: docstring 検証を旧「WARNING」から新「SEC-05/RLock」記述に更新
   - `TestV150Sec05BaseHookRedos`: RE2 インストール時でも `HAS_RE2 = False` を強制して非 RE2 経路のブラックリスト検証を行うよう更新
+- `tests/test_tdd_cycle_4.py`:
+  - `test_batch_update_uses_copy_on_write_pattern`: `batch_update()` が統一 copy-on-write パターンを使用することを確認
 
 ---
 
@@ -1259,7 +1280,20 @@
 
 ## English
 
-### [1.5.4] - 2026-04-11
+### [1.5.4] - 2026-04-19
+
+#### Bug Fixes
+
+- **BUG-01 (pop hook lock): Move `before_delete` hook call inside lock in `pop()`** (`core.py`)
+  - In non-v2 mode, `before_delete` hooks in `pop()` were called outside the lock, breaking consistency with the SEC-05 fix applied to `__delitem__`. The hook call and the DB delete now run atomically under `_acquire_lock()`. `self._lock` is a `threading.RLock`, so reentrant calls from hooks do not deadlock.
+  - If a hook raises, the DB deletion is skipped and the key is retained.
+
+- **BUG-02 (batch_update hook result): Always apply hook-returned values in `batch_update()`** (`core.py`)
+  - The non-coerce branch of `batch_update()` silently discarded the return value of `before_write` hooks, causing transforming hooks (e.g. `PydanticHook`, custom hooks) to work through `__setitem__` but be silently ignored in `batch_update()`.
+  - Removed the `if self._coerce:` two-branch structure in favour of a unified copy-on-write pattern that always applies hook transformations. A new dict is only allocated when at least one hook changes a value. `ValidkitHook` internally controls whether to transform based on its own `coerce` setting, preserving backward compatibility.
+
+- **BUG-03 (batch_delete hook lock): Move `before_delete` hook call inside lock in `batch_delete()`** (`core.py`)
+  - In non-v2 mode, `before_delete` hooks in `batch_delete()` were called outside the lock, inconsistent with the fixed `__delitem__`. Hooks now run inside the lock in non-v2 mode; v2 mode continues to run hooks outside the lock (consistent with `__delitem__` v2 path).
 
 #### Security Fixes
 
@@ -1290,10 +1324,15 @@
 #### Tests
 
 - `tests/test_audit_poc.py`:
+  - Added `TestBug01V154PopBeforeDeleteLock`: verifies `pop()` calls `before_delete` inside the lock (3 tests)
+  - Added `TestBug02V154BatchUpdateHookResult`: verifies `batch_update()` applies hook-returned values (4 tests)
+  - Added `TestBug03V154BatchDeleteBeforeDeleteLock`: verifies `batch_delete()` calls `before_delete` inside the lock (3 tests)
   - Added `TestSec05UniqueHookTOCTOUFix`: concurrent-write test, lock-inspection test, self-update test
   - Added `TestRE2Integration`: `HAS_RE2` flag, pattern compilation, RE2 safe patterns, and fallback blacklist
   - Updated `TestV150Sec03UniqueHookRace`: docstring assertions updated to match the SEC-05 fix
   - Updated `TestV150Sec05BaseHookRedos`: force the non-RE2 path via `monkeypatch.setattr("nanasqlite.hooks.HAS_RE2", False)` so blacklist validation still runs even when RE2 is installed
+- `tests/test_tdd_cycle_4.py`:
+  - Updated `test_batch_update_has_separate_coerce_branch` → `test_batch_update_uses_copy_on_write_pattern`: verifies the unified copy-on-write implementation
 
 ---
 

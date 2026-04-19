@@ -36,12 +36,21 @@ class TestBatchUpdateCodeStructure:
             "Use separate code paths: build coerced_mapping only when self._coerce is True."
         )
 
-    def test_batch_update_has_separate_coerce_branch(self):
-        """batch_update should have an explicit 'if self._coerce:' branch."""
+    def test_batch_update_uses_copy_on_write_pattern(self):
+        """batch_update should use a unified copy-on-write pattern for hook application.
+
+        BUG-02 fix (v1.5.4): the old two-branch approach (coerce vs validate-only)
+        silently discarded hook-returned values in the non-coerce path, causing
+        transforming hooks (PydanticHook, custom hooks) to be ineffective in
+        batch_update() while working correctly in __setitem__.  The unified
+        copy-on-write path applies hook transformations regardless of the coerce flag
+        and only allocates a new dict when at least one value changes.
+        """
         source = inspect.getsource(NanaSQLite.batch_update)
-        assert "if self._coerce:" in source, (
-            "batch_update() should have an explicit 'if self._coerce:' branch "
-            "to avoid unnecessary dict allocation when not coercing."
+        # The copy-on-write pattern always applies hook results.
+        assert "processed_mapping" in source, (
+            "batch_update() should use a 'processed_mapping' copy-on-write variable "
+            "to apply hook transformations while avoiding unnecessary dict allocation."
         )
 
     def test_batch_update_validate_only_branch_does_not_store_coerced(self):

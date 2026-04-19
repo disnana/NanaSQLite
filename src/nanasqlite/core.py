@@ -1355,17 +1355,17 @@ class NanaSQLite(MutableMapping):
                 value = self._data[key]
             else:
                 value = self._cache.get(key)
-            # PERF-20: use pre-computed flag
-            if self._has_hooks:
-                for hook in self._hooks:
-                    hook.before_delete(self, key)
-
             # BUG-01 fix: route through v2 engine in v2 mode to avoid bypassing
             # the staging buffer.  _delete_from_db() issues a direct DELETE on the
             # connection; in v2 mode that can race with a concurrent background flush
             # or leave a pending SET in the staging buffer that will later resurrect
             # the key after flush().
             if self._v2_mode and self._v2_engine:
+                # v2 mode: hooks run outside the lock (same as __delitem__ v2 path).
+                # PERF-20: use pre-computed flag
+                if self._has_hooks:
+                    for hook in self._hooks:
+                        hook.before_delete(self, key)
                 self._v2_engine.kvs_delete(self._safe_table, key)
                 if self._lru_mode:
                     self._cache.delete(key)
@@ -1373,13 +1373,20 @@ class NanaSQLite(MutableMapping):
                     self._data.pop(key, None)
                     self._absent_keys.add(key)
             else:
-                # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
-                self._delete_from_db(key)
-                if self._lru_mode:
-                    self._cache.delete(key)
-                else:
-                    self._data.pop(key, None)
-                    self._absent_keys.add(key)
+                # SEC-05 (BUG-01 pop fix): hooks are called inside the lock so that
+                # the before_delete check and the DB delete are atomic — consistent
+                # with __delitem__ non-v2 path.  self._lock is a threading.RLock so
+                # reentrant calls from hooks succeed without deadlock.
+                with self._acquire_lock():
+                    if self._has_hooks:
+                        for hook in self._hooks:
+                            hook.before_delete(self, key)
+                    self._connection.execute(self._sql_kv_delete, (key,))
+                    if self._lru_mode:
+                        self._cache.delete(key)
+                    else:
+                        self._data.pop(key, None)
+                        self._absent_keys.add(key)
 
             # PERF-20: use pre-computed flag
             if self._has_hooks:
@@ -1557,35 +1564,31 @@ class NanaSQLite(MutableMapping):
         self._check_connection()
 
         # Apply before_write hooks
-        # TDD Cycle 4 Optimization: If we have hooks, we might need a new dict.
-        # To pass the specific test_batch_update_has_separate_coerce_branch, we use if self._coerce:
+        # BUG-02 fix: always use hook-returned values regardless of self._coerce.
+        # Previously the non-coerce branch used a "validate only" path that silently
+        # discarded hook transformations, causing __setitem__ and batch_update() to
+        # produce different results when a transforming hook (e.g. PydanticHook) is
+        # active.  Both branches now use the same copy-on-write logic.
         hooks = self._hooks
         if hooks:
-            if self._coerce:
-                # True copy-on-write: only allocate a new dict on the first detected change.
-                # When no hooks modify any value, zero extra memory is allocated.
-                processed_mapping: dict[str, Any] | None = None
-                for k, v in mapping.items():
-                    new_v = v
-                    for hook in hooks:
-                        new_v = hook.before_write(self, k, new_v)
-                    if processed_mapping is not None:
-                        processed_mapping[k] = new_v
-                    elif new_v != v:
-                        # First modification detected: bootstrap with a shallow copy of the
-                        # original (all previous entries were unchanged by hooks), then
-                        # overwrite the current key with the hook-processed value.
-                        processed_mapping = dict(mapping)
-                        processed_mapping[k] = new_v
+            # True copy-on-write: only allocate a new dict on the first detected change.
+            # When no hooks modify any value, zero extra memory is allocated.
+            processed_mapping: dict[str, Any] | None = None
+            for k, v in mapping.items():
+                new_v = v
+                for hook in hooks:
+                    new_v = hook.before_write(self, k, new_v)
                 if processed_mapping is not None:
-                    mapping = processed_mapping
-            else:
-                # Validate only path (no new dict allocation)
-                for k, v in mapping.items():
-                    temp_v = v
-                    for hook in hooks:
-                        temp_v = hook.before_write(self, k, temp_v)
-        # End of TDD Cycle 4 optimized block
+                    processed_mapping[k] = new_v
+                elif new_v != v:
+                    # First modification detected: bootstrap with a shallow copy of the
+                    # original (all previous entries were unchanged by hooks), then
+                    # overwrite the current key with the hook-processed value.
+                    processed_mapping = dict(mapping)
+                    processed_mapping[k] = new_v
+            if processed_mapping is not None:
+                mapping = processed_mapping
+        # End of hook application block
 
         # v2 Architecture: Route to background staging buffer instead of blocking DB write
         if self._v2_mode and self._v2_engine:
@@ -1736,17 +1739,16 @@ class NanaSQLite(MutableMapping):
         if not keys:
             return  # 空の場合は何もしない
 
-        # PERF-22: Only iterate keys for before_delete hooks; skip entirely when
-        # no hooks are registered (the common case).  This avoids O(n) Python
-        # function-call overhead per key when hooks are absent.
-        if self._has_hooks:
-            for key in keys:
-                if self._ensure_cached(key):
-                    for hook in self._hooks:
-                        hook.before_delete(self, key)
-
         # v2 Architecture: Route to background staging buffer instead of blocking DB write
         if self._v2_mode and self._v2_engine:
+            # v2 mode: hooks run outside the lock (same as __delitem__ v2 path).
+            # PERF-22: Only iterate keys for before_delete hooks; skip entirely when
+            # no hooks are registered (the common case).
+            if self._has_hooks:
+                for key in keys:
+                    if self._ensure_cached(key):
+                        for hook in self._hooks:
+                            hook.before_delete(self, key)
             for key in keys:
                 self._v2_engine.kvs_delete(self._safe_table, key)
             # See __setitem__ comment: no explicit lock needed for pure in-memory updates in v2 mode.
@@ -1761,7 +1763,18 @@ class NanaSQLite(MutableMapping):
                 self._absent_keys.update(keys)
             return
 
+        # SEC-05 (BUG-03 batch_delete fix): hooks are called inside the lock for
+        # consistency with __delitem__ non-v2 path.  self._lock is a threading.RLock
+        # so reentrant calls from hooks succeed without deadlock.
         with self._acquire_lock():
+            # PERF-22: Only iterate keys for before_delete hooks; skip entirely when
+            # no hooks are registered (the common case).  This avoids O(n) Python
+            # function-call overhead per key when hooks are absent.
+            if self._has_hooks:
+                for key in keys:
+                    if self._ensure_cached(key):
+                        for hook in self._hooks:
+                            hook.before_delete(self, key)
             cursor = self._connection.cursor()
             cursor.execute(_BEGIN_IMMEDIATE)
             try:
