@@ -358,7 +358,7 @@ class UniqueHook(BaseHook):
                     if old_check_val is not None and self._value_to_key.get(old_check_val) == key:
                         del self._value_to_key[old_check_val]
                 except TypeError:
-                    # アンハッシュ可能な旧値はスキップ
+                    # アンハッシュ可能な旧値はインデックスに存在しないためスキップ
                     pass
 
             if check_val is None:
@@ -367,28 +367,17 @@ class UniqueHook(BaseHook):
                 return value
 
             # 重複チェック（同一キーの上書きは許可）
+            # use_index=True で check_val がアンハッシュ可能な場合は設定エラーとして明示的に拒否する。
+            # O(N) スキャンへのサイレントな縮退よりも、明確なエラーの方が望ましい。
             try:
                 existing_key = self._value_to_key.get(check_val)
-            except TypeError:
-                # アンハッシュ可能な check_val はインデックス検索不可
-                # → O(N) フルスキャンにフォールバック（以下の else ブランチ相当）
-                existing_key = None
-                for k, v in db.items():
-                    if k == key:
-                        continue
-                    other_val = self._extract_field(k, v)
-                    if other_val == check_val:
-                        existing_key = k
-                        break
-                if existing_key is not None:
-                    field_name = self.field.__name__ if callable(self.field) else str(self.field)
-                    _logger.warning(
-                        "Unique constraint violation for key '%s': field '%s' value already exists",
-                        key,
-                        field_name,
-                    )
-                    raise NanaSQLiteValidationError("Unique constraint violation: duplicate value detected")
-                return value
+            except TypeError as exc:
+                field_name = self.field.__name__ if callable(self.field) else str(self.field)
+                raise NanaSQLiteValidationError(
+                    f"UniqueHook: use_index=True はハッシュ可能なフィールド値を必要としますが、"
+                    f"フィールド '{field_name}' の値がアンハッシュ可能です（型: {type(check_val).__name__}）。"
+                    f" use_index=False に変更するか、ハッシュ可能な値を返すフィールドエクストラクタを使用してください。"
+                ) from exc
 
             if existing_key is not None and existing_key != key:
                 field_name = self.field.__name__ if callable(self.field) else str(self.field)
@@ -400,11 +389,7 @@ class UniqueHook(BaseHook):
                 raise NanaSQLiteValidationError("Unique constraint violation: duplicate value detected")
 
             # インデックスに新しいエントリを登録
-            try:
-                self._value_to_key[check_val] = key
-            except TypeError:
-                # アンハッシュ可能な値はインデックスに登録しない（O(N) スキャンで代替）
-                pass
+            self._value_to_key[check_val] = key
         else:
             if check_val is None:
                 return value

@@ -2893,6 +2893,47 @@ class TestPerf01V154UniqueHookIndex:
         assert hook._index_built
         db.close()
 
+    def test_use_index_update_to_none_removes_stale_entry(self, db_path):
+        """use_index=True でフィールド値を None（またはフィールド削除）に更新した場合に
+        旧インデックスエントリが正しく削除されることを確認する。
+        BUG: {"email": "a"} → {} への更新で "a"→key の残留エントリが誤重複を引き起こさない。"""
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        hook = UniqueHook("email", use_index=True)
+        db.add_hook(hook)
+
+        db["user1"] = {"email": "alice@example.com"}
+        assert hook._value_to_key.get("alice@example.com") == "user1"
+
+        # email フィールドを削除（None 相当）に更新する
+        db["user1"] = {"name": "Alice"}  # email キーなし
+        # 旧インデックスエントリが削除されているはず
+        assert "alice@example.com" not in hook._value_to_key
+
+        # alice のメールを別キーで再利用できるようになる（残留エントリがないので重複エラーにならない）
+        db["user2"] = {"email": "alice@example.com"}
+        assert db["user2"]["email"] == "alice@example.com"
+        db.close()
+
+    def test_use_index_unhashable_field_value_raises_clear_error(self, db_path):
+        """use_index=True でアンハッシュ可能なフィールド値（list など）を書き込むと
+        明確なエラーが発生することを確認する。
+        サイレントな O(N) 縮退よりも、設定エラーとして明示的に通知する方が望ましい。"""
+        from nanasqlite.hooks import UniqueHook
+
+        def get_tags(key, value):
+            return value.get("tags") if isinstance(value, dict) else None
+
+        db = NanaSQLite(db_path)
+        db.add_hook(UniqueHook(get_tags, use_index=True))
+
+        # list（アンハッシュ可能）を返すフィールドエクストラクタは use_index=True では拒否される
+        with pytest.raises(NanaSQLiteValidationError, match="アンハッシュ可能"):
+            db["user1"] = {"tags": ["python", "sqlite"]}
+
+        db.close()
+
     def test_use_index_false_default_backward_compatible(self, db_path):
         """use_index=False（デフォルト）では既存の O(N) 動作が維持されることを確認する。"""
         from nanasqlite.hooks import UniqueHook
