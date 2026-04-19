@@ -2935,20 +2935,23 @@ class TestPerf01V154UniqueHookIndex:
 class TestPerf02V154BaseHookPatternRevalidation:
     """PERF-02 (v1.5.4): 既コンパイル済み Pattern は _validate_regex_pattern を省略する。"""
 
-    def test_compiled_pattern_skips_revalidation_no_re2(self):
-        """非 RE2 パスで既コンパイル済み Pattern を渡すと _validate_regex_pattern が呼ばれないことを確認する。"""
+    def test_compiled_pattern_still_validates_pattern_text_no_re2(self):
+        """非 RE2 パスで既コンパイル済み Pattern を渡しても、セキュリティ上
+        pattern.pattern テキストに対して _validate_regex_pattern が呼ばれることを確認する。
+        コンパイル済み Pattern を経由して ReDoS ブラックリストをバイパスできないことを保証する。"""
         import re
         from unittest.mock import patch
 
         from nanasqlite.hooks import BaseHook
 
         compiled = re.compile(r"^user_")
-        # Force non-RE2 path for PERF-02 testing
+        # 非 RE2 パスで PERF-02 + セキュリティ修正の動作を確認
         with patch("nanasqlite.hooks.HAS_RE2", False):
             with patch.object(BaseHook, "_validate_regex_pattern") as mock_validate:
                 hook = BaseHook(key_pattern=compiled)
-                # In non-RE2 path, compiled Pattern should be used as-is without re-validation
-                mock_validate.assert_not_called()
+                # コンパイル済み Pattern でも pattern.pattern テキストを検証する（セキュリティ要件）
+                mock_validate.assert_called_once_with(compiled.pattern)
+                # compiled Pattern オブジェクトをそのまま再利用する（再コンパイルしない）
                 assert hook._key_regex is compiled
 
     def test_string_pattern_still_validates_no_re2(self):
@@ -2962,6 +2965,19 @@ class TestPerf02V154BaseHookPatternRevalidation:
             # 危険なパターンは拒否される
             with pytest.raises(NanaSQLiteValidationError, match="Potentially dangerous regex"):
                 BaseHook(key_pattern=r"(a+)+")
+
+    def test_compiled_dangerous_pattern_rejected_no_re2(self):
+        """非 RE2 パスで危険なパターンをコンパイルしてから渡した場合も拒否されることを確認する。
+        コンパイル済み Pattern で ReDoS ブラックリストをバイパスできないことの回帰テスト。"""
+        import re
+        from unittest.mock import patch
+
+        from nanasqlite.hooks import BaseHook
+
+        compiled_dangerous = re.compile(r"(a+)+")
+        with patch("nanasqlite.hooks.HAS_RE2", False):
+            with pytest.raises(NanaSQLiteValidationError, match="Potentially dangerous regex"):
+                BaseHook(key_pattern=compiled_dangerous)
 
     def test_compiled_pattern_works_correctly_in_hook(self, db_path):
         """既コンパイル済み Pattern を渡したフックが正しく動作することを確認する。"""
@@ -2989,7 +3005,7 @@ class TestQual01V154Re2ModuleAnnotation:
     def test_re2_module_has_correct_annotation(self):
         """re2_module が types.ModuleType | None の型で宣言されていることを確認する。"""
         import types as builtin_types
-        import nanasqlite.compat as compat_mod
+        from nanasqlite import compat as compat_mod
 
         re2_module_val = compat_mod.re2_module
         # 値は None またはモジュールである
@@ -2998,7 +3014,7 @@ class TestQual01V154Re2ModuleAnnotation:
     def test_compat_imports_types_module(self):
         """compat.py が types モジュールをインポートしていることを確認する。"""
         import inspect
-        import nanasqlite.compat as compat_mod
+        from nanasqlite import compat as compat_mod
 
         source = inspect.getsource(compat_mod)
         assert "import types" in source, "compat.py should import the 'types' module for QUAL-01"

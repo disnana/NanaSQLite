@@ -1226,6 +1226,33 @@ class NanaSQLite(MutableMapping):
                 val = hook.after_read(self, key, val)
         return val
 
+    def _get_raw(self, key: str, default: Any = None) -> Any:
+        """after_read フックを適用せずに生の格納値を返す内部メソッド。
+
+        UniqueHook などのインデックス管理フックが、フック変換後の値ではなく
+        実際に DB に格納されているデータ構造を参照する必要がある場合に使用する。
+        通常の get() と同一のキャッシュ読み込みロジックを使用するが、
+        after_read フックチェーンを通さない点が異なる。
+        """
+        if not self._lru_mode:
+            try:
+                return self._data[key]
+            except KeyError:
+                pass
+            if key in self._absent_keys:
+                return default
+            if not self._ensure_cached(key):
+                return default
+            return self._data.get(key, default)
+        else:
+            if key in self._data:
+                val = self._cache.get(key)
+                return default if val is MISSING else val
+            if not self._ensure_cached(key):
+                return default
+            val = self._cache.get(key)
+            return default if val is MISSING else val
+
     def get_fresh(self, key: str, default: Any = None) -> Any:
         """
         DBから直接読み込み、キャッシュを更新して値を返す
@@ -1571,8 +1598,11 @@ class NanaSQLite(MutableMapping):
         # active.  Both branches now use the same copy-on-write logic.
         hooks = self._hooks
         if hooks:
-            # True copy-on-write: only allocate a new dict on the first detected change.
-            # When no hooks modify any value, zero extra memory is allocated.
+            # コピーオンライト: 変更が検出された場合のみ新しい dict を割り当てる。
+            # フックがいずれの値も変更しない場合、追加のメモリ割り当ては発生しない。
+            # 等値比較 (!=) ではなく同一性比較 (is not) を使用することで、
+            # カスタム __eq__ を持つオブジェクトや、等値だが別インスタンスの
+            # フック戻り値（例: 異なる精度の Decimal）を確実に保持する。
             processed_mapping: dict[str, Any] | None = None
             for k, v in mapping.items():
                 new_v = v
@@ -1580,15 +1610,15 @@ class NanaSQLite(MutableMapping):
                     new_v = hook.before_write(self, k, new_v)
                 if processed_mapping is not None:
                     processed_mapping[k] = new_v
-                elif new_v != v:
-                    # First modification detected: bootstrap with a shallow copy of the
-                    # original (all previous entries were unchanged by hooks), then
-                    # overwrite the current key with the hook-processed value.
+                elif new_v is not v:
+                    # 最初の変更を検出: 元の mapping の浅いコピーを作成し
+                    # （これまでのエントリはフックで変更なし）、現在のキーに
+                    # フック処理済みの値を上書きする。
                     processed_mapping = dict(mapping)
                     processed_mapping[k] = new_v
             if processed_mapping is not None:
                 mapping = processed_mapping
-        # End of hook application block
+        # フック適用ブロックの終わり
 
         # v2 Architecture: Route to background staging buffer instead of blocking DB write
         if self._v2_mode and self._v2_engine:

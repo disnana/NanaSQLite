@@ -63,16 +63,17 @@ class BaseHook:
             else:
                 self._key_regex = key_pattern
         else:
-            # Standard re engine: validate patterns to prevent ReDoS.
+            # 標準 re エンジン: ReDoS リスクを防ぐためパターンを検証する。
             if isinstance(key_pattern, str):
                 self._validate_regex_pattern(key_pattern)
                 self._key_regex = re.compile(key_pattern)
             elif isinstance(key_pattern, Pattern):
-                # PERF-02: Skip _validate_regex_pattern for already-compiled Pattern
-                # objects.  The caller has already chosen to compile this pattern
-                # (possibly with their own validation), and re-running the blacklist
-                # check on the raw pattern string would be redundant overhead on
-                # every hook instantiation.
+                # PERF-02: コンパイル済み Pattern を渡した場合、
+                # 既コンパイル済みオブジェクトの再コンパイルは省略する。
+                # ただし、コンパイル済み Pattern を経由して ReDoS ブラックリストを
+                # バイパスできないよう、pattern.pattern（元のパターン文字列）に
+                # 対しては必ずバリデーションを実行する（セキュリティ要件）。
+                self._validate_regex_pattern(key_pattern.pattern)
                 self._key_regex = key_pattern
             else:
                 self._key_regex = key_pattern
@@ -310,34 +311,85 @@ class UniqueHook(BaseHook):
         return None
 
     def _build_index(self, db: Any) -> None:
-        """Populate the inverse index from all current DB values.  O(N) once."""
+        """DB の全値から逆引きインデックスを構築する。初回のみ O(N)。
+
+        フィールド値がアンハッシュ可能（dict/list など）の場合は
+        そのエントリをインデックスに追加せずにスキップし、
+        そのキーは O(N) フルスキャンパスで検証される。
+        """
         self._value_to_key.clear()
         for k, v in db.items():
             val = self._extract_field(k, v)
-            if val is not None and val not in self._value_to_key:
-                self._value_to_key[val] = k
+            if val is None:
+                continue
+            try:
+                if val not in self._value_to_key:
+                    self._value_to_key[val] = k
+            except TypeError:
+                # アンハッシュ可能な値（dict, list など）はインデックス不可のためスキップ
+                pass
         self._index_built = True
 
     def before_write(self, db: Any, key: str, value: Any) -> Any:
         if not self._should_run(key):
             return value
 
+        # 新しい値からユニーク性チェック用フィールド値を抽出する
         if callable(self.field):
             check_val = self.field(key, value)
         elif isinstance(value, dict) and self.field in value:
             check_val = value[self.field]
         else:
-            return value
-
-        if check_val is None:
-            return value
+            check_val = None
 
         if self.use_index:
-            # Lazy build: O(N) on first call, O(1) subsequently.
+            # インデックスモード: O(N) の初回ビルド後は O(1) で検証
             if not self._index_built:
                 self._build_index(db)
 
-            existing_key = self._value_to_key.get(check_val)
+            # after_read フックをバイパスして生の旧値を取得する。
+            # db.get() は after_read フックを適用するため、
+            # PydanticHook 等が介在するとモデルオブジェクトが返り、
+            # _extract_field() が None を返してインデックスエントリが残留する恐れがある。
+            old_raw = db._get_raw(key)
+            if old_raw is not None:
+                old_check_val = self._extract_field(key, old_raw)
+                try:
+                    if old_check_val is not None and self._value_to_key.get(old_check_val) == key:
+                        del self._value_to_key[old_check_val]
+                except TypeError:
+                    # アンハッシュ可能な旧値はスキップ
+                    pass
+
+            if check_val is None:
+                # 新しい値にユニーク性フィールドがない場合はインデックス登録をスキップ。
+                # 旧エントリはすでに上で削除済みのため、残留エントリは発生しない。
+                return value
+
+            # 重複チェック（同一キーの上書きは許可）
+            try:
+                existing_key = self._value_to_key.get(check_val)
+            except TypeError:
+                # アンハッシュ可能な check_val はインデックス検索不可
+                # → O(N) フルスキャンにフォールバック（以下の else ブランチ相当）
+                existing_key = None
+                for k, v in db.items():
+                    if k == key:
+                        continue
+                    other_val = self._extract_field(k, v)
+                    if other_val == check_val:
+                        existing_key = k
+                        break
+                if existing_key is not None:
+                    field_name = self.field.__name__ if callable(self.field) else str(self.field)
+                    _logger.warning(
+                        "Unique constraint violation for key '%s': field '%s' value already exists",
+                        key,
+                        field_name,
+                    )
+                    raise NanaSQLiteValidationError("Unique constraint violation: duplicate value detected")
+                return value
+
             if existing_key is not None and existing_key != key:
                 field_name = self.field.__name__ if callable(self.field) else str(self.field)
                 _logger.warning(
@@ -347,17 +399,16 @@ class UniqueHook(BaseHook):
                 )
                 raise NanaSQLiteValidationError("Unique constraint violation: duplicate value detected")
 
-            # Remove the old index entry for this key (it may have a different field value).
-            old_value = db.get(key)
-            if old_value is not None:
-                old_check_val = self._extract_field(key, old_value)
-                if old_check_val is not None and self._value_to_key.get(old_check_val) == key:
-                    del self._value_to_key[old_check_val]
-
-            # Register the new value in the index.
-            self._value_to_key[check_val] = key
+            # インデックスに新しいエントリを登録
+            try:
+                self._value_to_key[check_val] = key
+            except TypeError:
+                # アンハッシュ可能な値はインデックスに登録しない（O(N) スキャンで代替）
+                pass
         else:
-            # O(N) full scan — original behaviour, default when use_index=False.
+            if check_val is None:
+                return value
+            # O(N) フルスキャン: use_index=False（デフォルト）時の元の動作
             for k, v in db.items():
                 if k == key:
                     continue
@@ -380,16 +431,21 @@ class UniqueHook(BaseHook):
         return value
 
     def before_delete(self, db: Any, key: str) -> None:
-        """Keep the inverse index up-to-date when a key is deleted."""
+        """キー削除時に逆引きインデックスを最新状態に保つ。"""
         if not self.use_index or not self._index_built:
             return
         if not self._should_run(key):
             return
-        value = db.get(key)
+        # after_read フックをバイパスして生の格納値を取得する
+        value = db._get_raw(key)
         if value is not None:
             check_val = self._extract_field(key, value)
-            if check_val is not None and self._value_to_key.get(check_val) == key:
-                del self._value_to_key[check_val]
+            try:
+                if check_val is not None and self._value_to_key.get(check_val) == key:
+                    del self._value_to_key[check_val]
+            except TypeError:
+                # アンハッシュ可能な値はインデックスに存在しないためスキップ
+                pass
 
 
 class ForeignKeyHook(BaseHook):
