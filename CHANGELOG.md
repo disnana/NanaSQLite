@@ -46,10 +46,30 @@
     - `re_fallback=False`（デフォルト）: RE2 の `re2.Error` をそのまま伝播させ、ReDoS 保護を維持。
     - `re_fallback=True`: `warnings.warn` を出力した上で標準 `re` エンジンにフォールバック。このパターンでは ReDoS 保護が無効になります。
 
-#### コード品質改善
+#### パフォーマンス改善
 
-- **QUAL-10: `compat.py` — `validkit_validate = None` をダミー関数に変更**（`compat.py`）
-  - `validkit-py` 未インストール時に `validkit_validate` が `None` のままだと呼び出し時に不明瞭な `TypeError` が発生していました。`ImportError` を送出するスタブ関数に変更し、エラーメッセージが明確になるよう改善しました。
+- **PERF-01: `UniqueHook` — `use_index=True` opt-in 逆引きインデックス**（`hooks.py`）
+  - 従来 `before_write` のたびに `db.items()` で全件スキャン（O(N)）していたため、大規模テーブルで著しいボトルネックになっていました。
+  - `UniqueHook("email", use_index=True)` を指定すると、最初の書き込み時にのみ O(N) の逆引きインデックスを構築し、以降の一意性チェックを O(1) で実行します。
+  - インデックスは `before_write`・`before_delete` コールバックで自動更新されます。フックライフサイクル外でDBを変更した場合は `hook.invalidate_index()` でインデックスを再構築できます。
+  - 後方互換: `use_index=False`（デフォルト）では従来の O(N) 動作が維持されます。
+
+- **PERF-02: `BaseHook.__init__` — コンパイル済み `Pattern` 型の再バリデーション省略**（`hooks.py`）
+  - 非 RE2 モードで既コンパイル済みの `re.Pattern` オブジェクトを渡した場合でも `_validate_regex_pattern` が再実行されていました。コンパイル済みパターンは呼び出し元が明示的に選択したものであるため、再バリデーションは冗長です。省略することでフック初期化時のオーバーヘッドを削減しました。
+
+#### セキュリティ強化（前倒し）
+
+- **SEC-01: DLQ ペイロード漏洩リスクのドキュメント化**（`v2_engine.py`）
+  - DLQ エントリには KVS の `op["value"]`（シリアライズ済み値）が含まれるため、非暗号化DBでは `get_dlq()` 経由でプレーンテキスト値が外部に漏洩するリスクがあります。
+  - `DLQEntry` dataclass・`_add_to_dlq()`・`get_dlq()` の各 docstring に **SEC-01** セキュリティ注記を追加し、本番環境でのロギング・モニタリング連携時の注意点を明記しました。
+
+#### コード品質改善（前倒し）
+
+- **QUAL-01: `compat.py` — `re2_module` 型アノテーション改善**（`compat.py`）
+  - `re2_module = None  # type: ignore[assignment]` を `re2_module: types.ModuleType | None = None` に変更し、mypy が使用箇所で型を追跡できるようにしました。
+
+- **QUAL-02: `v2_engine.py` — `DLQEntry` dataclass 導入**（`v2_engine.py`）
+  - DLQ の内部表現を `list[tuple[str, Any, float]]` から `list[DLQEntry]` に変更しました。`DLQEntry` は `dataclass` で定義された明示的な型です。`get_dlq()` の戻り値（`list[dict]`）は後方互換を維持します。
 
 #### テスト追加
 
@@ -57,6 +77,11 @@
   - `TestBug01V154PopBeforeDeleteLock`: `pop()` の `before_delete` フックがロック内で実行されることを確認（3 テスト）
   - `TestBug02V154BatchUpdateHookResult`: `batch_update()` でフック変換値が正しく適用されることを確認（4 テスト）
   - `TestBug03V154BatchDeleteBeforeDeleteLock`: `batch_delete()` の `before_delete` フックがロック内で実行されることを確認（3 テスト）
+  - `TestPerf01V154UniqueHookIndex`: `UniqueHook` の `use_index=True` 逆引きインデックスを検証（8 テスト）
+  - `TestPerf02V154BaseHookPatternRevalidation`: 既コンパイル済み Pattern の再バリデーション省略を確認（3 テスト）
+  - `TestQual01V154Re2ModuleAnnotation`: `compat.py` の `re2_module` 型アノテーション改善を確認（2 テスト）
+  - `TestQual02V154DLQEntryDataclass`: `DLQEntry` dataclass の導入を確認（3 テスト）
+  - `TestSec01V154DLQPayloadDocumentation`: DLQ ペイロード漏洩ドキュメントを確認（3 テスト）
   - `TestSec05UniqueHookTOCTOUFix`: TOCTOU 修正を検証するテスト（並行書き込み、ロック内フック実行確認、自己更新テスト）を追加
   - `TestRE2Integration`: google-re2 統合テスト（`HAS_RE2` フラグ、パターンコンパイル、RE2 危険パターン許容、RE2 なし時のブラックリスト維持）を追加
   - `TestV150Sec03UniqueHookRace`: docstring 検証を旧「WARNING」から新「SEC-05/RLock」記述に更新
@@ -1316,6 +1341,31 @@
     - `re_fallback=False` (default): propagates `re2.Error` unchanged; ReDoS protection is fully maintained.
     - `re_fallback=True`: emits `warnings.warn` and falls back to the standard `re` engine; ReDoS protection is disabled for that pattern.
 
+#### Performance Improvements (accelerated)
+
+- **PERF-01: `UniqueHook` — opt-in inverse index (`use_index=True`)** (`hooks.py`)
+  - The default `before_write` performed an O(N) full scan via `db.items()` on every write, becoming a severe bottleneck for large tables.
+  - Pass `use_index=True` to enable a lazy-built inverse index (`{field_value → key}`): the index is constructed once on the first write (O(N)) and subsequent uniqueness checks are O(1).
+  - The index is kept up-to-date automatically through `before_write` and `before_delete` callbacks. Call `hook.invalidate_index()` after any out-of-lifecycle DB modifications (e.g. `db.execute()`).
+  - Backward-compatible: `use_index=False` (default) preserves the original O(N) behaviour.
+
+- **PERF-02: `BaseHook.__init__` — skip re-validation for already-compiled `Pattern`** (`hooks.py`)
+  - In non-RE2 mode, passing an already-compiled `re.Pattern` object caused `_validate_regex_pattern` to run again on the raw pattern string. Since the caller explicitly chose to compile the pattern, this re-validation is redundant and has been eliminated.
+
+#### Security Enhancement (accelerated)
+
+- **SEC-01: Document DLQ payload exposure risk** (`v2_engine.py`)
+  - DLQ entries contain serialised KVS values (`op["value"]`); for unencrypted databases, `get_dlq()` exposes plaintext data to any consumer of the returned list.
+  - Added a **SEC-01** security notice to `DLQEntry`, `_add_to_dlq()`, and `get_dlq()` docstrings, advising callers to log only `error_msg`/`timestamp` in production and to handle `item` in a trusted context only.
+
+#### Code Quality (accelerated)
+
+- **QUAL-01: `compat.py` — proper type annotation for `re2_module`** (`compat.py`)
+  - Changed `re2_module = None  # type: ignore[assignment]` to `re2_module: types.ModuleType | None = None`, eliminating the `type: ignore` escape and allowing mypy to track the type at all usage sites.
+
+- **QUAL-02: `v2_engine.py` — introduce `DLQEntry` dataclass** (`v2_engine.py`)
+  - Replaced the untyped `list[tuple[str, Any, float]]` DLQ storage with `list[DLQEntry]`, where `DLQEntry` is a typed `@dataclass` with fields `error_msg`, `item`, and `timestamp`. `get_dlq()` still returns `list[dict]` for backward compatibility.
+
 #### Code Quality
 
 - **QUAL-10: `compat.py` — replace `validkit_validate = None` with a stub function** (`compat.py`)
@@ -1327,6 +1377,11 @@
   - Added `TestBug01V154PopBeforeDeleteLock`: verifies `pop()` calls `before_delete` inside the lock (3 tests)
   - Added `TestBug02V154BatchUpdateHookResult`: verifies `batch_update()` applies hook-returned values (4 tests)
   - Added `TestBug03V154BatchDeleteBeforeDeleteLock`: verifies `batch_delete()` calls `before_delete` inside the lock (3 tests)
+  - Added `TestPerf01V154UniqueHookIndex`: verifies `UniqueHook` `use_index=True` inverse index (8 tests)
+  - Added `TestPerf02V154BaseHookPatternRevalidation`: verifies compiled Pattern skips re-validation in non-RE2 path (3 tests)
+  - Added `TestQual01V154Re2ModuleAnnotation`: verifies `compat.py` `re2_module` type annotation (2 tests)
+  - Added `TestQual02V154DLQEntryDataclass`: verifies `DLQEntry` dataclass structure and backward compatibility (3 tests)
+  - Added `TestSec01V154DLQPayloadDocumentation`: verifies SEC-01 security notices in docstrings (3 tests)
   - Added `TestSec05UniqueHookTOCTOUFix`: concurrent-write test, lock-inspection test, self-update test
   - Added `TestRE2Integration`: `HAS_RE2` flag, pattern compilation, RE2 safe patterns, and fallback blacklist
   - Updated `TestV150Sec03UniqueHookRace`: docstring assertions updated to match the SEC-05 fix

@@ -4,7 +4,7 @@ import logging
 import re
 import warnings
 from re import Pattern
-from typing import Any, Callable
+from typing import Any, Callable, Hashable
 
 from .compat import HAS_RE2, HAS_VALIDKIT, re2_module
 from .exceptions import NanaSQLiteValidationError
@@ -68,7 +68,11 @@ class BaseHook:
                 self._validate_regex_pattern(key_pattern)
                 self._key_regex = re.compile(key_pattern)
             elif isinstance(key_pattern, Pattern):
-                self._validate_regex_pattern(key_pattern.pattern)
+                # PERF-02: Skip _validate_regex_pattern for already-compiled Pattern
+                # objects.  The caller has already chosen to compile this pattern
+                # (possibly with their own validation), and re-running the blacklist
+                # check on the raw pattern string would be redundant overhead on
+                # every hook instantiation.
                 self._key_regex = key_pattern
             else:
                 self._key_regex = key_pattern
@@ -248,11 +252,71 @@ class UniqueHook(BaseHook):
 
     This issue was tracked as SEC-03 in the v1.5.0 audit report and resolved
     as SEC-05 in v1.5.4.
+
+    Performance note (PERF-01)
+    --------------------------
+    By default, each ``before_write`` call iterates over **all** existing rows
+    via ``db.items()`` to check uniqueness — O(N) per write.  For large tables
+    this becomes a significant bottleneck.
+
+    Pass ``use_index=True`` to enable an opt-in inverse index that reduces
+    uniqueness checks to **O(1)** after the first write:
+
+    .. code-block:: python
+
+        hook = UniqueHook("email", use_index=True)
+        db.add_hook(hook)
+
+    The index is built lazily on the first write (O(N) once) and kept
+    up-to-date automatically through ``before_write`` and ``before_delete``
+    callbacks.
+
+    **Limitations of the inverse index:**
+
+    * The index can become stale if the database is modified *outside* the hook
+      lifecycle (e.g. via ``db.execute()``).  Call
+      :meth:`invalidate_index` to force a rebuild after such changes.
+    * The index is held in memory; very large tables will consume proportional
+      memory (one entry per unique field value).
+    * Callable ``field`` extractors are supported: the return value is used as
+      the index key.
     """
 
-    def __init__(self, field: str | Callable[[str, Any], Any], **kwargs: Any):
+    def __init__(self, field: str | Callable[[str, Any], Any], use_index: bool = False, **kwargs: Any):
         super().__init__(**kwargs)
         self.field = field
+        self.use_index = use_index
+        # Inverse index: {field_value → key_name}.  Only used when use_index=True.
+        # Keyed by Hashable since dict values used as index keys must be hashable.
+        self._value_to_key: dict[Hashable, str] = {}
+        self._index_built: bool = False
+
+    def invalidate_index(self) -> None:
+        """Force the inverse index to be rebuilt on the next write.
+
+        Call this after modifying the database outside the hook lifecycle
+        (e.g. via ``db.execute()``) to prevent stale index entries from
+        hiding or falsely reporting duplicates.
+        """
+        self._index_built = False
+        self._value_to_key.clear()
+
+    def _extract_field(self, key: str, value: Any) -> Any:
+        """Return the uniqueness value for a (key, value) pair, or None."""
+        if callable(self.field):
+            return self.field(key, value)
+        if isinstance(value, dict):
+            return value.get(self.field)
+        return None
+
+    def _build_index(self, db: Any) -> None:
+        """Populate the inverse index from all current DB values.  O(N) once."""
+        self._value_to_key.clear()
+        for k, v in db.items():
+            val = self._extract_field(k, v)
+            if val is not None and val not in self._value_to_key:
+                self._value_to_key[val] = k
+        self._index_built = True
 
     def before_write(self, db: Any, key: str, value: Any) -> Any:
         if not self._should_run(key):
@@ -268,19 +332,13 @@ class UniqueHook(BaseHook):
         if check_val is None:
             return value
 
-        # O(N) iteration over items to ensure uniqueness
-        for k, v in db.items():
-            if k == key:
-                continue
+        if self.use_index:
+            # Lazy build: O(N) on first call, O(1) subsequently.
+            if not self._index_built:
+                self._build_index(db)
 
-            if callable(self.field):
-                other_val = self.field(k, v)
-            elif isinstance(v, dict):
-                other_val = v.get(self.field)
-            else:
-                other_val = None
-
-            if other_val == check_val:
+            existing_key = self._value_to_key.get(check_val)
+            if existing_key is not None and existing_key != key:
                 field_name = self.field.__name__ if callable(self.field) else str(self.field)
                 _logger.warning(
                     "Unique constraint violation for key '%s': field '%s' value already exists",
@@ -288,7 +346,50 @@ class UniqueHook(BaseHook):
                     field_name,
                 )
                 raise NanaSQLiteValidationError("Unique constraint violation: duplicate value detected")
+
+            # Remove the old index entry for this key (it may have a different field value).
+            old_value = db.get(key)
+            if old_value is not None:
+                old_check_val = self._extract_field(key, old_value)
+                if old_check_val is not None and self._value_to_key.get(old_check_val) == key:
+                    del self._value_to_key[old_check_val]
+
+            # Register the new value in the index.
+            self._value_to_key[check_val] = key
+        else:
+            # O(N) full scan — original behaviour, default when use_index=False.
+            for k, v in db.items():
+                if k == key:
+                    continue
+
+                if callable(self.field):
+                    other_val = self.field(k, v)
+                elif isinstance(v, dict):
+                    other_val = v.get(self.field)
+                else:
+                    other_val = None
+
+                if other_val == check_val:
+                    field_name = self.field.__name__ if callable(self.field) else str(self.field)
+                    _logger.warning(
+                        "Unique constraint violation for key '%s': field '%s' value already exists",
+                        key,
+                        field_name,
+                    )
+                    raise NanaSQLiteValidationError("Unique constraint violation: duplicate value detected")
         return value
+
+    def before_delete(self, db: Any, key: str) -> None:
+        """Keep the inverse index up-to-date when a key is deleted."""
+        if not self.use_index or not self._index_built:
+            return
+        if not self._should_run(key):
+            return
+        value = db.get(key)
+        if value is not None:
+            check_val = self._extract_field(key, value)
+            if check_val is not None and self._value_to_key.get(check_val) == key:
+                del self._value_to_key[check_val]
 
 
 class ForeignKeyHook(BaseHook):

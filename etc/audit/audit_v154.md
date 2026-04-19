@@ -181,24 +181,24 @@ DLQ エントリには KVS ポイズンピルの `item`（`op["value"]` = シリ
 
 | ID | カテゴリ | 深刻度 | 内容 |
 |----|---------|--------|------|
-| BUG-01 | BUG | Medium | `pop()` の `before_delete` をロック内へ移動（SEC-05 一貫性） |
-| BUG-02 | BUG | Medium | `batch_update()` non-coerce パスのフック返り値保持 |
+| BUG-01 | BUG | Medium | `pop()` の `before_delete` をロック内へ移動（SEC-05 一貫性） ✅ |
+| BUG-02 | BUG | Medium | `batch_update()` non-coerce パスのフック返り値保持 ✅ |
 
-### 次バージョンで対応可能
-
-| ID | カテゴリ | 深刻度 | 内容 |
-|----|---------|--------|------|
-| BUG-03 | BUG | Low | `batch_delete()` の `before_delete` をロック内へ移動 |
-| PERF-01 | PERF | Medium | `UniqueHook` の O(1) opt-in 高速化 |
-| SEC-01 | SEC | Medium | DLQ ペイロード漏洩リスクのドキュメント化 |
-
-### 将来的な改善
+### 次バージョンで対応可能 → v1.5.4 で前倒し実施
 
 | ID | カテゴリ | 深刻度 | 内容 |
 |----|---------|--------|------|
-| PERF-02 | PERF | Low | `Pattern` 型入力時の再バリデーション省略 |
-| QUAL-01 | QUAL | Low | `re2_module` 型アノテーション改善 |
-| QUAL-02 | QUAL | Low | DLQ エントリ型定義改善 |
+| BUG-03 | BUG | Low | `batch_delete()` の `before_delete` をロック内へ移動 ✅ |
+| PERF-01 | PERF | Medium | `UniqueHook` の O(1) opt-in 高速化（`use_index=True`） ✅ |
+| SEC-01 | SEC | Medium | DLQ ペイロード漏洩リスクのドキュメント化 ✅ |
+
+### 将来的な改善 → v1.5.4 で前倒し実施
+
+| ID | カテゴリ | 深刻度 | 内容 |
+|----|---------|--------|------|
+| PERF-02 | PERF | Low | `Pattern` 型入力時の再バリデーション省略 ✅ |
+| QUAL-01 | QUAL | Low | `re2_module` 型アノテーション改善 ✅ |
+| QUAL-02 | QUAL | Low | DLQ エントリ型定義改善（`DLQEntry` dataclass） ✅ |
 
 ---
 
@@ -219,8 +219,11 @@ POC スクリプトは `etc/poc/` ディレクトリに作成済み:
 | BUG-01 (pop hook lock) | ✅ v1.5.4 で修正済み | 非 v2 パスで `before_delete` をロック内に移動 |
 | BUG-02 (batch_update hook result) | ✅ v1.5.4 で修正済み | non-coerce パスでフック返り値を保持 |
 | BUG-03 (batch_delete hook lock) | ✅ v1.5.4 で修正済み | 非 v2 パスで `before_delete` をロック内に移動 |
-| PERF-01 (UniqueHook O(N)) | ⬜ 次期バージョンで対応 | |
-| SEC-01 (DLQ exposure) | ⬜ 次期バージョンで対応 | |
+| PERF-01 (UniqueHook O(N)) | ✅ v1.5.4 で前倒し実施 | `use_index=True` opt-in 逆引きインデックス |
+| PERF-02 (Pattern 再バリデーション) | ✅ v1.5.4 で前倒し実施 | `Pattern` 型入力時の `_validate_regex_pattern` 省略 |
+| SEC-01 (DLQ exposure) | ✅ v1.5.4 で前倒し実施 | `DLQEntry`・`get_dlq()`・`_add_to_dlq()` に SEC-01 注記追加 |
+| QUAL-01 (re2_module 型) | ✅ v1.5.4 で前倒し実施 | `types.ModuleType \| None` アノテーション |
+| QUAL-02 (DLQ 型) | ✅ v1.5.4 で前倒し実施 | `DLQEntry` dataclass 導入 |
 
 ---
 

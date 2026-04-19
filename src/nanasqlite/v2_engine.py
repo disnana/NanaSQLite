@@ -50,6 +50,33 @@ class StrictTask:
     on_error: Callable[[Exception], None] | None = field(compare=False, default=None)
 
 
+@dataclass
+class DLQEntry:
+    """A single entry in the Dead Letter Queue (DLQ).
+
+    QUAL-02: typed dataclass replaces the untyped ``tuple[str, Any, float]`` so
+    that mypy can track the payload without ``Any`` escapes.
+
+    .. warning:: **SEC-01: DLQ payload exposure risk**
+
+        ``item`` may contain serialised KVS values (``op["value"]``).  For
+        databases that are **not** encrypted, calling :meth:`V2Engine.get_dlq`
+        exposes plaintext values to any code that receives the returned list.
+        Be careful when forwarding DLQ entries to logging systems, monitoring
+        pipelines, or external error trackers:
+
+        * Do **not** log the full ``item`` field in production when the database
+          is unencrypted.
+        * Prefer logging only ``error_msg`` and ``timestamp`` for observability,
+          and process ``item`` separately in a trusted context if retry is
+          needed.
+    """
+
+    error_msg: str
+    item: Any
+    timestamp: float
+
+
 class V2Engine:
     """
     Background flush engine for NanaSQLite v2 mode.
@@ -95,8 +122,8 @@ class V2Engine:
 
         # Dead Letter Queue (DLQ)
         # Stores keys that poisoned the batch, or StrictTasks that failed.
-        # Structure: [(error_msg, object, timestamp), ...]
-        self.dlq: list[tuple[str, Any, float]] = []
+        # See DLQEntry for the payload shape and the SEC-01 security notice.
+        self.dlq: list[DLQEntry] = []
         self._dlq_lock = threading.Lock()
 
         # Threading/Worker state
@@ -149,9 +176,16 @@ class V2Engine:
         self._timer_thread.start()
 
     def _add_to_dlq(self, error_msg: str, item: Any) -> None:
-        """Adds a failed item to the Dead Letter Queue."""
+        """Adds a failed item to the Dead Letter Queue.
+
+        .. warning:: **SEC-01 — payload exposure**
+            ``item`` for KVS failures contains ``((table_name, key), op)`` where
+            ``op["value"]`` is the *serialised* (but not necessarily encrypted)
+            value.  Do not log ``item`` in production for unencrypted databases.
+            See :class:`DLQEntry` for the full security notice.
+        """
         with self._dlq_lock:
-            self.dlq.append((error_msg, item, time.time()))
+            self.dlq.append(DLQEntry(error_msg=error_msg, item=item, timestamp=time.time()))
         if self._enable_metrics:
             with self._metrics_lock:
                 self._metrics["dlq_errors"] += 1
@@ -447,9 +481,20 @@ class V2Engine:
                 self._shared_lock.release()
 
     def get_dlq(self) -> list[dict[str, Any]]:
-        """Return a copy of the Dead Letter Queue for inspection."""
+        """Return a copy of the Dead Letter Queue for inspection.
+
+        Each entry is a dict with the following keys:
+
+        - ``"error"`` (*str*): human-readable error description.
+        - ``"item"`` (*Any*): the failed payload.  For KVS failures this is
+          ``((table_name, key), op)`` where ``op["value"]`` is the serialised
+          (possibly plaintext) database value.  See :class:`DLQEntry` for the
+          full **SEC-01** security notice before forwarding this data to logs
+          or monitoring systems.
+        - ``"timestamp"`` (*float*): ``time.time()`` at the time of failure.
+        """
         with self._dlq_lock:
-            return [{"error": err, "item": item, "timestamp": ts} for err, item, ts in self.dlq]
+            return [{"error": e.error_msg, "item": e.item, "timestamp": e.timestamp} for e in self.dlq]
 
     def retry_dlq(self) -> None:
         """
@@ -461,7 +506,8 @@ class V2Engine:
             items = list(self.dlq)
             self.dlq.clear()
 
-        for _, item, _ in items:
+        for entry in items:
+            item = entry.item
             if isinstance(item, StrictTask):
                 self._strict_queue.put(item)
             elif isinstance(item, tuple) and len(item) == 2 and isinstance(item[1], dict) and "action" in item[1]:

@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import re
 import sys
+import types
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -56,7 +57,9 @@ try:
     )
 except ImportError:
     HAS_RE2 = False
-    re2_module = None  # type: ignore[assignment]
+    # QUAL-01: explicit ModuleType | None annotation avoids the need for
+    # type: ignore on every usage site.
+    re2_module: types.ModuleType | None = None
 
 # Identifier pattern
 IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_]\w*$")
