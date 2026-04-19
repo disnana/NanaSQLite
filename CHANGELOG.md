@@ -54,8 +54,10 @@
   - インデックスは `before_write`・`before_delete` コールバックで自動更新されます。フックライフサイクル外でDBを変更した場合は `hook.invalidate_index()` でインデックスを再構築できます。
   - 後方互換: `use_index=False`（デフォルト）では従来の O(N) 動作が維持されます。
 
-- **PERF-02: `BaseHook.__init__` — コンパイル済み `Pattern` 型の再バリデーション省略**（`hooks.py`）
-  - 非 RE2 モードで既コンパイル済みの `re.Pattern` オブジェクトを渡した場合でも `_validate_regex_pattern` が再実行されていました。コンパイル済みパターンは呼び出し元が明示的に選択したものであるため、再バリデーションは冗長です。省略することでフック初期化時のオーバーヘッドを削減しました。
+- **PERF-02: `BaseHook.__init__` — コンパイル済み `Pattern` 型の再コンパイル省略**（`hooks.py`）
+  - 非 RE2 モードで既コンパイル済みの `re.Pattern` オブジェクトを渡した場合、`re.compile()` による再コンパイルを省略してコンパイル済みオブジェクトをそのまま利用します。
+  - セキュリティ上の要件として、`pattern.pattern` テキストに対する `_validate_regex_pattern` の ReDoS バリデーションは引き続き実行されます（コンパイル済み Pattern を経由してブラックリストを迂回できないよう保証）。
+  - これにより安全性を維持したままフック初期化時のオーバーヘッドを削減しました。
 
 #### セキュリティ強化（前倒し）
 
@@ -1349,8 +1351,10 @@
   - The index is kept up-to-date automatically through `before_write` and `before_delete` callbacks. Call `hook.invalidate_index()` after any out-of-lifecycle DB modifications (e.g. `db.execute()`).
   - Backward-compatible: `use_index=False` (default) preserves the original O(N) behaviour.
 
-- **PERF-02: `BaseHook.__init__` — skip re-validation for already-compiled `Pattern`** (`hooks.py`)
-  - In non-RE2 mode, passing an already-compiled `re.Pattern` object caused `_validate_regex_pattern` to run again on the raw pattern string. Since the caller explicitly chose to compile the pattern, this re-validation is redundant and has been eliminated.
+- **PERF-02: `BaseHook.__init__` — skip recompilation for already-compiled `Pattern`** (`hooks.py`)
+  - In non-RE2 mode, passing an already-compiled `re.Pattern` object no longer triggers `re.compile()` again. The compiled `Pattern` object is used directly, reducing hook initialization overhead.
+  - The `_validate_regex_pattern` check on `pattern.pattern` is **still executed** for security (ensuring compiled patterns cannot bypass the dangerous-pattern blacklist).
+  - Safety is preserved while reducing unnecessary recompilation overhead.
 
 #### Security Enhancement (accelerated)
 

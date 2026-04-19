@@ -2916,6 +2916,67 @@ class TestPerf01V154UniqueHookIndex:
         assert db["user2"]["email"] == "alice@example.com"
         db.close()
 
+    def test_use_index_duplicate_tracking_in_build_index(self, db_path):
+        """_build_index() がライフサイクル外で既存重複エントリをトラックし、
+        以降の書き込みで O(N) スキャンにフォールバックして正確に検証することを確認する。"""
+        from nanasqlite.hooks import UniqueHook
+
+        # まずフックなしで重複を書き込む（ライフサイクル外）
+        db = NanaSQLite(db_path)
+        db._has_hooks = False  # フックをバイパスして直接書き込み
+        db["user1"] = {"email": "dup@example.com"}
+        db["user2"] = {"email": "dup@example.com"}
+        db._has_hooks = True
+
+        hook = UniqueHook("email", use_index=True)
+        db._hooks = [hook]
+
+        # インデックスをビルドすると重複が _duplicate_field_values に記録される
+        hook._build_index(db)
+        assert "dup@example.com" in hook._duplicate_field_values
+        assert "dup@example.com" not in hook._value_to_key
+
+        # 重複値を持つ別キーへの書き込みは拒否される（O(N) スキャンでフォールバック）
+        with pytest.raises(NanaSQLiteValidationError):
+            db["user3"] = {"email": "dup@example.com"}
+
+        db.close()
+
+    def test_use_index_duplicate_resolves_registers_in_index(self, db_path):
+        """_duplicate_field_values に記録された値について、O(N) スキャンで
+        重複が解消されたと判定された場合にインデックスへ登録されることを確認する。
+        （書き込み元のキーが唯一の保有者になった場合）"""
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        # フックなしで user1 と user2 に同じメールを設定（ライフサイクル外）
+        db._has_hooks = False
+        db["user1"] = {"email": "dup@example.com"}
+        db["user2"] = {"email": "dup@example.com"}
+        db._has_hooks = True
+
+        hook = UniqueHook("email", use_index=True)
+        db._hooks = [hook]
+
+        # インデックスビルド: "dup@example.com" は _duplicate_field_values に記録される
+        hook._build_index(db)
+        assert "dup@example.com" in hook._duplicate_field_values
+
+        # フックをバイパスして user2 のメールを変更（重複解消）
+        db._has_hooks = False
+        db["user2"] = {"email": "other@example.com"}
+        db._has_hooks = True
+
+        # user1 のメールを "dup@example.com" に更新する（self-update）
+        # O(N) スキャンで重複なしと判定 → インデックスに登録
+        db["user1"] = {"email": "dup@example.com"}
+
+        # 重複が解消されたのでインデックスに登録されているはず
+        assert "dup@example.com" in hook._value_to_key
+        assert "dup@example.com" not in hook._duplicate_field_values
+
+        db.close()
+
     def test_use_index_unhashable_field_value_raises_clear_error(self, db_path):
         """use_index=True でアンハッシュ可能なフィールド値（list など）を書き込むと
         明確なエラーが発生することを確認する。
@@ -2929,7 +2990,7 @@ class TestPerf01V154UniqueHookIndex:
         db.add_hook(UniqueHook(get_tags, use_index=True))
 
         # list（アンハッシュ可能）を返すフィールドエクストラクタは use_index=True では拒否される
-        with pytest.raises(NanaSQLiteValidationError, match="アンハッシュ可能"):
+        with pytest.raises(NanaSQLiteValidationError, match="unhashable"):
             db["user1"] = {"tags": ["python", "sqlite"]}
 
         db.close()
@@ -3023,6 +3084,7 @@ class TestPerf02V154BaseHookPatternRevalidation:
     def test_compiled_pattern_works_correctly_in_hook(self, db_path):
         """既コンパイル済み Pattern を渡したフックが正しく動作することを確認する。"""
         import re
+
         from nanasqlite.hooks import CheckHook
 
         compiled = re.compile(r"^user_")
@@ -3046,6 +3108,7 @@ class TestQual01V154Re2ModuleAnnotation:
     def test_re2_module_has_correct_annotation(self):
         """re2_module が types.ModuleType | None の型で宣言されていることを確認する。"""
         import types as builtin_types
+
         from nanasqlite import compat as compat_mod
 
         re2_module_val = compat_mod.re2_module
@@ -3055,6 +3118,7 @@ class TestQual01V154Re2ModuleAnnotation:
     def test_compat_imports_types_module(self):
         """compat.py が types モジュールをインポートしていることを確認する。"""
         import inspect
+
         from nanasqlite import compat as compat_mod
 
         source = inspect.getsource(compat_mod)
@@ -3083,8 +3147,9 @@ class TestQual02V154DLQEntryDataclass:
 
     def test_dlq_uses_dlq_entry_internally(self, db_path):
         """V2Engine の内部 DLQ が DLQEntry インスタンスのリストであることを確認する。"""
-        from nanasqlite.v2_engine import DLQEntry, V2Engine
         import apsw
+
+        from nanasqlite.v2_engine import DLQEntry, V2Engine
 
         conn = apsw.Connection(db_path)
         engine = V2Engine(connection=conn, table_name="data")
@@ -3102,8 +3167,9 @@ class TestQual02V154DLQEntryDataclass:
 
     def test_get_dlq_backward_compatible_dict_format(self, db_path):
         """get_dlq() が後方互換の dict 形式を返すことを確認する。"""
-        from nanasqlite.v2_engine import V2Engine
         import apsw
+
+        from nanasqlite.v2_engine import V2Engine
 
         conn = apsw.Connection(db_path)
         engine = V2Engine(connection=conn, table_name="data")
@@ -3139,16 +3205,18 @@ class TestSec01V154DLQPayloadDocumentation:
 
     def test_get_dlq_docstring_mentions_security(self):
         """get_dlq() の docstring にペイロード漏洩リスクへの言及があることを確認する。"""
-        from nanasqlite.v2_engine import V2Engine
         import inspect
+
+        from nanasqlite.v2_engine import V2Engine
 
         doc = inspect.getdoc(V2Engine.get_dlq) or ""
         assert "SEC-01" in doc or "security" in doc.lower() or "exposure" in doc.lower() or "plaintext" in doc.lower()
 
     def test_add_to_dlq_docstring_mentions_security(self):
         """_add_to_dlq() の docstring にペイロード漏洩リスクへの言及があることを確認する。"""
-        from nanasqlite.v2_engine import V2Engine
         import inspect
+
+        from nanasqlite.v2_engine import V2Engine
 
         doc = inspect.getdoc(V2Engine._add_to_dlq) or ""
         assert "SEC-01" in doc or "payload" in doc.lower() or "exposure" in doc.lower()

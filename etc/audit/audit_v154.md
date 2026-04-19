@@ -110,7 +110,7 @@ for k, v in db.items():  # ← O(N)、全件 load_all() を呼ぶ
 
 ---
 
-### PERF-02 [Low] `BaseHook.__init__` — `Pattern` 型入力時に再バリデーション
+### PERF-02 [Low] `BaseHook.__init__` — `Pattern` 型入力時に再コンパイル
 
 **ファイル:** `src/nanasqlite/hooks.py` L.70–72
 
@@ -120,10 +120,12 @@ elif isinstance(key_pattern, Pattern):
     self._key_regex = key_pattern
 ```
 
-既コンパイル済みの `Pattern` オブジェクトを渡した場合でも `_validate_regex_pattern` が
-再実行される。初期化時のみの影響で軽微だが、一貫性のために省略が望ましい。
+既コンパイル済みの `Pattern` オブジェクトを渡した場合でも `re.compile()` で再コンパイルが
+発生していた。初期化時のみの影響で軽微だが、再コンパイルは不要。
 
-**修正案（Low Priority）:** `Pattern` 型入力時はバリデーションをスキップする。
+**修正案（Low Priority）:** `Pattern` 型入力時は `re.compile()` の再コンパイルをスキップし、
+コンパイル済みオブジェクトをそのまま利用する。セキュリティ上、`_validate_regex_pattern(key_pattern.pattern)`
+による ReDoS バリデーションは引き続き実行すること（コンパイル済み Pattern 経由のブラックリスト迂回を防止）。
 
 ---
 
@@ -220,7 +222,7 @@ POC スクリプトは `etc/poc/` ディレクトリに作成済み:
 | BUG-02 (batch_update hook result) | ✅ v1.5.4 で修正済み | non-coerce パスでフック返り値を保持 |
 | BUG-03 (batch_delete hook lock) | ✅ v1.5.4 で修正済み | 非 v2 パスで `before_delete` をロック内に移動 |
 | PERF-01 (UniqueHook O(N)) | ✅ v1.5.4 で前倒し実施 | `use_index=True` opt-in 逆引きインデックス |
-| PERF-02 (Pattern 再バリデーション) | ✅ v1.5.4 で前倒し実施 | `Pattern` 型入力時の `_validate_regex_pattern` 省略 |
+| PERF-02 (Pattern 再コンパイル) | ✅ v1.5.4 で前倒し実施 | `Pattern` 型入力時は再コンパイルを省略。`_validate_regex_pattern(key_pattern.pattern)` による ReDoS バリデーションは継続 |
 | SEC-01 (DLQ exposure) | ✅ v1.5.4 で前倒し実施 | `DLQEntry`・`get_dlq()`・`_add_to_dlq()` に SEC-01 注記追加 |
 | QUAL-01 (re2_module 型) | ✅ v1.5.4 で前倒し実施 | `types.ModuleType \| None` アノテーション |
 | QUAL-02 (DLQ 型) | ✅ v1.5.4 で前倒し実施 | `DLQEntry` dataclass 導入 |
