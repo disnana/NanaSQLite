@@ -367,8 +367,10 @@ class UniqueHook(BaseHook):
             # db.get() は after_read フックを適用するため、
             # PydanticHook 等が介在するとモデルオブジェクトが返り、
             # _extract_field() が None を返してインデックスエントリが残留する恐れがある。
-            old_raw = db._get_raw(key)
-            if old_raw is not None:
+            # 格納値としての None と「キーが存在しない」を区別するため sentinel を使用する。
+            _missing = object()
+            old_raw = db._get_raw(key, _missing)
+            if old_raw is not _missing:
                 old_check_val = self._extract_field(key, old_raw)
                 try:
                     if old_check_val is not None:
@@ -461,9 +463,11 @@ class UniqueHook(BaseHook):
             return
         if not self._should_run(key):
             return
-        # after_read フックをバイパスして生の格納値を取得する
-        value = db._get_raw(key)
-        if value is not None:
+        # after_read フックをバイパスして生の格納値を取得する。
+        # 格納値としての None と「キーが存在しない」を区別するため sentinel を使用する。
+        _missing = object()
+        value = db._get_raw(key, _missing)
+        if value is not _missing:
             check_val = self._extract_field(key, value)
             try:
                 if check_val is not None:

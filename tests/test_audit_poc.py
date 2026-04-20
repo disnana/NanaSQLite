@@ -2571,15 +2571,16 @@ class TestBug01V154PopBeforeDeleteLock:
 
         lock_held_flags: list[bool] = []
 
+        db = NanaSQLite(db_path)
+        is_owned_fn = getattr(db._lock, "_is_owned", None)
+        if not callable(is_owned_fn):
+            db.close()
+            pytest.skip("RLock._is_owned() はこのランタイムでは利用不可")
+
         class LockInspectHook(BaseHook):
             def before_delete(self_hook, db, key):  # noqa: N805
-                try:
-                    held = db._lock._is_owned()
-                except AttributeError:
-                    held = False
-                lock_held_flags.append(held)
+                lock_held_flags.append(db._lock._is_owned())
 
-        db = NanaSQLite(db_path)
         db.add_hook(LockInspectHook())
         db["key"] = "value"
         result = db.pop("key")
@@ -2719,15 +2720,16 @@ class TestBug03V154BatchDeleteBeforeDeleteLock:
 
         lock_held_flags: list[bool] = []
 
+        db = NanaSQLite(db_path)
+        is_owned_fn = getattr(db._lock, "_is_owned", None)
+        if not callable(is_owned_fn):
+            db.close()
+            pytest.skip("RLock._is_owned() はこのランタイムでは利用不可")
+
         class LockInspectHook(BaseHook):
             def before_delete(self_hook, db, key):  # noqa: N805
-                try:
-                    held = db._lock._is_owned()
-                except AttributeError:
-                    held = False
-                lock_held_flags.append(held)
+                lock_held_flags.append(db._lock._is_owned())
 
-        db = NanaSQLite(db_path)
         db.add_hook(LockInspectHook())
         db["k1"] = "v1"
         db["k2"] = "v2"
@@ -3029,13 +3031,296 @@ class TestPerf01V154UniqueHookIndex:
 
         db.close()
 
+    def test_use_index_build_index_with_triple_duplicate(self, db_path):
+        """_build_index() で3つ以上のキーが同じ値を持つ場合、
+        すでに _duplicate_field_values に記録済みの値はスキップされることを確認する。"""
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        db._has_hooks = False
+        db["u1"] = {"email": "tri@example.com"}
+        db["u2"] = {"email": "tri@example.com"}
+        db["u3"] = {"email": "tri@example.com"}
+        db._has_hooks = True
+
+        hook = UniqueHook("email", use_index=True)
+        db._hooks = [hook]
+
+        hook._build_index(db)
+        assert "tri@example.com" in hook._duplicate_field_values
+        assert "tri@example.com" not in hook._value_to_key
+        db.close()
+
+    def test_use_index_build_index_skips_unhashable(self, db_path):
+        """_build_index() でアンハッシュ可能なフィールド値はスキップされクラッシュしない。"""
+        from nanasqlite.hooks import UniqueHook
+
+        def get_tags(key, value):
+            return value.get("tags") if isinstance(value, dict) else None
+
+        db = NanaSQLite(db_path)
+        db._has_hooks = False
+        db["item1"] = {"tags": ["python", "sqlite"]}
+        db["item2"] = {"name": "no-tags"}
+        db._has_hooks = True
+
+        hook = UniqueHook(get_tags, use_index=True)
+        hook._build_index(db)
+        assert hook._index_built is True
+        assert len(hook._value_to_key) == 0
+        db.close()
+
+    def test_use_index_duplicate_resolves_via_new_key(self, db_path):
+        """_duplicate_field_values に記録された値を書き込む際、
+        O(N) スキャンで重複なしと判定されるとインデックスに昇格されることを確認する。"""
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        db._has_hooks = False
+        db["u1"] = {"email": "res@example.com"}
+        db["u2"] = {"email": "res@example.com"}
+        db._has_hooks = True
+
+        hook = UniqueHook("email", use_index=True)
+        db._hooks = [hook]
+
+        hook._build_index(db)
+        assert "res@example.com" in hook._duplicate_field_values
+
+        # u1/u2 のメールを変更して重複を解消（バイパス）
+        db._has_hooks = False
+        db["u1"] = {"email": "changed@example.com"}
+        db["u2"] = {"email": "other@example.com"}
+        db._has_hooks = True
+
+        # _duplicate_field_values に残っているはずの "res@example.com" で新規キーを書き込む
+        # (before_write の old_raw が _missing になるので discard は呼ばれない)
+        hook._duplicate_field_values.add("res@example.com")  # 強制的に重複マーク
+
+        # O(N) スキャン: 他のキーに "res@example.com" はないので昇格
+        db["u3"] = {"email": "res@example.com"}
+        assert "res@example.com" in hook._value_to_key
+        assert "res@example.com" not in hook._duplicate_field_values
+        db.close()
+
+    def test_use_index_false_non_dict_skips_check(self, db_path):
+        """use_index=False のデフォルトパスで非 dict 値は check_val が None になりスキップされる。
+        (_extract_field の非 dict パスと before_write の use_index=False None パスのカバレッジ確保)"""
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        db.add_hook(UniqueHook("email"))  # use_index=False (default)
+
+        # dict でない値 → check_val が None → チェックスキップ（エラーなし）
+        db["key1"] = "not_a_dict"
+        db["key2"] = "also_not_a_dict"
+        db.close()
+
+    def test_use_index_false_callable_field_on_non_dict_in_scan(self, db_path):
+        """use_index=False の O(N) スキャンで非 dict 値に対して callable field が呼ばれることを確認する。
+        (hooks.py before_write use_index=False callable + non-dict パスのカバレッジ確保)"""
+        from nanasqlite.hooks import UniqueHook
+
+        call_count = [0]
+
+        def get_email(key, value):
+            call_count[0] += 1
+            return value.get("email") if isinstance(value, dict) else None
+
+        db = NanaSQLite(db_path)
+        db.add_hook(UniqueHook(get_email))  # use_index=False
+
+        db["user1"] = "not_a_dict"
+        db["user2"] = {"email": "bob@example.com"}
+        # O(N) スキャン中に user1 (非 dict) に対して callable が呼ばれる
+        db["user3"] = {"email": "charlie@example.com"}
+        assert call_count[0] > 0
+        db.close()
+
+    def test_use_index_false_non_dict_existing_triggers_scan_none_path(self, db_path):
+        """use_index=False で非 dict 値が存在する状態で O(N) スキャンが走る際、
+        str field に対して非 dict の other_val が None になるパスを確認する。
+        (hooks.py before_write use_index=False str-field non-dict パスのカバレッジ確保)"""
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        db.add_hook(UniqueHook("email"))  # use_index=False, str field
+
+        # 非 dict の既存値 (O(N) スキャン中に other_val = None になる)
+        db._has_hooks = False
+        db["key1"] = "not_a_dict"  # 非 dict
+        db._has_hooks = True
+
+        # check_val != None → O(N) スキャン実行 → key1 に対して other_val = None
+        db["key2"] = {"email": "test@example.com"}
+        db.close()
+
+    def test_use_index_build_index_triggers_extract_non_dict(self, db_path):
+        """_build_index() で str field に対して非 dict 値を持つキーが存在する場合、
+        _extract_field が None を返してスキップされることを確認する。
+        (hooks.py _extract_field の str field + 非 dict パス = line 316 のカバレッジ確保)"""
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        db._has_hooks = False
+        db["k1"] = "not_a_dict"  # 非 dict - str field → _extract_field line 316
+        db["k2"] = {"email": "test@example.com"}
+        db._has_hooks = True
+
+        hook = UniqueHook("email", use_index=True)
+        db._hooks = [hook]
+        hook._build_index(db)
+        # k1 はスキップ、k2 はインデックス登録
+        assert "test@example.com" in hook._value_to_key
+        assert hook._value_to_key["test@example.com"] == "k2"
+        db.close()
+
+    def test_use_index_before_write_old_unhashable_except_handled(self, db_path):
+        """旧インデックス値がアンハッシュ可能な場合、before_write の except TypeError が正しく処理される。
+        (hooks.py before_write の old_check_val unhashable except パス 381-383 のカバレッジ確保)"""
+        from nanasqlite.hooks import UniqueHook
+
+        def get_tags(key, value):
+            return value.get("tags") if isinstance(value, dict) else None
+
+        db = NanaSQLite(db_path)
+        db._has_hooks = False
+        db["item1"] = {"tags": ["python", "sqlite"]}  # unhashable field value
+        db._has_hooks = True
+
+        hook = UniqueHook(get_tags, use_index=True)
+        db._hooks = [hook]
+        # _build_index がアンハッシュ可能値をスキップしてインデックスを構築
+        hook._build_index(db)
+
+        # item1 を更新: 旧値がアンハッシュ可能 → before_write の except TypeError パス
+        # 新しい値はハッシュ可能 → エラーなし
+        db["item1"] = {"tags": "rust"}  # 文字列 (hashable) に更新
+        db.close()
+
+    def test_use_index_duplicate_scan_skips_self_key(self, db_path):
+        """is_known_duplicate=True の O(N) スキャンで同じキーの書き込みは continue される。
+        (hooks.py before_write の k == key continue パス 409 のカバレッジ確保)"""
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        db._has_hooks = False
+        # u1 を最初に追加（イテレーション順で先頭になる）
+        db["u1"] = {"email": "dup@example.com"}
+        db["u2"] = {"email": "dup@example.com"}
+        db._has_hooks = True
+
+        hook = UniqueHook("email", use_index=True)
+        db._hooks = [hook]
+        hook._build_index(db)
+        assert "dup@example.com" in hook._duplicate_field_values
+
+        # u1 のメールを別の値に変更（before_write が old_check_val を処理するが
+        # None フィールドにすることで discard を防ぐ）
+        db._has_hooks = False
+        db["u1"] = {"name": "alice"}  # email フィールドなし → old_check_val = None
+        db["u2"] = {"email": "other@example.com"}  # u2 の重複を解消
+        db._has_hooks = True
+
+        # u1 (イテレーション順で先頭) が "dup@example.com" を書き込む
+        # old_check_val = None なので discard されない → is_known_duplicate = True
+        # O(N) スキャン: k="u1"==key → continue (LINE 409)
+        # k="u2": email="other" → 競合なし → resolve (LINES 420-422)
+        db["u1"] = {"email": "dup@example.com"}
+        assert "dup@example.com" in hook._value_to_key
+        assert "dup@example.com" not in hook._duplicate_field_values
+        db.close()
+
+    def test_use_index_true_key_pattern_no_match_skips_write(self, db_path):
+        """use_index=True で key_pattern に一致しないキーへの書き込みはスキップされる。
+        (hooks.py before_write の _should_run=False return パス 351 のカバレッジ確保)"""
+        import re
+
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        hook = UniqueHook("email", use_index=True, key_pattern=re.compile(r"^user_"))
+        db.add_hook(hook)
+
+        # パターン一致 → インデックス構築 + チェック
+        db["user_1"] = {"email": "alice@example.com"}
+        assert hook._index_built is True
+
+        # パターン不一致 → before_write early return (line 351)
+        db["other_key"] = {"email": "alice@example.com"}  # 重複チェックなし
+        db.close()
+
+    def test_use_index_before_delete_index_not_built_returns_early(self, db_path):
+        """use_index=True でも _index_built=False のとき before_delete は早期リターンする。
+        (hooks.py before_delete の use_index/index_built チェック 463 のカバレッジ確保)"""
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        hook = UniqueHook("email", use_index=True)
+        db._hooks = [hook]
+        db._has_hooks = True
+
+        # インデックスを構築しないまま削除 → 早期リターン（クラッシュしない）
+        db._has_hooks = False
+        db["user1"] = {"email": "alice@example.com"}
+        db._has_hooks = True
+        # _index_built=False のまま削除
+        assert hook._index_built is False
+        del db["user1"]
+        db.close()
+
+    def test_use_index_before_delete_key_pattern_no_match_returns(self, db_path):
+        """use_index=True で _should_run が False の場合、before_delete は早期リターンする。
+        (hooks.py before_delete の _should_run チェック 465 のカバレッジ確保)"""
+        import re
+
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        # key_pattern="^user_" に一致するキーのみチェック
+        hook = UniqueHook("email", use_index=True, key_pattern=re.compile(r"^user_"))
+        db.add_hook(hook)
+
+        db["user_1"] = {"email": "alice@example.com"}
+        # インデックス構築済み
+        assert hook._index_built is True
+
+        # パターンに一致しないキーの削除 → before_delete は早期リターン
+        db._has_hooks = False
+        db["other_key"] = {"email": "test@example.com"}
+        db._has_hooks = True
+        del db["other_key"]  # _should_run=False → line 465 return
+        db.close()
+
+    def test_use_index_before_delete_unhashable_except_handled(self, db_path):
+        """削除時に check_val がアンハッシュ可能な場合、before_delete の except TypeError が処理される。
+        (hooks.py before_delete の TypeError except パス 482-484 のカバレッジ確保)"""
+        from nanasqlite.hooks import UniqueHook
+
+        def get_tags(key, value):
+            return value.get("tags") if isinstance(value, dict) else None
+
+        db = NanaSQLite(db_path)
+        db._has_hooks = False
+        db["item1"] = {"tags": ["python"]}  # unhashable
+        db._has_hooks = True
+
+        hook = UniqueHook(get_tags, use_index=True)
+        db._hooks = [hook]
+        hook._build_index(db)
+
+        # 削除: check_val = ["python"] はアンハッシュ可能 → except TypeError: pass
+        del db["item1"]
+        db.close()
+
 
 # ---------------------------------------------------------------------------
-# v1.5.4 前倒し実施: PERF-02 — BaseHook Pattern 型再バリデーション省略
+# v1.5.4 前倒し実施: PERF-02 — BaseHook Pattern 型再コンパイル省略
 # ---------------------------------------------------------------------------
 
 class TestPerf02V154BaseHookPatternRevalidation:
-    """PERF-02 (v1.5.4): 既コンパイル済み Pattern は _validate_regex_pattern を省略する。"""
+    """PERF-02 (v1.5.4): 既コンパイル済み Pattern でも pattern.pattern への
+    _validate_regex_pattern による検証は維持され、再コンパイルのみ省略される。"""
 
     def test_compiled_pattern_still_validates_pattern_text_no_re2(self):
         """非 RE2 パスで既コンパイル済み Pattern を渡しても、セキュリティ上
