@@ -383,27 +383,35 @@ class UniqueHook(BaseHook):
             # 格納値としての None と「キーが存在しない」を区別するため sentinel を使用する。
             _missing = object()
             old_raw = db._get_raw(key, _missing)
+            old_check_val = None
+            old_check_val_hashable = False
             if old_raw is not _missing:
                 old_check_val = self._extract_field(key, old_raw)
                 try:
                     if old_check_val is not None:
-                        # 非アトミックな get()+del は v2 モードでフック呼び出しが
-                        # インターリーブすると KeyError を引き起こす可能性がある。
-                        # pop() で安全に除去し、このキーが所有していなかった場合は復元する。
-                        _missing_index: object = object()
-                        _removed_key = self._value_to_key.pop(old_check_val, _missing_index)
-                        if _removed_key is not _missing_index and _removed_key != key:
-                            self._value_to_key[old_check_val] = _removed_key  # type: ignore[index]
-                        # _duplicate_field_values からは除去しない。
-                        # 他のキーが同じ値を持っている可能性があるため、
-                        # 重複の完全な解消は O(N) スキャン（is_known_duplicate パス）で確認する。
+                        hash(old_check_val)
+                        old_check_val_hashable = True
+                        # 旧インデックスの除去はまだ行わない。
+                        # この後の重複チェックやバリデーションで例外が発生すると
+                        # DB 書き込みは中止されるため、ここで _value_to_key を変更すると
+                        # インデックスだけが壊れた状態になる。
+                        # 実際の除去は、書き込み継続が確定した成功パスで行う。
                 except TypeError:
                     # アンハッシュ可能な旧値はインデックスに存在しないためスキップ
                     pass
 
             if check_val is None:
                 # 新しい値にユニーク性フィールドがない場合はインデックス登録をスキップ。
-                # 旧エントリはすでに上で削除済みのため、残留エントリは発生しない。
+                # この分岐は成功パスでそのまま return するため、
+                # ここで旧エントリを安全に除去できる。
+                if old_check_val_hashable and old_check_val is not None:
+                    _missing_index: object = object()
+                    _removed_key = self._value_to_key.pop(old_check_val, _missing_index)
+                    if _removed_key is not _missing_index and _removed_key != key:
+                        self._value_to_key[old_check_val] = _removed_key  # type: ignore[index]
+                    # _duplicate_field_values からは除去しない。
+                    # 他のキーが同じ値を持っている可能性があるため、
+                    # 重複の完全な解消は O(N) スキャン（is_known_duplicate パス）で確認する。
                 return value
 
             # 重複チェック（同一キーの上書きは許可）
