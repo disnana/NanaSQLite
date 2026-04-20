@@ -162,14 +162,14 @@ jobs:
 
       - name: Download sync benchmark results
         if: needs.should-run.outputs.run_benchmark == 'true'
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v8.0.1
         with:
           name: benchmark-results-rpi-py3.12
           path: benchmark-results/benchmark-results-rpi-py3.12
 
       - name: Download async benchmark results
         if: needs.should-run.outputs.run_benchmark == 'true'
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v8.0.1
         with:
           name: async-benchmark-results-rpi-py3.12
           path: async-benchmark-results/async-benchmark-results-rpi-py3.12
