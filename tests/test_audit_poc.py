@@ -3472,7 +3472,7 @@ class TestPerf01V154UniqueHookIndex:
         def write_unique(i: int) -> None:
             try:
                 db[f"user{i}"] = {"email": f"user{i}@example.com"}
-            except Exception as exc:  # noqa: BLE001
+            except (RuntimeError, OSError) as exc:
                 errors.append(exc)
 
         threads = [threading.Thread(target=write_unique, args=(i,)) for i in range(n_threads)]

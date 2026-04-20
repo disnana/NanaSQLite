@@ -477,7 +477,9 @@ class UniqueHook(BaseHook):
 
                 # インデックスに新しいエントリを登録
                 self._value_to_key[check_val] = key
-                # フィールド値が変化した場合は旧エントリを安全に除去する。
+                # フィールド値が変化した場合は旧エントリを除去する。
+                # _index_lock 保護区間内なので他スレッドとの競合はないが、
+                # pop+restore パターンを維持することで誤った所有者の削除を防ぐ。
                 if old_check_val_hashable and old_check_val is not None and old_check_val != check_val:
                     _missing_idx: object = object()
                     _old_key = self._value_to_key.pop(old_check_val, _missing_idx)
