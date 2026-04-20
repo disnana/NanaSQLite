@@ -2578,7 +2578,7 @@ class TestBug01V154PopBeforeDeleteLock:
             pytest.skip("RLock._is_owned() はこのランタイムでは利用不可")
 
         class LockInspectHook(BaseHook):
-            def before_delete(self_hook, db, key):  # noqa: N805
+            def before_delete(self, db, key):  # noqa: N805
                 lock_held_flags.append(db._lock._is_owned())
 
         db.add_hook(LockInspectHook())
@@ -2599,7 +2599,7 @@ class TestBug01V154PopBeforeDeleteLock:
         delete_calls: list[str] = []
 
         class RecordHook(BaseHook):
-            def before_delete(self_hook, db, key):  # noqa: N805
+            def before_delete(self, db, key):  # noqa: N805
                 delete_calls.append(key)
 
         db = NanaSQLite(db_path)
@@ -2615,7 +2615,7 @@ class TestBug01V154PopBeforeDeleteLock:
         from nanasqlite.hooks import BaseHook
 
         class AbortDeleteHook(BaseHook):
-            def before_delete(self_hook, db, key):  # noqa: N805
+            def before_delete(self, db, key):  # noqa: N805
                 raise NanaSQLiteValidationError("delete not allowed")
 
         db = NanaSQLite(db_path)
@@ -2642,7 +2642,7 @@ class TestBug02V154BatchUpdateHookResult:
         from nanasqlite.hooks import BaseHook
 
         class UpperCaseHook(BaseHook):
-            def before_write(self_hook, db, key, value):  # noqa: N805
+            def before_write(self, db, key, value):  # noqa: N805
                 if isinstance(value, str):
                     return value.upper()
                 return value
@@ -2660,7 +2660,7 @@ class TestBug02V154BatchUpdateHookResult:
         from nanasqlite.hooks import BaseHook
 
         class PrefixHook(BaseHook):
-            def before_write(self_hook, db, key, value):  # noqa: N805
+            def before_write(self, db, key, value):  # noqa: N805
                 if isinstance(value, str):
                     return "prefix_" + value
                 return value
@@ -2694,7 +2694,7 @@ class TestBug02V154BatchUpdateHookResult:
         from nanasqlite.hooks import BaseHook
 
         class PassthroughHook(BaseHook):
-            def before_write(self_hook, db, key, value):  # noqa: N805
+            def before_write(self, db, key, value):  # noqa: N805
                 return value  # 変更なし
 
         db = NanaSQLite(db_path)
@@ -2727,7 +2727,7 @@ class TestBug03V154BatchDeleteBeforeDeleteLock:
             pytest.skip("RLock._is_owned() はこのランタイムでは利用不可")
 
         class LockInspectHook(BaseHook):
-            def before_delete(self_hook, db, key):  # noqa: N805
+            def before_delete(self, db, key):  # noqa: N805
                 lock_held_flags.append(db._lock._is_owned())
 
         db.add_hook(LockInspectHook())
@@ -2746,7 +2746,7 @@ class TestBug03V154BatchDeleteBeforeDeleteLock:
         from nanasqlite.hooks import BaseHook
 
         class AbortDeleteHook(BaseHook):
-            def before_delete(self_hook, db, key):  # noqa: N805
+            def before_delete(self, db, key):  # noqa: N805
                 if key == "protected":
                     raise NanaSQLiteValidationError("cannot delete protected key")
 
@@ -3311,6 +3311,77 @@ class TestPerf01V154UniqueHookIndex:
 
         # 削除: check_val = ["python"] はアンハッシュ可能 → except TypeError: pass
         del db["item1"]
+        db.close()
+
+    def test_use_index_same_hook_reused_across_two_dbs(self, db_path, tmp_path):
+        """同一 UniqueHook インスタンスを 2 つ目の DB に付け替えた場合、
+        インデックスが最初の DB から自動的に無効化・再構築されることを確認する。
+        (hooks.py:361-365 の per-DB 弱参照トラッキング)"""
+        from nanasqlite.hooks import UniqueHook
+
+        db_path2 = str(tmp_path / "db2.db")
+
+        hook = UniqueHook("email", use_index=True)
+
+        # 最初の DB に付けてインデックスを構築
+        db1 = NanaSQLite(db_path)
+        db1.add_hook(hook)
+        db1["u1"] = {"email": "alice@example.com"}
+        assert hook._index_built is True
+        bound_db1 = hook._bound_db_ref() if hook._bound_db_ref else None
+        assert bound_db1 is db1
+        db1.close()
+
+        # 同じフックインスタンスを 2 つ目の DB に付ける
+        db2 = NanaSQLite(db_path2)
+        db2.add_hook(hook)
+        # db1 への弱参照が切れているため、db2 への書き込みで自動的に再構築される
+        db2["u2"] = {"email": "bob@example.com"}
+        assert hook._index_built is True
+        bound_db2 = hook._bound_db_ref() if hook._bound_db_ref else None
+        assert bound_db2 is db2, "インデックスは db2 に紐付けられるべき"
+
+        # db2 ではインデックスが正しく機能するはず
+        with pytest.raises(NanaSQLiteValidationError):
+            db2["u3"] = {"email": "bob@example.com"}  # 重複
+        db2.close()
+
+    def test_use_index_no_premature_discard_from_duplicate_set(self, db_path):
+        """update 時に _duplicate_field_values から旧値を除去しないことを確認する。
+        pre-existing 重複を持つ値は、更新後も O(N) スキャンフォールバックを維持するべき。
+        (hooks.py:379-380 の保守的な discard 除去)"""
+        from nanasqlite.hooks import UniqueHook
+
+        hook = UniqueHook("email", use_index=True)
+        db = NanaSQLite(db_path)
+
+        # ライフサイクル外で重複を作成してからインデックスを構築
+        db._has_hooks = False
+        db["k1"] = {"email": "dup@example.com"}
+        db["k2"] = {"email": "dup@example.com"}
+        db._has_hooks = True
+
+        db.add_hook(hook)
+        # インデックス構築: _duplicate_field_values に "dup@example.com" が入るはず
+        hook._build_index(db)
+        assert "dup@example.com" in hook._duplicate_field_values
+
+        # k1 を別のメールアドレスに更新（旧値 "dup@example.com" の処理）
+        db["k1"] = {"email": "unique@example.com"}
+
+        # _duplicate_field_values から旧値が除去されていないことを確認
+        # （k2 がまだ "dup@example.com" を持っているため）
+        assert "dup@example.com" in hook._duplicate_field_values, (
+            "旧値はまだ k2 が保持しているため _duplicate_field_values から除去すべきでない"
+        )
+
+        # k2 へ "dup@example.com" を書き込もうとすると O(N) スキャンが走り、
+        # k2 自身への上書きは許可される（既存の same key 更新）
+        db["k2"] = {"email": "dup@example.com"}  # k2 自身の上書き → OK
+
+        # 全く新しいキーへの "dup@example.com" は k2 との重複でエラー
+        with pytest.raises(NanaSQLiteValidationError):
+            db["k3"] = {"email": "dup@example.com"}
         db.close()
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 import warnings
+import weakref
 from collections.abc import Hashable
 from re import Pattern
 from typing import Any, Callable
@@ -295,6 +296,9 @@ class UniqueHook(BaseHook):
         # そのフィールド値を記録する。該当値については O(N) スキャンにフォールバックする。
         self._duplicate_field_values: set[Hashable] = set()
         self._index_built: bool = False
+        # インデックスを構築した DB インスタンスへの弱参照。
+        # 別の DB インスタンスで使用された場合に自動的に再構築するために使用する。
+        self._bound_db_ref: weakref.ref[Any] | None = None
 
     def invalidate_index(self) -> None:
         """Force the inverse index to be rebuilt on the next write.
@@ -306,6 +310,7 @@ class UniqueHook(BaseHook):
         self._index_built = False
         self._value_to_key.clear()
         self._duplicate_field_values.clear()
+        self._bound_db_ref = None
 
     def _extract_field(self, key: str, value: Any) -> Any:
         """Return the uniqueness value for a (key, value) pair, or None."""
@@ -345,6 +350,9 @@ class UniqueHook(BaseHook):
                 # アンハッシュ可能な値（dict, list など）はインデックス不可のためスキップ
                 pass
         self._index_built = True
+        # インデックスを構築した DB インスタンスへの弱参照を保存する。
+        # 別の DB インスタンスで使用された場合に自動的に再構築するために使用する。
+        self._bound_db_ref = weakref.ref(db)
 
     def before_write(self, db: Any, key: str, value: Any) -> Any:
         if not self._should_run(key):
@@ -360,6 +368,11 @@ class UniqueHook(BaseHook):
 
         if self.use_index:
             # インデックスモード: O(N) の初回ビルド後は O(1) で検証
+            # 別の DB インスタンスで使用された場合はインデックスを再構築する。
+            if self._index_built and (
+                self._bound_db_ref is None or self._bound_db_ref() is not db
+            ):
+                self.invalidate_index()
             if not self._index_built:
                 self._build_index(db)
 
@@ -376,8 +389,9 @@ class UniqueHook(BaseHook):
                     if old_check_val is not None:
                         if self._value_to_key.get(old_check_val) == key:
                             del self._value_to_key[old_check_val]
-                        # 重複セットからも旧値を除去（このキーが削除されるため）
-                        self._duplicate_field_values.discard(old_check_val)
+                        # _duplicate_field_values からは除去しない。
+                        # 他のキーが同じ値を持っている可能性があるため、
+                        # 重複の完全な解消は O(N) スキャン（is_known_duplicate パス）で確認する。
                 except TypeError:
                     # アンハッシュ可能な旧値はインデックスに存在しないためスキップ
                     pass
@@ -460,6 +474,11 @@ class UniqueHook(BaseHook):
     def before_delete(self, db: Any, key: str) -> None:
         """キー削除時に逆引きインデックスを最新状態に保つ。"""
         if not self.use_index or not self._index_built:
+            return
+        # 別の DB インスタンスで使用された場合はインデックスを無効化して早期リターン。
+        # インデックスは次回の before_write で正しい DB から再構築される。
+        if self._bound_db_ref is None or self._bound_db_ref() is not db:
+            self.invalidate_index()
             return
         if not self._should_run(key):
             return
