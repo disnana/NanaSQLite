@@ -3502,16 +3502,20 @@ class TestQual01V154Re2ModuleAnnotation:
         assert re2_module_val is None or isinstance(re2_module_val, builtin_types.ModuleType)
 
     def test_compat_imports_types_module(self):
-        """compat.py が types モジュールをインポートしていることを確認する。"""
-        import inspect
+        """re2_module の型アノテーションが ModuleType | None を表していることを確認する。"""
+        import types as builtin_types
+        import typing
 
         from nanasqlite import compat as compat_mod
 
-        source = inspect.getsource(compat_mod)
-        assert "import types" in source, "compat.py should import the 'types' module for QUAL-01"
-        assert "types.ModuleType" in source, "compat.py should use types.ModuleType for re2_module annotation"
+        hints = typing.get_type_hints(compat_mod)
+        assert "re2_module" in hints, "compat.py should define a type annotation for 're2_module'"
 
-
+        annotation = hints["re2_module"]
+        annotation_args = set(typing.get_args(annotation))
+        assert annotation_args == {builtin_types.ModuleType, type(None)}, (
+            "compat.py should annotate re2_module as ModuleType | None"
+        )
 # ---------------------------------------------------------------------------
 # v1.5.4 前倒し実施: QUAL-02 — DLQEntry dataclass
 # ---------------------------------------------------------------------------
