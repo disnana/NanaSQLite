@@ -36,8 +36,8 @@ class TestBatchUpdateCodeStructure:
             "Use separate code paths: build coerced_mapping only when self._coerce is True."
         )
 
-    def test_batch_update_uses_copy_on_write_pattern(self):
-        """batch_update should use a unified copy-on-write pattern for hook application.
+    def test_batch_update_uses_copy_on_write_pattern(self, tmp_path):
+        """batch_update hook transformations are applied regardless of coerce flag.
 
         BUG-02 fix (v1.5.4): the old two-branch approach (coerce vs validate-only)
         silently discarded hook-returned values in the non-coerce path, causing
@@ -46,12 +46,19 @@ class TestBatchUpdateCodeStructure:
         copy-on-write path applies hook transformations regardless of the coerce flag
         and only allocates a new dict when at least one value changes.
         """
-        source = inspect.getsource(NanaSQLite.batch_update)
-        # The copy-on-write pattern always applies hook results.
-        assert "processed_mapping" in source, (
-            "batch_update() should use a 'processed_mapping' copy-on-write variable "
-            "to apply hook transformations while avoiding unnecessary dict allocation."
-        )
+        from nanasqlite.hooks import BaseHook
+
+        class UpperCaseHook(BaseHook):
+            def before_write(self, db, key, value):
+                return value.upper() if isinstance(value, str) else value
+
+        db_path = str(tmp_path / "test_cow.db")
+        db = NanaSQLite(db_path)
+        db.add_hook(UpperCaseHook())
+        db.batch_update({"k1": "hello", "k2": "world"})
+        assert db["k1"] == "HELLO", "batch_update must apply before_write hook transformations"
+        assert db["k2"] == "WORLD", "batch_update must apply before_write hook transformations"
+        db.close()
 
     def test_batch_update_validate_only_branch_does_not_store_coerced(self):
         """The validate-only branch must not store coerced values in a new dict.

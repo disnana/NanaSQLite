@@ -54,8 +54,10 @@ class StrictTask:
 class DLQEntry:
     """A single entry in the Dead Letter Queue (DLQ).
 
-    QUAL-02: typed dataclass replaces the untyped ``tuple[str, Any, float]`` so
-    that mypy can track the payload without ``Any`` escapes.
+    QUAL-02: typed dataclass replaces the untyped ``tuple[str, Any, float]``
+    with a typed container, so mypy can check the DLQ structure and metadata
+    fields. The payload field ``item`` remains intentionally typed as ``Any``
+    because DLQ entries may contain heterogeneous values.
 
     .. warning:: **SEC-01: DLQ payload exposure risk**
 
