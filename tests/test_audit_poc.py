@@ -3328,7 +3328,7 @@ class TestPerf01V154UniqueHookIndex:
         db1.add_hook(hook)
         db1["u1"] = {"email": "alice@example.com"}
         assert hook._index_built is True
-        bound_db1 = hook._bound_db_ref() if hook._bound_db_ref else None
+        bound_db1 = hook._bound_db_ref() if hook._bound_db_ref is not None else None
         assert bound_db1 is db1
         db1.close()
 
@@ -3338,7 +3338,7 @@ class TestPerf01V154UniqueHookIndex:
         # db1 への弱参照が切れているため、db2 への書き込みで自動的に再構築される
         db2["u2"] = {"email": "bob@example.com"}
         assert hook._index_built is True
-        bound_db2 = hook._bound_db_ref() if hook._bound_db_ref else None
+        bound_db2 = hook._bound_db_ref() if hook._bound_db_ref is not None else None
         assert bound_db2 is db2, "インデックスは db2 に紐付けられるべき"
 
         # db2 ではインデックスが正しく機能するはず
