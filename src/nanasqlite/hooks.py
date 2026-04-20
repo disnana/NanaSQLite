@@ -446,6 +446,13 @@ class UniqueHook(BaseHook):
                 # 重複が解消された場合はインデックスに登録してセットから除去
                 self._duplicate_field_values.discard(check_val)
                 self._value_to_key[check_val] = key
+                # フィールド値が変化した場合は旧エントリを安全に除去する。
+                # （フック呼び出しがインターリーブしても KeyError にならないよう pop+restore を使用）
+                if old_check_val_hashable and old_check_val is not None and old_check_val != check_val:
+                    _missing_idx_dup: object = object()
+                    _old_key_dup = self._value_to_key.pop(old_check_val, _missing_idx_dup)
+                    if _old_key_dup is not _missing_idx_dup and _old_key_dup != key:
+                        self._value_to_key[old_check_val] = _old_key_dup  # type: ignore[index]
                 return value
 
             if existing_key is not None and existing_key != key:
@@ -459,6 +466,13 @@ class UniqueHook(BaseHook):
 
             # インデックスに新しいエントリを登録
             self._value_to_key[check_val] = key
+            # フィールド値が変化した場合は旧エントリを安全に除去する。
+            # （フック呼び出しがインターリーブしても KeyError にならないよう pop+restore を使用）
+            if old_check_val_hashable and old_check_val is not None and old_check_val != check_val:
+                _missing_idx: object = object()
+                _old_key = self._value_to_key.pop(old_check_val, _missing_idx)
+                if _old_key is not _missing_idx and _old_key != key:
+                    self._value_to_key[old_check_val] = _old_key  # type: ignore[index]
         else:
             if check_val is None:
                 return value

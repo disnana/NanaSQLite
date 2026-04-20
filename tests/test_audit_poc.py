@@ -3414,6 +3414,33 @@ class TestPerf01V154UniqueHookIndex:
             db["k3"] = {"email": "dup@example.com"}
         db.close()
 
+    def test_use_index_old_entry_removed_when_field_value_changes(self, db_path):
+        """フィールド値が変化した際に旧インデックスエントリが除去されることを確認する。
+        (hooks.py:460-462 の stale index fix — comment #3111596989)
+        旧値に対してインデックスエントリが残留すると、後から同じ旧値を書き込む際に
+        「already exists」として誤検出される可能性がある。"""
+        from nanasqlite.hooks import UniqueHook
+
+        hook = UniqueHook("email", use_index=True)
+        db = NanaSQLite(db_path)
+        db.add_hook(hook)
+
+        db["u1"] = {"email": "alice@example.com"}
+        db["u2"] = {"email": "bob@example.com"}
+
+        # u1 のメールアドレスを変更
+        db["u1"] = {"email": "alice-new@example.com"}
+
+        # 旧値 "alice@example.com" はインデックスから除去されているはず
+        assert "alice@example.com" not in hook._value_to_key, (
+            "旧値 'alice@example.com' はインデックスから除去されているべき"
+        )
+
+        # 旧値 "alice@example.com" を別のキーで書き込めることを確認（重複エラーにならない）
+        db["u3"] = {"email": "alice@example.com"}
+        assert db["u3"] == {"email": "alice@example.com"}
+        db.close()
+
 
 # ---------------------------------------------------------------------------
 # v1.5.4 前倒し実施: PERF-02 — BaseHook Pattern 型再コンパイル省略
