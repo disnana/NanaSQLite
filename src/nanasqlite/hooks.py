@@ -387,8 +387,13 @@ class UniqueHook(BaseHook):
                 old_check_val = self._extract_field(key, old_raw)
                 try:
                     if old_check_val is not None:
-                        if self._value_to_key.get(old_check_val) == key:
-                            del self._value_to_key[old_check_val]
+                        # 非アトミックな get()+del は v2 モードでフック呼び出しが
+                        # インターリーブすると KeyError を引き起こす可能性がある。
+                        # pop() で安全に除去し、このキーが所有していなかった場合は復元する。
+                        _missing_index: object = object()
+                        _removed_key = self._value_to_key.pop(old_check_val, _missing_index)
+                        if _removed_key is not _missing_index and _removed_key != key:
+                            self._value_to_key[old_check_val] = _removed_key  # type: ignore[index]
                         # _duplicate_field_values からは除去しない。
                         # 他のキーが同じ値を持っている可能性があるため、
                         # 重複の完全な解消は O(N) スキャン（is_known_duplicate パス）で確認する。
@@ -490,10 +495,13 @@ class UniqueHook(BaseHook):
             check_val = self._extract_field(key, value)
             try:
                 if check_val is not None:
-                    if self._value_to_key.get(check_val) == key:
-                        # このキーがインデックスに登録されていた場合のみ削除する。
-                        # 削除後はこの値を持つキーが存在しないため、インデックスから除去は正しい。
-                        del self._value_to_key[check_val]
+                    # 非アトミックな get()+del は v2 モードでフック呼び出しが
+                    # インターリーブすると KeyError を引き起こす可能性がある。
+                    # pop() で安全に除去し、このキーが所有していなかった場合は復元する。
+                    _missing_index_del: object = object()
+                    _removed_del = self._value_to_key.pop(check_val, _missing_index_del)
+                    if _removed_del is not _missing_index_del and _removed_del != key:
+                        self._value_to_key[check_val] = _removed_del  # type: ignore[index]
                     # _duplicate_field_values に含まれる値については除去しない。
                     # 他のキーがまだ同じ値を持っている可能性があるため、
                     # O(N) スキャンフォールバックの状態を維持する。

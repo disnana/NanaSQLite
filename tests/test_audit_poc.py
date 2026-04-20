@@ -2706,6 +2706,36 @@ class TestBug02V154BatchUpdateHookResult:
         assert db["y"] == 2
         db.close()
 
+    def test_batch_update_before_write_hook_runs_inside_lock(self, db_path):
+        """batch_update() の非 v2 モードで before_write フックが _lock 保持中に呼ばれることを確認する。
+
+        SEC-05 consistency: __setitem__ は SEC-05 修正でフックをロック内で実行するが、
+        batch_update() も同様にフックとDBライトをアトミックに実行する必要がある。
+        """
+        from nanasqlite.hooks import BaseHook
+
+        lock_held_flags: list[bool] = []
+
+        db = NanaSQLite(db_path)
+        is_owned_fn = getattr(db._lock, "_is_owned", None)
+        if not callable(is_owned_fn):
+            db.close()
+            pytest.skip("RLock._is_owned() はこのランタイムでは利用不可")
+
+        class LockInspectHook(BaseHook):
+            def before_write(self, db, key, value):
+                lock_held_flags.append(db._lock._is_owned())
+                return value
+
+        db.add_hook(LockInspectHook())
+        db.batch_update({"k1": "v1", "k2": "v2"})
+        db.close()
+
+        assert len(lock_held_flags) == 2
+        assert all(f is True for f in lock_held_flags), (
+            "batch_update() should call before_write inside the lock (SEC-05 consistency)"
+        )
+
 
 # ---------------------------------------------------------------------------
 # v1.5.4 Audit: BUG-03 — batch_delete() before_delete hook inside lock

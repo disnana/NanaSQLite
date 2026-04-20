@@ -1590,38 +1590,28 @@ class NanaSQLite(MutableMapping):
 
         self._check_connection()
 
-        # Apply before_write hooks
-        # BUG-02 fix: always use hook-returned values regardless of self._coerce.
-        # Previously the non-coerce branch used a "validate only" path that silently
-        # discarded hook transformations, causing __setitem__ and batch_update() to
-        # produce different results when a transforming hook (e.g. PydanticHook) is
-        # active.  Both branches now use the same copy-on-write logic.
         hooks = self._hooks
-        if hooks:
-            # コピーオンライト: 変更が検出された場合のみ新しい dict を割り当てる。
-            # フックがいずれの値も変更しない場合、追加のメモリ割り当ては発生しない。
-            # 等値比較 (!=) ではなく同一性比較 (is not) を使用することで、
-            # カスタム __eq__ を持つオブジェクトや、等値だが別インスタンスの
-            # フック戻り値（例: 異なる精度の Decimal）を確実に保持する。
-            processed_mapping: dict[str, Any] | None = None
-            for k, v in mapping.items():
-                new_v = v
-                for hook in hooks:
-                    new_v = hook.before_write(self, k, new_v)
-                if processed_mapping is not None:
-                    processed_mapping[k] = new_v
-                elif new_v is not v:
-                    # 最初の変更を検出: 元の mapping の浅いコピーを作成し
-                    # （これまでのエントリはフックで変更なし）、現在のキーに
-                    # フック処理済みの値を上書きする。
-                    processed_mapping = dict(mapping)
-                    processed_mapping[k] = new_v
-            if processed_mapping is not None:
-                mapping = processed_mapping
-        # フック適用ブロックの終わり
 
-        # v2 Architecture: Route to background staging buffer instead of blocking DB write
+        # v2 Architecture: Route to background staging buffer instead of blocking DB write.
+        # In v2 mode, hooks run outside the lock (v2 uses its own concurrency model, same
+        # as __setitem__ v2 path).
         if self._v2_mode and self._v2_engine:
+            if hooks:
+                # BUG-02 fix: コピーオンライトでフック変換を確実に適用する。
+                # 等値比較 (!=) ではなく同一性比較 (is not) を使用することで、
+                # カスタム __eq__ を持つオブジェクトや Decimal の精度違いを保持する。
+                processed_mapping: dict[str, Any] | None = None
+                for k, v in mapping.items():
+                    new_v = v
+                    for hook in hooks:
+                        new_v = hook.before_write(self, k, new_v)
+                    if processed_mapping is not None:
+                        processed_mapping[k] = new_v
+                    elif new_v is not v:
+                        processed_mapping = dict(mapping)
+                        processed_mapping[k] = new_v
+                if processed_mapping is not None:
+                    mapping = processed_mapping
             for key, value in mapping.items():
                 self._v2_engine.kvs_set(self._safe_table, key, value)
             # See __setitem__ comment: no explicit lock needed for pure in-memory updates in v2 mode.
@@ -1636,12 +1626,28 @@ class NanaSQLite(MutableMapping):
                     self._absent_keys.difference_update(mapping.keys())
             return
 
-        # PERF-23: Serialize all values outside the lock (consistent with __setitem__).
-        # _serialize() is pure Python/JSON work that does not touch the SQLite connection,
-        # so holding the lock during serialization only adds unnecessary contention.
-        params = [(key, self._serialize(value)) for key, value in mapping.items()]
-
+        # non-v2 path: SEC-05 consistency — hooks run inside the lock so that uniqueness
+        # checks (UniqueHook etc.) and the subsequent DB write are atomic, preventing the
+        # TOCTOU race where two concurrent threads both pass before_write and write
+        # conflicting values.  Serialization also happens inside the lock because it must
+        # follow hook transformations (e.g. PydanticHook may change the value type).
         with self._acquire_lock():
+            # BUG-02 fix: always use hook-returned values regardless of self._coerce.
+            if hooks:
+                # コピーオンライト: 変更が検出された場合のみ新しい dict を割り当てる。
+                nv2_processed: dict[str, Any] | None = None
+                for k, v in mapping.items():
+                    new_v = v
+                    for hook in hooks:
+                        new_v = hook.before_write(self, k, new_v)
+                    if nv2_processed is not None:
+                        nv2_processed[k] = new_v
+                    elif new_v is not v:
+                        nv2_processed = dict(mapping)
+                        nv2_processed[k] = new_v
+                if nv2_processed is not None:
+                    mapping = nv2_processed
+            params = [(key, self._serialize(value)) for key, value in mapping.items()]
             cursor = self._connection.cursor()
             cursor.execute(_BEGIN_IMMEDIATE)
             try:
