@@ -3441,6 +3441,52 @@ class TestPerf01V154UniqueHookIndex:
         assert db["u3"] == {"email": "alice@example.com"}
         db.close()
 
+    def test_use_index_has_index_lock(self):
+        """UniqueHook(use_index=True) が threading.RLock を持つことを確認する。
+        (hooks.py:291-295 の並行安全性修正 — comment #3111792657)
+        v2 モードでは DB ロック外でフックが呼ばれるため、_index_lock による内部保護が必要。"""
+        import threading
+
+        from nanasqlite.hooks import UniqueHook
+
+        hook = UniqueHook("email", use_index=True)
+        assert hasattr(hook, "_index_lock"), "UniqueHook は _index_lock を持つべき"
+        assert isinstance(hook._index_lock, type(threading.RLock())), (
+            "_index_lock は threading.RLock であるべき"
+        )
+
+    def test_use_index_concurrent_writes_no_deadlock(self, db_path):
+        """複数スレッドから UniqueHook(use_index=True) を並行使用してもデッドロックしないことを確認する。
+        (hooks.py:291-295 の並行安全性修正 — comment #3111792657)"""
+        import threading
+
+        from nanasqlite.hooks import UniqueHook
+
+        hook = UniqueHook("email", use_index=True)
+        db = NanaSQLite(db_path)
+        db.add_hook(hook)
+
+        errors: list[Exception] = []
+        n_threads = 10
+
+        def write_unique(i: int) -> None:
+            try:
+                db[f"user{i}"] = {"email": f"user{i}@example.com"}
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [threading.Thread(target=write_unique, args=(i,)) for i in range(n_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+
+        assert not errors, f"並行書き込みでエラーが発生: {errors}"
+        # 全スレッド完了後にすべてのキーが存在することを確認
+        for i in range(n_threads):
+            assert f"user{i}" in db
+        db.close()
+
 
 # ---------------------------------------------------------------------------
 # v1.5.4 前倒し実施: PERF-02 — BaseHook Pattern 型再コンパイル省略
