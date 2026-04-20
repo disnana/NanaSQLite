@@ -2556,3 +2556,667 @@ class TestNewCodeCoverageV154:
         assert any("RE2 cannot preserve" in str(wi.message) for wi in w), "Expected a warning"
         # Should still work as a standard re pattern
         assert isinstance(hook._should_run("foo"), bool)
+
+
+# ---------------------------------------------------------------------------
+# v1.5.4 Audit: BUG-01 — pop() before_delete hook inside lock
+# ---------------------------------------------------------------------------
+
+class TestBug01V154PopBeforeDeleteLock:
+    """BUG-01 (v1.5.4): pop() の before_delete フックはロック内で実行されるべき。"""
+
+    def test_pop_before_delete_hook_runs_inside_lock(self, db_path):
+        """pop() の非 v2 モードで before_delete フックが _lock 保持中に呼ばれることを確認する。"""
+        from nanasqlite.hooks import BaseHook
+
+        lock_held_flags: list[bool] = []
+
+        class LockInspectHook(BaseHook):
+            def before_delete(self_hook, db, key):  # noqa: N805
+                try:
+                    held = db._lock._is_owned()
+                except AttributeError:
+                    held = False
+                lock_held_flags.append(held)
+
+        db = NanaSQLite(db_path)
+        db.add_hook(LockInspectHook())
+        db["key"] = "value"
+        result = db.pop("key")
+        db.close()
+
+        assert result == "value"
+        assert len(lock_held_flags) == 1
+        assert lock_held_flags[0] is True, (
+            "pop() should call before_delete inside the lock (SEC-05 consistency)"
+        )
+
+    def test_pop_missing_key_does_not_trigger_hook(self, db_path):
+        """pop() でキーが存在しない場合、フックは呼び出されない。"""
+        from nanasqlite.hooks import BaseHook
+
+        delete_calls: list[str] = []
+
+        class RecordHook(BaseHook):
+            def before_delete(self_hook, db, key):  # noqa: N805
+                delete_calls.append(key)
+
+        db = NanaSQLite(db_path)
+        db.add_hook(RecordHook())
+        result = db.pop("nonexistent", "default")
+        db.close()
+
+        assert result == "default"
+        assert delete_calls == []
+
+    def test_pop_hook_abort_raises_and_key_persists(self, db_path):
+        """pop() 中に before_delete フックが例外を送出した場合、キーは削除されない。"""
+        from nanasqlite.hooks import BaseHook
+
+        class AbortDeleteHook(BaseHook):
+            def before_delete(self_hook, db, key):  # noqa: N805
+                raise NanaSQLiteValidationError("delete not allowed")
+
+        db = NanaSQLite(db_path)
+        db.add_hook(AbortDeleteHook())
+        db["protected"] = "secret"
+
+        with pytest.raises(NanaSQLiteValidationError, match="delete not allowed"):
+            db.pop("protected")
+
+        # キーはまだ存在すべき
+        assert db["protected"] == "secret"
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# v1.5.4 Audit: BUG-02 — batch_update() hook return value not discarded
+# ---------------------------------------------------------------------------
+
+class TestBug02V154BatchUpdateHookResult:
+    """BUG-02 (v1.5.4): batch_update() でフック変換値が適用されることを確認する。"""
+
+    def test_batch_update_transforming_hook_applied(self, db_path):
+        """batch_update() で変換フック（before_write の返り値）が正しく適用される。"""
+        from nanasqlite.hooks import BaseHook
+
+        class UpperCaseHook(BaseHook):
+            def before_write(self_hook, db, key, value):  # noqa: N805
+                if isinstance(value, str):
+                    return value.upper()
+                return value
+
+        db = NanaSQLite(db_path)
+        db.add_hook(UpperCaseHook())
+        db.batch_update({"greeting": "hello", "name": "world"})
+
+        assert db["greeting"] == "HELLO", "batch_update should apply hook transformations"
+        assert db["name"] == "WORLD"
+        db.close()
+
+    def test_batch_update_consistent_with_setitem(self, db_path):
+        """batch_update() と __setitem__ でフック変換の結果が一致することを確認する。"""
+        from nanasqlite.hooks import BaseHook
+
+        class PrefixHook(BaseHook):
+            def before_write(self_hook, db, key, value):  # noqa: N805
+                if isinstance(value, str):
+                    return "prefix_" + value
+                return value
+
+        db1 = NanaSQLite(db_path)
+        db1.add_hook(PrefixHook())
+
+        db1["single"] = "val"
+        db1.batch_update({"batch": "val"})
+
+        assert db1["single"] == "prefix_val"
+        assert db1["batch"] == "prefix_val", (
+            "batch_update() and __setitem__ should produce the same result for transforming hooks"
+        )
+        db1.close()
+
+    def test_batch_update_non_transforming_hook_unchanged(self, db_path):
+        """変換なし（バリデーションのみ）フックでは元の値が保持される。"""
+        from nanasqlite.hooks import CheckHook
+
+        db = NanaSQLite(db_path)
+        db.add_hook(CheckHook(lambda k, v: isinstance(v, str)))
+        db.batch_update({"a": "ok", "b": "also_ok"})
+
+        assert db["a"] == "ok"
+        assert db["b"] == "also_ok"
+        db.close()
+
+    def test_batch_update_copy_on_write_no_alloc_when_unchanged(self, db_path):
+        """フックが値を変更しない場合、copy-on-write により余分な dict は生成されない。"""
+        from nanasqlite.hooks import BaseHook
+
+        class PassthroughHook(BaseHook):
+            def before_write(self_hook, db, key, value):  # noqa: N805
+                return value  # 変更なし
+
+        db = NanaSQLite(db_path)
+        db.add_hook(PassthroughHook())
+        original = {"x": 1, "y": 2}
+        db.batch_update(original)
+
+        assert db["x"] == 1
+        assert db["y"] == 2
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# v1.5.4 Audit: BUG-03 — batch_delete() before_delete hook inside lock
+# ---------------------------------------------------------------------------
+
+class TestBug03V154BatchDeleteBeforeDeleteLock:
+    """BUG-03 (v1.5.4): batch_delete() の before_delete フックはロック内で実行されるべき。"""
+
+    def test_batch_delete_before_delete_hook_runs_inside_lock(self, db_path):
+        """batch_delete() の非 v2 モードで before_delete フックが _lock 保持中に呼ばれることを確認する。"""
+        from nanasqlite.hooks import BaseHook
+
+        lock_held_flags: list[bool] = []
+
+        class LockInspectHook(BaseHook):
+            def before_delete(self_hook, db, key):  # noqa: N805
+                try:
+                    held = db._lock._is_owned()
+                except AttributeError:
+                    held = False
+                lock_held_flags.append(held)
+
+        db = NanaSQLite(db_path)
+        db.add_hook(LockInspectHook())
+        db["k1"] = "v1"
+        db["k2"] = "v2"
+        db.batch_delete(["k1", "k2"])
+        db.close()
+
+        assert len(lock_held_flags) == 2
+        assert all(f is True for f in lock_held_flags), (
+            "batch_delete() should call before_delete inside the lock (SEC-05 consistency)"
+        )
+
+    def test_batch_delete_hook_abort_raises_and_keys_persist(self, db_path):
+        """batch_delete() 中に before_delete フックが例外を送出した場合、削除はロールバックされる。"""
+        from nanasqlite.hooks import BaseHook
+
+        class AbortDeleteHook(BaseHook):
+            def before_delete(self_hook, db, key):  # noqa: N805
+                if key == "protected":
+                    raise NanaSQLiteValidationError("cannot delete protected key")
+
+        db = NanaSQLite(db_path)
+        db.add_hook(AbortDeleteHook())
+        db["protected"] = "secret"
+        db["normal"] = "ok"
+
+        with pytest.raises(NanaSQLiteValidationError, match="cannot delete protected key"):
+            db.batch_delete(["protected", "normal"])
+
+        # protected キーはまだ存在するはず
+        assert db.get("protected") == "secret"
+        db.close()
+
+    def test_batch_delete_no_hooks_works_normally(self, db_path):
+        """フックなしの batch_delete() は正常に動作することを確認する。"""
+        db = NanaSQLite(db_path)
+        db["a"] = 1
+        db["b"] = 2
+        db["c"] = 3
+        db.batch_delete(["a", "b"])
+
+        assert "a" not in db
+        assert "b" not in db
+        assert db["c"] == 3
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# v1.5.4 前倒し実施: PERF-01 — UniqueHook use_index=True opt-in
+# ---------------------------------------------------------------------------
+
+class TestPerf01V154UniqueHookIndex:
+    """PERF-01 (v1.5.4): UniqueHook の opt-in 逆引きインデックスを検証する。"""
+
+    def test_use_index_basic_unique_enforcement(self, db_path):
+        """use_index=True でも一意制約が正しく機能することを確認する。"""
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        db.add_hook(UniqueHook("email", use_index=True))
+
+        db["user1"] = {"email": "alice@example.com", "name": "Alice"}
+        db["user2"] = {"email": "bob@example.com", "name": "Bob"}
+
+        with pytest.raises(NanaSQLiteValidationError, match="Unique constraint violation"):
+            db["user3"] = {"email": "alice@example.com", "name": "Duplicate Alice"}
+
+        assert db["user1"]["email"] == "alice@example.com"
+        assert db["user2"]["email"] == "bob@example.com"
+        assert "user3" not in db
+        db.close()
+
+    def test_use_index_overwrite_same_key_ok(self, db_path):
+        """use_index=True で同一キーを別値で上書きできることを確認する（自己更新）。"""
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        db.add_hook(UniqueHook("email", use_index=True))
+
+        db["user1"] = {"email": "alice@example.com", "name": "Alice"}
+        # 同じキーを別メールで更新 — 問題なく書き込めるはず
+        db["user1"] = {"email": "alice_new@example.com", "name": "Alice Updated"}
+
+        assert db["user1"]["email"] == "alice_new@example.com"
+        db.close()
+
+    def test_use_index_overwrite_same_key_same_value_ok(self, db_path):
+        """use_index=True で同一キーを同一値で上書きできることを確認する（冪等更新）。"""
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        db.add_hook(UniqueHook("email", use_index=True))
+
+        db["user1"] = {"email": "alice@example.com", "name": "Alice"}
+        # 同じキーを同じメールで更新 — 問題なく書き込めるはず
+        db["user1"] = {"email": "alice@example.com", "name": "Alice (same)"}
+
+        assert db["user1"]["name"] == "Alice (same)"
+        db.close()
+
+    def test_use_index_lazy_build_on_first_write(self, db_path):
+        """use_index=True では最初の書き込み時にインデックスが構築されることを確認する。"""
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        # 先にデータを追加してからフックを登録（既存データに対して lazy build が行われる）
+        db["user1"] = {"email": "alice@example.com"}
+        db["user2"] = {"email": "bob@example.com"}
+        db.close()
+
+        db2 = NanaSQLite(db_path)
+        hook = UniqueHook("email", use_index=True)
+        db2.add_hook(hook)
+
+        assert not hook._index_built  # まだ構築されていない
+
+        # 新規書き込みでインデックスが構築される
+        db2["user3"] = {"email": "carol@example.com"}
+        assert hook._index_built
+
+        # 既存メールで重複チェックが機能する
+        with pytest.raises(NanaSQLiteValidationError):
+            db2["user4"] = {"email": "alice@example.com"}
+
+        db2.close()
+
+    def test_use_index_delete_removes_from_index(self, db_path):
+        """use_index=True でキーを削除するとインデックスからも除去されることを確認する。"""
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        hook = UniqueHook("email", use_index=True)
+        db.add_hook(hook)
+
+        db["user1"] = {"email": "alice@example.com"}
+        db["user2"] = {"email": "bob@example.com"}
+
+        # alice を削除するとインデックスからも除去される
+        del db["user1"]
+
+        # alice のメールが再利用できるようになる
+        db["user3"] = {"email": "alice@example.com"}
+        assert db["user3"]["email"] == "alice@example.com"
+        db.close()
+
+    def test_use_index_invalidate_rebuilds_index(self, db_path):
+        """invalidate_index() を呼ぶとインデックスが再構築されることを確認する。"""
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        hook = UniqueHook("email", use_index=True)
+        db.add_hook(hook)
+
+        db["user1"] = {"email": "alice@example.com"}
+
+        assert hook._index_built
+
+        hook.invalidate_index()
+        assert not hook._index_built
+        assert hook._value_to_key == {}
+
+        # 次の書き込みでインデックスが再構築される
+        db["user2"] = {"email": "bob@example.com"}
+        assert hook._index_built
+        db.close()
+
+    def test_use_index_update_to_none_removes_stale_entry(self, db_path):
+        """use_index=True でフィールド値を None（またはフィールド削除）に更新した場合に
+        旧インデックスエントリが正しく削除されることを確認する。
+        BUG: {"email": "a"} → {} への更新で "a"→key の残留エントリが誤重複を引き起こさない。"""
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        hook = UniqueHook("email", use_index=True)
+        db.add_hook(hook)
+
+        db["user1"] = {"email": "alice@example.com"}
+        assert hook._value_to_key.get("alice@example.com") == "user1"
+
+        # email フィールドを削除（None 相当）に更新する
+        db["user1"] = {"name": "Alice"}  # email キーなし
+        # 旧インデックスエントリが削除されているはず
+        assert "alice@example.com" not in hook._value_to_key
+
+        # alice のメールを別キーで再利用できるようになる（残留エントリがないので重複エラーにならない）
+        db["user2"] = {"email": "alice@example.com"}
+        assert db["user2"]["email"] == "alice@example.com"
+        db.close()
+
+    def test_use_index_duplicate_tracking_in_build_index(self, db_path):
+        """_build_index() がライフサイクル外で既存重複エントリをトラックし、
+        以降の書き込みで O(N) スキャンにフォールバックして正確に検証することを確認する。"""
+        from nanasqlite.hooks import UniqueHook
+
+        # まずフックなしで重複を書き込む（ライフサイクル外）
+        db = NanaSQLite(db_path)
+        db._has_hooks = False  # フックをバイパスして直接書き込み
+        db["user1"] = {"email": "dup@example.com"}
+        db["user2"] = {"email": "dup@example.com"}
+        db._has_hooks = True
+
+        hook = UniqueHook("email", use_index=True)
+        db._hooks = [hook]
+
+        # インデックスをビルドすると重複が _duplicate_field_values に記録される
+        hook._build_index(db)
+        assert "dup@example.com" in hook._duplicate_field_values
+        assert "dup@example.com" not in hook._value_to_key
+
+        # 重複値を持つ別キーへの書き込みは拒否される（O(N) スキャンでフォールバック）
+        with pytest.raises(NanaSQLiteValidationError):
+            db["user3"] = {"email": "dup@example.com"}
+
+        db.close()
+
+    def test_use_index_duplicate_resolves_registers_in_index(self, db_path):
+        """_duplicate_field_values に記録された値について、O(N) スキャンで
+        重複が解消されたと判定された場合にインデックスへ登録されることを確認する。
+        （書き込み元のキーが唯一の保有者になった場合）"""
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        # フックなしで user1 と user2 に同じメールを設定（ライフサイクル外）
+        db._has_hooks = False
+        db["user1"] = {"email": "dup@example.com"}
+        db["user2"] = {"email": "dup@example.com"}
+        db._has_hooks = True
+
+        hook = UniqueHook("email", use_index=True)
+        db._hooks = [hook]
+
+        # インデックスビルド: "dup@example.com" は _duplicate_field_values に記録される
+        hook._build_index(db)
+        assert "dup@example.com" in hook._duplicate_field_values
+
+        # フックをバイパスして user2 のメールを変更（重複解消）
+        db._has_hooks = False
+        db["user2"] = {"email": "other@example.com"}
+        db._has_hooks = True
+
+        # user1 のメールを "dup@example.com" に更新する（self-update）
+        # O(N) スキャンで重複なしと判定 → インデックスに登録
+        db["user1"] = {"email": "dup@example.com"}
+
+        # 重複が解消されたのでインデックスに登録されているはず
+        assert "dup@example.com" in hook._value_to_key
+        assert "dup@example.com" not in hook._duplicate_field_values
+
+        db.close()
+
+    def test_use_index_unhashable_field_value_raises_clear_error(self, db_path):
+        """use_index=True でアンハッシュ可能なフィールド値（list など）を書き込むと
+        明確なエラーが発生することを確認する。
+        サイレントな O(N) 縮退よりも、設定エラーとして明示的に通知する方が望ましい。"""
+        from nanasqlite.hooks import UniqueHook
+
+        def get_tags(key, value):
+            return value.get("tags") if isinstance(value, dict) else None
+
+        db = NanaSQLite(db_path)
+        db.add_hook(UniqueHook(get_tags, use_index=True))
+
+        # list（アンハッシュ可能）を返すフィールドエクストラクタは use_index=True では拒否される
+        with pytest.raises(NanaSQLiteValidationError, match="unhashable"):
+            db["user1"] = {"tags": ["python", "sqlite"]}
+
+        db.close()
+
+    def test_use_index_false_default_backward_compatible(self, db_path):
+        """use_index=False（デフォルト）では既存の O(N) 動作が維持されることを確認する。"""
+        from nanasqlite.hooks import UniqueHook
+
+        db = NanaSQLite(db_path)
+        hook = UniqueHook("email")  # use_index=False (default)
+        db.add_hook(hook)
+
+        assert hook.use_index is False
+
+        db["user1"] = {"email": "alice@example.com"}
+
+        with pytest.raises(NanaSQLiteValidationError):
+            db["user2"] = {"email": "alice@example.com"}
+
+        db.close()
+
+    def test_use_index_callable_field(self, db_path):
+        """use_index=True で callable の field 引数が正しく機能することを確認する。"""
+        from nanasqlite.hooks import UniqueHook
+
+        def get_email(key, value):
+            return value.get("email") if isinstance(value, dict) else None
+
+        db = NanaSQLite(db_path)
+        db.add_hook(UniqueHook(get_email, use_index=True))
+
+        db["user1"] = {"email": "alice@example.com"}
+
+        with pytest.raises(NanaSQLiteValidationError):
+            db["user2"] = {"email": "alice@example.com"}
+
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# v1.5.4 前倒し実施: PERF-02 — BaseHook Pattern 型再バリデーション省略
+# ---------------------------------------------------------------------------
+
+class TestPerf02V154BaseHookPatternRevalidation:
+    """PERF-02 (v1.5.4): 既コンパイル済み Pattern は _validate_regex_pattern を省略する。"""
+
+    def test_compiled_pattern_still_validates_pattern_text_no_re2(self):
+        """非 RE2 パスで既コンパイル済み Pattern を渡しても、セキュリティ上
+        pattern.pattern テキストに対して _validate_regex_pattern が呼ばれることを確認する。
+        コンパイル済み Pattern を経由して ReDoS ブラックリストをバイパスできないことを保証する。"""
+        import re
+        from unittest.mock import patch
+
+        from nanasqlite.hooks import BaseHook
+
+        compiled = re.compile(r"^user_")
+        # 非 RE2 パスで PERF-02 + セキュリティ修正の動作を確認
+        with patch("nanasqlite.hooks.HAS_RE2", False):
+            with patch.object(BaseHook, "_validate_regex_pattern") as mock_validate:
+                hook = BaseHook(key_pattern=compiled)
+                # コンパイル済み Pattern でも pattern.pattern テキストを検証する（セキュリティ要件）
+                mock_validate.assert_called_once_with(compiled.pattern)
+                # compiled Pattern オブジェクトをそのまま再利用する（再コンパイルしない）
+                assert hook._key_regex is compiled
+
+    def test_string_pattern_still_validates_no_re2(self):
+        """非 RE2 パスで文字列パターンは引き続き _validate_regex_pattern で検証されることを確認する。"""
+        from unittest.mock import patch
+
+        from nanasqlite.hooks import BaseHook
+
+        # Force non-RE2 path
+        with patch("nanasqlite.hooks.HAS_RE2", False):
+            # 危険なパターンは拒否される
+            with pytest.raises(NanaSQLiteValidationError, match="Potentially dangerous regex"):
+                BaseHook(key_pattern=r"(a+)+")
+
+    def test_compiled_dangerous_pattern_rejected_no_re2(self):
+        """非 RE2 パスで危険なパターンをコンパイルしてから渡した場合も拒否されることを確認する。
+        コンパイル済み Pattern で ReDoS ブラックリストをバイパスできないことの回帰テスト。"""
+        import re
+        from unittest.mock import patch
+
+        from nanasqlite.hooks import BaseHook
+
+        compiled_dangerous = re.compile(r"(a+)+")
+        with patch("nanasqlite.hooks.HAS_RE2", False):
+            with pytest.raises(NanaSQLiteValidationError, match="Potentially dangerous regex"):
+                BaseHook(key_pattern=compiled_dangerous)
+
+    def test_compiled_pattern_works_correctly_in_hook(self, db_path):
+        """既コンパイル済み Pattern を渡したフックが正しく動作することを確認する。"""
+        import re
+
+        from nanasqlite.hooks import CheckHook
+
+        compiled = re.compile(r"^user_")
+        hook = CheckHook(lambda k, v: isinstance(v, str), key_pattern=compiled)
+
+        db = NanaSQLite(db_path)
+        db.add_hook(hook)
+        db["user_1"] = "value"  # パターンに一致 → チェックされる
+        db["other_key"] = 123   # パターンに不一致 → チェックされない（整数でもOK）
+        db.close()
+
+
+
+# ---------------------------------------------------------------------------
+# v1.5.4 前倒し実施: QUAL-01 — re2_module 型アノテーション
+# ---------------------------------------------------------------------------
+
+class TestQual01V154Re2ModuleAnnotation:
+    """QUAL-01 (v1.5.4): compat.py の re2_module 型アノテーションが正しいことを確認する。"""
+
+    def test_re2_module_has_correct_annotation(self):
+        """re2_module が types.ModuleType | None の型で宣言されていることを確認する。"""
+        import types as builtin_types
+
+        from nanasqlite import compat as compat_mod
+
+        re2_module_val = compat_mod.re2_module
+        # 値は None またはモジュールである
+        assert re2_module_val is None or isinstance(re2_module_val, builtin_types.ModuleType)
+
+    def test_compat_imports_types_module(self):
+        """compat.py が types モジュールをインポートしていることを確認する。"""
+        import inspect
+
+        from nanasqlite import compat as compat_mod
+
+        source = inspect.getsource(compat_mod)
+        assert "import types" in source, "compat.py should import the 'types' module for QUAL-01"
+        assert "types.ModuleType" in source, "compat.py should use types.ModuleType for re2_module annotation"
+
+
+# ---------------------------------------------------------------------------
+# v1.5.4 前倒し実施: QUAL-02 — DLQEntry dataclass
+# ---------------------------------------------------------------------------
+
+class TestQual02V154DLQEntryDataclass:
+    """QUAL-02 (v1.5.4): V2Engine の DLQ が DLQEntry dataclass を使用することを確認する。"""
+
+    def test_dlq_entry_dataclass_exists(self):
+        """DLQEntry dataclass が v2_engine モジュールに定義されていることを確認する。"""
+        from dataclasses import fields, is_dataclass
+
+        from nanasqlite.v2_engine import DLQEntry
+
+        assert is_dataclass(DLQEntry)
+        field_names = {f.name for f in fields(DLQEntry)}
+        assert "error_msg" in field_names
+        assert "item" in field_names
+        assert "timestamp" in field_names
+
+    def test_dlq_uses_dlq_entry_internally(self, db_path):
+        """V2Engine の内部 DLQ が DLQEntry インスタンスのリストであることを確認する。"""
+        import apsw
+
+        from nanasqlite.v2_engine import DLQEntry, V2Engine
+
+        conn = apsw.Connection(db_path)
+        engine = V2Engine(connection=conn, table_name="data")
+        engine._add_to_dlq("test error", {"action": "set", "value": "val"})
+
+        assert len(engine.dlq) == 1
+        entry = engine.dlq[0]
+        assert isinstance(entry, DLQEntry)
+        assert entry.error_msg == "test error"
+        assert entry.item == {"action": "set", "value": "val"}
+        assert isinstance(entry.timestamp, float)
+
+        engine.shutdown()
+        conn.close()
+
+    def test_get_dlq_backward_compatible_dict_format(self, db_path):
+        """get_dlq() が後方互換の dict 形式を返すことを確認する。"""
+        import apsw
+
+        from nanasqlite.v2_engine import V2Engine
+
+        conn = apsw.Connection(db_path)
+        engine = V2Engine(connection=conn, table_name="data")
+        engine._add_to_dlq("test error", "test_item")
+
+        dlq = engine.get_dlq()
+        assert len(dlq) == 1
+        entry = dlq[0]
+        assert "error" in entry
+        assert "item" in entry
+        assert "timestamp" in entry
+        assert entry["error"] == "test error"
+        assert entry["item"] == "test_item"
+
+        engine.shutdown()
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# v1.5.4 前倒し実施: SEC-01 — DLQ ペイロード漏洩ドキュメント
+# ---------------------------------------------------------------------------
+
+class TestSec01V154DLQPayloadDocumentation:
+    """SEC-01 (v1.5.4): DLQ ペイロード漏洩リスクがドキュメント化されていることを確認する。"""
+
+    def test_dlq_entry_has_security_notice(self):
+        """DLQEntry の docstring に SEC-01 セキュリティ注意書きが含まれることを確認する。"""
+        from nanasqlite.v2_engine import DLQEntry
+
+        doc = DLQEntry.__doc__ or ""
+        assert "SEC-01" in doc, "DLQEntry docstring should contain 'SEC-01' security notice"
+        assert "payload" in doc.lower() or "exposure" in doc.lower() or "漏洩" in doc or "plaintext" in doc.lower()
+
+    def test_get_dlq_docstring_mentions_security(self):
+        """get_dlq() の docstring にペイロード漏洩リスクへの言及があることを確認する。"""
+        import inspect
+
+        from nanasqlite.v2_engine import V2Engine
+
+        doc = inspect.getdoc(V2Engine.get_dlq) or ""
+        assert "SEC-01" in doc or "security" in doc.lower() or "exposure" in doc.lower() or "plaintext" in doc.lower()
+
+    def test_add_to_dlq_docstring_mentions_security(self):
+        """_add_to_dlq() の docstring にペイロード漏洩リスクへの言及があることを確認する。"""
+        import inspect
+
+        from nanasqlite.v2_engine import V2Engine
+
+        doc = inspect.getdoc(V2Engine._add_to_dlq) or ""
+        assert "SEC-01" in doc or "payload" in doc.lower() or "exposure" in doc.lower()
