@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import re
 import sys
+import types
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,8 @@ except ImportError:
 
 # Optional google-re2 (linear-time regex engine, prevents ReDoS)
 # Install with: pip install nanasqlite[re2]
+# QUAL-01: try/except の前に宣言することで、どちらのブランチでも型が正しく追跡される。
+re2_module: types.ModuleType | None = None
 try:
     import re2 as _re2_module  # type: ignore[import-untyped]
 
@@ -56,7 +59,6 @@ try:
     )
 except ImportError:
     HAS_RE2 = False
-    re2_module = None  # type: ignore[assignment]
 
 # Identifier pattern
 IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_]\w*$")
