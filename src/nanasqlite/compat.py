@@ -47,7 +47,7 @@ except ImportError:
 # Optional google-re2 (linear-time regex engine, prevents ReDoS)
 # Install with: pip install nanasqlite[re2]
 # QUAL-01: try/except の前に宣言することで、どちらのブランチでも型が正しく追跡される。
-re2_module: types.Optional[types.ModuleType] = None
+re2_module: Optional[types.ModuleType] = None
 try:
     import re2 as _re2_module  # type: ignore[import-untyped]
 
