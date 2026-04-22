@@ -139,6 +139,7 @@ ignore = [
     "N802",   # function name should be lowercase (for test methods)
     "N803",   # argument name should be lowercase
     "N806",   # variable in function should be lowercase
+    "UP045",  # Use `X | None` (disabled for Python 3.9 compatibility)
 ]
 
 [tool.ruff.lint.isort]
