@@ -65,10 +65,6 @@ def sanitize_sql_for_function_scan(sql: str) -> str:
         - Line comments end at the first newline
         - Block comments may span multiple lines
     """
-    # Use nanalib implementation only when the module exposes the expected API.
-    # if nanalib and hasattr(nanalib, "sanitize_sql_for_function_scan"):
-    #     return nanalib.sanitize_sql_for_function_scan(sql)
-
     if not sql:
         return sql
 
@@ -208,10 +204,6 @@ def fast_validate_sql_chars(expr: str) -> bool:
     Returns:
         True if all characters are within the safe set, False otherwise.
     """
-    # Use nanalib implementation only when the module exposes the expected API.
-    # if nanalib and hasattr(nanalib, "fast_validate_sql_chars"):
-    #     return nanalib.fast_validate_sql_chars(expr)
-
     if not expr:
         return True
 

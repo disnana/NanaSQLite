@@ -53,7 +53,7 @@ from .exceptions import (
     NanaSQLiteTransactionError,
     NanaSQLiteValidationError,
 )
-from .sql_utils import fast_validate_sql_chars, sanitize_identifier, sanitize_sql_for_function_scan
+from .sql_utils import fast_validate_sql_chars, sanitize_sql_for_function_scan
 from .v2_engine import V2Engine
 
 try:
@@ -83,6 +83,17 @@ _BEGIN_IMMEDIATE = "BEGIN IMMEDIATE"
 # and Python regex compilation overhead on every _validate_expression() call.
 _DANGEROUS_SQL_RE = re.compile(
     r";|--|/\*|\b(?:DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER|ATTACH|DETACH|CREATE|REINDEX|REPLACE)\b",
+    re.IGNORECASE,
+)
+# Structural injection patterns (comment markers and semicolons) that
+# sanitize_sql_for_function_scan() strips before the main dangerous-pattern check.
+# We must detect these on the *raw* expression before sanitization.
+_STRUCTURAL_INJECTION_RE = re.compile(r";|--|/\*")
+# SEC-01 hardening: block subquery / DML keywords inside ORDER BY and GROUP BY.
+# SELECT is intentionally absent from _DANGEROUS_SQL_RE (which covers DDL only),
+# so we need a dedicated pattern for read-only subquery exfiltration via ordering.
+_ORDERBY_SUBQUERY_KEYWORDS_RE = re.compile(
+    r"\b(?:SELECT|FROM|JOIN|UNION|WHERE|HAVING|LIMIT|OFFSET|EXCEPT|INTERSECT)\b",
     re.IGNORECASE,
 )
 
@@ -737,6 +748,15 @@ class NanaSQLite(MutableMapping):
                 if strict or (strict is None and self.strict_sql_validation):
                     raise ValueError(msg)
                 warnings.warn(msg, UserWarning, stacklevel=2)
+            # SEC-01: additionally block subquery/DML keywords in ORDER BY / GROUP BY.
+            # The character whitelist above permits parentheses + alphanumerics, which
+            # is enough to form "(SELECT ...)" exfiltration payloads.  We explicitly
+            # reject any expression that contains subquery keywords.
+            if _ORDERBY_SUBQUERY_KEYWORDS_RE.search(str(expr)):
+                msg = f"Invalid {context} clause: subquery keywords are not permitted."
+                if strict or (strict is None and self.strict_sql_validation):
+                    raise ValueError(msg)
+                warnings.warn(msg, UserWarning, stacklevel=2)
 
         # 0. legacy check for SQL injection patterns
         # test_security.py compatibility: raise ValueError for strictly dangerous patterns
@@ -772,9 +792,16 @@ class NanaSQLite(MutableMapping):
         # PERF-10: Use the module-level pre-compiled combined regex instead of
         # four separate re.search() calls.  A single pass over the expression
         # string is faster and avoids rebuilding the pattern list per call.
+        # First check the raw expression for structural injection patterns (--;/*;)
+        # that sanitize_sql_for_function_scan() would strip before keyword scanning.
+        raw_expr = str(expr)
+        if _STRUCTURAL_INJECTION_RE.search(raw_expr):
+            if strict or (strict is None and self.strict_sql_validation):
+                raise ValueError(full_msg)
+            warnings.warn(full_msg, UserWarning, stacklevel=2)
         # Mask string literals before searching to avoid false positives on words
         # like DELETE inside a legitimate data value.
-        sanitized_for_dangerous = sanitize_sql_for_function_scan(str(expr))
+        sanitized_for_dangerous = sanitize_sql_for_function_scan(raw_expr)
         if _DANGEROUS_SQL_RE.search(sanitized_for_dangerous):
             if strict or (strict is None and self.strict_sql_validation):
                 raise ValueError(full_msg)
@@ -1088,13 +1115,13 @@ class NanaSQLite(MutableMapping):
                 for hook in self._hooks:
                     value = hook.before_write(self, key, value)
             self._v2_engine.kvs_set(self._safe_table, key, value)
-            
+
             # Step 2: Call success hooks
             if self._has_hooks:
                 for hook in self._hooks:
                     if hasattr(hook, "on_write_success"):
                         hook.on_write_success(self, key, value, old_value)
-            
+
             self._update_cache(key, value)
         else:
             with self._acquire_lock():
@@ -1105,13 +1132,13 @@ class NanaSQLite(MutableMapping):
                 # DB書き込みとキャッシュ更新をアトミックに実行
                 serialized = self._serialize(value)
                 self._connection.execute(self._sql_kv_insert, (key, serialized))
-                
+
                 # Step 2: Call success hooks
                 if self._has_hooks:
                     for hook in self._hooks:
                         if hasattr(hook, "on_write_success"):
                             hook.on_write_success(self, key, value, old_value)
-                
+
                 self._update_cache(key, value)
 
     def __delitem__(self, key: str) -> None:
@@ -1129,13 +1156,13 @@ class NanaSQLite(MutableMapping):
                 for hook in self._hooks:
                     hook.before_delete(self, key)
             self._v2_engine.kvs_delete(self._safe_table, key)
-            
+
             # Step 2: Success hooks
             if self._has_hooks:
                 for hook in self._hooks:
                     if hasattr(hook, "on_delete_success"):
                         hook.on_delete_success(self, key, old_value)
-            
+
             if self._lru_mode:
                 self._cache.delete(key)
             else:
@@ -1148,13 +1175,13 @@ class NanaSQLite(MutableMapping):
                     for hook in self._hooks:
                         hook.before_delete(self, key)
                 self._connection.execute(self._sql_kv_delete, (key,))
-                
+
                 # Step 2: Success hooks
                 if self._has_hooks:
                     for hook in self._hooks:
                         if hasattr(hook, "on_delete_success"):
                             hook.on_delete_success(self, key, old_value)
-                
+
                 if self._lru_mode:
                     self._cache.delete(key)
                 else:
@@ -1446,13 +1473,13 @@ class NanaSQLite(MutableMapping):
                     for hook in self._hooks:
                         hook.before_delete(self, key)
                 self._v2_engine.kvs_delete(self._safe_table, key)
-                
+
                 # Success hooks
                 if self._has_hooks:
                     for hook in self._hooks:
                         if hasattr(hook, "on_delete_success"):
                             hook.on_delete_success(self, key, value)
-                
+
                 if self._lru_mode:
                     self._cache.delete(key)
                 else:
@@ -1465,13 +1492,13 @@ class NanaSQLite(MutableMapping):
                         for hook in self._hooks:
                             hook.before_delete(self, key)
                     self._connection.execute(self._sql_kv_delete, (key,))
-                    
+
                     # Success hooks
                     if self._has_hooks:
                         for hook in self._hooks:
                             if hasattr(hook, "on_delete_success"):
                                 hook.on_delete_success(self, key, value)
-                    
+
                     if self._lru_mode:
                         self._cache.delete(key)
                     else:
@@ -3290,7 +3317,10 @@ class NanaSQLite(MutableMapping):
             >>> size = db.get_db_size()
             >>> print(f"DB size: {size / 1024 / 1024:.2f} MB")
         """
-
+        # BUG-02: in-memory databases have no file on disk; return 0 instead of
+        # raising FileNotFoundError from os.path.getsize(":memory:").
+        if self._db_path in (":memory:", ""):
+            return 0
         return os.path.getsize(self._db_path)
 
     def export_table_to_dict(self, table_name: str) -> list[dict]:

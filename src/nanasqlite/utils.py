@@ -258,17 +258,37 @@ class ExpiringDict(collections.abc.MutableMapping):
 
     def __delitem__(self, key: str) -> None:
         with self._lock:
-            self._cancel_timer(key)
+            # PERF-B / BUG-01: Only call _cancel_timer in TIMER mode;
+            # in SCHEDULER/LAZY mode _timers/_async_tasks are always empty
+            # so the call is pure overhead (mirrors the guard in __setitem__).
+            if self._mode == ExpirationMode.TIMER:
+                self._cancel_timer(key)
             if key in self._data:
                 del self._data[key]
                 del self._exptimes[key]
 
     def __iter__(self) -> Iterator[str]:
-        # Clean up expired items during iteration to stay accurate
-        keys = list(self._data)
-        for key in keys:
-            if not self._check_expiry(key):
-                yield key
+        # PERF-01: collect all expired keys in a single lock acquisition instead
+        # of calling _check_expiry() (which re-acquires the lock) per key.
+        now = time.time()
+        expired_callbacks: list[tuple[str, Any]] = []
+        with self._lock:
+            live_keys: list[str] = []
+            for key in list(self._data):
+                if key in self._exptimes and self._exptimes[key] <= now:
+                    value = self._data.pop(key, None)
+                    self._exptimes.pop(key, None)
+                    if value is not None and self._on_expire:
+                        expired_callbacks.append((key, value))
+                else:
+                    live_keys.append(key)
+        # Fire callbacks outside the lock to prevent cross-lock deadlock.
+        for key, value in expired_callbacks:
+            try:
+                self._on_expire(key, value)  # type: ignore[misc]
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.error("Error in ExpiringDict on_expire callback for key '%s': %s", key, e)
+        yield from live_keys
 
     def __len__(self) -> int:
         # Note: could be inaccurate if items expired but not yet evicted

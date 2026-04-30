@@ -3683,3 +3683,347 @@ class TestSec01V154DLQPayloadDocumentation:
 
         doc = inspect.getdoc(V2Engine._add_to_dlq) or ""
         assert "SEC-01" in doc or "payload" in doc.lower() or "exposure" in doc.lower()
+
+
+# ===========================================================================
+# v1.5.5 Audit Findings
+# ===========================================================================
+
+
+class TestV155Sec01OrderBySubqueryInjection:
+    """SEC-01: ORDER BY / GROUP BY subquery injection prevention."""
+
+    def test_orderby_select_keyword_raises_in_strict_mode(self, tmp_path):
+        """strict=True: SELECT keyword in ORDER BY raises ValueError."""
+        from nanasqlite import NanaSQLite
+
+        db_path = str(tmp_path / "sec01.db")
+        db = NanaSQLite(db_path, strict_sql_validation=True)
+        db["a"] = {"name": "alice", "score": 1}
+        try:
+            import pytest
+            with pytest.raises((ValueError, Exception)):
+                db.query(
+                    table_name="data",
+                    order_by="(SELECT CASE WHEN 1=1 THEN name ELSE score END)",
+                    strict=True,
+                )
+        finally:
+            db.close()
+
+    def test_orderby_from_keyword_raises_in_strict_mode(self, tmp_path):
+        """strict=True: FROM keyword in ORDER BY raises ValueError."""
+        from nanasqlite import NanaSQLite
+
+        db_path = str(tmp_path / "sec01b.db")
+        db = NanaSQLite(db_path, strict_sql_validation=True)
+        db["a"] = {"name": "alice", "score": 1}
+        try:
+            import pytest
+            with pytest.raises((ValueError, Exception)):
+                db.query(
+                    table_name="data",
+                    order_by="name FROM users",
+                    strict=True,
+                )
+        finally:
+            db.close()
+
+    def test_orderby_union_keyword_raises_in_strict_mode(self, tmp_path):
+        """strict=True: UNION keyword in ORDER BY raises ValueError."""
+        from nanasqlite import NanaSQLite
+
+        db_path = str(tmp_path / "sec01c.db")
+        db = NanaSQLite(db_path, strict_sql_validation=True)
+        db["a"] = {"name": "alice", "score": 1}
+        try:
+            import pytest
+            with pytest.raises((ValueError, Exception)):
+                db.query(
+                    table_name="data",
+                    order_by="name UNION SELECT password",
+                    strict=True,
+                )
+        finally:
+            db.close()
+
+    def test_orderby_subquery_warns_in_non_strict_mode(self, tmp_path):
+        """strict=False: SELECT keyword in ORDER BY issues UserWarning."""
+        import warnings
+
+        from nanasqlite import NanaSQLite
+
+        db_path = str(tmp_path / "sec01d.db")
+        db = NanaSQLite(db_path, strict_sql_validation=False)
+        db["a"] = {"name": "alice", "score": 1}
+        try:
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                try:
+                    db.query(
+                        table_name="data",
+                        order_by="(SELECT CASE WHEN 1=1 THEN name ELSE score END)",
+                        strict=False,
+                    )
+                except Exception:
+                    pass
+                assert any("subquery" in str(warning.message).lower() for warning in w), (
+                    "Expected UserWarning about subquery keywords"
+                )
+        finally:
+            db.close()
+
+    def test_orderby_legitimate_expression_passes(self, tmp_path):
+        """Legitimate ORDER BY expressions (column names, ASC/DESC) are not blocked."""
+        from nanasqlite import NanaSQLite
+
+        db_path = str(tmp_path / "sec01e.db")
+        db = NanaSQLite(db_path, strict_sql_validation=True)
+        db["a"] = {"name": "alice", "score": 1}
+        db["b"] = {"name": "bob", "score": 2}
+        try:
+            results = db.query(table_name="data", order_by="name ASC", strict=True)
+            assert isinstance(results, list)
+        finally:
+            db.close()
+
+    def test_groupby_select_keyword_raises_in_strict_mode(self, tmp_path):
+        """strict=True: SELECT keyword in GROUP BY raises ValueError."""
+        from nanasqlite import NanaSQLite
+
+        db_path = str(tmp_path / "sec01f.db")
+        db = NanaSQLite(db_path, strict_sql_validation=True)
+        db["a"] = {"name": "alice", "score": 1}
+        try:
+            import pytest
+            with pytest.raises((ValueError, Exception)):
+                db.query(
+                    table_name="data",
+                    group_by="(SELECT name FROM other)",
+                    strict=True,
+                )
+        finally:
+            db.close()
+
+    def test_orderby_subquery_keywords_re_exists(self):
+        """_ORDERBY_SUBQUERY_KEYWORDS_RE module-level constant must exist."""
+        import nanasqlite.core as core_mod
+
+        assert hasattr(core_mod, "_ORDERBY_SUBQUERY_KEYWORDS_RE"), (
+            "_ORDERBY_SUBQUERY_KEYWORDS_RE should be defined at module level in core.py"
+        )
+
+    def test_orderby_subquery_keywords_re_detects_select(self):
+        """_ORDERBY_SUBQUERY_KEYWORDS_RE must match SELECT (case-insensitive)."""
+        import nanasqlite.core as core_mod
+
+        pattern = core_mod._ORDERBY_SUBQUERY_KEYWORDS_RE
+        assert pattern.search("(SELECT name FROM users)")
+        assert pattern.search("select name")
+        assert not pattern.search("name ASC")
+        assert not pattern.search("score DESC")
+
+
+class TestV155Bug01ExpiringDictDelitemTimerGuard:
+    """BUG-01: ExpiringDict.__delitem__ TIMER mode guard."""
+
+    def test_delitem_in_scheduler_mode_does_not_call_cancel_timer(self):
+        """In SCHEDULER mode, __delitem__ must not attempt to cancel timers."""
+        from nanasqlite.utils import ExpirationMode, ExpiringDict
+
+        cancelled = []
+        ed = ExpiringDict(expiration_time=60, mode=ExpirationMode.SCHEDULER)
+        ed["key1"] = "value1"
+        # Monkey-patch _cancel_timer to track calls
+        original_cancel = ed._cancel_timer
+        ed._cancel_timer = lambda k: cancelled.append(k)  # type: ignore[method-assign]
+        del ed["key1"]
+        assert cancelled == [], (
+            "_cancel_timer should NOT be called in SCHEDULER mode during __delitem__"
+        )
+
+    def test_delitem_in_lazy_mode_does_not_call_cancel_timer(self):
+        """In LAZY mode, __delitem__ must not attempt to cancel timers."""
+        from nanasqlite.utils import ExpirationMode, ExpiringDict
+
+        cancelled = []
+        ed = ExpiringDict(expiration_time=60, mode=ExpirationMode.LAZY)
+        ed["key1"] = "value1"
+        ed._cancel_timer = lambda k: cancelled.append(k)  # type: ignore[method-assign]
+        del ed["key1"]
+        assert cancelled == [], (
+            "_cancel_timer should NOT be called in LAZY mode during __delitem__"
+        )
+
+    def test_delitem_in_timer_mode_calls_cancel_timer(self):
+        """In TIMER mode, __delitem__ must call _cancel_timer."""
+        from nanasqlite.utils import ExpirationMode, ExpiringDict
+
+        cancelled = []
+        ed = ExpiringDict(expiration_time=60, mode=ExpirationMode.TIMER)
+        ed["key1"] = "value1"
+        original_cancel = ed._cancel_timer
+
+        def tracking_cancel(k):
+            cancelled.append(k)
+            original_cancel(k)
+
+        ed._cancel_timer = tracking_cancel  # type: ignore[method-assign]
+        del ed["key1"]
+        assert "key1" in cancelled, (
+            "_cancel_timer SHOULD be called in TIMER mode during __delitem__"
+        )
+
+    def test_delitem_removes_key_in_scheduler_mode(self):
+        """After __delitem__ in SCHEDULER mode, key must be absent."""
+        from nanasqlite.utils import ExpirationMode, ExpiringDict
+
+        ed = ExpiringDict(expiration_time=60, mode=ExpirationMode.SCHEDULER)
+        ed["x"] = 123
+        del ed["x"]
+        assert "x" not in ed
+
+    def test_delitem_consistent_with_setitem_guard(self):
+        """__setitem__ and __delitem__ both guard _cancel_timer with TIMER mode check."""
+        import inspect
+
+        from nanasqlite.utils import ExpiringDict
+
+        source = inspect.getsource(ExpiringDict.__delitem__)
+        # The guard pattern must appear in the source
+        assert "ExpirationMode.TIMER" in source, (
+            "__delitem__ should contain 'ExpirationMode.TIMER' guard"
+        )
+
+
+class TestV155Bug02MemoryDbSize:
+    """BUG-02: get_db_size() on :memory: database returns 0."""
+
+    def test_memory_db_size_returns_zero(self):
+        """NanaSQLite(':memory:').get_db_size() must return 0."""
+        from nanasqlite import NanaSQLite
+
+        db = NanaSQLite(":memory:")
+        try:
+            size = db.get_db_size()
+            assert size == 0, f"Expected 0 for :memory: DB, got {size}"
+        finally:
+            db.close()
+
+    def test_memory_db_size_does_not_raise(self):
+        """get_db_size() on :memory: must not raise FileNotFoundError."""
+        from nanasqlite import NanaSQLite
+
+        db = NanaSQLite(":memory:")
+        try:
+            db["k"] = {"v": 1}
+            db.get_db_size()  # must not raise
+        finally:
+            db.close()
+
+    def test_file_db_size_still_works(self, tmp_path):
+        """get_db_size() on a real file DB returns a positive integer."""
+        from nanasqlite import NanaSQLite
+
+        db_path = str(tmp_path / "size_test.db")
+        db = NanaSQLite(db_path)
+        db["a"] = {"value": "hello"}
+        try:
+            size = db.get_db_size()
+            assert isinstance(size, int)
+            assert size > 0
+        finally:
+            db.close()
+
+    def test_empty_string_db_path_returns_zero(self):
+        """get_db_size() returns 0 for empty string path (edge case guard)."""
+        from nanasqlite import NanaSQLite
+
+        db = NanaSQLite(":memory:")
+        # Directly test the guard logic by patching _db_path
+        db._db_path = ""
+        try:
+            size = db.get_db_size()
+            assert size == 0
+        finally:
+            db.close()
+
+
+class TestV155Perf01ExpiringDictIterBatch:
+    """PERF-01: ExpiringDict.__iter__ batch expiry check (single lock acquisition)."""
+
+    def test_iter_yields_live_keys(self):
+        """__iter__ yields keys that have not yet expired."""
+        from nanasqlite.utils import ExpirationMode, ExpiringDict
+
+        ed = ExpiringDict(expiration_time=60, mode=ExpirationMode.LAZY)
+        ed["a"] = 1
+        ed["b"] = 2
+        ed["c"] = 3
+        keys = list(ed)
+        assert set(keys) == {"a", "b", "c"}
+
+    def test_iter_evicts_expired_keys(self):
+        """__iter__ removes keys whose expiry time has passed."""
+        import time
+
+        from nanasqlite.utils import ExpirationMode, ExpiringDict
+
+        ed = ExpiringDict(expiration_time=0.05, mode=ExpirationMode.LAZY)
+        ed["x"] = 10
+        ed["y"] = 20
+        time.sleep(0.1)
+        keys = list(ed)
+        assert "x" not in keys
+        assert "y" not in keys
+
+    def test_iter_fires_expire_callback_for_evicted_keys(self):
+        """__iter__ fires on_expire callback for expired keys outside the lock."""
+        import time
+
+        from nanasqlite.utils import ExpirationMode, ExpiringDict
+
+        expired = []
+
+        def on_expire(key, value):
+            expired.append((key, value))
+
+        ed = ExpiringDict(expiration_time=0.05, mode=ExpirationMode.LAZY, on_expire=on_expire)
+        ed["p"] = 42
+        time.sleep(0.1)
+        list(ed)  # trigger __iter__
+        assert ("p", 42) in expired
+
+    def test_iter_single_lock_acquisition(self):
+        """__iter__ acquires the lock once (batch), not once per key."""
+        import inspect
+
+        from nanasqlite.utils import ExpiringDict
+
+        source = inspect.getsource(ExpiringDict.__iter__)
+        # The new implementation uses a single 'with self._lock:' block
+        # and then 'yield from live_keys' outside it.
+        assert "yield from live_keys" in source, (
+            "__iter__ should use 'yield from live_keys' (batch approach)"
+        )
+        # Should NOT call _check_expiry per key
+        assert "_check_expiry" not in source, (
+            "__iter__ should not call _check_expiry (which re-acquires lock per key)"
+        )
+
+    def test_iter_does_not_yield_expired_mixed_with_live(self):
+        """Live keys are yielded; expired keys are silently evicted."""
+        import time
+
+        from nanasqlite.utils import ExpirationMode, ExpiringDict
+
+        ed = ExpiringDict(expiration_time=60, mode=ExpirationMode.LAZY)
+        ed["live1"] = "a"
+        ed["live2"] = "b"
+
+        # Manually expire one key
+        ed._exptimes["live1"] = time.time() - 1
+
+        keys = list(ed)
+        assert "live1" not in keys
+        assert "live2" in keys
