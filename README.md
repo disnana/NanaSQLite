@@ -132,6 +132,8 @@ db["heavy_key"] = validate_and_compute_data()
 ```
 
 > ⚠️ **WARNING**: v2 mode is built for SINGLE-PROCESS systems. Do not use it with multi-worker setups (e.g., Gunicorn with multiple workers) as parallel background threads will corrupt the SQLite file.
+>
+> 🛡️ **Reliability Note**: While v2 mode uses `atexit` to flush data on normal shutdown, it cannot guarantee persistence if the OS kills the process (e.g., `SIGKILL`). For mission-critical data in v2 mode, use `db.flush(wait=True)` or stick to the default `immediate` mode.
 
 ### ✨ v1.3.x New Features
 
@@ -363,6 +365,8 @@ db["heavy_key"] = validate_and_compute_data()
 ```
 
 > ⚠️ **警告**: v2モードは「単一プロセス」システム専用に設計されています。Gunicornの複数ワーカー構成などでv2モードを使用すると、複数のバックグラウンドスレッドが同時にSQLiteファイルを上書きし、致命的なデータ破損を引き起こします。
+>
+> 🛡️ **信頼性に関する注意**: v2モードは `atexit` を使用して終了時にデータを保存しますが、OSによる強制終了（`SIGKILL` 等）が発生した場合は永続化を保証できません。重要なデータは `db.flush(wait=True)` を明示的に呼ぶか、デフォルトの `immediate` モードでの運用を推奨します。
 
 ### ✨ v1.3.x 新機能
 

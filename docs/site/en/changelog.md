@@ -4,6 +4,26 @@ outline: [2, 3]
 
 # Changelog
 
+### [1.5.4] - 2026-04-30
+
+#### Security Remediation
+
+- **F-002: Resolved State Inconsistency in UniqueHook** (`core.py`, `hooks.py`, `protocols.py`)
+  - Fixed a race where in-memory indices were updated even if the database write failed. Introduced `on_write_success` and `on_delete_success` callbacks to the `NanaHook` protocol to ensure indices are only updated after successful DB commitment.
+- **F-003: Hardened SQL Injection Protection for ORDER BY / GROUP BY** (`core.py`)
+  - Implemented strict whitelist validation (allowing only alphanumeric, underscores, dots, commas, and spaces) for clauses where parameter binding is not supported by SQLite.
+- **F-004: Prevented Information Exposure in Dead Letter Queue (DLQ)** (`v2_engine.py`)
+  - Verified and hardened logging to ensure sensitive payloads are not leaked in error logs during background flush failures. Added security warnings to DLQ-related documentation.
+- **F-005: Fixed Race Condition in ExpiringDict (TTL Cache)** (`utils.py`)
+  - Resolved a race where a key refreshed during the eviction process could be erroneously purged. Implemented a **Compare-and-Delete (CAS)** pattern that verifies the expiry timestamp before performing deletion.
+
+#### Documentation Improvements
+
+- **Clarified F-001 (atexit) Limitations** (`README.md`, `v2_architecture.md`)
+  - Documented the risk of data loss during forced process termination (`SIGKILL`) in v2 mode. Recommended `flush(wait=True)` or `immediate` mode for mission-critical data.
+
+---
+
 ### [1.5.3rc3] - 2026-04-07
 
 #### Performance Improvements

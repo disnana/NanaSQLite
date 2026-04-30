@@ -192,10 +192,10 @@ db = NanaSQLite("mydb.db", v2_mode=True, v2_chunk_size=500)
 > - Daemons using `fork`
 
 ### Data Consistency
-
 - In `manual` or `count` mode, if the process is killed forcibly, **buffered data will be lost**.
+- **IMPORTANT**: While the `atexit` handler automatically flushes data on normal process termination, it cannot protect against OS-level forced kills (`SIGKILL`) or power failures.
+- For mission-critical data, it is recommended to call `db.flush(wait=True)` explicitly or use the default `immediate` mode.
 - Always call `db.close()` on shutdown to flush any remaining buffer.
-- An `atexit` handler is registered automatically for graceful shutdown on normal process exit.
 
 ### Read Consistency
 

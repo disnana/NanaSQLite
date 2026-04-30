@@ -10,11 +10,13 @@ If you need custom validation logic or integration with Pydantic, using Ultimate
 
 ## Lifecycle Events
 
-Hooks can respond to the following three events:
+Hooks can respond to the following five events:
 
 - `before_write(key, value)`: Executed just before writing to the DB (`set`, `update`, `batch_update`, etc.). You can transform the value or raise an exception to reject the write.
+- `on_write_success(key, value, old_value)`: Executed immediately after a successful DB write. Ideal for operations that should only run if persistence succeeded, such as index updates.
 - `after_read(key, value)`: Executed just after reading from the DB (`get`, `items`, etc.), before returning the value to the application. You can transform the value.
 - `before_delete(key)`: Executed just before deleting from the DB (`del`, `pop`, etc.). You can raise an exception to reject the deletion.
+- `on_delete_success(key, old_value)`: Executed immediately after a successful DB deletion. Ideal for cleaning up associated state or indices.
 
 ## Standard Hooks
 

@@ -6,6 +6,10 @@ NanaSQLite's V2 mode is an optional architecture that provides non-blocking writ
 V2 mode is designed for single-process use. Multi-process setups such as Gunicorn with multiple workers are not supported.
 :::
 
+::: danger Data Persistence Warning (SIGKILL)
+V2 mode uses `atexit` to perform an automatic flush on shutdown, but if the process is killed by the OS (`SIGKILL` or power failure), buffered data in memory will be lost. For mission-critical data, call `db.flush(wait=True)` explicitly or use the default `immediate` mode.
+:::
+
 ## Overview
 
 The V2 engine uses a **dual-lane** design:

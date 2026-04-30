@@ -6,6 +6,26 @@
 
 ## 日本語
 
+### [1.5.4] - 2026-04-30
+
+#### セキュリティ修正 (Security Remediation)
+
+- **F-002: UniqueHook における状態不整合の解消**（`core.py`, `hooks.py`, `protocols.py`）
+  - DB 書き込み失敗時にメモリ上のインデックスのみが更新される不整合を修正しました。`NanaHook` に `on_write_success` / `on_delete_success` コールバックを追加し、DB への書き込みが確定したタイミングでインデックスを更新する「確定後反映モデル」に移行しました。
+- **F-003: ORDER BY / GROUP BY 句への SQL 注入脆弱性の強化**（`core.py`）
+  - プレースホルダが使用できない `ORDER BY` / `GROUP BY` 句に対して、英数字、アンダースコア、ドット、カンマ、スペースのみを許可する厳格なホワイトリスト検証を導入しました。
+- **F-004: デッドレターキュー (DLQ) における機密情報露出の防止**（`v2_engine.py`）
+  - 背景フラッシュ失敗時のログ出力において、ペイロードデータがログに露出しないことを確認・強化しました。`get_dlq()` の docstring にセキュリティ警告を追加しました。
+- **F-005: ExpiringDict (TTL キャッシュ) におけるレースコンディションの修正**（`utils.py`）
+  - キャッシュ期限切れ処理中にキーが更新された場合、新しい値が誤って削除されるレースコンディションを修正しました。**Compare-and-Delete (CAS)** パターンを導入し、削除実行時に検出時の expiry タイムスタンプを照合するようにしました。
+
+#### ドキュメントの改善
+
+- **F-001 (atexit) の制限事項に関する明文化**（`README.md`, `v2_architecture.md`）
+  - v2 モードにおいて、OS による強制終了 (`SIGKILL`) 時にデータが消失するリスクと、重要データに対する `flush(wait=True)` または `immediate` モードの利用推奨を明記しました。
+
+---
+
 ### [1.5.3rc3] - 2026-04-07
 
 #### パフォーマンス改善
@@ -1152,6 +1172,26 @@
 
 
 ## English
+
+### [1.5.4] - 2026-04-30
+
+#### Security Remediation
+
+- **F-002: Resolved State Inconsistency in UniqueHook** (`core.py`, `hooks.py`, `protocols.py`)
+  - Fixed a race where in-memory indices were updated even if the database write failed. Introduced `on_write_success` and `on_delete_success` callbacks to the `NanaHook` protocol to ensure indices are only updated after successful DB commitment.
+- **F-003: Hardened SQL Injection Protection for ORDER BY / GROUP BY** (`core.py`)
+  - Implemented strict whitelist validation (allowing only alphanumeric, underscores, dots, commas, and spaces) for clauses where parameter binding is not supported by SQLite.
+- **F-004: Prevented Information Exposure in Dead Letter Queue (DLQ)** (`v2_engine.py`)
+  - Verified and hardened logging to ensure sensitive payloads are not leaked in error logs during background flush failures. Added security warnings to DLQ-related documentation.
+- **F-005: Fixed Race Condition in ExpiringDict (TTL Cache)** (`utils.py`)
+  - Resolved a race where a key refreshed during the eviction process could be erroneously purged. Implemented a **Compare-and-Delete (CAS)** pattern that verifies the expiry timestamp before performing deletion.
+
+#### Documentation Improvements
+
+- **Clarified F-001 (atexit) Limitations** (`README.md`, `v2_architecture.md`)
+  - Documented the risk of data loss during forced process termination (`SIGKILL`) in v2 mode. Recommended `flush(wait=True)` or `immediate` mode for mission-critical data.
+
+---
 
 ### [1.5.3rc3] - 2026-04-07
 
