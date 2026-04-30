@@ -33,9 +33,18 @@ def test_poc_sql_validation_backticks():
     db = NanaSQLite(":memory:", strict_sql_validation=True)
     try:
         # These should be allowed for SQLite compatibility
-        # Currently they raise ValueError
-        db.query(columns=["`my column`"])
-        db.query(where="[column name] = 1")
+        # We only care that they don't raise ValueError (validation error)
+        try:
+            db.query(columns=["`my column`"])
+        except Exception as e:
+            if isinstance(e, ValueError):
+                raise
+        
+        try:
+            db.query(where="[column name] = 1")
+        except Exception as e:
+            if isinstance(e, ValueError):
+                raise
     except ValueError as e:
         pytest.fail(f"FAIL: Legitimate SQLite syntax rejected: {e}")
     finally:
@@ -73,15 +82,15 @@ def test_poc_v2_engine_sql_injection():
     # While NanaSQLite sanitizes it, V2Engine should be robust.
     malicious_table = "data; DROP TABLE data; --"
     
-    engine = V2Engine(conn, table_name=malicious_table, flush_mode="manual")
     try:
-        # This might fail or execute unintended SQL if V2Engine doesn't sanitize.
-        # We check if it raises an error early or if it tries to execute the malicious SQL.
-        with pytest.raises(Exception): # It should at least fail due to invalid table name if not sanitized
+        # SEC-02 fix: V2Engine should validate table_name in __init__
+        with pytest.raises(ValueError, match="Invalid or unsafe table name"):
+            engine = V2Engine(conn, table_name=malicious_table, flush_mode="manual")
             engine.kvs_set(malicious_table, "key", "value")
             engine.flush(wait=True)
+            engine.shutdown()
     finally:
-        engine.shutdown()
+        pass
 
 def test_poc_dangerous_sql_false_positive():
     """PoC: _DANGEROUS_SQL_RE causes false positives in string literals."""

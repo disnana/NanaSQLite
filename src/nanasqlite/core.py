@@ -53,7 +53,7 @@ from .exceptions import (
     NanaSQLiteTransactionError,
     NanaSQLiteValidationError,
 )
-from .sql_utils import fast_validate_sql_chars, sanitize_sql_for_function_scan
+from .sql_utils import fast_validate_sql_chars, sanitize_identifier, sanitize_sql_for_function_scan
 from .v2_engine import V2Engine
 
 try:
@@ -731,8 +731,8 @@ class NanaSQLite(MutableMapping):
         # injections while maintaining high performance.
         if context in ("order_by", "group_by"):
             # Allow: alphanumeric, underscore, dot (table.col), comma (multi-col),
-            # and spaces (for ASC/DESC).
-            if not re.match(r'^[a-zA-Z0-9_.,\s]+$', str(expr)):
+            # spaces (for ASC/DESC), parentheses (for functions), and quotes/brackets.
+            if not re.match(r'^[a-zA-Z0-9_.,\s\(\)\"\'\`\[\]]+$', str(expr)):
                 msg = f"Invalid {context} clause: contains forbidden characters."
                 if strict or (strict is None and self.strict_sql_validation):
                     raise ValueError(msg)
@@ -772,7 +772,10 @@ class NanaSQLite(MutableMapping):
         # PERF-10: Use the module-level pre-compiled combined regex instead of
         # four separate re.search() calls.  A single pass over the expression
         # string is faster and avoids rebuilding the pattern list per call.
-        if _DANGEROUS_SQL_RE.search(str(expr)):
+        # Mask string literals before searching to avoid false positives on words
+        # like DELETE inside a legitimate data value.
+        sanitized_for_dangerous = sanitize_sql_for_function_scan(str(expr))
+        if _DANGEROUS_SQL_RE.search(sanitized_for_dangerous):
             if strict or (strict is None and self.strict_sql_validation):
                 raise ValueError(full_msg)
             warnings.warn(full_msg, UserWarning, stacklevel=2)
@@ -1089,7 +1092,8 @@ class NanaSQLite(MutableMapping):
             # Step 2: Call success hooks
             if self._has_hooks:
                 for hook in self._hooks:
-                    hook.on_write_success(self, key, value, old_value)
+                    if hasattr(hook, "on_write_success"):
+                        hook.on_write_success(self, key, value, old_value)
             
             self._update_cache(key, value)
         else:
@@ -1105,7 +1109,8 @@ class NanaSQLite(MutableMapping):
                 # Step 2: Call success hooks
                 if self._has_hooks:
                     for hook in self._hooks:
-                        hook.on_write_success(self, key, value, old_value)
+                        if hasattr(hook, "on_write_success"):
+                            hook.on_write_success(self, key, value, old_value)
                 
                 self._update_cache(key, value)
 
@@ -1128,7 +1133,8 @@ class NanaSQLite(MutableMapping):
             # Step 2: Success hooks
             if self._has_hooks:
                 for hook in self._hooks:
-                    hook.on_delete_success(self, key, old_value)
+                    if hasattr(hook, "on_delete_success"):
+                        hook.on_delete_success(self, key, old_value)
             
             if self._lru_mode:
                 self._cache.delete(key)
@@ -1146,7 +1152,8 @@ class NanaSQLite(MutableMapping):
                 # Step 2: Success hooks
                 if self._has_hooks:
                     for hook in self._hooks:
-                        hook.on_delete_success(self, key, old_value)
+                        if hasattr(hook, "on_delete_success"):
+                            hook.on_delete_success(self, key, old_value)
                 
                 if self._lru_mode:
                     self._cache.delete(key)
@@ -1358,28 +1365,43 @@ class NanaSQLite(MutableMapping):
                 if val is not MISSING:
                     results[key] = val
             elif not self._lru_mode and key in self._absent_keys:
-                # BUG-02 fix: key is "known absent" (_absent_keys records it was checked
-                # and not found, or was explicitly deleted).  Honour this status rather
-                # than falling back to a DB query that may return a stale value,
-                # particularly in v2 non-immediate modes where a pending delete has not
-                # yet been flushed to the DB.
+                # BUG-02 fix: key is "known absent"
                 pass
             else:
+                # V2 staging buffer check (Stale Read prevention)
+                if self._v2_mode and self._v2_engine:
+                    staging = self._v2_engine.kvs_get_staging(self._safe_table, key)
+                    if staging is not None:
+                        if staging["action"] == "set":
+                            val = self._deserialize(staging["value"])
+                            results[key] = val
+                            # Update cache for faster subsequent reads
+                            with self._acquire_lock():
+                                self._update_cache(key, val)
+                            continue
+                        elif staging["action"] == "delete":
+                            continue
                 missing_keys.append(key)
 
         if not missing_keys:
             return results
 
         # 2. DBから足りない分を一括取得
-        placeholders = ",".join(["?"] * len(missing_keys))
-        sql = f"SELECT key, value FROM {self._safe_table} WHERE key IN ({placeholders})"  # nosec
+        # SQLite has a limit on the number of variables (parameters) in a single query.
+        # Default is usually 999. We chunk the query to stay well under this limit.
+        CHUNK_SIZE = 900
 
         with self._acquire_lock():
-            cursor = self._connection.execute(sql, tuple(missing_keys))
-            for key, val_str in cursor:
-                value = self._deserialize(val_str)
-                self._update_cache(key, value)
-                results[key] = value
+            for i in range(0, len(missing_keys), CHUNK_SIZE):
+                chunk = missing_keys[i : i + CHUNK_SIZE]
+                placeholders = ",".join(["?"] * len(chunk))
+                sql = f"SELECT key, value FROM {self._safe_table} WHERE key IN ({placeholders})"  # nosec
+
+                cursor = self._connection.execute(sql, tuple(chunk))
+                for key, val_str in cursor:
+                    value = self._deserialize(val_str)
+                    self._update_cache(key, value)
+                    results[key] = value
 
         # 3. DBにも存在しなかったキーを「存在しない」としてキャッシュ
         found_keys = set(results.keys())
@@ -1393,7 +1415,6 @@ class NanaSQLite(MutableMapping):
                     self._absent_keys.add(key)
 
         # Apply after_read hooks
-        # PERF-20: use pre-computed flag
         if self._has_hooks:
             for key, val in results.items():
                 for hook in self._hooks:
@@ -1429,7 +1450,8 @@ class NanaSQLite(MutableMapping):
                 # Success hooks
                 if self._has_hooks:
                     for hook in self._hooks:
-                        hook.on_delete_success(self, key, value)
+                        if hasattr(hook, "on_delete_success"):
+                            hook.on_delete_success(self, key, value)
                 
                 if self._lru_mode:
                     self._cache.delete(key)
@@ -1447,7 +1469,8 @@ class NanaSQLite(MutableMapping):
                     # Success hooks
                     if self._has_hooks:
                         for hook in self._hooks:
-                            hook.on_delete_success(self, key, value)
+                            if hasattr(hook, "on_delete_success"):
+                                hook.on_delete_success(self, key, value)
                     
                     if self._lru_mode:
                         self._cache.delete(key)
