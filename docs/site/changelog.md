@@ -4,7 +4,7 @@ outline: [2, 3]
 
 # 更新履歴
 
-### [1.5.4] - 2026-04-30
+### [1.5.5] - 2026-04-30
 
 #### セキュリティ修正 (Security Remediation)
 
@@ -21,6 +21,32 @@ outline: [2, 3]
 
 - **F-001 (atexit) の制限事項に関する明文化**（`README.md`, `v2_architecture.md`）
   - v2 モードにおいて、OS による強制終了 (`SIGKILL`) 時にデータが消失するリスクと、重要データに対する `flush(wait=True)` または `immediate` モードの利用推奨を明記しました。
+
+---
+
+### [1.5.4] - 2026-04-19
+
+#### バグ修正
+
+- **BUG-01 (pop hook lock): `pop()` の `before_delete` フックをロック内へ移動**（`core.py`）
+  - `pop()` の非 v2 モードで `before_delete` フックがロック外で呼ばれていたため、`__delitem__` の SEC-05 修正との一貫性が失われていました。
+- **BUG-02 (batch_update hook result): `batch_update()` でフック変換値を常に適用**（`core.py`）
+  - `batch_update()` の非 coerce パスにおいて `before_write` フックの返り値が無視されていたバグを修正しました。
+- **BUG-03 (batch_delete hook lock): `batch_delete()` の `before_delete` フックをロック内へ移動**（`core.py`）
+  - `batch_delete()` の非 v2 モードで `before_delete` フックがロック外で呼ばれていた問題を修正しました。
+
+#### セキュリティ修正
+
+- **SEC-05: `UniqueHook` TOCTOU 競合状態の修正**（`core.py`, `hooks.py`）
+  - 非 v2 モードにおいて、フック呼び出しと DB 更新を同一ロック内で行うよう修正し、競合状態を解消しました。
+- **SEC-06 opt-in: `google-re2` による ReDoS 対策強化**（`compat.py`, `hooks.py`, `pyproject.toml`）
+  - RE2 エンジンをサポートし、安全な正規表現マッチングを選択可能にしました。
+
+#### パフォーマンス改善
+
+- **PERF-01: `UniqueHook` — `use_index=True` opt-in 逆引きインデックス**（`hooks.py`）
+  - O(1) での一意性チェックを可能にする逆引きインデックス機能を導入しました。
+
 
 ---
 

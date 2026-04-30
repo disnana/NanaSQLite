@@ -6,7 +6,7 @@
 
 ## 日本語
 
-### [1.5.4] - 2026-04-30
+### [1.5.5] - 2026-04-30
 
 #### セキュリティ修正 (Security Remediation)
 
@@ -23,6 +23,76 @@
 
 - **F-001 (atexit) の制限事項に関する明文化**（`README.md`, `v2_architecture.md`）
   - v2 モードにおいて、OS による強制終了 (`SIGKILL`) 時にデータが消失するリスクと、重要データに対する `flush(wait=True)` または `immediate` モードの利用推奨を明記しました。
+
+---
+
+### [1.5.4] - 2026-04-19
+
+#### バグ修正
+
+- **BUG-01 (pop hook lock): `pop()` の `before_delete` フックをロック内へ移動**（`core.py`）
+  - `pop()` の非 v2 モードで `before_delete` フックがロック外で呼ばれていたため、`__delitem__` の SEC-05 修正との一貫性が失われていました。
+  - 非 v2 パスで `before_delete` の呼び出しを `_acquire_lock()` ブロック内に移動し、フック実行と DB 削除をアトミックに実行するよう修正しました。`self._lock` は `threading.RLock` のため同一スレッドからの再入呼び出しもデッドロックしません。
+  - また、フックが例外を送出した場合に DB 削除が実行されず、キーが保持されることを確認しました。
+
+- **BUG-02 (batch_update hook result): `batch_update()` でフック変換値を常に適用**（`core.py`）
+  - `batch_update()` の非 coerce パスにおいて `before_write` フックの返り値が無視されていたため、`PydanticHook` などの変換フックが `__setitem__` では機能するのに `batch_update()` では機能しないサイレントな不整合が発生していました。
+  - `if self._coerce:` の 2 分岐構造を廃止し、統一された copy-on-write パターンに変更しました。フックが値を変更しない場合は新しい dict は生成されません（メモリ効率を維持）。
+  - `ValidkitHook` は `coerce=False` 時に自身でフック内部で変換を行わないため、既存の coerce=False テストとの後方互換性は維持されています。
+
+- **BUG-03 (batch_delete hook lock): `batch_delete()` の `before_delete` フックをロック内へ移動**（`core.py`）
+  - `batch_delete()` の非 v2 モードで `before_delete` フックがロック外で呼ばれていました。
+  - v2 モードではフックはロック外（`__delitem__` v2 パスと同様）、非 v2 モードではロック内で実行するよう修正しました。
+
+#### セキュリティ修正
+
+- **SEC-05: `UniqueHook` TOCTOU 競合状態の修正**（`core.py`, `hooks.py`）
+  - `__setitem__` において `before_write` フックの呼び出しをロックの外側で行っていたため、マルチスレッド環境で UniqueHook の一意性チェックと DB 書き込みの間に別スレッドが割り込む TOCTOU 競合が発生していました。
+  - 非 v2 モードでは `__setitem__` の `before_write` および `__delitem__` の `before_delete` の呼び出しを `_acquire_lock()` の内側に移動し、一意性チェック・削除前チェックと DB 更新をアトミックに実行するよう修正しました。`self._lock` は `threading.RLock` のためフックからの再入呼び出しでもデッドロックは発生しません。
+  - UniqueHook の docstring を更新し「WARNING」を削除して修正済みの動作を記載しました（SEC-03 → SEC-05）。
+  - v2 モードでは非同期フラッシュ構造上の制約があるため、v2 モードでの厳格な一意制約には SQLite UNIQUE 制約の使用を推奨します。
+
+#### セキュリティ強化
+
+- **SEC-06 opt-in: `google-re2` による ReDoS 対策強化**（`compat.py`, `hooks.py`, `pyproject.toml`）
+  - `pip install nanasqlite[re2]` で `google-re2`（RE2 エンジン）をインストールすると、`BaseHook` のすべての正規表現コンパイルおよびマッチングに RE2 エンジンが使用されます。
+  - RE2 エンジンは線形時間計算量を保証するため、どんなパターンでも ReDoS 攻撃が不可能になります。
+  - RE2 利用時は `logging.debug` でメッセージを出力します（`nanasqlite.compat` ロガー）。
+  - RE2 非インストール時は従来通りの危険パターンブラックリスト検証が機能します。
+  - `pyproject.toml` に `re2 = ["google-re2>=1.1"]` オプション依存と `all` extras への追加。
+  - `dev` extras にも `google-re2>=1.1` を追加し、CI テストで実際の RE2 エンジンを使用するよう変更。
+  - エラーメッセージを更新し `pip install nanasqlite[re2]` への案内を追記。
+  - **`re_fallback` パラメータを `BaseHook` に追加**: RE2 が対応していないパターン（後方参照 `(\w)\1`、先読み `(?=...)` 等）を使用した場合のフォールバック動作を制御。
+    - `re_fallback=False`（デフォルト）: RE2 の `re2.Error` をそのまま伝播させ、ReDoS 保護を維持。
+    - `re_fallback=True`: `warnings.warn` を出力した上で標準 `re` エンジンにフォールバック。このパターンでは ReDoS 保護が無効になります。
+
+#### パフォーマンス改善
+
+- **PERF-01: `UniqueHook` — `use_index=True` opt-in 逆引きインデックス**（`hooks.py`）
+  - 従来 `before_write` のたびに `db.items()` で全件スキャン（O(N)）していたため、大規模テーブルで著しいボトルネックになっていました。
+  - `UniqueHook("email", use_index=True)` を指定すると、最初の書き込み時にのみ O(N) の逆引きインデックスを構築し、以降の一意性チェックを O(1) で実行します。
+  - インデックスは `before_write`・`before_delete` コールバックで自動更新されます。フックライフサイクル外でDBを変更した場合は `hook.invalidate_index()` でインデックスを再構築できます。
+  - 後方互換: `use_index=False`（デフォルト）では従来の O(N) 動作が維持されます。
+
+- **PERF-02: `BaseHook.__init__` — コンパイル済み `Pattern` 型の再コンパイル省略**（`hooks.py`）
+  - 非 RE2 モードで既コンパイル済みの `re.Pattern` オブジェクトを渡した場合、`re.compile()` による再コンパイルを省略してコンパイル済みオブジェクトをそのまま利用します。
+  - セキュリティ上の要件として、`pattern.pattern` テキストに対する `_validate_regex_pattern` の ReDoS バリデーションは引き続き実行されます（コンパイル済み Pattern を経由してブラックリストを迂回できないよう保証）。
+  - これにより安全性を維持したままフック初期化時のオーバーヘッドを削減しました。
+
+#### セキュリティ強化（前倒し）
+
+- **SEC-01: DLQ ペイロード漏洩リスクのドキュメント化**（`v2_engine.py`）
+  - DLQ エントリには KVS の `op["value"]`（シリアライズ済み値）が含まれるため、非暗号化DBでは `get_dlq()` 経由でプレーンテキスト値が外部に漏洩するリスクがあります。
+  - `DLQEntry` dataclass・`_add_to_dlq()`・`get_dlq()` の各 docstring に **SEC-01** セキュリティ注記を追加し、本番環境でのロギング・モニタリング連携時の注意点を明記しました。
+
+#### コード品質改善（前倒し）
+
+- **QUAL-01: `compat.py` — `re2_module` 型アノテーション改善**（`compat.py`）
+  - `re2_module = None  # type: ignore[assignment]` を `re2_module: types.ModuleType | None = None` に変更し、mypy が使用箇所で型を追跡できるようにしました。
+
+- **QUAL-02: `v2_engine.py` — `DLQEntry` dataclass 導入**（`v2_engine.py`）
+  - DLQ の内部表現を `list[tuple[str, Any, float]]` から `list[DLQEntry]` に変更しました。`DLQEntry` は `dataclass` で定義された明示的な型です。`get_dlq()` の戻り値（`list[dict]`）は後方互換を維持します。
+
 
 ---
 
@@ -1173,7 +1243,7 @@
 
 ## English
 
-### [1.5.4] - 2026-04-30
+### [1.5.5] - 2026-04-30
 
 #### Security Remediation
 
@@ -1190,6 +1260,77 @@
 
 - **Clarified F-001 (atexit) Limitations** (`README.md`, `v2_architecture.md`)
   - Documented the risk of data loss during forced process termination (`SIGKILL`) in v2 mode. Recommended `flush(wait=True)` or `immediate` mode for mission-critical data.
+
+---
+
+### [1.5.4] - 2026-04-19
+
+#### Bug Fixes
+
+- **BUG-01 (pop hook lock): Move `before_delete` hook call inside lock in `pop()`** (`core.py`)
+  - In non-v2 mode, `before_delete` hooks in `pop()` were called outside the lock, breaking consistency with the SEC-05 fix applied to `__delitem__`. The hook call and the DB delete now run atomically under `_acquire_lock()`. `self._lock` is a `threading.RLock`, so reentrant calls from hooks do not deadlock.
+  - If a hook raises, the DB deletion is skipped and the key is retained.
+
+- **BUG-02 (batch_update hook result): Always apply hook-returned values in `batch_update()`** (`core.py`)
+  - The non-coerce branch of `batch_update()` silently discarded the return value of `before_write` hooks, causing transforming hooks (e.g. `PydanticHook`, custom hooks) to work through `__setitem__` but be silently ignored in `batch_update()`.
+  - Removed the `if self._coerce:` two-branch structure in favour of a unified copy-on-write pattern that always applies hook transformations. A new dict is only allocated when at least one hook changes a value. `ValidkitHook` internally controls whether to transform based on its own `coerce` setting, preserving backward compatibility.
+
+- **BUG-03 (batch_delete hook lock): Move `before_delete` hook call inside lock in `batch_delete()`** (`core.py`)
+  - In non-v2 mode, `before_delete` hooks in `batch_delete()` were called outside the lock, inconsistent with the fixed `__delitem__`. Hooks now run inside the lock in non-v2 mode; v2 mode continues to run hooks outside the lock (consistent with `__delitem__` v2 path).
+
+#### Security Fixes
+
+- **SEC-05: Fixed TOCTOU race condition in `UniqueHook`** (`core.py`, `hooks.py`)
+  - `before_write` hooks in `__setitem__` and `before_delete` hooks in `__delitem__` were called outside the `_acquire_lock()` context, allowing a race window where two concurrent threads could both pass the uniqueness check and write duplicate values, or a pre-delete consistency check could be violated by a concurrent operation.
+  - In non-v2 mode, both the `before_write` and `before_delete` invocations are now inside the `_acquire_lock()` block, making the hook check and the DB write/delete atomic. Since `self._lock` is a `threading.RLock`, reentrant calls from hooks (e.g., `db.items()`) do not deadlock.
+  - Updated `UniqueHook` docstring: removed the old `WARNING` and described the fix (SEC-03 → SEC-05).
+  - v2 mode is unaffected (asynchronous flush architecture); use SQLite UNIQUE constraints for strict uniqueness in v2 mode.
+
+#### Security Enhancement
+
+- **SEC-06 opt-in: `google-re2` ReDoS protection** (`compat.py`, `hooks.py`, `pyproject.toml`)
+  - Installing `pip install nanasqlite[re2]` enables the RE2 engine for all regex compilation and matching in `BaseHook`. RE2 guarantees linear-time execution for any input, making ReDoS attacks impossible.
+  - A `logging.debug` message is emitted at import time when RE2 is active (`nanasqlite.compat` logger).
+  - Without RE2, the existing dangerous-pattern blacklist validation continues to function.
+  - Added `re2 = ["google-re2>=1.1"]` optional dependency to `pyproject.toml` and included it in `all`.
+  - Added `google-re2>=1.1` to `dev` extras so that CI tests run with the real RE2 engine.
+  - Updated error message in `_validate_regex_pattern` to suggest `pip install nanasqlite[re2]`.
+  - **Added `re_fallback` parameter to `BaseHook`**: controls fallback behaviour when RE2 rejects a pattern (e.g. backreferences `(\w)\1`, lookarounds `(?=...)`).
+    - `re_fallback=False` (default): propagates `re2.Error` unchanged; ReDoS protection is fully maintained.
+    - `re_fallback=True`: emits `warnings.warn` and falls back to the standard `re` engine; ReDoS protection is disabled for that pattern.
+
+#### Performance Improvements (accelerated)
+
+- **PERF-01: `UniqueHook` — opt-in inverse index (`use_index=True`)** (`hooks.py`)
+  - The default `before_write` performed an O(N) full scan via `db.items()` on every write, becoming a severe bottleneck for large tables.
+  - Pass `use_index=True` to enable a lazy-built inverse index (`{field_value → key}`): the index is constructed once on the first write (O(N)) and subsequent uniqueness checks are O(1).
+  - The index is kept up-to-date automatically through `before_write` and `before_delete` callbacks. Call `hook.invalidate_index()` after any out-of-lifecycle DB modifications (e.g. `db.execute()`).
+  - Backward-compatible: `use_index=False` (default) preserves the original O(N) behaviour.
+
+- **PERF-02: `BaseHook.__init__` — skip recompilation for already-compiled `Pattern`** (`hooks.py`)
+  - In non-RE2 mode, passing an already-compiled `re.Pattern` object no longer triggers `re.compile()` again. The compiled `Pattern` object is used directly, reducing hook initialization overhead.
+  - The `_validate_regex_pattern` check on `pattern.pattern` is **still executed** for security (ensuring compiled patterns cannot bypass the dangerous-pattern blacklist).
+  - Safety is preserved while reducing unnecessary recompilation overhead.
+
+#### Security Enhancement (accelerated)
+
+- **SEC-01: Document DLQ payload exposure risk** (`v2_engine.py`)
+  - DLQ entries contain serialised KVS values (`op["value"]`); for unencrypted databases, `get_dlq()` exposes plaintext data to any consumer of the returned list.
+  - Added a **SEC-01** security notice to `DLQEntry`, `_add_to_dlq()`, and `get_dlq()` docstrings, advising callers to log only `error_msg`/`timestamp` in production and to handle `item` in a trusted context only.
+
+#### Code Quality (accelerated)
+
+- **QUAL-01: `compat.py` — proper type annotation for `re2_module`** (`compat.py`)
+  - Changed `re2_module = None  # type: ignore[assignment]` to `re2_module: types.ModuleType | None = None`, eliminating the `type: ignore` escape and allowing mypy to track the type at all usage sites.
+
+- **QUAL-02: `v2_engine.py` — introduce `DLQEntry` dataclass** (`v2_engine.py`)
+  - Replaced the untyped `list[tuple[str, Any, float]]` DLQ storage with `list[DLQEntry]`, where `DLQEntry` is a typed `@dataclass` with fields `error_msg`, `item`, and `timestamp`. `get_dlq()` still returns `list[dict]` for backward compatibility.
+
+#### Code Quality
+
+- **QUAL-10: `compat.py` — replace `validkit_validate = None` with a stub function** (`compat.py`)
+  - When `validkit-py` is not installed, `validkit_validate = None` caused a confusing `TypeError: 'NoneType' object is not callable`. Changed to a stub that raises `ImportError` with a clear installation message.
+
 
 ---
 

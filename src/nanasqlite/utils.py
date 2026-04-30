@@ -78,7 +78,8 @@ class ExpiringDict(collections.abc.MutableMapping):
         """Single background worker loop to evict expired items."""
         while self._scheduler_running:
             now = time.time()
-            expired_keys = []
+            # List of (key, expiry_at_detection_time) pairs for CAS eviction
+            expired_keys: list[tuple[str, float]] = []
 
             with self._lock:
                 # _exptimes is insertion-ordered (oldest first) because
@@ -90,7 +91,9 @@ class ExpiringDict(collections.abc.MutableMapping):
                 else:
                     for key, expiry in self._exptimes.items():
                         if expiry <= now:
-                            expired_keys.append(key)
+                            # Record the expiry timestamp seen at detection time
+                            # for the Compare-and-Delete check in _evict.
+                            expired_keys.append((key, expiry))
                         else:
                             break
                     if expired_keys:
@@ -99,14 +102,21 @@ class ExpiringDict(collections.abc.MutableMapping):
                         first_expiry = next(iter(self._exptimes.values()))
                         sleep_time = min(first_expiry - now, 1.0)
 
-            for key in expired_keys:
-                self._evict(key)
+            for key, expected_expiry in expired_keys:
+                self._evict(key, expected_expiry)
 
             if sleep_time > 0:
                 self._stop_event.wait(timeout=sleep_time)
 
-    def _evict(self, key: str) -> None:
+    def _evict(self, key: str, expected_expiry: float | None = None) -> None:
         """Evict an item and trigger callback.
+
+        Uses a Compare-and-Delete pattern: if ``expected_expiry`` is supplied
+        (as recorded by the scheduler at detection time), eviction is skipped
+        when the key's current expiry timestamp differs — indicating the key
+        was refreshed by a concurrent write between detection and eviction.
+        This eliminates the F-005 race condition where a scheduler-identified
+        expired key is deleted after being legitimately updated.
 
         IMPORTANT: The on_expire callback is invoked OUTSIDE self._lock
         to prevent cross-lock deadlocks when the callback acquires
@@ -115,11 +125,20 @@ class ExpiringDict(collections.abc.MutableMapping):
         callback_args: tuple[str, Any] | None = None
         with self._lock:
             if key in self._data:
-                value = self._data.pop(key)
-                self._exptimes.pop(key, None)
-                if self._on_expire:
-                    callback_args = (key, value)
-                logger.debug("Key '%s' expired and removed.", key)
+                current_expiry = self._exptimes.get(key)
+                # F-005 fix: CAS check — skip eviction if the key has been
+                # refreshed (new expiry differs from the one seen at detection).
+                if expected_expiry is not None and current_expiry != expected_expiry:
+                    logger.debug(
+                        "Key '%s' skipped eviction: expiry updated (was %.3f, now %s).",
+                        key, expected_expiry, current_expiry,
+                    )
+                else:
+                    value = self._data.pop(key)
+                    self._exptimes.pop(key, None)
+                    if self._on_expire:
+                        callback_args = (key, value)
+                    logger.debug("Key '%s' expired and removed.", key)
 
         # Fire callback outside lock to prevent deadlock
         if callback_args is not None and self._on_expire is not None:
@@ -169,7 +188,10 @@ class ExpiringDict(collections.abc.MutableMapping):
         with self._lock:
             # If item already exists, remove it first to maintain insertion order (for FIFO/Scheduler)
             if key in self._data:
-                self._cancel_timer(key)
+                # PERF-B: Only call _cancel_timer in TIMER mode; in SCHEDULER mode
+                # _timers/_async_tasks are always empty so the call is pure overhead.
+                if self._mode == ExpirationMode.TIMER:
+                    self._cancel_timer(key)
                 del self._data[key]
                 del self._exptimes[key]
 
@@ -181,13 +203,17 @@ class ExpiringDict(collections.abc.MutableMapping):
 
     def _set_timer(self, key: str) -> None:
         """Set individual timer (TIMER mode)."""
-        # Try to use current event loop if available, else use threading.Timer
+        # Capture expiry at scheduling time for the CAS check in _evict.
+        # If the key is updated before the timer fires, the new __setitem__
+        # call will cancel this timer and schedule a fresh one with a new expiry,
+        # so the CAS check here is a safety belt for edge cases.
+        expected_expiry = self._exptimes.get(key)
         try:
             loop = asyncio.get_running_loop()
-            task = loop.call_later(self._expiration_time, self._evict, key)
+            task = loop.call_later(self._expiration_time, self._evict, key, expected_expiry)
             self._async_tasks[key] = task  # type: ignore
         except RuntimeError:
-            timer = threading.Timer(self._expiration_time, self._evict, args=(key,))
+            timer = threading.Timer(self._expiration_time, self._evict, args=(key, expected_expiry))
             timer.daemon = True
             timer.start()
             self._timers[key] = timer
@@ -202,9 +228,33 @@ class ExpiringDict(collections.abc.MutableMapping):
             del self._async_tasks[key]
 
     def __getitem__(self, key: str) -> Any:
-        self._check_expiry(key)
+        # BUG-04 fix: check expiry and read value atomically under the same lock.
+        # Previously _check_expiry() ran outside the lock, so a concurrent
+        # scheduler eviction between the check and the dict read caused a spurious
+        # KeyError for a key that was still valid at call time.
+        callback_args: tuple[str, Any] | None = None
+        key_expired = False
+        result: Any = None  # initialized here to satisfy static analysis
         with self._lock:
-            return self._data[key]
+            if key in self._exptimes and self._exptimes[key] <= time.time():
+                key_expired = True
+                value = self._data.pop(key, None)
+                self._exptimes.pop(key, None)
+                if value is not None and self._on_expire:
+                    callback_args = (key, value)
+            else:
+                result = self._data[key]  # may raise KeyError if absent
+
+        # Fire callback OUTSIDE the lock to prevent cross-lock deadlock
+        if callback_args is not None and self._on_expire is not None:
+            try:
+                self._on_expire(*callback_args)
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.error("Error in ExpiringDict on_expire callback for key '%s': %s", key, e)
+
+        if key_expired:
+            raise KeyError(key)
+        return result
 
     def __delitem__(self, key: str) -> None:
         with self._lock:
@@ -252,6 +302,12 @@ class ExpiringDict(collections.abc.MutableMapping):
                         "ExpiringDict scheduler thread did not exit within timeout; it will continue as daemon."
                     )
         self._scheduler_thread = None
+        # BUG-02 fix: restart the scheduler so future insertions are evicted.
+        # Without this, clear() permanently kills the background thread and new
+        # items added after clear() are never expired.
+        if self._mode == ExpirationMode.SCHEDULER:
+            self._stop_event.clear()
+            self._start_scheduler()
 
     def __del__(self):
         try:

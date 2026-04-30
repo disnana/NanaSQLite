@@ -22,6 +22,7 @@ import warnings
 import weakref
 from collections.abc import Iterator, MutableMapping
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Literal
 
 import apsw
@@ -81,7 +82,7 @@ _BEGIN_IMMEDIATE = "BEGIN IMMEDIATE"
 # Combining 4 separate re.search() calls into one avoids redundant scanning
 # and Python regex compilation overhead on every _validate_expression() call.
 _DANGEROUS_SQL_RE = re.compile(
-    r";|--|/\*|\b(?:DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER)\b",
+    r";|--|/\*|\b(?:DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER|ATTACH|DETACH|CREATE|REINDEX|REPLACE)\b",
     re.IGNORECASE,
 )
 
@@ -231,6 +232,8 @@ class NanaSQLite(MutableMapping):
         )
         self._sql_kv_select_all: str = f"SELECT key, value FROM {sanitized_table}"  # nosec
         self._sql_kv_count: str = f"SELECT COUNT(*) FROM {sanitized_table}"  # nosec
+        # PERF-E: Pre-compute SELECT key query used by _get_all_keys_from_db() (keys() / __iter__).
+        self._sql_kv_select_keys: str = f"SELECT key FROM {sanitized_table}"  # nosec
         # lock_timeout を __init__ で一度だけ検証・正規化する（_acquire_lock の高頻度パスでの検証を省く）
         if lock_timeout is not None:
             invalid = (
@@ -275,6 +278,8 @@ class NanaSQLite(MutableMapping):
         # PERF-29: Pre-compute a single bool that indicates "no encryption is active"
         # so _serialize() can return on the very first check instead of testing both
         # _fernet and _aead (which are None-falsy attribute lookups) on every call.
+        # QUAL-04: _fernet / _aead must NOT be mutated after __init__; if they were,
+        # _no_encrypt would become stale and serialization would behave incorrectly.
         self._no_encrypt: bool = not bool(self._fernet or self._aead)
 
         # Hooks setup (including legacy validkit support)
@@ -444,6 +449,20 @@ class NanaSQLite(MutableMapping):
                 )
             """)
 
+        # PERF-D: Pre-cache the (st_dev, st_ino) pair for _db_path so that
+        # backup() can avoid stat-ing the source file on every call.  This
+        # is only meaningful for file-backed databases; skip for in-memory.
+        self._db_stat_key: tuple[int, int] | None = None
+        if not self._is_in_memory_path(db_path):
+            try:
+                _st = os.stat(db_path)
+                self._db_stat_key = (_st.st_dev, _st.st_ino)
+            except OSError:
+                # The file may not exist yet (new database) or be on a filesystem
+                # that does not support stat.  Treat as unknown and fall back to
+                # the os.path.samefile() path in backup().  nosec B110
+                pass  # nosec B110
+
         # Initialize V2 Engine if enabled and we own the connection (or even if shared, engine owns the queue)
         # Note: We now share the V2Engine instance if provided (from table() call)
         # to avoid thread/atexit leaks.
@@ -500,9 +519,14 @@ class NanaSQLite(MutableMapping):
         cursor.execute("PRAGMA page_size = 4096")
 
     @staticmethod
+    @lru_cache(maxsize=256)
     def _sanitize_identifier(identifier: str) -> str:
         """
         SQLiteの識別子（テーブル名、カラム名など）を検証
+
+        PERF-A: Results are cached (lru_cache, 256 entries) because the same
+        table/column names are sanitized repeatedly across the lifetime of a
+        connection.  This avoids the regex compile+match overhead on each call.
 
         Args:
             identifier: 検証する識別子
@@ -699,6 +723,20 @@ class NanaSQLite(MutableMapping):
         """
         if not expr:
             return
+
+        # 0.5. Strict identifier validation for ORDER BY and GROUP BY (F-003)
+        # These clauses do not support parameters (?) for column names, so we must
+        # strictly validate that the input contains only allowed characters for
+        # identifiers and sorting keywords. This prevents subqueries and complex
+        # injections while maintaining high performance.
+        if context in ("order_by", "group_by"):
+            # Allow: alphanumeric, underscore, dot (table.col), comma (multi-col),
+            # and spaces (for ASC/DESC).
+            if not re.match(r'^[a-zA-Z0-9_.,\s]+$', str(expr)):
+                msg = f"Invalid {context} clause: contains forbidden characters."
+                if strict or (strict is None and self.strict_sql_validation):
+                    raise ValueError(msg)
+                warnings.warn(msg, UserWarning, stacklevel=2)
 
         # 0. legacy check for SQL injection patterns
         # test_security.py compatibility: raise ValueError for strictly dangerous patterns
@@ -912,9 +950,9 @@ class NanaSQLite(MutableMapping):
     def _get_all_keys_from_db(self) -> list[str]:
         """SQLiteから全キーを取得"""
         with self._acquire_lock():
-            cursor = self._connection.execute(
-                f"SELECT key FROM {self._safe_table}"  # nosec
-            )
+            # PERF-E: use pre-computed SQL string (set in __init__) instead of
+            # building an f-string on every keys() / __iter__ call.
+            cursor = self._connection.execute(self._sql_kv_select_keys)
             return [row[0] for row in cursor]
 
     def _update_cache(self, key: str, value: Any) -> None:
@@ -1034,43 +1072,64 @@ class NanaSQLite(MutableMapping):
         """dict[key] = value - 即時書き込み + メモリ更新"""
         self._check_connection()
 
-        # PERF-20: use pre-computed flag instead of bool(self._hooks)
-        if self._has_hooks:
-            for hook in self._hooks:
-                value = hook.before_write(self, key, value)
+        # Step 1: Fetch old value for hooks (for atomicity/rollback accuracy)
+        _missing = object()
+        old_value = self._get_raw(key, _missing)
+        if old_value is _missing:
+            old_value = None
 
         # v2 Architecture: Route to background staging buffer instead of blocking DB write
         if self._v2_mode and self._v2_engine:
+            # PERF-20: use pre-computed flag
+            if self._has_hooks:
+                for hook in self._hooks:
+                    value = hook.before_write(self, key, value)
             self._v2_engine.kvs_set(self._safe_table, key, value)
-            # In v2 mode, _update_cache only modifies in-memory structures (_data / _absent_keys).
-            # The background flush thread never accesses these structures; it only touches the
-            # SQLite connection.  Acquiring the shared lock here creates contention with the
-            # flush thread and causes significant throughput regression on slow CPUs (e.g. ARM).
-            # Python's GIL ensures individual dict/set operations are already atomic, so no
-            # explicit lock is needed for the pure in-memory update.
+            
+            # Step 2: Call success hooks
+            if self._has_hooks:
+                for hook in self._hooks:
+                    hook.on_write_success(self, key, value, old_value)
+            
             self._update_cache(key, value)
         else:
-            # DB書き込みとキャッシュ更新をアトミックに実行
-            serialized = self._serialize(value)
             with self._acquire_lock():
+                # PERF-20: use pre-computed flag
+                if self._has_hooks:
+                    for hook in self._hooks:
+                        value = hook.before_write(self, key, value)
+                # DB書き込みとキャッシュ更新をアトミックに実行
+                serialized = self._serialize(value)
                 self._connection.execute(self._sql_kv_insert, (key, serialized))
+                
+                # Step 2: Call success hooks
+                if self._has_hooks:
+                    for hook in self._hooks:
+                        hook.on_write_success(self, key, value, old_value)
+                
                 self._update_cache(key, value)
 
     def __delitem__(self, key: str) -> None:
         """del dict[key] - 即時削除"""
         self._check_connection()
-        if not self._ensure_cached(key):
+        # Fetch old value before delete
+        _missing = object()
+        old_value = self._get_raw(key, _missing)
+        if old_value is _missing:
             raise KeyError(key)
 
-        # PERF-20: use pre-computed flag instead of bool(self._hooks)
-        if self._has_hooks:
-            for hook in self._hooks:
-                hook.before_delete(self, key)
-
-        # v2 Architecture: Route to background staging buffer
         if self._v2_mode and self._v2_engine:
+            # PERF-20: use pre-computed flag
+            if self._has_hooks:
+                for hook in self._hooks:
+                    hook.before_delete(self, key)
             self._v2_engine.kvs_delete(self._safe_table, key)
-            # See __setitem__ comment: no explicit lock needed for pure in-memory updates in v2 mode.
+            
+            # Step 2: Success hooks
+            if self._has_hooks:
+                for hook in self._hooks:
+                    hook.on_delete_success(self, key, old_value)
+            
             if self._lru_mode:
                 self._cache.delete(key)
             else:
@@ -1078,7 +1137,17 @@ class NanaSQLite(MutableMapping):
                 self._absent_keys.add(key)
         else:
             with self._acquire_lock():
+                # PERF-20: use pre-computed flag
+                if self._has_hooks:
+                    for hook in self._hooks:
+                        hook.before_delete(self, key)
                 self._connection.execute(self._sql_kv_delete, (key,))
+                
+                # Step 2: Success hooks
+                if self._has_hooks:
+                    for hook in self._hooks:
+                        hook.on_delete_success(self, key, old_value)
+                
                 if self._lru_mode:
                     self._cache.delete(key)
                 else:
@@ -1187,6 +1256,33 @@ class NanaSQLite(MutableMapping):
             for hook in self._hooks:
                 val = hook.after_read(self, key, val)
         return val
+
+    def _get_raw(self, key: str, default: Any = None) -> Any:
+        """after_read フックを適用せずに生の格納値を返す内部メソッド。
+
+        UniqueHook などのインデックス管理フックが、フック変換後の値ではなく
+        実際に DB に格納されているデータ構造を参照する必要がある場合に使用する。
+        通常の get() と同一のキャッシュ読み込みロジックを使用するが、
+        after_read フックチェーンを通さない点が異なる。
+        """
+        if not self._lru_mode:
+            try:
+                return self._data[key]
+            except KeyError:
+                pass
+            if key in self._absent_keys:
+                return default
+            if not self._ensure_cached(key):
+                return default
+            return self._data.get(key, default)
+        else:
+            if key in self._data:
+                val = self._cache.get(key)
+                return default if val is MISSING else val
+            if not self._ensure_cached(key):
+                return default
+            val = self._cache.get(key)
+            return default if val is MISSING else val
 
     def get_fresh(self, key: str, default: Any = None) -> Any:
         """
@@ -1317,31 +1413,47 @@ class NanaSQLite(MutableMapping):
                 value = self._data[key]
             else:
                 value = self._cache.get(key)
-            # PERF-20: use pre-computed flag
-            if self._has_hooks:
-                for hook in self._hooks:
-                    hook.before_delete(self, key)
-
             # BUG-01 fix: route through v2 engine in v2 mode to avoid bypassing
             # the staging buffer.  _delete_from_db() issues a direct DELETE on the
             # connection; in v2 mode that can race with a concurrent background flush
             # or leave a pending SET in the staging buffer that will later resurrect
             # the key after flush().
             if self._v2_mode and self._v2_engine:
+                # v2 mode: hooks run outside the lock (same as __delitem__ v2 path).
+                # PERF-20: use pre-computed flag
+                if self._has_hooks:
+                    for hook in self._hooks:
+                        hook.before_delete(self, key)
                 self._v2_engine.kvs_delete(self._safe_table, key)
+                
+                # Success hooks
+                if self._has_hooks:
+                    for hook in self._hooks:
+                        hook.on_delete_success(self, key, value)
+                
                 if self._lru_mode:
                     self._cache.delete(key)
                 else:
                     self._data.pop(key, None)
                     self._absent_keys.add(key)
             else:
-                # DBから先に削除し、ロックタイムアウト時のキャッシュ不整合を防止
-                self._delete_from_db(key)
-                if self._lru_mode:
-                    self._cache.delete(key)
-                else:
-                    self._data.pop(key, None)
-                    self._absent_keys.add(key)
+                # SEC-05 (BUG-01 pop fix): hooks are called inside the lock.
+                with self._acquire_lock():
+                    if self._has_hooks:
+                        for hook in self._hooks:
+                            hook.before_delete(self, key)
+                    self._connection.execute(self._sql_kv_delete, (key,))
+                    
+                    # Success hooks
+                    if self._has_hooks:
+                        for hook in self._hooks:
+                            hook.on_delete_success(self, key, value)
+                    
+                    if self._lru_mode:
+                        self._cache.delete(key)
+                    else:
+                        self._data.pop(key, None)
+                        self._absent_keys.add(key)
 
             # PERF-20: use pre-computed flag
             if self._has_hooks:
@@ -1518,14 +1630,16 @@ class NanaSQLite(MutableMapping):
 
         self._check_connection()
 
-        # Apply before_write hooks
-        # TDD Cycle 4 Optimization: If we have hooks, we might need a new dict.
-        # To pass the specific test_batch_update_has_separate_coerce_branch, we use if self._coerce:
         hooks = self._hooks
-        if hooks:
-            if self._coerce:
-                # True copy-on-write: only allocate a new dict on the first detected change.
-                # When no hooks modify any value, zero extra memory is allocated.
+
+        # v2 Architecture: Route to background staging buffer instead of blocking DB write.
+        # In v2 mode, hooks run outside the lock (v2 uses its own concurrency model, same
+        # as __setitem__ v2 path).
+        if self._v2_mode and self._v2_engine:
+            if hooks:
+                # BUG-02 fix: コピーオンライトでフック変換を確実に適用する。
+                # 等値比較 (!=) ではなく同一性比較 (is not) を使用することで、
+                # カスタム __eq__ を持つオブジェクトや Decimal の精度違いを保持する。
                 processed_mapping: dict[str, Any] | None = None
                 for k, v in mapping.items():
                     new_v = v
@@ -1533,24 +1647,11 @@ class NanaSQLite(MutableMapping):
                         new_v = hook.before_write(self, k, new_v)
                     if processed_mapping is not None:
                         processed_mapping[k] = new_v
-                    elif new_v != v:
-                        # First modification detected: bootstrap with a shallow copy of the
-                        # original (all previous entries were unchanged by hooks), then
-                        # overwrite the current key with the hook-processed value.
+                    elif new_v is not v:
                         processed_mapping = dict(mapping)
                         processed_mapping[k] = new_v
                 if processed_mapping is not None:
                     mapping = processed_mapping
-            else:
-                # Validate only path (no new dict allocation)
-                for k, v in mapping.items():
-                    temp_v = v
-                    for hook in hooks:
-                        temp_v = hook.before_write(self, k, temp_v)
-        # End of TDD Cycle 4 optimized block
-
-        # v2 Architecture: Route to background staging buffer instead of blocking DB write
-        if self._v2_mode and self._v2_engine:
             for key, value in mapping.items():
                 self._v2_engine.kvs_set(self._safe_table, key, value)
             # See __setitem__ comment: no explicit lock needed for pure in-memory updates in v2 mode.
@@ -1565,12 +1666,28 @@ class NanaSQLite(MutableMapping):
                     self._absent_keys.difference_update(mapping.keys())
             return
 
-        # PERF-23: Serialize all values outside the lock (consistent with __setitem__).
-        # _serialize() is pure Python/JSON work that does not touch the SQLite connection,
-        # so holding the lock during serialization only adds unnecessary contention.
-        params = [(key, self._serialize(value)) for key, value in mapping.items()]
-
+        # non-v2 path: SEC-05 consistency — hooks run inside the lock so that uniqueness
+        # checks (UniqueHook etc.) and the subsequent DB write are atomic, preventing the
+        # TOCTOU race where two concurrent threads both pass before_write and write
+        # conflicting values.  Serialization also happens inside the lock because it must
+        # follow hook transformations (e.g. PydanticHook may change the value type).
         with self._acquire_lock():
+            # BUG-02 fix: always use hook-returned values regardless of self._coerce.
+            if hooks:
+                # コピーオンライト: 変更が検出された場合のみ新しい dict を割り当てる。
+                nv2_processed: dict[str, Any] | None = None
+                for k, v in mapping.items():
+                    new_v = v
+                    for hook in hooks:
+                        new_v = hook.before_write(self, k, new_v)
+                    if nv2_processed is not None:
+                        nv2_processed[k] = new_v
+                    elif new_v is not v:
+                        nv2_processed = dict(mapping)
+                        nv2_processed[k] = new_v
+                if nv2_processed is not None:
+                    mapping = nv2_processed
+            params = [(key, self._serialize(value)) for key, value in mapping.items()]
             cursor = self._connection.cursor()
             cursor.execute(_BEGIN_IMMEDIATE)
             try:
@@ -1645,15 +1762,20 @@ class NanaSQLite(MutableMapping):
         if self._v2_mode and self._v2_engine:
             for key, _ in params:
                 self._v2_engine.kvs_set(self._safe_table, key, accepted_values[key])
-            with self._acquire_lock():
-                if self._lru_mode:
+            # PERF-F: In v2 mode the cache update is a pure in-memory operation.
+            # LRU/TTL caches need their own lock because ExpiringDict is not
+            # thread-safe on its own.  Unbounded mode (_data + _absent_keys) is
+            # protected by the GIL for individual dict/set operations, so no
+            # explicit lock is required — consistent with batch_update() v2 path.
+            if self._lru_mode:
+                with self._acquire_lock():
                     for key, value in accepted_values.items():
                         self._cache.set(key, value)
-                else:
-                    # PERF-24: dict.update() + guard (consistent with batch_update).
-                    self._data.update(accepted_values)
-                    if self._absent_keys:
-                        self._absent_keys.difference_update(accepted_values.keys())
+            else:
+                # PERF-24: dict.update() + guard (consistent with batch_update).
+                self._data.update(accepted_values)
+                if self._absent_keys:
+                    self._absent_keys.difference_update(accepted_values.keys())
             return failed
 
         with self._acquire_lock():
@@ -1693,17 +1815,16 @@ class NanaSQLite(MutableMapping):
         if not keys:
             return  # 空の場合は何もしない
 
-        # PERF-22: Only iterate keys for before_delete hooks; skip entirely when
-        # no hooks are registered (the common case).  This avoids O(n) Python
-        # function-call overhead per key when hooks are absent.
-        if self._has_hooks:
-            for key in keys:
-                if self._ensure_cached(key):
-                    for hook in self._hooks:
-                        hook.before_delete(self, key)
-
         # v2 Architecture: Route to background staging buffer instead of blocking DB write
         if self._v2_mode and self._v2_engine:
+            # v2 mode: hooks run outside the lock (same as __delitem__ v2 path).
+            # PERF-22: Only iterate keys for before_delete hooks; skip entirely when
+            # no hooks are registered (the common case).
+            if self._has_hooks:
+                for key in keys:
+                    if self._ensure_cached(key):
+                        for hook in self._hooks:
+                            hook.before_delete(self, key)
             for key in keys:
                 self._v2_engine.kvs_delete(self._safe_table, key)
             # See __setitem__ comment: no explicit lock needed for pure in-memory updates in v2 mode.
@@ -1718,7 +1839,18 @@ class NanaSQLite(MutableMapping):
                 self._absent_keys.update(keys)
             return
 
+        # SEC-05 (BUG-03 batch_delete fix): hooks are called inside the lock for
+        # consistency with __delitem__ non-v2 path.  self._lock is a threading.RLock
+        # so reentrant calls from hooks succeed without deadlock.
         with self._acquire_lock():
+            # PERF-22: Only iterate keys for before_delete hooks; skip entirely when
+            # no hooks are registered (the common case).  This avoids O(n) Python
+            # function-call overhead per key when hooks are absent.
+            if self._has_hooks:
+                for key in keys:
+                    if self._ensure_cached(key):
+                        for hook in self._hooks:
+                            hook.before_delete(self, key)
             cursor = self._connection.cursor()
             cursor.execute(_BEGIN_IMMEDIATE)
             try:
@@ -1808,11 +1940,22 @@ class NanaSQLite(MutableMapping):
         if self._is_in_memory_path(dest_path):
             raise NanaSQLiteValidationError("dest_path must be a file path, not an in-memory database string")
         # dest_path が DB ファイル自身と同一の場合は自己コピーになり破損する恐れがあるため拒否する
+        # PERF-D: Use the pre-cached (st_dev, st_ino) pair for the source database
+        # to avoid stat-ing it on every backup call.  Only stat dest_path (which
+        # is new/different each call) and compare against the cached key.
         try:
-            if os.path.samefile(dest_path, self._db_path):
+            dest_stat = os.stat(dest_path)
+            dest_key = (dest_stat.st_dev, dest_stat.st_ino)
+            if self._db_stat_key is not None and dest_key == self._db_stat_key:
                 raise NanaSQLiteValidationError("dest_path must not be the same as the current database file")
+            elif self._db_stat_key is None:
+                # Fallback for in-memory or stat-failed source: check via samefile
+                if os.path.samefile(dest_path, self._db_path):
+                    raise NanaSQLiteValidationError("dest_path must not be the same as the current database file")
         except FileNotFoundError:
             pass  # dest_path がまだ存在しない場合は問題なし
+        except NanaSQLiteValidationError:
+            raise
         except OSError as e:
             # パスの同一性チェックに失敗した場合は、自己コピー防止チェックをスキップし、
             # 実際のバックアップ処理側での失敗として扱う
@@ -1960,6 +2103,14 @@ class NanaSQLite(MutableMapping):
                 if self._optimize:
                     self._apply_optimizations(self._cache_size_mb)
 
+                # PERF-D: Refresh the pre-cached stat key after restore since
+                # the database file has been replaced.
+                try:
+                    _st = os.stat(self._db_path)
+                    self._db_stat_key = (_st.st_dev, _st.st_ino)
+                except OSError:
+                    self._db_stat_key = None
+
                 # v2 Architecture: Re-initialize engine with new connection
                 if self._v2_mode:
                     self._v2_engine = V2Engine(
@@ -2104,7 +2255,7 @@ class NanaSQLite(MutableMapping):
         except Exception as e:
             raise TypeError(f"Failed to serialize Pydantic model: {e}") from e
 
-    def get_model(self, key: str, model_class: type = None) -> Any:
+    def get_model(self, key: str, model_class: type | None = None) -> Any:
         """
         Pydanticモデルを取得
 
@@ -2277,7 +2428,7 @@ class NanaSQLite(MutableMapping):
                 cursor.execute("ROLLBACK")
                 raise
 
-    def fetch_one(self, sql: str, parameters: tuple = None) -> tuple | None:
+    def fetch_one(self, sql: str, parameters: tuple | None = None) -> tuple | None:
         """
         SQLを実行して1行取得
 
@@ -2295,7 +2446,7 @@ class NanaSQLite(MutableMapping):
         cursor = self.execute(sql, parameters)
         return cursor.fetchone()
 
-    def fetch_all(self, sql: str, parameters: tuple = None) -> list[tuple]:
+    def fetch_all(self, sql: str, parameters: tuple | None = None) -> list[tuple]:
         """
         SQLを実行して全行取得
 
@@ -2316,7 +2467,7 @@ class NanaSQLite(MutableMapping):
 
     # ==================== SQLite Wrapper Functions ====================
 
-    def create_table(self, table_name: str, columns: dict, if_not_exists: bool = True, primary_key: str = None) -> None:
+    def create_table(self, table_name: str, columns: dict, if_not_exists: bool = True, primary_key: str | None = None) -> None:
         """
         テーブルを作成
 
@@ -2345,14 +2496,17 @@ class NanaSQLite(MutableMapping):
         column_defs = []
         for col_name, col_type in columns.items():
             safe_col_name = self._sanitize_identifier(col_name)
-            # Reject column type definitions containing SQL injection patterns.
-            # Unlike alter_table_add_column() which uses a strict whitelist,
-            # create_table() uses a whitelist subset for permitted characters.
+            # SEC-02 fix: Remove quote characters from the allowed set.
+            # The original regex r"^[\w\s(),.+*'\"]+$" admitted single/double
+            # quotes, enabling injections like: TEXT DEFAULT 'x') --
+            # The new regex keeps all reasonable column-type characters (including
+            # SQL constraint keywords, numeric defaults, REFERENCES, etc.) but
+            # explicitly excludes ' and " which have no safe use in type strings.
             _col_type_str = str(col_type)
-            if not re.match(r"^[\w\s(),.+*'\"]+$", _col_type_str):
+            if not re.match(r"^[\w\s(),=<>!@#%.]+$", _col_type_str):
                 raise NanaSQLiteValidationError(
                     f"Invalid or dangerous column type for '{col_name}': "
-                    "contains unauthorized characters. Permitted: alphanumeric, spaces, parentheses, quotes, and basic operators."
+                    "contains unauthorized characters. Quote characters and semicolons are not permitted."
                 )
             column_defs.append(f"{safe_col_name} {col_type}")
 
@@ -2625,7 +2779,7 @@ class NanaSQLite(MutableMapping):
             sql += f" DEFAULT {default}"
         self.execute(sql)
 
-    def get_table_schema(self, table_name: str = None) -> list[dict]:
+    def get_table_schema(self, table_name: str | None = None) -> list[dict]:
         """
         テーブル構造を取得
 
@@ -2717,7 +2871,7 @@ class NanaSQLite(MutableMapping):
 
         return self.get_last_insert_rowid()
 
-    def sql_update(self, table_name: str, data: dict, where: str, parameters: tuple = None) -> int:
+    def sql_update(self, table_name: str, data: dict, where: str, parameters: tuple | None = None) -> int:
         """
         dictとwhere条件でUPDATE
 
@@ -2753,7 +2907,7 @@ class NanaSQLite(MutableMapping):
         self.execute(sql, tuple(values))
         return self._connection.changes()
 
-    def sql_delete(self, table_name: str, where: str, parameters: tuple = None) -> int:
+    def sql_delete(self, table_name: str, where: str, parameters: tuple | None = None) -> int:
         """
         where条件でDELETE
 
@@ -2775,7 +2929,7 @@ class NanaSQLite(MutableMapping):
         self.execute(sql, parameters)
         return self._connection.changes()
 
-    def upsert(self, table_name: str | Any = None, data: Any = None, conflict_columns: list[str] = None) -> int | None:
+    def upsert(self, table_name: str | Any = None, data: Any = None, conflict_columns: list[str] | None = None) -> int | None:
         """
         INSERT OR REPLACE の簡易版（upsert）
         v2モードが有効で、キー/値のペアとして呼び出された場合はバックグラウンドキューに送られます。
@@ -2906,7 +3060,7 @@ class NanaSQLite(MutableMapping):
         cursor = self.execute(sql, parameters)
         return cursor.fetchone()[0]
 
-    def exists(self, table_name: str, where: str, parameters: tuple = None) -> bool:
+    def exists(self, table_name: str, where: str, parameters: tuple | None = None) -> bool:
         """
         レコードの存在確認
 
@@ -3092,7 +3246,15 @@ class NanaSQLite(MutableMapping):
         Example:
             >>> db.vacuum()
         """
-        self.execute("VACUUM")
+        # PERF-C: Bypass the full execute() dispatch (v2 check, _check_connection
+        # duplicate, try/except wrapping) and use the lock + connection directly,
+        # identical to the PERF-26 pattern used in begin_transaction/commit/rollback.
+        self._check_connection()
+        try:
+            with self._acquire_lock():
+                self._connection.execute("VACUUM")
+        except apsw.Error as e:
+            raise NanaSQLiteDatabaseError(f"Failed to execute SQL: {e}", original_error=e) from e
 
     def get_db_size(self) -> int:
         """

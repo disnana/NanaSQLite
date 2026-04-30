@@ -84,7 +84,7 @@ jobs:
         run: |
           mkdir -p output
           docker rm -f bench-sync || true
-          docker run --name bench-sync --network none \
+          docker run --name bench-sync --network none -e USE_RAMDISK=1 \
             ${{ needs.build.outputs.image_tag }} \
             bash -c "mkdir -p /output && pytest tests/test_benchmark.py -v --benchmark-only --benchmark-json=/output/benchmark.json || true"
           docker cp bench-sync:/output/benchmark.json output/benchmark.json || true
@@ -111,7 +111,7 @@ jobs:
         run: |
           mkdir -p output
           docker rm -f bench-async || true
-          docker run --name bench-async --network none \
+          docker run --name bench-async --network none -e USE_RAMDISK=1 \
             ${{ needs.build.outputs.image_tag }} \
             bash -c "mkdir -p /output && pytest tests/test_async_benchmark.py -v --benchmark-only --benchmark-json=/output/async-benchmark.json || true"
           docker cp bench-async:/output/async-benchmark.json output/async-benchmark.json || true
@@ -127,7 +127,7 @@ jobs:
   # Cleanup - ビルドしたイメージを削除
   # ============================================
   cleanup:
-    needs: [benchmark, async-benchmark]
+    needs: [build, benchmark, async-benchmark]
     if: always()
     runs-on: [self-hosted, rpi]
     steps:
@@ -162,14 +162,14 @@ jobs:
 
       - name: Download sync benchmark results
         if: needs.should-run.outputs.run_benchmark == 'true'
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v8.0.1
         with:
           name: benchmark-results-rpi-py3.12
           path: benchmark-results/benchmark-results-rpi-py3.12
 
       - name: Download async benchmark results
         if: needs.should-run.outputs.run_benchmark == 'true'
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v8.0.1
         with:
           name: async-benchmark-results-rpi-py3.12
           path: async-benchmark-results/async-benchmark-results-rpi-py3.12

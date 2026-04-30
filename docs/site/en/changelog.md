@@ -4,7 +4,7 @@ outline: [2, 3]
 
 # Changelog
 
-### [1.5.4] - 2026-04-30
+### [1.5.5] - 2026-04-30
 
 #### Security Remediation
 
@@ -21,6 +21,32 @@ outline: [2, 3]
 
 - **Clarified F-001 (atexit) Limitations** (`README.md`, `v2_architecture.md`)
   - Documented the risk of data loss during forced process termination (`SIGKILL`) in v2 mode. Recommended `flush(wait=True)` or `immediate` mode for mission-critical data.
+
+---
+
+### [1.5.4] - 2026-04-19
+
+#### Bug Fixes
+
+- **BUG-01 (pop hook lock): Move `before_delete` hook call inside lock in `pop()`** (`core.py`)
+  - Fixed an inconsistency where hooks were called outside the lock in `pop()`.
+- **BUG-02 (batch_update hook result): Always apply hook-returned values** (`core.py`)
+  - Fixed a bug where transforming hooks were ignored in `batch_update()` under certain conditions.
+- **BUG-03 (batch_delete hook lock): Move `before_delete` hook call inside lock in `batch_delete()`** (`core.py`)
+  - Ensured atomicity for hooks in `batch_delete()`.
+
+#### Security Fixes
+
+- **SEC-05: Fixed TOCTOU race condition in `UniqueHook`** (`core.py`, `hooks.py`)
+  - Resolved a race condition by moving hook validation inside the instance lock.
+- **SEC-06 opt-in: `google-re2` ReDoS protection** (`compat.py`, `hooks.py`, `pyproject.toml`)
+  - Added support for the RE2 regex engine to guarantee linear-time matching and prevent ReDoS.
+
+#### Performance Improvements
+
+- **PERF-01: `UniqueHook` — opt-in inverse index (`use_index=True`)** (`hooks.py`)
+  - Introduced an O(1) inverse index for `UniqueHook` to eliminate O(N) scans.
+
 
 ---
 

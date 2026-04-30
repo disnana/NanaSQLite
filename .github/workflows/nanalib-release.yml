@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.x"
 
@@ -38,7 +38,7 @@ jobs:
             --find-interpreter
           working-directory: src/nanalib
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-linux-${{ matrix.target }}
           path: src/nanalib/dist
@@ -55,7 +55,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.x"
 
@@ -70,7 +70,7 @@ jobs:
             --find-interpreter
           working-directory: src/nanalib
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-macos-${{ matrix.target }}
           path: src/nanalib/dist
@@ -87,7 +87,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.x"
           architecture: ${{ matrix.target }}
@@ -103,7 +103,7 @@ jobs:
             --find-interpreter
           working-directory: src/nanalib
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-windows-${{ matrix.target }}
           path: src/nanalib/dist
@@ -123,7 +123,7 @@ jobs:
           args: --out dist
           working-directory: src/nanalib
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-sdist
           path: src/nanalib/dist
@@ -146,12 +146,12 @@ jobs:
       url: https://pypi.org/p/nanalib
     steps:
       - name: Download all wheels
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8.0.1
         with:
           pattern: wheels-*
           merge-multiple: true
           path: dist
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@release/v1.14
         # API キー不要。OIDC で自動認証される。
