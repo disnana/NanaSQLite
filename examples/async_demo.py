@@ -177,11 +177,11 @@ async def main():
         # Clean up demo database
         import os
 
-        if os.path.exists("demo_async.db"):
+        if os.path.exists("demo_async.db"):  # noqa: ASYNC240
             os.remove("demo_async.db")
-        if os.path.exists("demo_async.db-wal"):
+        if os.path.exists("demo_async.db-wal"):  # noqa: ASYNC240
             os.remove("demo_async.db-wal")
-        if os.path.exists("demo_async.db-shm"):
+        if os.path.exists("demo_async.db-shm"):  # noqa: ASYNC240
             os.remove("demo_async.db-shm")
         print("\nDemo database cleaned up.")
 

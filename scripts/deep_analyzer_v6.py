@@ -7,18 +7,15 @@ Security Report Generator v6 - AI-Native Edition
   python gen_report_v6.py ./src --output report.md --diff snap.json --snapshot snap_new.json
 """
 
-import ast
-import os
-import sys
-import json
-import hashlib
 import argparse
-from pathlib import Path
-from dataclasses import dataclass, field
-from typing import Optional
+import ast
+import hashlib
+import json
+import sys
+from dataclasses import dataclass
 from datetime import datetime
-from collections import defaultdict
-
+from pathlib import Path
+from typing import Optional
 
 # ══════════════════════════════════════════════════════════════════
 # データモデル
@@ -327,7 +324,6 @@ class ProjectAnalyzer:
         return self
 
     def _build_called_by(self):
-        all_names = {c.full_name for c in self.chunks}
         for chunk in self.chunks:
             for callee in chunk.calls:
                 # 完全一致 or 末尾一致でマッチ

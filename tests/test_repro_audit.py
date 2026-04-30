@@ -1,26 +1,28 @@
 import os
+
 import pytest
-import warnings
-from nanasqlite import NanaSQLite, V2Config, NanaSQLiteValidationError
+
+from nanasqlite import NanaSQLite, V2Config
+
 
 def test_poc_v2_batch_get_consistency():
     """PoC: batch_get ignores pending writes in V2 staging buffer."""
     db_path = "test_poc_v2.db"
     if os.path.exists(db_path):
         os.remove(db_path)
-    
+
     # Use V2 mode with count flush (won't flush until 100 changes)
     cfg = V2Config(flush_mode="count", flush_count=100)
     db = NanaSQLite(db_path, v2_mode=True, v2_config=cfg)
     try:
         db["key1"] = "value1" # Stays in staging buffer
-        
+
         # Clear memory cache to force DB/staging lookup
         db.clear_cache()
-        
+
         # batch_get should find it in staging, but currently it only checks DB
         results = db.batch_get(["key1"])
-        
+
         assert "key1" in results, "FAIL: batch_get failed to find key in V2 staging buffer"
         assert results["key1"] == "value1"
     finally:
@@ -39,7 +41,7 @@ def test_poc_sql_validation_backticks():
         except Exception as e:
             if isinstance(e, ValueError):
                 raise
-        
+
         try:
             db.query(where="[column name] = 1")
         except Exception as e:
@@ -55,7 +57,7 @@ def test_poc_batch_get_variable_limit():
     db_path = "test_poc_limit.db"
     if os.path.exists(db_path):
         os.remove(db_path)
-    
+
     db = NanaSQLite(db_path)
     try:
         # 40000 keys will exceed the default SQLite variable limit
@@ -74,14 +76,15 @@ def test_poc_batch_get_variable_limit():
 def test_poc_v2_engine_sql_injection():
     """PoC: V2Engine internal methods are vulnerable to SQL injection via table_name."""
     import apsw
+
     from nanasqlite.v2_engine import V2Engine
-    
+
     conn = apsw.Connection(":memory:")
     # Vulnerable f-string usage in V2Engine._process_kvs_chunk and _recover_chunk_via_dlq
     # If table_name is not sanitized, it can lead to injection.
     # While NanaSQLite sanitizes it, V2Engine should be robust.
     malicious_table = "data; DROP TABLE data; --"
-    
+
     try:
         # SEC-02 fix: V2Engine should validate table_name in __init__
         with pytest.raises(ValueError, match="Invalid or unsafe table name"):
