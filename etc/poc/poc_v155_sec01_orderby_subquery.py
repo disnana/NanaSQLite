@@ -31,17 +31,15 @@ try:
     injection_payload = "(SELECT CASE WHEN 1=1 THEN name ELSE score END)"
 
     import warnings
-    caught_warning = False
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         try:
-            results = db.query(
+            db.query(
                 table_name="data",
                 order_by=injection_payload,
                 strict=False,
             )
             if w:
-                caught_warning = True
                 print(f"[PATCHED] UserWarning raised: {w[0].message}")
             else:
                 print("[VULNERABLE] Subquery payload executed without warning.")
@@ -54,4 +52,4 @@ finally:
         try:
             os.unlink(path + suffix)
         except OSError:
-            pass
+            pass  # WAL/SHM files may not exist; ignore missing-file errors
