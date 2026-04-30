@@ -82,7 +82,7 @@ _BEGIN_IMMEDIATE = "BEGIN IMMEDIATE"
 # Combining 4 separate re.search() calls into one avoids redundant scanning
 # and Python regex compilation overhead on every _validate_expression() call.
 _DANGEROUS_SQL_RE = re.compile(
-    r";|--|/\*|\b(?:DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER)\b",
+    r";|--|/\*|\b(?:DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER|ATTACH|DETACH|CREATE|REINDEX|REPLACE)\b",
     re.IGNORECASE,
 )
 
@@ -724,6 +724,20 @@ class NanaSQLite(MutableMapping):
         if not expr:
             return
 
+        # 0.5. Strict identifier validation for ORDER BY and GROUP BY (F-003)
+        # These clauses do not support parameters (?) for column names, so we must
+        # strictly validate that the input contains only allowed characters for
+        # identifiers and sorting keywords. This prevents subqueries and complex
+        # injections while maintaining high performance.
+        if context in ("order_by", "group_by"):
+            # Allow: alphanumeric, underscore, dot (table.col), comma (multi-col),
+            # and spaces (for ASC/DESC).
+            if not re.match(r'^[a-zA-Z0-9_.,\s]+$', str(expr)):
+                msg = f"Invalid {context} clause: contains forbidden characters."
+                if strict or (strict is None and self.strict_sql_validation):
+                    raise ValueError(msg)
+                warnings.warn(msg, UserWarning, stacklevel=2)
+
         # 0. legacy check for SQL injection patterns
         # test_security.py compatibility: raise ValueError for strictly dangerous patterns
         # We use a combined message to satisfy both test_security.py ("Potentially dangerous...")
@@ -1058,51 +1072,64 @@ class NanaSQLite(MutableMapping):
         """dict[key] = value - 即時書き込み + メモリ更新"""
         self._check_connection()
 
+        # Step 1: Fetch old value for hooks (for atomicity/rollback accuracy)
+        _missing = object()
+        old_value = self._get_raw(key, _missing)
+        if old_value is _missing:
+            old_value = None
+
         # v2 Architecture: Route to background staging buffer instead of blocking DB write
         if self._v2_mode and self._v2_engine:
-            # PERF-20: use pre-computed flag instead of bool(self._hooks)
-            # In v2 mode, hooks are called outside the lock (v2 uses its own concurrency model).
+            # PERF-20: use pre-computed flag
             if self._has_hooks:
                 for hook in self._hooks:
                     value = hook.before_write(self, key, value)
             self._v2_engine.kvs_set(self._safe_table, key, value)
-            # In v2 mode, _update_cache only modifies in-memory structures (_data / _absent_keys).
-            # The background flush thread never accesses these structures; it only touches the
-            # SQLite connection.  Acquiring the shared lock here creates contention with the
-            # flush thread and causes significant throughput regression on slow CPUs (e.g. ARM).
-            # Python's GIL ensures individual dict/set operations are already atomic, so no
-            # explicit lock is needed for the pure in-memory update.
+            
+            # Step 2: Call success hooks
+            if self._has_hooks:
+                for hook in self._hooks:
+                    hook.on_write_success(self, key, value, old_value)
+            
             self._update_cache(key, value)
         else:
-            # SEC-05: hooks are called inside the lock so that the uniqueness check in
-            # UniqueHook and the subsequent DB write are atomic — preventing the TOCTOU
-            # race where two concurrent threads both pass the check and write duplicates.
-            # self._lock is a threading.RLock so reentrant calls from hooks (e.g. db.items())
-            # that also acquire the lock succeed without deadlock.
             with self._acquire_lock():
-                # PERF-20: use pre-computed flag instead of bool(self._hooks)
+                # PERF-20: use pre-computed flag
                 if self._has_hooks:
                     for hook in self._hooks:
                         value = hook.before_write(self, key, value)
                 # DB書き込みとキャッシュ更新をアトミックに実行
                 serialized = self._serialize(value)
                 self._connection.execute(self._sql_kv_insert, (key, serialized))
+                
+                # Step 2: Call success hooks
+                if self._has_hooks:
+                    for hook in self._hooks:
+                        hook.on_write_success(self, key, value, old_value)
+                
                 self._update_cache(key, value)
 
     def __delitem__(self, key: str) -> None:
         """del dict[key] - 即時削除"""
         self._check_connection()
-        if not self._ensure_cached(key):
+        # Fetch old value before delete
+        _missing = object()
+        old_value = self._get_raw(key, _missing)
+        if old_value is _missing:
             raise KeyError(key)
 
-        # v2 Architecture: Route to background staging buffer
         if self._v2_mode and self._v2_engine:
-            # PERF-20: use pre-computed flag instead of bool(self._hooks)
+            # PERF-20: use pre-computed flag
             if self._has_hooks:
                 for hook in self._hooks:
                     hook.before_delete(self, key)
             self._v2_engine.kvs_delete(self._safe_table, key)
-            # See __setitem__ comment: no explicit lock needed for pure in-memory updates in v2 mode.
+            
+            # Step 2: Success hooks
+            if self._has_hooks:
+                for hook in self._hooks:
+                    hook.on_delete_success(self, key, old_value)
+            
             if self._lru_mode:
                 self._cache.delete(key)
             else:
@@ -1110,13 +1137,17 @@ class NanaSQLite(MutableMapping):
                 self._absent_keys.add(key)
         else:
             with self._acquire_lock():
-                # SEC-05: hooks are called inside the lock for consistency with __setitem__,
-                # so that any hook-side uniqueness/invariant checks and the DB delete are atomic.
-                # self._lock is a threading.RLock so reentrant calls from hooks succeed.
+                # PERF-20: use pre-computed flag
                 if self._has_hooks:
                     for hook in self._hooks:
                         hook.before_delete(self, key)
                 self._connection.execute(self._sql_kv_delete, (key,))
+                
+                # Step 2: Success hooks
+                if self._has_hooks:
+                    for hook in self._hooks:
+                        hook.on_delete_success(self, key, old_value)
+                
                 if self._lru_mode:
                     self._cache.delete(key)
                 else:
@@ -1394,21 +1425,30 @@ class NanaSQLite(MutableMapping):
                     for hook in self._hooks:
                         hook.before_delete(self, key)
                 self._v2_engine.kvs_delete(self._safe_table, key)
+                
+                # Success hooks
+                if self._has_hooks:
+                    for hook in self._hooks:
+                        hook.on_delete_success(self, key, value)
+                
                 if self._lru_mode:
                     self._cache.delete(key)
                 else:
                     self._data.pop(key, None)
                     self._absent_keys.add(key)
             else:
-                # SEC-05 (BUG-01 pop fix): hooks are called inside the lock so that
-                # the before_delete check and the DB delete are atomic — consistent
-                # with __delitem__ non-v2 path.  self._lock is a threading.RLock so
-                # reentrant calls from hooks succeed without deadlock.
+                # SEC-05 (BUG-01 pop fix): hooks are called inside the lock.
                 with self._acquire_lock():
                     if self._has_hooks:
                         for hook in self._hooks:
                             hook.before_delete(self, key)
                     self._connection.execute(self._sql_kv_delete, (key,))
+                    
+                    # Success hooks
+                    if self._has_hooks:
+                        for hook in self._hooks:
+                            hook.on_delete_success(self, key, value)
+                    
                     if self._lru_mode:
                         self._cache.delete(key)
                     else:
