@@ -3702,7 +3702,7 @@ class TestV155Sec01OrderBySubqueryInjection:
         db["a"] = {"name": "alice", "score": 1}
         try:
             import pytest
-            with pytest.raises((ValueError, Exception)):
+            with pytest.raises(ValueError):
                 db.query(
                     table_name="data",
                     order_by="(SELECT CASE WHEN 1=1 THEN name ELSE score END)",
@@ -3720,7 +3720,7 @@ class TestV155Sec01OrderBySubqueryInjection:
         db["a"] = {"name": "alice", "score": 1}
         try:
             import pytest
-            with pytest.raises((ValueError, Exception)):
+            with pytest.raises(ValueError):
                 db.query(
                     table_name="data",
                     order_by="name FROM users",
@@ -3738,7 +3738,7 @@ class TestV155Sec01OrderBySubqueryInjection:
         db["a"] = {"name": "alice", "score": 1}
         try:
             import pytest
-            with pytest.raises((ValueError, Exception)):
+            with pytest.raises(ValueError):
                 db.query(
                     table_name="data",
                     order_by="name UNION SELECT password",
@@ -3759,6 +3759,7 @@ class TestV155Sec01OrderBySubqueryInjection:
         try:
             with warnings.catch_warnings(record=True) as w:
                 warnings.simplefilter("always")
+                raised = False
                 try:
                     db.query(
                         table_name="data",
@@ -3766,9 +3767,10 @@ class TestV155Sec01OrderBySubqueryInjection:
                         strict_sql_validation=False,
                     )
                 except Exception:
-                    pass  # query may raise instead of warning; either response is acceptable
-                assert any("subquery" in str(warning.message).lower() for warning in w), (
-                    "Expected UserWarning about subquery keywords"
+                    raised = True  # raising instead of warning is also acceptable
+                subquery_warned = any("subquery" in str(warning.message).lower() for warning in w)
+                assert raised or subquery_warned, (
+                    "Expected either a UserWarning about subquery keywords or an exception"
                 )
         finally:
             db.close()
@@ -3788,7 +3790,7 @@ class TestV155Sec01OrderBySubqueryInjection:
             db.close()
 
     def test_groupby_select_keyword_raises_in_strict_mode(self, tmp_path):
-        """strict_sql_validation=True: SELECT keyword in ORDER BY raises ValueError."""
+        """strict_sql_validation=True: SELECT keyword in GROUP BY raises ValueError."""
         from nanasqlite import NanaSQLite
 
         db_path = str(tmp_path / "sec01f.db")
@@ -3796,10 +3798,10 @@ class TestV155Sec01OrderBySubqueryInjection:
         db["a"] = {"name": "alice", "score": 1}
         try:
             import pytest
-            with pytest.raises((ValueError, Exception)):
-                db.query(
+            with pytest.raises(ValueError):
+                db.query_with_pagination(
                     table_name="data",
-                    order_by="(SELECT name FROM other)",
+                    group_by="(SELECT name FROM other)",
                     strict_sql_validation=True,
                 )
         finally:

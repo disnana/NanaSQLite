@@ -100,11 +100,11 @@ class V2Engine:
     ):
         self._connection = connection
 
-        # SEC-02: Ensure table_name is a valid identifier or properly quoted to prevent SQL injection.
+        # SEC-02: Ensure table_name is a valid unquoted SQL identifier to prevent SQL injection.
         # Although core.py always passes a sanitized name, we validate here for robustness.
-        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name) and not (
-            table_name.startswith('"') and table_name.endswith('"')
-        ):
+        # Quoted identifiers are intentionally not accepted here; core.py sanitization is the
+        # canonical layer for those.
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name):
             raise ValueError(f"Invalid or unsafe table name: {table_name}")
 
         self._table_name = table_name

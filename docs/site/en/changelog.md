@@ -11,7 +11,7 @@ outline: [2, 3]
 - **F-002: Resolved State Inconsistency in UniqueHook** (`core.py`, `hooks.py`, `protocols.py`)
   - Fixed a race where in-memory indices were updated even if the database write failed. Introduced `on_write_success` and `on_delete_success` callbacks to the `NanaHook` protocol to ensure indices are only updated after successful DB commitment.
 - **F-003: Hardened SQL Injection Protection for ORDER BY / GROUP BY** (`core.py`)
-  - Implemented strict whitelist validation (allowing only alphanumeric, underscores, dots, commas, and spaces) for clauses where parameter binding is not supported by SQLite.
+  - Implemented whitelist validation for clauses where parameter binding is not supported by SQLite, permitting only safe characters (alphanumeric, underscore, space, comma, dot, parentheses, comparison operators, and quoting characters such as `'`, `"`, `` ` ``, `[`, `]`). Added detection of subquery keywords (e.g. `SELECT`, `FROM`) and a pre-check for structural injection patterns (`--`, `/*`, `;`).
 - **F-004: Prevented Information Exposure in Dead Letter Queue (DLQ)** (`v2_engine.py`)
   - Verified and hardened logging to ensure sensitive payloads are not leaked in error logs during background flush failures. Added security warnings to DLQ-related documentation.
 - **F-005: Fixed Race Condition in ExpiringDict (TTL Cache)** (`utils.py`)

@@ -792,8 +792,9 @@ class NanaSQLite(MutableMapping):
         # PERF-10: Use the module-level pre-compiled combined regex instead of
         # four separate re.search() calls.  A single pass over the expression
         # string is faster and avoids rebuilding the pattern list per call.
-        # First check the raw expression for structural injection patterns (--;/*;)
-        # that sanitize_sql_for_function_scan() would strip before keyword scanning.
+        # First check the raw expression for structural injection patterns (--, /*, ;)
+        # that survive sanitize_sql_for_function_scan() (which only blanks literals/comments,
+        # not semicolons or comment starters in the raw text).
         raw_expr = str(expr)
         if _STRUCTURAL_INJECTION_RE.search(raw_expr):
             if strict or (strict is None and self.strict_sql_validation):
@@ -1116,7 +1117,10 @@ class NanaSQLite(MutableMapping):
                     value = hook.before_write(self, key, value)
             self._v2_engine.kvs_set(self._safe_table, key, value)
 
-            # Step 2: Call success hooks
+            # Step 2: Call success hooks.
+            # NOTE (v2): the write is staged in the in-memory buffer (kvs_set), not yet
+            # flushed to SQLite.  on_write_success signals that staging was accepted;
+            # hooks must not assume durable persistence at this point.
             if self._has_hooks:
                 for hook in self._hooks:
                     if hasattr(hook, "on_write_success"):
@@ -1157,7 +1161,9 @@ class NanaSQLite(MutableMapping):
                     hook.before_delete(self, key)
             self._v2_engine.kvs_delete(self._safe_table, key)
 
-            # Step 2: Success hooks
+            # Step 2: Success hooks.
+            # NOTE (v2): the delete is staged, not yet persisted.  on_delete_success
+            # signals staging acceptance; hooks must not assume durable persistence.
             if self._has_hooks:
                 for hook in self._hooks:
                     if hasattr(hook, "on_delete_success"):
@@ -1474,7 +1480,9 @@ class NanaSQLite(MutableMapping):
                         hook.before_delete(self, key)
                 self._v2_engine.kvs_delete(self._safe_table, key)
 
-                # Success hooks
+                # Success hooks.
+                # NOTE (v2): the delete is staged, not yet persisted.  on_delete_success
+                # signals staging acceptance; hooks must not assume durable persistence.
                 if self._has_hooks:
                     for hook in self._hooks:
                         if hasattr(hook, "on_delete_success"):

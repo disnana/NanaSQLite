@@ -278,7 +278,7 @@ class ExpiringDict(collections.abc.MutableMapping):
                 if key in self._exptimes and self._exptimes[key] <= now:
                     value = self._data.pop(key, None)
                     self._exptimes.pop(key, None)
-                    if value is not None and self._on_expire:
+                    if self._on_expire:
                         expired_callbacks.append((key, value))
                 else:
                     live_keys.append(key)
