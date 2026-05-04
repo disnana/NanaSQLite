@@ -1,11 +1,11 @@
 import time
-import threading
-from nanasqlite.utils import ExpiringDict, ExpirationMode
+
+from nanasqlite.utils import ExpirationMode, ExpiringDict
+
 
 def main():
     INITIAL_TTL = 0.2  # initial value's TTL
     SLEEP_TO_ALMOST_EXPIRE = 0.18  # wait until almost expired
-    NEW_TTL_WAIT_AFTER_UPDATE = 0.3  # new value's TTL after update
 
     cache = ExpiringDict(expiration_time=INITIAL_TTL, mode=ExpirationMode.SCHEDULER)
 

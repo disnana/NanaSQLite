@@ -10,11 +10,13 @@
 
 ## ライフサイクルイベント
 
-フックは以下の 3 つのイベントに応答できます：
+フックは以下の 5 つのイベントに応答できます：
 
 - `before_write(key, value)`: DB への書き込み（`set`, `update`, `batch_update`等）の直前に実行。値を変換して返すか、例外を投げて書き込みを拒否できます。
+- `on_write_success(key, value, old_value)`: DB への書き込みが正常に完了した直後に実行。インデックスの更新など、書き込み成功時のみ実行したい処理に適しています。
 - `after_read(key, value)`: DB からの読み込み（`get`, `items`等）の直後、アプリケーションに値を返す前に実行。値を変換して返せます。
 - `before_delete(key)`: DB からの削除（`del`, `pop`等）の直前に実行。例外を投げて削除を拒否できます。
+- `on_delete_success(key, old_value)`: DB からの削除が正常に完了した直後に実行。インデックスの破棄などに適しています。
 
 ## 標準フック (Standard Hooks)
 

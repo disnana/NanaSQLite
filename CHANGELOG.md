@@ -6,6 +6,26 @@
 
 ## 日本語
 
+### [1.5.5] - 2026-04-30
+
+#### セキュリティ修正 (Security Remediation)
+
+- **F-002: UniqueHook における状態不整合の解消**（`core.py`, `hooks.py`, `protocols.py`）
+  - DB 書き込み失敗時にメモリ上のインデックスのみが更新される不整合を修正しました。`NanaHook` に `on_write_success` / `on_delete_success` コールバックを追加し、DB への書き込みが確定したタイミングでインデックスを更新する「確定後反映モデル」に移行しました。
+- **F-003: ORDER BY / GROUP BY 句への SQL 注入脆弱性の強化**（`core.py`）
+  - プレースホルダが使用できない `ORDER BY` / `GROUP BY` 句に対して、英数字・アンダースコア・スペース・カンマ・ドット・括弧・比較演算子・引用符類（`'`, `"`, `` ` ``, `[`, `]`）などの安全な文字のみを許可するホワイトリスト検証を導入しました。また、サブクエリキーワード（`SELECT`、`FROM` 等）の検出と構造的インジェクションパターン（`--`、`/*`、`;`）の事前チェックを追加しました。
+- **F-004: デッドレターキュー (DLQ) における機密情報露出の防止**（`v2_engine.py`）
+  - 背景フラッシュ失敗時のログ出力において、ペイロードデータがログに露出しないことを確認・強化しました。`get_dlq()` の docstring にセキュリティ警告を追加しました。
+- **F-005: ExpiringDict (TTL キャッシュ) におけるレースコンディションの修正**（`utils.py`）
+  - キャッシュ期限切れ処理中にキーが更新された場合、新しい値が誤って削除されるレースコンディションを修正しました。**Compare-and-Delete (CAS)** パターンを導入し、削除実行時に検出時の expiry タイムスタンプを照合するようにしました。
+
+#### ドキュメントの改善
+
+- **F-001 (atexit) の制限事項に関する明文化**（`README.md`, `v2_architecture.md`）
+  - v2 モードにおいて、OS による強制終了 (`SIGKILL`) 時にデータが消失するリスクと、重要データに対する `flush(wait=True)` または `immediate` モードの利用推奨を明記しました。
+
+---
+
 ### [1.5.4] - 2026-04-19
 
 #### バグ修正
@@ -73,90 +93,6 @@
 - **QUAL-02: `v2_engine.py` — `DLQEntry` dataclass 導入**（`v2_engine.py`）
   - DLQ の内部表現を `list[tuple[str, Any, float]]` から `list[DLQEntry]` に変更しました。`DLQEntry` は `dataclass` で定義された明示的な型です。`get_dlq()` の戻り値（`list[dict]`）は後方互換を維持します。
 
-#### テスト追加
-
-- `tests/test_audit_poc.py`:
-  - `TestBug01V154PopBeforeDeleteLock`: `pop()` の `before_delete` フックがロック内で実行されることを確認（3 テスト）
-  - `TestBug02V154BatchUpdateHookResult`: `batch_update()` でフック変換値が正しく適用されることを確認（4 テスト）
-  - `TestBug03V154BatchDeleteBeforeDeleteLock`: `batch_delete()` の `before_delete` フックがロック内で実行されることを確認（3 テスト）
-  - `TestPerf01V154UniqueHookIndex`: `UniqueHook` の `use_index=True` 逆引きインデックスを検証（8 テスト）
-  - `TestPerf02V154BaseHookPatternRevalidation`: 既コンパイル済み Pattern の再バリデーション省略を確認（3 テスト）
-  - `TestQual01V154Re2ModuleAnnotation`: `compat.py` の `re2_module` 型アノテーション改善を確認（2 テスト）
-  - `TestQual02V154DLQEntryDataclass`: `DLQEntry` dataclass の導入を確認（3 テスト）
-  - `TestSec01V154DLQPayloadDocumentation`: DLQ ペイロード漏洩ドキュメントを確認（3 テスト）
-  - `TestSec05UniqueHookTOCTOUFix`: TOCTOU 修正を検証するテスト（並行書き込み、ロック内フック実行確認、自己更新テスト）を追加
-  - `TestRE2Integration`: google-re2 統合テスト（`HAS_RE2` フラグ、パターンコンパイル、RE2 危険パターン許容、RE2 なし時のブラックリスト維持）を追加
-  - `TestV150Sec03UniqueHookRace`: docstring 検証を旧「WARNING」から新「SEC-05/RLock」記述に更新
-  - `TestV150Sec05BaseHookRedos`: RE2 インストール時でも `HAS_RE2 = False` を強制して非 RE2 経路のブラックリスト検証を行うよう更新
-- `tests/test_tdd_cycle_4.py`:
-  - `test_batch_update_uses_copy_on_write_pattern`: `batch_update()` が統一 copy-on-write パターンを使用することを確認
-
----
-
-### [1.5.3] - 2026-04-08
-
-#### パフォーマンス改善
-
-- **PERF-E: `_get_all_keys_from_db()` — SQL 文字列を事前計算**（`core.py`）
-  - `keys()` / `__iter__` が呼ばれるたびに `f"SELECT key FROM {self._safe_table}"` を構築していました。PERF-07 と同様に `_sql_kv_select_keys` を `__init__` 時に一度だけ計算し、以降はこれを再利用するよう変更しました。
-
-- **PERF-F: `batch_update_partial()` v2 + Unbounded モード — 不要ロックを除去**（`core.py`）
-  - v2 モード + Unbounded モードの組み合わせで、純粋なメモリ更新（`_data.update()` / `_absent_keys.difference_update()`）にまでロックを取得していました。`batch_update()` v2 パスと同様、GIL が個々の dict/set 操作をアトミックに保護するため明示的ロックは不要です。LRU/TTL モードは引き続きロックを取得します。
-
-#### コード品質改善
-
-- **QUAL-04: `_no_encrypt` — 変更不可であることのコメント追加**（`core.py`）
-  - `_fernet` / `_aead` が `__init__` 後に変更された場合、`_no_encrypt` がステールになりシリアライズが壊れることを明記しました（rc3 監査で指摘、今回対応）。
-
-- **QUAL-05: 型アノテーション修正 — `parameters: tuple = None` → `parameters: tuple | None = None`**（`core.py`）
-  - `fetch_one()`, `fetch_all()`, `create_table()` の `primary_key`、`sql_update()`, `sql_delete()`, `exists()` の 6 箇所で `tuple = None` を `tuple | None = None` に修正しました。
-
-- **QUAL-06: `async_core.py` — `_ensure_initialized()` 呼び出しの統一**（`async_core.py`）
-  - `query_with_pagination()` と `table()` で `if self._db is None: await self._ensure_initialized()` という不完全なガードが使われていました。他のメソッドと同様に無条件で `await self._ensure_initialized()` を呼ぶよう変更しました（`_ensure_initialized()` 自体がべき等です）。
-
----
-
-### [1.5.3rc4] - 2026-04-08
-
-#### パフォーマンス改善
-
-- **PERF-A: `_sanitize_identifier()` — `lru_cache(maxsize=256)` を追加**（`core.py`）
-  - テーブル名・カラム名の検証は同じ識別子に対して繰り返し呼び出されるにもかかわらず、毎回 `re.match()` を実行していました。`@lru_cache` でキャッシュすることで、2 回目以降は dict ルックアップのみになります。
-  - `test_begin_commit` で約 13% 高速化、`sql_insert` ホットパスで関数呼び出し 4 倍削減。
-
-- **PERF-B: `ExpiringDict.__setitem__()` — TIMER モード以外での `_cancel_timer()` を省略**（`utils.py`）
-  - SCHEDULER モードでは `_timers` / `_async_tasks` は常に空のため、`_cancel_timer()` 呼び出しは毎回無意味な dict ルックアップを 2 回実行していました。`if self._mode == ExpirationMode.TIMER:` ガードで省略します。
-  - `test_cache_write_1000[ttl]` で約 22% 高速化。
-
-- **PERF-C: `vacuum()` — `execute()` ディスパッチをバイパス**（`core.py`）
-  - `vacuum()` が `execute()` の完全なパス（v2 ルーティング、重複 `_check_connection`、`try/except` ラップ）を経由していました。`begin_transaction` / `commit` / `rollback` で使用されている PERF-26 パターン（直接接続呼び出し）を適用しました。
-
-- **PERF-D: `backup()` — DB ファイルの `(st_dev, st_ino)` を `__init__` 時にキャッシュ**（`core.py`）
-  - `backup()` のセルフコピー防止チェックが毎回 `os.stat()` を 2 回呼び出していました。ソース DB のスタット結果を `__init__` 時にキャッシュし（`restore()` 後に再計算）、`backup()` では `dest_path` の 1 回分のみ呼び出すようにしました。
-
-#### バグ修正
-
-- **BUG-02: `ExpiringDict.clear()` — スケジューラスレッドを永久に停止していた問題を修正**（`utils.py`）
-  - `clear()` 後に `_scheduler_running = False` のまま再起動されなかったため、`clear()` 後に追加された新しい項目が期限切れにならない問題がありました。`clear()` の完了後にスケジューラを再起動するよう修正しました。
-
-- **BUG-03: `UnboundedCache.delete()` — `_cached_keys` に `.add()` ではなく `.discard()` を使用**（`cache.py`）
-  - 削除されたキーが `_cached_keys.add(key)` によって「キャッシュ済み」としてマークされていたため、再挿入後も DB へのフェッチがスキップされる問題がありました。`.discard(key)` に修正しました。
-
-- **BUG-04: `ExpiringDict.__getitem__()` — TOCTOU 競合状態を修正**（`utils.py`）
-  - `_check_expiry()` がロック外で実行され、その後ロック内で `_data[key]` が読み取られていました。スケジューラスレッドが間に割り込んでキーを削除すると、まだ有効だったキーに対して偽の `KeyError` が発生していました。有効期限チェックと読み取りをロック内でアトミックに実行するよう修正しました。
-
-#### セキュリティ修正
-
-- **SEC-02: `create_table()` — カラム型正規表現からクォート文字を除去**（`core.py`）
-  - 旧正規表現 `r"^[\w\s(),.+*'\"]+"` がシングル・ダブルクォートを許可していたため、`TEXT DEFAULT 'x') --` のような SQL インジェクション文字列が通過していました。クォート文字（`'` `"`）、セミコロン（`;`）、コメント構文（`--`、`/* */`）を除外した新しい正規表現に変更しました。
-
-#### コード品質改善
-
-- **QUAL-01: `get_model()` — 型アノテーション修正**（`core.py`）
-  - `model_class: type = None` を `model_class: type | None = None` に修正しました。
-
-- **CodeQL: `except OSError: pass` — 説明コメントを追加**（`core.py`）
-  - PERF-D の `_db_stat_key` キャッシュ初期化時の空 `except` 節に、CodeQL 指摘に従い説明コメントを追加しました。
 
 ---
 
@@ -1307,6 +1243,26 @@
 
 ## English
 
+### [1.5.5] - 2026-04-30
+
+#### Security Remediation
+
+- **F-002: Resolved State Inconsistency in UniqueHook** (`core.py`, `hooks.py`, `protocols.py`)
+  - Fixed a race where in-memory indices were updated even if the database write failed. Introduced `on_write_success` and `on_delete_success` callbacks to the `NanaHook` protocol to ensure indices are only updated after successful DB commitment.
+- **F-003: Hardened SQL Injection Protection for ORDER BY / GROUP BY** (`core.py`)
+  - Implemented strict whitelist validation (allowing only alphanumeric, underscores, dots, commas, and spaces) for clauses where parameter binding is not supported by SQLite.
+- **F-004: Prevented Information Exposure in Dead Letter Queue (DLQ)** (`v2_engine.py`)
+  - Verified and hardened logging to ensure sensitive payloads are not leaked in error logs during background flush failures. Added security warnings to DLQ-related documentation.
+- **F-005: Fixed Race Condition in ExpiringDict (TTL Cache)** (`utils.py`)
+  - Resolved a race where a key refreshed during the eviction process could be erroneously purged. Implemented a **Compare-and-Delete (CAS)** pattern that verifies the expiry timestamp before performing deletion.
+
+#### Documentation Improvements
+
+- **Clarified F-001 (atexit) Limitations** (`README.md`, `v2_architecture.md`)
+  - Documented the risk of data loss during forced process termination (`SIGKILL`) in v2 mode. Recommended `flush(wait=True)` or `immediate` mode for mission-critical data.
+
+---
+
 ### [1.5.4] - 2026-04-19
 
 #### Bug Fixes
@@ -1375,88 +1331,6 @@
 - **QUAL-10: `compat.py` — replace `validkit_validate = None` with a stub function** (`compat.py`)
   - When `validkit-py` is not installed, `validkit_validate = None` caused a confusing `TypeError: 'NoneType' object is not callable`. Changed to a stub that raises `ImportError` with a clear installation message.
 
-#### Tests
-
-- `tests/test_audit_poc.py`:
-  - Added `TestBug01V154PopBeforeDeleteLock`: verifies `pop()` calls `before_delete` inside the lock (3 tests)
-  - Added `TestBug02V154BatchUpdateHookResult`: verifies `batch_update()` applies hook-returned values (4 tests)
-  - Added `TestBug03V154BatchDeleteBeforeDeleteLock`: verifies `batch_delete()` calls `before_delete` inside the lock (3 tests)
-  - Added `TestPerf01V154UniqueHookIndex`: verifies `UniqueHook` `use_index=True` inverse index (8 tests)
-  - Added `TestPerf02V154BaseHookPatternRevalidation`: verifies compiled Pattern skips re-validation in non-RE2 path (3 tests)
-  - Added `TestQual01V154Re2ModuleAnnotation`: verifies `compat.py` `re2_module` type annotation (2 tests)
-  - Added `TestQual02V154DLQEntryDataclass`: verifies `DLQEntry` dataclass structure and backward compatibility (3 tests)
-  - Added `TestSec01V154DLQPayloadDocumentation`: verifies SEC-01 security notices in docstrings (3 tests)
-  - Added `TestSec05UniqueHookTOCTOUFix`: concurrent-write test, lock-inspection test, self-update test
-  - Added `TestRE2Integration`: `HAS_RE2` flag, pattern compilation, RE2 safe patterns, and fallback blacklist
-  - Updated `TestV150Sec03UniqueHookRace`: docstring assertions updated to match the SEC-05 fix
-  - Updated `TestV150Sec05BaseHookRedos`: force the non-RE2 path via `monkeypatch.setattr("nanasqlite.hooks.HAS_RE2", False)` so blacklist validation still runs even when RE2 is installed
-- `tests/test_tdd_cycle_4.py`:
-  - Updated `test_batch_update_has_separate_coerce_branch` → `test_batch_update_uses_copy_on_write_pattern`: verifies the unified copy-on-write implementation
-
----
-
-### [1.5.3] - 2026-04-08
-
-#### Performance Improvements
-
-- **PERF-E: `_get_all_keys_from_db()` — pre-compute SQL string** (`core.py`)
-  - `keys()` / `__iter__` was constructing `f"SELECT key FROM {self._safe_table}"` on every call. Added `_sql_kv_select_keys` to the PERF-07 group of pre-computed SQL strings in `__init__`.
-
-- **PERF-F: `batch_update_partial()` v2 + Unbounded mode — remove unnecessary lock** (`core.py`)
-  - The v2 + Unbounded code path was acquiring the instance lock for pure in-memory updates (`_data.update()` / `_absent_keys.difference_update()`). The GIL guarantees atomicity for individual dict/set operations, so no explicit lock is needed — consistent with the `batch_update()` v2 path. LRU/TTL mode continues to acquire the lock.
-
-#### Code Quality
-
-- **QUAL-04: `_no_encrypt` — added immutability comment** (`core.py`)
-  - Noted that `_fernet` / `_aead` must not be changed after `__init__`; mutating them would silently stale `_no_encrypt` and corrupt serialization (flagged in rc3 audit, now addressed).
-
-- **QUAL-05: type annotation — `parameters: tuple = None` → `parameters: tuple | None = None`** (`core.py`)
-  - Fixed in `fetch_one()`, `fetch_all()`, `create_table()` (`primary_key`), `sql_update()`, `sql_delete()`, and `exists()`.
-
-- **QUAL-06: `async_core.py` — unify `_ensure_initialized()` call** (`async_core.py`)
-  - `query_with_pagination()` and `table()` used an incomplete guard `if self._db is None: await self._ensure_initialized()`. Changed to unconditional `await self._ensure_initialized()`, consistent with all other async methods (`_ensure_initialized()` is idempotent).
-
----
-
-### [1.5.3rc4] - 2026-04-08
-
-#### Performance Improvements
-
-- **PERF-A: `_sanitize_identifier()` — added `lru_cache(maxsize=256)`** (`core.py`)
-  - Identifier validation was calling `re.match()` on every invocation even for identical table/column names. The `@lru_cache` decorator reduces repeated calls to a single dict lookup. ~13% improvement on `test_begin_commit`; 4× fewer function calls in `sql_insert` hot path.
-
-- **PERF-B: `ExpiringDict.__setitem__()` — skip `_cancel_timer()` in non-TIMER modes** (`utils.py`)
-  - In SCHEDULER mode `_timers` and `_async_tasks` are always empty, so `_cancel_timer()` was doing two useless dict lookups per write. Guarded with `if self._mode == ExpirationMode.TIMER:`. ~22% improvement on `test_cache_write_1000[ttl]`.
-
-- **PERF-C: `vacuum()` — bypass `execute()` dispatch** (`core.py`)
-  - `vacuum()` was routing through the full `execute()` path. Applied the PERF-26 direct-connection pattern (same as `begin_transaction`/`commit`/`rollback`).
-
-- **PERF-D: `backup()` — pre-cache DB file `(st_dev, st_ino)` at init** (`core.py`)
-  - The self-copy guard was calling `os.stat()` twice per `backup()` call. The source DB stat is now cached at `__init__` (refreshed after `restore()`), so only `dest_path` is stat-ed on each backup call.
-
-#### Bug Fixes
-
-- **BUG-02: `ExpiringDict.clear()` — scheduler thread permanently killed** (`utils.py`)
-  - After `clear()`, `_scheduler_running` was left as `False` and never restarted, so new items added after `clear()` were never expired. Fixed by restarting the scheduler after joining the thread.
-
-- **BUG-03: `UnboundedCache.delete()` — used `.add()` instead of `.discard()` on `_cached_keys`** (`cache.py`)
-  - Deleted keys were incorrectly marked as "cached" by `_cached_keys.add(key)`, causing DB re-fetches to be skipped for re-inserted keys. Changed to `.discard(key)`.
-
-- **BUG-04: `ExpiringDict.__getitem__()` — TOCTOU race condition** (`utils.py`)
-  - `_check_expiry()` ran outside the lock while the actual `_data[key]` read happened inside the lock. A concurrent scheduler eviction between the two caused spurious `KeyError` for still-valid keys. Expiry check and read are now performed atomically inside the lock.
-
-#### Security Fixes
-
-- **SEC-02: `create_table()` — removed quote characters from column-type regex** (`core.py`)
-  - The old regex `r"^[\w\s(),.+*'\"]+"` admitted single/double quotes, allowing injection strings like `TEXT DEFAULT 'x') --`. Updated to exclude `'`, `"`, `;`, `-` (comment syntax `--`), and `*` / `/` (block comment `/* */`).
-
-#### Code Quality
-
-- **QUAL-01: `get_model()` — fixed type annotation** (`core.py`)
-  - `model_class: type = None` → `model_class: type | None = None`.
-
-- **CodeQL: `except OSError: pass` — added explanatory comment** (`core.py`)
-  - Added `nosec B110` marker and explanatory comment to the empty `except` clause introduced by PERF-D.
 
 ---
 

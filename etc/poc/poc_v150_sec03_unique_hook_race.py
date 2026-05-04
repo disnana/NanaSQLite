@@ -8,8 +8,9 @@ checking and actual database write.
 """
 
 import os
-import threading
 import tempfile
+import threading
+
 from nanasqlite import NanaSQLite
 from nanasqlite.hooks import UniqueHook
 
@@ -19,19 +20,19 @@ def test_unique_hook_race():
     # Use temporary file for testing
     with tempfile.NamedTemporaryFile(delete=False) as f:
         db_path = f.name
-    
+
     try:
         # Initialize database with UniqueHook for email field
         db = NanaSQLite(db_path, table="users")
         db.add_hook(UniqueHook("email"))
-        
+
         # Insert initial user to establish constraint
         db["user1"] = {"email": "test@example.com", "name": "Test User"}
-        
+
         # Prepare racing threads with barrier synchronization
         results = []
         barrier = threading.Barrier(3)  # 3 threads will race
-        
+
         def writer_thread(thread_id):
             """Each thread tries to write the same email value."""
             try:
@@ -44,35 +45,35 @@ def test_unique_hook_race():
                 results.append((thread_id, "SUCCESS"))
             except Exception as e:
                 results.append((thread_id, f"ERROR: {type(e).__name__}"))
-        
+
         # Start racing threads
         threads = []
         for i in range(2, 5):  # thread IDs 2, 3, 4
             t = threading.Thread(target=writer_thread, args=(i,))
             threads.append(t)
             t.start()
-        
+
         # Wait for all threads to complete
         for t in threads:
             t.join()
-        
+
         # Check results
         success_count = sum(1 for _, result in results if result == "SUCCESS")
-        
+
         print("=== UniqueHook TOCTOU Race Condition Test ===")
         print(f"Racing threads results: {results}")
         print(f"Successful writes: {success_count}")
-        
+
         # Check database state
         all_users = dict(db.items())
         duplicate_emails = []
         for key, user in all_users.items():
             if user.get("email") == "duplicate@example.com":
                 duplicate_emails.append(key)
-        
+
         print(f"Users with duplicate email: {duplicate_emails}")
         print(f"Total duplicate count: {len(duplicate_emails)}")
-        
+
         if len(duplicate_emails) > 1:
             print("🐛 BUG: Unique constraint violated! Multiple users have same email.")
             return "BUG"
@@ -82,7 +83,7 @@ def test_unique_hook_race():
         else:
             print("🤔 UNKNOWN: Unexpected result pattern.")
             return "UNKNOWN"
-    
+
     finally:
         # Clean up
         if os.path.exists(db_path):

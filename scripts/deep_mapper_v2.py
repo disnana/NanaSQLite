@@ -1,9 +1,8 @@
 import ast
-import os
-import sys
 import re
-from pathlib import Path
+import sys
 from collections import defaultdict
+from pathlib import Path
 
 
 class DeepAnalyzer(ast.NodeVisitor):
@@ -120,7 +119,7 @@ def generate_markdown(root_path, output_file="project_map.md"):
         if ".venv" in str(py_file) or "__pycache__" in str(py_file):
             continue
 
-        with open(py_file, "r", encoding="utf-8") as f:
+        with open(py_file, encoding="utf-8") as f:
             try:
                 tree = ast.parse(f.read())
             except SyntaxError:
