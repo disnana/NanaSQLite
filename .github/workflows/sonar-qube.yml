@@ -32,7 +32,7 @@ jobs:
         run: |
           python -m pytest --cov=nanasqlite --cov-report=xml:coverage.xml --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py --ignore=tests/test_cache_benchmark.py --ignore=tests/benchmark_encryption.py
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v7
+        uses: SonarSource/sonarqube-scan-action@v8
         with:
           args: -Dproject.settings=.github/sonar-project.properties
         env:
