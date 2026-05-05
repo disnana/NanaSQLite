@@ -3695,8 +3695,6 @@ class TestV155Sec01OrderBySubqueryInjection:
 
     def test_orderby_select_keyword_raises_in_strict_mode(self, tmp_path):
         """strict_sql_validation=True: SELECT keyword in ORDER BY raises ValueError."""
-        import pytest
-
         from nanasqlite import NanaSQLite
 
         db_path = str(tmp_path / "sec01.db")
@@ -3711,8 +3709,6 @@ class TestV155Sec01OrderBySubqueryInjection:
 
     def test_orderby_from_keyword_raises_in_strict_mode(self, tmp_path):
         """strict_sql_validation=True: FROM keyword in ORDER BY raises ValueError."""
-        import pytest
-
         from nanasqlite import NanaSQLite
 
         db_path = str(tmp_path / "sec01b.db")
@@ -3727,8 +3723,6 @@ class TestV155Sec01OrderBySubqueryInjection:
 
     def test_orderby_union_keyword_raises_in_strict_mode(self, tmp_path):
         """strict_sql_validation=True: UNION keyword in ORDER BY raises ValueError."""
-        import pytest
-
         from nanasqlite import NanaSQLite
 
         db_path = str(tmp_path / "sec01c.db")
@@ -3779,8 +3773,6 @@ class TestV155Sec01OrderBySubqueryInjection:
 
     def test_groupby_select_keyword_raises_in_strict_mode(self, tmp_path):
         """strict_sql_validation=True: SELECT keyword in GROUP BY raises ValueError."""
-        import pytest
-
         from nanasqlite import NanaSQLite
 
         db_path = str(tmp_path / "sec01f.db")

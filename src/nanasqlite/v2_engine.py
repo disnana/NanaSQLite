@@ -32,6 +32,12 @@ import apsw
 
 logger = logging.getLogger(__name__)
 
+# SEC-02: Module-level pre-compiled regex patterns for table name validation.
+# Quoted form   e.g. "data"  — inner name must be a strict SQL identifier.
+# Unquoted form e.g.  data   — same constraint, no surrounding quotes.
+_QUOTED_TABLE_NAME_RE = re.compile(r'^"[a-zA-Z_][a-zA-Z0-9_]*"$')
+_UNQUOTED_TABLE_NAME_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+
 # Task types for the strict lane
 TASK_EXECUTE = "execute"
 TASK_EXECUTEMANY = "executemany"
@@ -105,9 +111,7 @@ class V2Engine:
         # _sanitize_identifier().  We accept the quoted form and validate the inner name
         # strictly (alphanumeric + underscore, no embedded quotes).  Unquoted identifiers
         # are also accepted for direct V2Engine usage in tests / external callers.
-        _quoted_re = re.compile(r'^"[a-zA-Z_][a-zA-Z0-9_]*"$')
-        _unquoted_re = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
-        if not (_quoted_re.match(table_name) or _unquoted_re.match(table_name)):
+        if not (_QUOTED_TABLE_NAME_RE.match(table_name) or _UNQUOTED_TABLE_NAME_RE.match(table_name)):
             raise ValueError(f"Invalid or unsafe table name: {table_name}")
 
         self._table_name = table_name
