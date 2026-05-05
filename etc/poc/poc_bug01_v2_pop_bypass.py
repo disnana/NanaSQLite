@@ -13,6 +13,7 @@ BUG-01 [High] pop() が v2 モードで直接 DB 書き込みを行いバック�
 import os
 import tempfile
 import warnings
+
 from nanasqlite import NanaSQLite
 
 fd, path = tempfile.mkstemp(suffix=".db")

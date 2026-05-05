@@ -14,10 +14,9 @@ deep_analyzer_v4.py — Python AST Security Analyzer (実装編)
 import ast
 import re
 import sys
-import json
-from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 # ─────────────────────────────────────────────
@@ -244,7 +243,7 @@ class TaintAnalyzer(ast.NodeVisitor):
         self.generic_visit(node)
         self.scope_stack.pop()
 
-    visit_AsyncFunctionDef = visit_FunctionDef  # async関数も同様
+    visit_AsyncFunctionDef = visit_FunctionDef  # noqa: N815 - required by ast.NodeVisitor API
 
     def visit_Assign(self, node: ast.Assign):
         """代入文でのテイント追跡"""
@@ -337,7 +336,7 @@ class EnhancedSecurityScanner(ast.NodeVisitor):
         self.generic_visit(node)
         self.scope_stack.pop()
 
-    visit_AsyncFunctionDef = visit_FunctionDef
+    visit_AsyncFunctionDef = visit_FunctionDef  # noqa: N815 - required by ast.NodeVisitor API
 
     def visit_Import(self, node):
         for alias in node.names:
@@ -402,7 +401,7 @@ class EnhancedSecurityScanner(ast.NodeVisitor):
                     cwe="CWE-502",
                     location=self.current_scope,
                     line=node.lineno,
-                    evidence=f"yaml.load(Loader未指定)",
+                    evidence="yaml.load(Loader未指定)",
                     description="yaml.load に Loader=yaml.SafeLoader が指定されていません",
                 ))
 
@@ -497,7 +496,7 @@ class DeepAnalyzerV4(ast.NodeVisitor):
         self.generic_visit(node)
         self.scope_stack.pop()
 
-    visit_AsyncFunctionDef = visit_FunctionDef
+    visit_AsyncFunctionDef = visit_FunctionDef  # noqa: N815 - required by ast.NodeVisitor API
 
     def visit_Assign(self, node):
         for target in node.targets:

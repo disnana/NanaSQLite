@@ -1,24 +1,25 @@
 from nanasqlite.core import NanaSQLite
-from nanasqlite.hooks import UniqueHook, CheckHook
 from nanasqlite.exceptions import NanaSQLiteValidationError
+from nanasqlite.hooks import CheckHook, UniqueHook
+
 
 def main():
     db = NanaSQLite(":memory:")
-    
+
     # 1. Add a UniqueHook (with index)
     unique_hook = UniqueHook(field="email", use_index=True)
     db.add_hook(unique_hook)
-    
+
     # 2. Add a CheckHook that ALWAYS fails
     def fail_func(key, value):
         return False
-    
+
     check_hook = CheckHook(check_func=fail_func, error_msg="Intentional failure")
     db.add_hook(check_hook)
-    
+
     email = "test@example.com"
     data = {"email": email}
-    
+
     print(f"Attempting first write with email='{email}'...")
     try:
         db["user:1"] = data

@@ -8,17 +8,6 @@ and handle edge cases in SQL parsing.
 
 from __future__ import annotations
 
-from typing import Any
-
-# Rust拡張モジュールがあればインポートを試みる
-# 型アノテーションを付けておくことで mypy がモジュールの属性参照を
-# 許容するようにします。
-nanalib: Any
-try:
-    import nanalib  # type: ignore
-except ImportError:
-    nanalib = None
-
 
 def sanitize_sql_for_function_scan(sql: str) -> str:
     """
@@ -65,10 +54,6 @@ def sanitize_sql_for_function_scan(sql: str) -> str:
         - Line comments end at the first newline
         - Block comments may span multiple lines
     """
-    # Use nanalib implementation only when the module exposes the expected API.
-    if nanalib and hasattr(nanalib, "sanitize_sql_for_function_scan"):
-        return nanalib.sanitize_sql_for_function_scan(sql)
-
     if not sql:
         return sql
 
@@ -180,8 +165,9 @@ def sanitize_sql_for_function_scan(sql: str) -> str:
 # on every _validate_expression() call (hot path), so avoiding the per-call set construction
 # saves ~200-300 ns per invocation.
 _SAFE_SQL_CHARS: frozenset[str] = frozenset(
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_ ,.()'=<>!+-*/\"|?:@$"
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_ ,.()'=<>!+-*/\"|?:@$`[]"
 )
+
 
 
 def fast_validate_sql_chars(expr: str) -> bool:
@@ -198,6 +184,8 @@ def fast_validate_sql_chars(expr: str) -> bool:
     - Parentheses (()) -- for function calls
     - Operators: =, <, >, !, +, -, *, /
     - Quotes: ', " (handled carefully by other layers)
+    - Backticks: `
+    - Brackets: [ ]
 
     Args:
         expr: The SQL expression to validate
@@ -205,11 +193,24 @@ def fast_validate_sql_chars(expr: str) -> bool:
     Returns:
         True if all characters are within the safe set, False otherwise.
     """
-    # Use nanalib implementation only when the module exposes the expected API.
-    if nanalib and hasattr(nanalib, "fast_validate_sql_chars"):
-        return nanalib.fast_validate_sql_chars(expr)
-
     if not expr:
         return True
 
     return all(c in _SAFE_SQL_CHARS for c in expr)
+
+
+def sanitize_identifier(identifier: str) -> str:
+    """
+    Sanitize a SQL identifier (table name or column name) by wrapping it in
+    double quotes and escaping internal double quotes.
+
+    Args:
+        identifier: The identifier to sanitize.
+
+    Returns:
+        The sanitized identifier wrapped in double quotes.
+    """
+    if not identifier:
+        return identifier
+    sanitized = identifier.replace('"', '""')
+    return f'"{sanitized}"'

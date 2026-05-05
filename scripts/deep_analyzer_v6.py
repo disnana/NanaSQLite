@@ -7,18 +7,15 @@ Security Report Generator v6 - AI-Native Edition
   python gen_report_v6.py ./src --output report.md --diff snap.json --snapshot snap_new.json
 """
 
-import ast
-import os
-import sys
-import json
-import hashlib
 import argparse
-from pathlib import Path
-from dataclasses import dataclass, field
-from typing import Optional
+import ast
+import hashlib
+import json
+import sys
+from dataclasses import dataclass
 from datetime import datetime
-from collections import defaultdict
-
+from pathlib import Path
+from typing import Optional
 
 # ══════════════════════════════════════════════════════════════════
 # データモデル
@@ -267,7 +264,7 @@ class FileAnalyzer:
 
         # ハッシュ（diff 用）
         seg = ast.get_source_segment(self.source, node) or func_name
-        h   = hashlib.md5(seg.encode()).hexdigest()[:8]
+        h   = hashlib.sha256(seg.encode()).hexdigest()[:8]
 
         taint_in  = any(a.lower() in TAINT_ARG_KEYWORDS for a in args)
         taint_out = ret not in NON_TAINT_RETURNS
@@ -327,7 +324,6 @@ class ProjectAnalyzer:
         return self
 
     def _build_called_by(self):
-        all_names = {c.full_name for c in self.chunks}
         for chunk in self.chunks:
             for callee in chunk.calls:
                 # 完全一致 or 末尾一致でマッチ

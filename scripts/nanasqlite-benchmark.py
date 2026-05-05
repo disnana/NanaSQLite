@@ -11,7 +11,7 @@ except ImportError:
     pass
 
 import sys
-import os
+
 try:
     sys.stdout.reconfigure(encoding='utf-8')
 except AttributeError:
@@ -28,12 +28,12 @@ class Benchmark:
 
         # RAMディスクの使用可否を判定
         self.use_shm = use_shm and os.path.exists("/dev/shm") and os.access("/dev/shm", os.W_OK)
-        
+
         base_dir = "/dev/shm" if self.use_shm else None
         # 一時ディレクトリを作成（Windows対策およびshm利用）
         self.temp_dir = tempfile.mkdtemp(dir=base_dir)
         self.results = {}
-        
+
         # in_memory使用時のURIごとのマスター接続保持用
         self.master_connections = {}
 
@@ -46,7 +46,7 @@ class Benchmark:
             except Exception:
                 pass
         self.master_connections.clear()
-        
+
         time.sleep(0.1)  # ファイルハンドルの解放を待つ
         try:
             shutil.rmtree(self.temp_dir)
@@ -62,7 +62,7 @@ class Benchmark:
             if name not in self.master_connections and "apsw" in globals():
                 # そのテストフェーズ中、データが消えないようにマスター接続を保持
                 self.master_connections[name] = apsw.Connection(
-                    uri, 
+                    uri,
                     flags=apsw.SQLITE_OPEN_READWRITE | apsw.SQLITE_OPEN_CREATE | apsw.SQLITE_OPEN_URI | apsw.SQLITE_OPEN_SHAREDCACHE
                 )
             return uri
@@ -282,7 +282,7 @@ if __name__ == "__main__":
     parser.add_argument("--use-shm", action="store_true", help="Use RAM disk (/dev/shm) if available")
     parser.add_argument("--v2", action="store_true", help="Enable V2 engine for the benchmark")
     parser.add_argument("--multiplier", type=float, default=1.0, help="Multiplier for iteration counts")
-    
+
     args = parser.parse_args()
 
     benchmark = Benchmark(
@@ -291,7 +291,7 @@ if __name__ == "__main__":
         v2_mode=args.v2,
         multiplier=args.multiplier
     )
-    
+
     print("=" * 50)
     print(" Benchmarks Configuration")
     print("=" * 50)
@@ -300,5 +300,5 @@ if __name__ == "__main__":
     print(f" V2 Engine      : {benchmark.v2_mode}")
     print(f" Multiplier     : {benchmark.multiplier}")
     print("=" * 50 + "\n")
-    
+
     benchmark.run_all()

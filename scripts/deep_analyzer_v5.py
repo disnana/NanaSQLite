@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 import ast
+import os
 import re
 import sys
-import os
-from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 MAX_CHUNK_NODES = int(os.environ.get("MAX_CHUNK_NODES", 30))
@@ -139,12 +139,29 @@ class AnalysisChunk:
 class ComplexityVisitor(ast.NodeVisitor):
     def __init__(self):
         self.score = 1
-    def visit_If(self, n): self.score += 1; self.generic_visit(n)
-    def visit_For(self, n): self.score += 1; self.generic_visit(n)
-    def visit_While(self, n): self.score += 1; self.generic_visit(n)
-    def visit_Try(self, n): self.score += len(n.handlers); self.generic_visit(n)
-    def visit_BoolOp(self, n): self.score += len(n.values) - 1; self.generic_visit(n)
-    def visit_Match(self, n): self.score += len(n.cases); self.generic_visit(n)
+    def visit_If(self, n):
+        self.score += 1
+        self.generic_visit(n)
+
+    def visit_For(self, n):
+        self.score += 1
+        self.generic_visit(n)
+
+    def visit_While(self, n):
+        self.score += 1
+        self.generic_visit(n)
+
+    def visit_Try(self, n):
+        self.score += len(n.handlers)
+        self.generic_visit(n)
+
+    def visit_BoolOp(self, n):
+        self.score += len(n.values) - 1
+        self.generic_visit(n)
+
+    def visit_Match(self, n):
+        self.score += len(n.cases)
+        self.generic_visit(n)
 
 class TaintAnalyzer(ast.NodeVisitor):
     def __init__(self, file_path: Path, root_dir: Path, func_summaries: dict[str, 'FunctionTaintSummary'] | None = None):
@@ -219,7 +236,7 @@ class TaintAnalyzer(ast.NodeVisitor):
         self.generic_visit(node)
         self.scope_stack.pop()
 
-    visit_AsyncFunctionDef = visit_FunctionDef
+    visit_AsyncFunctionDef = visit_FunctionDef  # noqa: N815 - required by ast.NodeVisitor API
 
     def visit_Assign(self, node):
         src_type = self._is_taint_source(node.value)
@@ -297,7 +314,7 @@ class EnhancedSecurityScanner(ast.NodeVisitor):
         self.generic_visit(node)
         self.scope_stack.pop()
 
-    visit_AsyncFunctionDef = visit_FunctionDef
+    visit_AsyncFunctionDef = visit_FunctionDef  # noqa: N815 - required by ast.NodeVisitor API
 
     def visit_Assign(self, node):
         try:
@@ -404,7 +421,7 @@ class StructureCollector(ast.NodeVisitor):
         self.generic_visit(node)
         self.scope_stack.pop()
 
-    visit_AsyncFunctionDef = visit_FunctionDef
+    visit_AsyncFunctionDef = visit_FunctionDef  # noqa: N815 - required by ast.NodeVisitor API
 
     def visit_Call(self, node):
         try:

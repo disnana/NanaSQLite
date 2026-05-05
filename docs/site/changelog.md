@@ -4,68 +4,49 @@ outline: [2, 3]
 
 # 更新履歴
 
-### [1.5.3] - 2026-04-08
+### [1.5.5] - 2026-04-30
 
-#### パフォーマンス改善
+#### セキュリティ修正 (Security Remediation)
 
-- **PERF-E: `_get_all_keys_from_db()` — SQL 文字列を事前計算**（`core.py`）
-  - `keys()` / `__iter__` が呼ばれるたびに `f"SELECT key FROM {self._safe_table}"` を構築していました。PERF-07 と同様に `_sql_kv_select_keys` を `__init__` 時に一度だけ計算し、以降はこれを再利用するよう変更しました。
+- **F-002: UniqueHook における状態不整合の解消**（`core.py`, `hooks.py`, `protocols.py`）
+  - DB 書き込み失敗時にメモリ上のインデックスのみが更新される不整合を修正しました。`NanaHook` に `on_write_success` / `on_delete_success` コールバックを追加し、DB への書き込みが確定したタイミングでインデックスを更新する「確定後反映モデル」に移行しました。
+- **F-003: ORDER BY / GROUP BY 句への SQL 注入脆弱性の強化**（`core.py`）
+  - プレースホルダが使用できない `ORDER BY` / `GROUP BY` 句に対して、英数字・アンダースコア・スペース・カンマ・ドット・括弧・比較演算子・引用符類（`'`, `"`, `` ` ``, `[`, `]`）などの安全な文字のみを許可するホワイトリスト検証を導入しました。また、サブクエリキーワード（`SELECT`、`FROM` 等）の検出と構造的インジェクションパターン（`--`、`/*`、`;`）の事前チェックを追加しました。
+- **F-004: デッドレターキュー (DLQ) における機密情報露出の防止**（`v2_engine.py`）
+  - 背景フラッシュ失敗時のログ出力において、ペイロードデータがログに露出しないことを確認・強化しました。`get_dlq()` の docstring にセキュリティ警告を追加しました。
+- **F-005: ExpiringDict (TTL キャッシュ) におけるレースコンディションの修正**（`utils.py`）
+  - キャッシュ期限切れ処理中にキーが更新された場合、新しい値が誤って削除されるレースコンディションを修正しました。**Compare-and-Delete (CAS)** パターンを導入し、削除実行時に検出時の expiry タイムスタンプを照合するようにしました。
 
-- **PERF-F: `batch_update_partial()` v2 + Unbounded モード — 不要ロックを除去**（`core.py`）
-  - v2 モード + Unbounded モードの組み合わせで、純粋なメモリ更新（`_data.update()` / `_absent_keys.difference_update()`）にまでロックを取得していました。`batch_update()` v2 パスと同様、GIL が個々の dict/set 操作をアトミックに保護するため明示的ロックは不要です。LRU/TTL モードは引き続きロックを取得します。
+#### ドキュメントの改善
 
-#### コード品質改善
-
-- **QUAL-04: `_no_encrypt` — 変更不可であることのコメント追加**（`core.py`）
-  - `_fernet` / `_aead` が `__init__` 後に変更された場合、`_no_encrypt` がステールになりシリアライズが壊れることを明記しました（rc3 監査で指摘、今回対応）。
-
-- **QUAL-05: 型アノテーション修正 — `parameters: tuple = None` → `parameters: tuple | None = None`**（`core.py`）
-  - `fetch_one()`, `fetch_all()`, `create_table()` の `primary_key`、`sql_update()`, `sql_delete()`, `exists()` の 6 箇所で `tuple = None` を `tuple | None = None` に修正しました。
-
-- **QUAL-06: `async_core.py` — `_ensure_initialized()` 呼び出しの統一**（`async_core.py`）
-  - `query_with_pagination()` と `table()` で `if self._db is None: await self._ensure_initialized()` という不完全なガードが使われていました。他のメソッドと同様に無条件で `await self._ensure_initialized()` を呼ぶよう変更しました（`_ensure_initialized()` 自体がべき等です）。
+- **F-001 (atexit) の制限事項に関する明文化**（`README.md`, `v2_architecture.md`）
+  - v2 モードにおいて、OS による強制終了 (`SIGKILL`) 時にデータが消失するリスクと、重要データに対する `flush(wait=True)` または `immediate` モードの利用推奨を明記しました。
 
 ---
 
-### [1.5.3rc4] - 2026-04-08
-
-#### パフォーマンス改善
-
-- **PERF-A: `_sanitize_identifier()` — `lru_cache(maxsize=256)` を追加**（`core.py`）
-  - テーブル名・カラム名の検証は同じ識別子に対して繰り返し呼び出されるにもかかわらず、毎回 `re.match()` を実行していました。`@lru_cache` でキャッシュすることで、2 回目以降は dict ルックアップのみになります。`test_begin_commit` で約 13% 高速化、`sql_insert` ホットパスで関数呼び出し 4 倍削減。
-
-- **PERF-B: `ExpiringDict.__setitem__()` — TIMER モード以外での `_cancel_timer()` を省略**（`utils.py`）
-  - SCHEDULER モードでは `_timers` / `_async_tasks` は常に空のため、`_cancel_timer()` 呼び出しは毎回無意味な dict ルックアップを 2 回実行していました。`if self._mode == ExpirationMode.TIMER:` ガードで省略します。`test_cache_write_1000[ttl]` で約 22% 高速化。
-
-- **PERF-C: `vacuum()` — `execute()` ディスパッチをバイパス**（`core.py`）
-  - `vacuum()` が `execute()` の完全なパス（v2 ルーティング、重複 `_check_connection`、`try/except` ラップ）を経由していました。`begin_transaction` / `commit` / `rollback` で使用されている PERF-26 パターン（直接接続呼び出し）を適用しました。
-
-- **PERF-D: `backup()` — DB ファイルの `(st_dev, st_ino)` を `__init__` 時にキャッシュ**（`core.py`）
-  - `backup()` のセルフコピー防止チェックが毎回 `os.stat()` を 2 回呼び出していました。ソース DB のスタット結果を `__init__` 時にキャッシュし（`restore()` 後に再計算）、`backup()` では `dest_path` の 1 回分のみ呼び出すようにしました。
+### [1.5.4] - 2026-04-19
 
 #### バグ修正
 
-- **BUG-02: `ExpiringDict.clear()` — スケジューラスレッドを永久に停止していた問題を修正**（`utils.py`）
-  - `clear()` 後に `_scheduler_running = False` のまま再起動されなかったため、`clear()` 後に追加された新しい項目が期限切れにならない問題がありました。`clear()` の完了後にスケジューラを再起動するよう修正しました。
-
-- **BUG-03: `UnboundedCache.delete()` — `_cached_keys` に `.add()` ではなく `.discard()` を使用**（`cache.py`）
-  - 削除されたキーが `_cached_keys.add(key)` によって「キャッシュ済み」としてマークされていたため、再挿入後も DB へのフェッチがスキップされる問題がありました。`.discard(key)` に修正しました。
-
-- **BUG-04: `ExpiringDict.__getitem__()` — TOCTOU 競合状態を修正**（`utils.py`）
-  - `_check_expiry()` がロック外で実行され、その後ロック内で `_data[key]` が読み取られていました。スケジューラスレッドが間に割り込んでキーを削除すると、まだ有効だったキーに対して偽の `KeyError` が発生していました。有効期限チェックと読み取りをロック内でアトミックに実行するよう修正しました。
+- **BUG-01 (pop hook lock): `pop()` の `before_delete` フックをロック内へ移動**（`core.py`）
+  - `pop()` の非 v2 モードで `before_delete` フックがロック外で呼ばれていたため、`__delitem__` の SEC-05 修正との一貫性が失われていました。
+- **BUG-02 (batch_update hook result): `batch_update()` でフック変換値を常に適用**（`core.py`）
+  - `batch_update()` の非 coerce パスにおいて `before_write` フックの返り値が無視されていたバグを修正しました。
+- **BUG-03 (batch_delete hook lock): `batch_delete()` の `before_delete` フックをロック内へ移動**（`core.py`）
+  - `batch_delete()` の非 v2 モードで `before_delete` フックがロック外で呼ばれていた問題を修正しました。
 
 #### セキュリティ修正
 
-- **SEC-02: `create_table()` — カラム型正規表現からクォート文字を除去**（`core.py`）
-  - 旧正規表現 `r"^[\w\s(),.+*'\"]+"` がシングル・ダブルクォートを許可していたため、`TEXT DEFAULT 'x') --` のような SQL インジェクション文字列が通過していました。クォート文字（`'` `"`）、セミコロン（`;`）、コメント構文（`--`、`/* */`）を除外した新しい正規表現に変更しました。
+- **SEC-05: `UniqueHook` TOCTOU 競合状態の修正**（`core.py`, `hooks.py`）
+  - 非 v2 モードにおいて、フック呼び出しと DB 更新を同一ロック内で行うよう修正し、競合状態を解消しました。
+- **SEC-06 opt-in: `google-re2` による ReDoS 対策強化**（`compat.py`, `hooks.py`, `pyproject.toml`）
+  - RE2 エンジンをサポートし、安全な正規表現マッチングを選択可能にしました。
 
-#### コード品質改善
+#### パフォーマンス改善
 
-- **QUAL-01: `get_model()` — 型アノテーション修正**（`core.py`）
-  - `model_class: type = None` を `model_class: type | None = None` に修正しました。
+- **PERF-01: `UniqueHook` — `use_index=True` opt-in 逆引きインデックス**（`hooks.py`）
+  - O(1) での一意性チェックを可能にする逆引きインデックス機能を導入しました。
 
-- **CodeQL: `except OSError: pass` — 説明コメントを追加**（`core.py`）
-  - PERF-D の `_db_stat_key` キャッシュ初期化時の空 `except` 節に、CodeQL 指摘に従い説明コメントを追加しました。
 
 ---
 
