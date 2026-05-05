@@ -3695,57 +3695,51 @@ class TestV155Sec01OrderBySubqueryInjection:
 
     def test_orderby_select_keyword_raises_in_strict_mode(self, tmp_path):
         """strict_sql_validation=True: SELECT keyword in ORDER BY raises ValueError."""
+        import pytest
+
         from nanasqlite import NanaSQLite
 
         db_path = str(tmp_path / "sec01.db")
-        db = NanaSQLite(db_path, strict_sql_validation=True)
-        db["a"] = {"name": "alice", "score": 1}
-        try:
-            import pytest
+        with NanaSQLite(db_path, strict_sql_validation=True) as db:
+            db["a"] = {"name": "alice", "score": 1}
             with pytest.raises(ValueError):
                 db.query(
                     table_name="data",
                     order_by="(SELECT CASE WHEN 1=1 THEN name ELSE score END)",
                     strict_sql_validation=True,
                 )
-        finally:
-            db.close()
 
     def test_orderby_from_keyword_raises_in_strict_mode(self, tmp_path):
         """strict_sql_validation=True: FROM keyword in ORDER BY raises ValueError."""
+        import pytest
+
         from nanasqlite import NanaSQLite
 
         db_path = str(tmp_path / "sec01b.db")
-        db = NanaSQLite(db_path, strict_sql_validation=True)
-        db["a"] = {"name": "alice", "score": 1}
-        try:
-            import pytest
+        with NanaSQLite(db_path, strict_sql_validation=True) as db:
+            db["a"] = {"name": "alice", "score": 1}
             with pytest.raises(ValueError):
                 db.query(
                     table_name="data",
                     order_by="name FROM users",
                     strict_sql_validation=True,
                 )
-        finally:
-            db.close()
 
     def test_orderby_union_keyword_raises_in_strict_mode(self, tmp_path):
         """strict_sql_validation=True: UNION keyword in ORDER BY raises ValueError."""
+        import pytest
+
         from nanasqlite import NanaSQLite
 
         db_path = str(tmp_path / "sec01c.db")
-        db = NanaSQLite(db_path, strict_sql_validation=True)
-        db["a"] = {"name": "alice", "score": 1}
-        try:
-            import pytest
+        with NanaSQLite(db_path, strict_sql_validation=True) as db:
+            db["a"] = {"name": "alice", "score": 1}
             with pytest.raises(ValueError):
                 db.query(
                     table_name="data",
                     order_by="name UNION SELECT password",
                     strict_sql_validation=True,
                 )
-        finally:
-            db.close()
 
     def test_orderby_subquery_warns_in_non_strict_mode(self, tmp_path):
         """strict_sql_validation=False: SELECT keyword in ORDER BY issues UserWarning."""
@@ -3754,9 +3748,8 @@ class TestV155Sec01OrderBySubqueryInjection:
         from nanasqlite import NanaSQLite
 
         db_path = str(tmp_path / "sec01d.db")
-        db = NanaSQLite(db_path, strict_sql_validation=False)
-        db["a"] = {"name": "alice", "score": 1}
-        try:
+        with NanaSQLite(db_path, strict_sql_validation=False) as db:
+            db["a"] = {"name": "alice", "score": 1}
             with warnings.catch_warnings(record=True) as w:
                 warnings.simplefilter("always")
                 raised = False
@@ -3772,40 +3765,33 @@ class TestV155Sec01OrderBySubqueryInjection:
                 assert raised or subquery_warned, (
                     "Expected either a UserWarning about subquery keywords or an exception"
                 )
-        finally:
-            db.close()
 
     def test_orderby_legitimate_expression_passes(self, tmp_path):
         """Legitimate ORDER BY expressions (column names, ASC/DESC) are not blocked."""
         from nanasqlite import NanaSQLite
 
         db_path = str(tmp_path / "sec01e.db")
-        db = NanaSQLite(db_path, strict_sql_validation=True)
-        db["a"] = {"name": "alice", "score": 1}
-        db["b"] = {"name": "bob", "score": 2}
-        try:
+        with NanaSQLite(db_path, strict_sql_validation=True) as db:
+            db["a"] = {"name": "alice", "score": 1}
+            db["b"] = {"name": "bob", "score": 2}
             results = db.query(table_name="data", order_by="key ASC", strict_sql_validation=True)
             assert isinstance(results, list)
-        finally:
-            db.close()
 
     def test_groupby_select_keyword_raises_in_strict_mode(self, tmp_path):
         """strict_sql_validation=True: SELECT keyword in GROUP BY raises ValueError."""
+        import pytest
+
         from nanasqlite import NanaSQLite
 
         db_path = str(tmp_path / "sec01f.db")
-        db = NanaSQLite(db_path, strict_sql_validation=True)
-        db["a"] = {"name": "alice", "score": 1}
-        try:
-            import pytest
+        with NanaSQLite(db_path, strict_sql_validation=True) as db:
+            db["a"] = {"name": "alice", "score": 1}
             with pytest.raises(ValueError):
                 db.query_with_pagination(
                     table_name="data",
                     group_by="(SELECT name FROM other)",
                     strict_sql_validation=True,
                 )
-        finally:
-            db.close()
 
     def test_orderby_subquery_keywords_re_exists(self):
         """_ORDERBY_SUBQUERY_KEYWORDS_RE module-level constant must exist."""
@@ -3904,50 +3890,38 @@ class TestV155Bug02MemoryDbSize:
         """NanaSQLite(':memory:').get_db_size() must return 0."""
         from nanasqlite import NanaSQLite
 
-        db = NanaSQLite(":memory:")
-        try:
+        with NanaSQLite(":memory:") as db:
             size = db.get_db_size()
             assert size == 0, f"Expected 0 for :memory: DB, got {size}"
-        finally:
-            db.close()
 
     def test_memory_db_size_does_not_raise(self):
         """get_db_size() on :memory: must not raise FileNotFoundError."""
         from nanasqlite import NanaSQLite
 
-        db = NanaSQLite(":memory:")
-        try:
+        with NanaSQLite(":memory:") as db:
             db["k"] = {"v": 1}
             db.get_db_size()  # must not raise
-        finally:
-            db.close()
 
     def test_file_db_size_still_works(self, tmp_path):
         """get_db_size() on a real file DB returns a positive integer."""
         from nanasqlite import NanaSQLite
 
         db_path = str(tmp_path / "size_test.db")
-        db = NanaSQLite(db_path)
-        db["a"] = {"value": "hello"}
-        try:
+        with NanaSQLite(db_path) as db:
+            db["a"] = {"value": "hello"}
             size = db.get_db_size()
             assert isinstance(size, int)
             assert size > 0
-        finally:
-            db.close()
 
     def test_empty_string_db_path_returns_zero(self):
         """get_db_size() returns 0 for empty string path (edge case guard)."""
         from nanasqlite import NanaSQLite
 
-        db = NanaSQLite(":memory:")
-        # Directly test the guard logic by patching _db_path
-        db._db_path = ""
-        try:
+        with NanaSQLite(":memory:") as db:
+            # Directly test the guard logic by patching _db_path
+            db._db_path = ""
             size = db.get_db_size()
             assert size == 0
-        finally:
-            db.close()
 
 
 class TestV155Perf01ExpiringDictIterBatch:

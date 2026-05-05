@@ -100,11 +100,14 @@ class V2Engine:
     ):
         self._connection = connection
 
-        # SEC-02: Ensure table_name is a valid unquoted SQL identifier to prevent SQL injection.
-        # Although core.py always passes a sanitized name, we validate here for robustness.
-        # Quoted identifiers are intentionally not accepted here; core.py sanitization is the
-        # canonical layer for those.
-        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name):
+        # SEC-02: Ensure table_name is a valid SQL identifier to prevent SQL injection.
+        # core.py always passes a double-quoted identifier (e.g. '"data"') produced by
+        # _sanitize_identifier().  We accept the quoted form and validate the inner name
+        # strictly (alphanumeric + underscore, no embedded quotes).  Unquoted identifiers
+        # are also accepted for direct V2Engine usage in tests / external callers.
+        _quoted_re = re.compile(r'^"[a-zA-Z_][a-zA-Z0-9_]*"$')
+        _unquoted_re = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+        if not (_quoted_re.match(table_name) or _unquoted_re.match(table_name)):
             raise ValueError(f"Invalid or unsafe table name: {table_name}")
 
         self._table_name = table_name

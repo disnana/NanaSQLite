@@ -793,8 +793,9 @@ class NanaSQLite(MutableMapping):
         # four separate re.search() calls.  A single pass over the expression
         # string is faster and avoids rebuilding the pattern list per call.
         # First check the raw expression for structural injection patterns (--, /*, ;)
-        # that survive sanitize_sql_for_function_scan() (which only blanks literals/comments,
-        # not semicolons or comment starters in the raw text).
+        # before sanitization.  sanitize_sql_for_function_scan() only blanks out
+        # string literals and comments, so these markers survive sanitization; checking
+        # the raw text here provides an explicit early-exit guard.
         raw_expr = str(expr)
         if _STRUCTURAL_INJECTION_RE.search(raw_expr):
             if strict or (strict is None and self.strict_sql_validation):
