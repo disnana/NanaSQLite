@@ -377,11 +377,14 @@ class UniqueHook(BaseHook):
 
         if self.use_index:
             with self._index_lock:
-                # 別の DB インスタンスで使用された場合はインデックスを再構築する
-                if self._index_built and (
-                    self._bound_db_ref is None or self._bound_db_ref() is not db
-                ):
-                    self.invalidate_index()
+                # B3 fix: _bound_db_ref() may return None when the previously
+                # bound DB instance has been garbage-collected.  We must call
+                # the weakref exactly once and check for None explicitly to
+                # avoid AttributeError on the dereferenced result.
+                if self._index_built:
+                    _bound = self._bound_db_ref() if self._bound_db_ref is not None else None
+                    if _bound is None or _bound is not db:
+                        self.invalidate_index()
                 if not self._index_built:
                     self._build_index(db)
 

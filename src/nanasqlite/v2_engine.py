@@ -133,6 +133,10 @@ class V2Engine:
         self._staging_lock = threading.Lock()
         self._staging_buffer: dict[tuple[str, str], dict[str, Any]] = {}
         self._staging_changes = 0  # Track number of mutations since last flush
+        # F-002 fix: flushing buffer holds items that have been moved out of
+        # staging but not yet committed to the DB.  kvs_get_staging() consults
+        # both buffers so that readers never see a "gap" between the two states.
+        self._flushing_buffer: dict[tuple[str, str], dict[str, Any]] = {}
 
         # Lane 2: Strict / Raw SQL Lane (Priority Queue)
         self._strict_queue: queue.PriorityQueue[StrictTask] = queue.PriorityQueue()
@@ -232,9 +236,18 @@ class V2Engine:
         self._check_auto_flush()
 
     def kvs_get_staging(self, table_name: str, key: str) -> dict[str, Any] | None:
-        """Read a single item from the staging buffer."""
+        """Read a single item from the staging buffer or the flushing buffer.
+
+        F-002 fix: also checks _flushing_buffer so that callers see a
+        consistent view of the data even while a flush is in progress
+        (i.e. after _staging_buffer has been swapped out but before the
+        DB transaction commits).
+        """
         with self._staging_lock:
-            return self._staging_buffer.get((table_name, key))
+            result = self._staging_buffer.get((table_name, key))
+            if result is None:
+                result = self._flushing_buffer.get((table_name, key))
+            return result
 
     def _check_auto_flush(self) -> None:
         """Trigger auto-flush based on the current mode."""
@@ -321,11 +334,15 @@ class V2Engine:
         """
         start_time = time.time() if self._enable_metrics else 0.0
 
-        # 1. Capture current snapshot of staging buffer
+        # 1. Capture current snapshot of staging buffer and move it to
+        # _flushing_buffer so that kvs_get_staging() can still serve reads
+        # while the DB transaction is in progress (F-002 fix).
         with self._staging_lock:
             current_buffer = self._staging_buffer
             self._staging_buffer = {}
             self._staging_changes = 0
+            # Publish as flushing_buffer while the DB write is in flight.
+            self._flushing_buffer = current_buffer
 
         # We need to process KVS in chunks to avoid locking the DB for too long
         kvs_items = list(current_buffer.items())
@@ -344,6 +361,11 @@ class V2Engine:
                         "NanaSQLite v2 Engine: Chunk transaction failed, entering DLQ recovery. Error: %s", e
                     )
                     self._recover_chunk_via_dlq(chunk)
+
+        # F-002 fix: all chunks have been committed (or sent to DLQ).
+        # Clear the flushing buffer so stale entries do not shadow future reads.
+        with self._staging_lock:
+            self._flushing_buffer = {}
 
         # Process all remaining Strict Lane tasks
         self._process_all_strict_tasks()
@@ -513,6 +535,25 @@ class V2Engine:
         """
         with self._dlq_lock:
             return [{"error": e.error_msg, "item": e.item, "timestamp": e.timestamp} for e in self.dlq]
+
+    def get_dlq_summary(self) -> list[dict[str, Any]]:
+        """Return a **safe** summary of the Dead Letter Queue without payload data.
+
+        Unlike :meth:`get_dlq`, this method omits the ``"item"`` field, making
+        it safe to pass to logging systems, monitoring pipelines, or external
+        APIs without risking exposure of plaintext database values.
+
+        Each entry contains only:
+
+        - ``"error"`` (*str*): human-readable error description.
+        - ``"timestamp"`` (*float*): ``time.time()`` at the time of failure.
+
+        .. note:: **B6 — DLQ payload exposure fix**
+            Use this method instead of :meth:`get_dlq` in any context where
+            the output may be forwarded to untrusted consumers.
+        """
+        with self._dlq_lock:
+            return [{"error": e.error_msg, "timestamp": e.timestamp} for e in self.dlq]
 
     def retry_dlq(self) -> None:
         """
