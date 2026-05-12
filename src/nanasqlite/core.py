@@ -3613,6 +3613,55 @@ class NanaSQLite(MutableMapping):
         """
         return _TransactionContext(self)
 
+    def get_by_path(self, key: str, path: str):
+        """
+        パスから値を取得
+
+        :param key:
+        :param path:
+        :return:
+
+        Raises:
+            NanaSQLiteDatabaseError: 暗号化モードが有効な場合
+
+        Example:
+            >>> # 例: JSON列から特定のフィールドを取得
+            ... db.get_by_path("Alice", "$.age")
+            ... db.get_by_path("Bob", "$.score")
+        """
+        if not self._no_encrypt:
+            raise NanaSQLiteDatabaseError(
+                "get_by_path is unavailable because encryption mode is enabled."
+            )
+        # パスの整形
+        if not path.startswith('$'):
+            path = f"$.{path.lstrip('.')}"
+
+        # クエリ実行
+        query = f"SELECT json_extract(value, ?) FROM {self._safe_table} WHERE key = ?"
+        with self._acquire_lock():
+            cursor = self.execute(query, (path, key))
+            result = cursor.fetchone()
+
+        if not result or result[0] is None:
+            return None
+
+        val = result[0]
+
+        # 1. 数値やboolなど、既にパース済みの型ならそのまま返す
+        if isinstance(val, (int, float, bool)):
+            return val
+
+        # 2. 文字列の場合、JSONオブジェクトや配列の可能性があるためデシリアライズを試みる
+        # (単なる文字列データの場合はロードに失敗するため、そのまま返す)
+        try:
+            # 注: ここで _deserialize を使うと復号処理が走ります。
+            # もし `json_extract` だけで完結している（暗号化されていない）場合は、
+            # json.loads や orjson.loads を直接使う方が無難です。
+            return self._deserialize(val)
+        except (ValueError, TypeError, Exception):
+            return val
+
     def table(
         self,
         table_name: str,
