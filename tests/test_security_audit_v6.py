@@ -24,7 +24,6 @@ from nanasqlite import NanaSQLite, V2Config
 from nanasqlite.hooks import UniqueHook
 from nanasqlite.v2_engine import V2Engine
 
-
 # ============================================================
 # Fixtures
 # ============================================================
