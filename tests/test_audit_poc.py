@@ -3705,6 +3705,28 @@ class TestQual02V154DLQEntryDataclass:
             engine.shutdown()
             conn.close()
 
+    def test_v2_engine_accepts_safe_quoted_table_name_in_kvs_paths(self, db_path):
+        """quoted 済みの安全な table_name は KVS 入口と staging 読み取りで使える。"""
+        import apsw
+
+        from nanasqlite.v2_engine import V2Engine
+
+        conn = apsw.Connection(db_path)
+        conn.execute('CREATE TABLE "data" (key TEXT PRIMARY KEY, value TEXT)')
+        engine = V2Engine(connection=conn, table_name='"data"', flush_mode="manual")
+        try:
+            engine.kvs_set('"data"', "key", {"value": 1})
+            staged = engine.kvs_get_staging('"data"', "key")
+            assert staged is not None
+            assert staged["action"] == "set"
+
+            engine.kvs_delete('"data"', "key")
+            staged = engine.kvs_get_staging('"data"', "key")
+            assert staged == {"action": "delete"}
+        finally:
+            engine.shutdown()
+            conn.close()
+
     def test_v2_engine_staging_read_rejects_unsafe_table_name(self, db_path):
         """staging 読み取り経路でも unsafe table_name を拒否する。"""
         import apsw

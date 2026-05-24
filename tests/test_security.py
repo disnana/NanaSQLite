@@ -83,6 +83,12 @@ class TestSQLInjectionProtection:
         with pytest.raises(ValueError, match="read-only or unsafe"):
             db.pragma("schema_version", 1)
 
+    def test_writable_pragma_still_can_be_set(self, db):
+        """書き込み許可リストに含まれる PRAGMA は従来通り設定できる。"""
+        db.pragma("user_version", 123)
+
+        assert db.pragma("user_version") == 123
+
     def test_dangerous_column_type(self, db):
         """Test that dangerous column types are rejected."""
         db.create_table("test", {"id": "INTEGER"})
