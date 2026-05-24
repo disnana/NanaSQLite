@@ -107,10 +107,10 @@ Version is managed in `src/nanasqlite/__init__.py` via `__version__`.
 | Version | Meaning | GitHub Release |
 |---------|---------|----------------|
 | `1.0.0` | Stable release | Release |
+| `1.0.1dev` | Development (unstable) | Pre-release |
 | `1.0.1a1` | Alpha (early testing) | Pre-release |
 | `1.0.1b1` | Beta (feature complete, testing) | Pre-release |
 | `1.0.1rc1` | Release Candidate | Pre-release |
-| `1.0.1dev` | Development (unstable) | Pre-release |
 
 #### Version Update Examples
 
