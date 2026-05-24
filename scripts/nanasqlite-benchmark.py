@@ -21,9 +21,10 @@ from nanasqlite import NanaSQLite
 
 
 class Benchmark:
-    def __init__(self, in_memory=False, use_shm=False, v2_mode=False, multiplier=1.0):
+    def __init__(self, in_memory=False, use_shm=False, v2_mode=False, memory_first=False, multiplier=1.0):
         self.in_memory = in_memory
         self.v2_mode = v2_mode
+        self.memory_first = memory_first
         self.multiplier = multiplier
 
         # RAMディスクの使用可否を判定
@@ -70,6 +71,8 @@ class Benchmark:
 
     def _create_db(self, path, **kwargs):
         """設定を反映したNanaSQLiteインスタンスを生成"""
+        if self.memory_first:
+            kwargs["memory_first"] = True
         if self.v2_mode:
             kwargs["v2_mode"] = True
         return NanaSQLite(path, **kwargs)
@@ -281,6 +284,7 @@ if __name__ == "__main__":
     parser.add_argument("--in-memory", action="store_true", help="Use in-memory database (:memory:)")
     parser.add_argument("--use-shm", action="store_true", help="Use RAM disk (/dev/shm) if available")
     parser.add_argument("--v2", action="store_true", help="Enable V2 engine for the benchmark")
+    parser.add_argument("--memory-first", action="store_true", help="Enable memory_first=True CRUD mode")
     parser.add_argument("--multiplier", type=float, default=1.0, help="Multiplier for iteration counts")
 
     args = parser.parse_args()
@@ -289,6 +293,7 @@ if __name__ == "__main__":
         in_memory=args.in_memory,
         use_shm=args.use_shm,
         v2_mode=args.v2,
+        memory_first=args.memory_first,
         multiplier=args.multiplier
     )
 
@@ -298,6 +303,7 @@ if __name__ == "__main__":
     print(f" In-Memory Mode : {benchmark.in_memory}")
     print(f" RAM Disk (shm) : {benchmark.use_shm}")
     print(f" V2 Engine      : {benchmark.v2_mode}")
+    print(f" Memory First   : {benchmark.memory_first}")
     print(f" Multiplier     : {benchmark.multiplier}")
     print("=" * 50 + "\n")
 

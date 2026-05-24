@@ -5,7 +5,7 @@ NanaSQLiteクラスの同期メソッド一覧です。
 ## NanaSQLite
 
 ```python
-class NanaSQLite(db_path: str, table: str = 'data', bulk_load: bool = False, optimize: bool = True, cache_size_mb: int = 64, strict_sql_validation: bool = True, allowed_sql_functions: list[str] | None = None, forbidden_sql_functions: list[str] | None = None, max_clause_length: int | None = 1000, cache_strategy: CacheType | Literal['unbounded', 'lru', 'ttl'] = <CacheType.UNBOUNDED: unbounded>, cache_size: int | None = None, cache_ttl: float | None = None, cache_persistence_ttl: bool = False, encryption_key: str | bytes | None = None, encryption_mode: Literal['aes-gcm', 'chacha20', 'fernet'] = 'aes-gcm', lock_timeout: float | None = None, validator: Any | None = None, coerce: bool = False, v2_mode: bool = False, flush_mode: Literal['immediate', 'count', 'time', 'manual'] = 'immediate', flush_interval: float = 3.0, flush_count: int = 100, v2_chunk_size: int = 1000, v2_max_dlq_size: int | None = 1000, v2_enable_metrics: bool = False, _shared_connection: apsw.Connection | None = None, _shared_lock: threading.RLock | None = None)
+class NanaSQLite(db_path: str, table: str = 'data', bulk_load: bool = False, optimize: bool = True, cache_size_mb: int = 64, strict_sql_validation: bool = True, allowed_sql_functions: list[str] | None = None, forbidden_sql_functions: list[str] | None = None, max_clause_length: int | None = 1000, cache_strategy: CacheType | Literal['unbounded', 'lru', 'ttl'] = <CacheType.UNBOUNDED: unbounded>, cache_size: int | None = None, cache_ttl: float | None = None, cache_persistence_ttl: bool = False, encryption_key: str | bytes | None = None, encryption_mode: Literal['aes-gcm', 'chacha20', 'fernet'] = 'aes-gcm', lock_timeout: float | None = None, validator: Any | None = None, coerce: bool = False, v2_mode: bool = False, flush_mode: Literal['immediate', 'count', 'time', 'manual'] = 'immediate', flush_interval: float = 3.0, flush_count: int = 100, v2_chunk_size: int = 1000, v2_max_dlq_size: int | None = 1000, v2_enable_metrics: bool = False, memory_first: bool = False, memory_flush_interval: float = 5.0, _shared_connection: apsw.Connection | None = None, _shared_lock: threading.RLock | None = None)
 ```
 
 (APSW SQLiteをバックエンドとした、セキュリティ・接続管理強化版の辞書型ラッパー (v1.2.0))
@@ -42,6 +42,8 @@ v1.2.0では、動的SQLのバリデーション強化、ReDoS対策、および
 | `v2_chunk_size` | `int` | v2フラッシュ時のトランザクション最大件数 |
 | `v2_max_dlq_size` | `int | None` | DLQ の最大保持件数。None で無制限 |
 | `v2_enable_metrics` | `bool` | True の場合、v2エンジンのフラッシュメトリクスを収集する（オプション） |
+| `memory_first` | `bool` | True の場合、KVS 全体をメモリに読み込み、CRUD をメモリ上で処理し、差分を v2 エンジンでフラッシュする |
+| `memory_flush_interval` | `float` | memory_first=True 時の差分フラッシュ間隔（秒）。デフォルト 5.0 |
 | `_shared_connection` | `apsw.Connection | None` | 内部用：共有する接続 |
 | `_shared_lock` | `threading.RLock | None` | 内部用：共有するロック |
 
@@ -74,7 +76,7 @@ def close() -> None
 ### `table`
 
 ```python
-def table(table_name: str, cache_strategy: CacheType | Literal['unbounded', 'lru', 'ttl'] | None = None, cache_size: int | None = None, cache_ttl: float | None = None, cache_persistence_ttl: bool | None = None, validator: Any | None | types.EllipsisType = Ellipsis, coerce: bool | types.EllipsisType = Ellipsis, v2_enable_metrics: bool | types.EllipsisType = Ellipsis)
+def table(table_name: str, cache_strategy: CacheType | Literal['unbounded', 'lru', 'ttl'] | None = None, cache_size: int | None = None, cache_ttl: float | None = None, cache_persistence_ttl: bool | None = None, validator: Any | None | types.EllipsisType = Ellipsis, coerce: bool | types.EllipsisType = Ellipsis, v2_enable_metrics: bool | types.EllipsisType = Ellipsis, memory_first: bool | types.EllipsisType = Ellipsis)
 ```
 
 新しいインスタンスを作成しますが、SQLite接続とロックは共有します。
@@ -93,6 +95,7 @@ def table(table_name: str, cache_strategy: CacheType | Literal['unbounded', 'lru
 | `validator` | `Any | None | types.EllipsisType` | このテーブル用の validkit-py スキーマ。 指定しない場合は親インスタンスのスキーマを引き継ぐ。 ``None`` を明示的に渡すとバリデーションなしで使用できる。 |
 | `coerce` | `bool | types.EllipsisType` | ``True`` の場合、validkit-py の自動変換機能を有効にする。 指定しない場合は親インスタンスの設定を引き継ぐ。 ⚠️ 重要な注意事項: - 同じテーブルに対して複数のインスタンスを作成しないでください 各インスタンスは独立したキャッシュを持つため、キャッシュ不整合が発生します - 推奨: テーブルインスタンスを変数に保存して再利用してください |
 | `v2_enable_metrics` | `bool | types.EllipsisType` |  |
+| `memory_first` | `bool | types.EllipsisType` | このテーブルでメモリ優先モードを有効または無効にする。省略時は親インスタンスの設定を引き継ぐ |
 
 ::: warning 例外
 - NanaSQLiteConnectionError: 接続が閉じられている場合

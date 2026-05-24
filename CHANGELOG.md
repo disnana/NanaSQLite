@@ -20,6 +20,12 @@
   - デフォルトの unbounded キャッシュかつフック無しで、要求キーがすべてキャッシュ済みまたは既知の未存在キーの場合、executor 往復なしで返します。
 - **PERF-34: `load_all()` のデフォルトキャッシュ投入を一括化**（`core.py`）
   - サイズ制限なし unbounded キャッシュでは、1件ずつ `cache.set()` せず背後の dict をまとめて更新します。
+- **PERF-35: `memory_first=True` を追加**（`core.py`）
+  - KVS CRUD を全件ロード済みメモリ上で完結させ、差分は v2 engine の time flush でバックグラウンド永続化します。
+  - デフォルトでは `flush_interval=5.0` 相当で、`close()` 時は v2 engine の最終 flush により永続化されます。
+  - 既存挙動には影響しない明示オプションです。全件メモリ保持が前提のため、LRU/TTL や `cache_size` 付きキャッシュとは併用できません。
+  - v2 engine の time flush は、変更が無い場合に空 flush をワーカーへ投げないようにしました。
+  - pytest-benchmark と Actions のベンチ集計に memory-first CRUD ベンチを追加しました。
 
 ### [1.5.6b1] - 2026-05-24
 
@@ -1303,6 +1309,12 @@
   - With the default unbounded cache and no hooks, async batch reads now return without an executor round trip when every requested key is cached or known absent.
 - **PERF-34: Bulk-populate the default cache in `load_all()`** (`core.py`)
   - For unlimited unbounded caches, `load_all()` now updates the backing dict directly instead of calling `cache.set()` for every row.
+- **PERF-35: Add `memory_first=True`** (`core.py`)
+  - KVS CRUD now has an explicit memory-first option that serves loaded data from memory and persists deltas through the v2 engine's timed background flush.
+  - The default interval is equivalent to `flush_interval=5.0`, and `close()` performs the v2 engine's final flush.
+  - This is opt-in and does not affect existing behavior. Because it requires full in-memory ownership, it rejects LRU/TTL and bounded caches.
+  - The v2 engine's timed flush now skips submitting empty flush jobs when there are no changes.
+  - Added memory-first CRUD benchmarks to pytest-benchmark and the Actions benchmark summary.
 
 ### [1.5.6b1] - 2026-05-24
 

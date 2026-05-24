@@ -7,12 +7,14 @@ NanaSQLite v1.5.7dev1 - パフォーマンス回帰修正テスト
 - PERF-32: batch_get() のフルチャンク用プレースホルダーを事前計算
 - PERF-33: AsyncNanaSQLite.abatch_get() の全件キャッシュ既知ホットパス
 - PERF-34: load_all() のデフォルト unbounded キャッシュ一括投入
+- PERF-35: memory_first=True の KVS CRUD メモリ優先モード
 """
 
 from __future__ import annotations
 
 import os
 import tempfile
+import time
 from types import MethodType
 
 import pytest
@@ -174,5 +176,113 @@ def test_load_all_default_unbounded_bulk_populates_without_cache_set(db_path):
 
         assert calls == []
         assert db.to_dict() == {f"k{i}": i for i in range(5)}
+    finally:
+        db.close()
+
+
+def test_memory_first_crud_uses_memory_before_flush(db_path):
+    """
+    PERF-35: memory_first=True では CRUD の真実をメモリに置き、
+    SQLite への永続化はバックグラウンド flush / close に任せる。
+    """
+    db = NanaSQLite(db_path, memory_first=True)
+    try:
+        assert db._memory_first is True
+        assert db._v2_mode is True
+        assert db._v2_flush_mode == "time"
+        assert db._all_loaded is True
+
+        db["a"] = 1
+        db["b"] = 2
+        del db["a"]
+
+        assert "a" not in db
+        assert db.get("a") is None
+        assert db["b"] == 2
+        assert len(db) == 1
+        assert db.keys() == ["b"]
+        assert db.batch_get(["a", "b", "missing"]) == {"b": 2}
+    finally:
+        db.close()
+
+    reopened = NanaSQLite(db_path)
+    try:
+        assert "a" not in reopened
+        assert reopened["b"] == 2
+    finally:
+        reopened.close()
+
+
+def test_memory_first_rejects_bounded_or_ttl_cache(db_path):
+    """PERF-35: memory_first は全件メモリ保持が前提なので eviction 付きキャッシュを拒否する。"""
+    from nanasqlite import CacheType
+    from nanasqlite.exceptions import NanaSQLiteValidationError
+
+    with pytest.raises(NanaSQLiteValidationError):
+        NanaSQLite(db_path, memory_first=True, cache_size=10)
+
+    with pytest.raises(NanaSQLiteValidationError):
+        NanaSQLite(db_path, memory_first=True, cache_strategy=CacheType.LRU, cache_size=10)
+
+
+def test_memory_first_clear_keeps_memory_truth_for_new_writes(db_path):
+    """
+    PERF-35 regression: clear() 後も memory_first の全件ロード済み状態を維持し、
+    未 flush の新規書き込みを len()/keys()/batch_get() がメモリから見られるようにする。
+    """
+    db = NanaSQLite(db_path, memory_first=True)
+    try:
+        db.batch_update({"old": 1})
+        db.clear()
+        db["new"] = 2
+
+        assert db._all_loaded is True
+        assert len(db) == 1
+        assert db.keys() == ["new"]
+        assert db.batch_get(["old", "new"]) == {"new": 2}
+    finally:
+        db.close()
+
+
+def test_memory_first_time_flush_persists_without_close(db_path):
+    """
+    PERF-35: close() を待たなくても、変更があれば time flush で差分が永続化される。
+    """
+    db = NanaSQLite(db_path, memory_first=True, memory_flush_interval=0.05)
+    try:
+        db["timed"] = {"ok": True}
+
+        deadline = time.time() + 2.0
+        persisted = False
+        while time.time() < deadline:
+            reader = NanaSQLite(db_path)
+            try:
+                persisted = reader.get("timed") == {"ok": True}
+            finally:
+                reader.close()
+            if persisted:
+                break
+            time.sleep(0.05)
+
+        assert persisted is True
+    finally:
+        db.close()
+
+
+def test_memory_first_get_fresh_flushes_pending_delta(db_path):
+    """
+    PERF-35: get_fresh() は memory_first の pending delta を先に flush してから DB を読む。
+    """
+    db = NanaSQLite(db_path, memory_first=True, flush_mode="manual")
+    try:
+        db["fresh"] = "pending"
+
+        assert db.get_fresh("fresh") == "pending"
+
+        reader = NanaSQLite(db_path)
+        try:
+            assert reader["fresh"] == "pending"
+        finally:
+            reader.close()
     finally:
         db.close()

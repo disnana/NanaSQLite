@@ -150,7 +150,9 @@ def categorize_test(test_name):
     """テスト名からカテゴリを判定"""
     name_lower = test_name.lower()
 
-    if "write" in name_lower or "insert" in name_lower or "set" in name_lower:
+    if "memory_first" in name_lower:
+        return "🧠 Memory-First Operations"
+    elif "write" in name_lower or "insert" in name_lower or "set" in name_lower:
         if "encryption" in name_lower or "aes" in name_lower or "chacha" in name_lower or "fernet" in name_lower:
             return "🔐 Encryption Operations"
         if "cache" in name_lower or "lru" in name_lower or "ttl" in name_lower:

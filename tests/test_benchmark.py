@@ -1254,6 +1254,88 @@ class TestV2ArchitectureBenchmarks:
         benchmark(dlq_op)
 
 
+# ==================== Memory-First CRUD Benchmarks ====================
+
+
+@pytest.mark.skipif(not pytest_benchmark_available, reason="pytest-benchmark not installed")
+class TestMemoryFirstBenchmarks:
+    """memory_first=True の KVS CRUD 特化ベンチマーク"""
+
+    @pytest.fixture
+    def memory_first_db(self, tmp_path):
+        from nanasqlite import NanaSQLite
+
+        os.environ["NANASQLITE_SUPPRESS_MP_WARNING"] = "1"
+        db_path = tmp_path / "memory_first.db"
+        with NanaSQLite(str(db_path)) as setup_db:
+            setup_db.batch_update({f"key_{i}": {"index": i, "data": "x" * 100} for i in range(1000)})
+
+        db = NanaSQLite(str(db_path), memory_first=True, memory_flush_interval=60.0)
+        yield db
+        db.close()
+
+    def test_memory_first_single_write(self, benchmark, memory_first_db):
+        """memory_first=True の単一書き込み"""
+        counter = [0]
+
+        def write_op():
+            memory_first_db[f"mf_write_{counter[0]}"] = {"value": counter[0]}
+            counter[0] += 1
+
+        benchmark(write_op)
+
+    def test_memory_first_batch_write_1000(self, benchmark, memory_first_db):
+        """memory_first=True のバッチ書き込み（1000件）"""
+        counter = [0]
+
+        def batch_write_op():
+            base = counter[0] * 1000
+            memory_first_db.batch_update({f"mf_batch_{base + i}": {"index": i} for i in range(1000)})
+            counter[0] += 1
+
+        benchmark(batch_write_op)
+
+    def test_memory_first_read_hit_1000(self, benchmark, memory_first_db):
+        """memory_first=True のメモリヒット読み取り（1000件）"""
+
+        def read_op():
+            for i in range(1000):
+                _ = memory_first_db[f"key_{i}"]
+
+        benchmark(read_op)
+
+    def test_memory_first_batch_get_1000(self, benchmark, memory_first_db):
+        """memory_first=True の batch_get（1000件）"""
+        keys = [f"key_{i}" for i in range(1000)]
+
+        def batch_get_op():
+            return memory_first_db.batch_get(keys)
+
+        benchmark(batch_get_op)
+
+    def test_memory_first_len_keys(self, benchmark, memory_first_db):
+        """memory_first=True の len() + keys()"""
+
+        def len_keys_op():
+            return len(memory_first_db), memory_first_db.keys()
+
+        benchmark(len_keys_op)
+
+    def test_memory_first_mixed_crud_300(self, benchmark, memory_first_db):
+        """memory_first=True の混合 CRUD（read/update/insert 各100件）"""
+        counter = [0]
+
+        def mixed_op():
+            base = counter[0] * 100
+            for i in range(100):
+                _ = memory_first_db[f"key_{i}"]
+                memory_first_db[f"key_{i}"] = {"index": i, "updated": counter[0]}
+                memory_first_db[f"mf_new_{base + i}"] = {"index": i}
+            counter[0] += 1
+
+        benchmark(mixed_op)
+
+
 # ==================== Backup & Restore Benchmarks ====================
 
 

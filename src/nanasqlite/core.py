@@ -224,9 +224,25 @@ class NanaSQLite(MutableMapping):
         allowed_sql_functions = kwargs.get("allowed_sql_functions")
         forbidden_sql_functions = kwargs.get("forbidden_sql_functions")
         max_clause_length = kwargs.get("max_clause_length", 1000)
+        memory_first = bool(kwargs.get("memory_first", False))
+        memory_flush_interval = kwargs.get("memory_flush_interval", 5.0)
         _shared_connection = kwargs.get("_shared_connection")
         _shared_lock = kwargs.get("_shared_lock")
         _shared_v2_engine = kwargs.get("_shared_v2_engine")
+
+        if memory_first:
+            if cache_strategy not in (CacheType.UNBOUNDED, "unbounded") or cache_size is not None:
+                raise NanaSQLiteValidationError(
+                    "memory_first=True requires the default unbounded cache without cache_size"
+                )
+            if cache_persistence_ttl:
+                raise NanaSQLiteValidationError("memory_first=True cannot be combined with cache_persistence_ttl")
+            v2_mode = True
+            bulk_load = True
+            if "flush_mode" not in kwargs:
+                flush_mode = "time"
+            if "flush_interval" not in kwargs:
+                flush_interval = memory_flush_interval
 
         # Sanitize and quote table name once; reuse the result for all SQL
         sanitized_table = NanaSQLite._sanitize_identifier(table)
@@ -338,6 +354,8 @@ class NanaSQLite(MutableMapping):
         self._v2_flush_count = flush_count
         self._v2_chunk_size = v2_chunk_size
         self._v2_max_dlq_size = v2_max_dlq_size
+        self._memory_first: bool = memory_first
+        self._memory_flush_interval_raw: float = float(memory_flush_interval)
         self._v2_engine: V2Engine | None = None
 
         if self._v2_mode:
@@ -1055,6 +1073,11 @@ class NanaSQLite(MutableMapping):
                     return False
 
         # DBから読み込み
+        if self._memory_first and self._all_loaded:
+            if not self._lru_mode:
+                self._absent_keys.add(key)
+            return False
+
         value = self._read_from_db(key)
 
         if value is not _NOT_FOUND:
@@ -1233,6 +1256,11 @@ class NanaSQLite(MutableMapping):
                 # Value might be MISSING sentinel
                 return self._cache.get(key) is not MISSING
 
+        if self._memory_first and self._all_loaded:
+            if not self._lru_mode:
+                self._absent_keys.add(key)
+            return False
+
         # Lightweight existence check against DB
         with self._acquire_lock():
             cursor = self._connection.execute(self._sql_kv_contains, (key,))
@@ -1245,6 +1273,8 @@ class NanaSQLite(MutableMapping):
 
     def __len__(self) -> int:
         """len(dict) - DBの実際の件数を返す"""
+        if self._memory_first and self._all_loaded and not self._lru_mode:
+            return len(self._data)
         with self._acquire_lock():
             cursor = self._connection.execute(self._sql_kv_count)
             return cursor.fetchone()[0]
@@ -1260,6 +1290,8 @@ class NanaSQLite(MutableMapping):
 
     def keys(self) -> list:
         """全キーを取得（DBから）"""
+        if self._memory_first and self._all_loaded and not self._lru_mode:
+            return list(self._data.keys())
         return self._get_all_keys_from_db()
 
     def values(self) -> list:
@@ -1361,6 +1393,9 @@ class NanaSQLite(MutableMapping):
             >>> db.execute("UPDATE data SET value = ? WHERE key = ?", ('"new"', "key"))
             >>> value = db.get_fresh("key")  # DBから最新値を取得
         """
+        if self._memory_first and self._v2_engine:
+            self._v2_engine.flush(wait=True)
+
         # DBから直接読み込み
         value = self._read_from_db(key)
 
@@ -1433,6 +1468,16 @@ class NanaSQLite(MutableMapping):
                 missing_keys.append(key)
 
         if not missing_keys:
+            return results
+
+        if self._memory_first and self._all_loaded:
+            if not self._lru_mode:
+                self._absent_keys.update(missing_keys)
+            if self._has_hooks:
+                for key, val in results.items():
+                    for hook in self._hooks:
+                        val = hook.after_read(self, key, val)
+                    results[key] = val
             return results
 
         # 2. DBから足りない分を一括取得
@@ -1606,7 +1651,7 @@ class NanaSQLite(MutableMapping):
         self._cache.clear()
         if not self._lru_mode:
             self._absent_keys.clear()
-        self._all_loaded = False
+        self._all_loaded = bool(self._memory_first)
 
     def setdefault(self, key: str, default: Any = None) -> Any:
         """dict.setdefault(key, default)"""
@@ -3740,6 +3785,7 @@ class NanaSQLite(MutableMapping):
         coerce: bool | EllipsisType = _UNSET,
         hooks: list[NanaHook] | None | EllipsisType = _UNSET,
         v2_enable_metrics: bool | EllipsisType = _UNSET,
+        memory_first: bool | EllipsisType = _UNSET,
     ):
         """
         新しいインスタンスを作成しますが、SQLite接続とロックは共有します。
@@ -3764,6 +3810,8 @@ class NanaSQLite(MutableMapping):
                    ``None`` を明示的に渡すとフックなしで使用できる。
             v2_enable_metrics: ``True`` の場合、V2 エンジンのメトリクス収集を有効にする。
                                指定しない場合は親インスタンスの設定を引き継ぐ。
+            memory_first: ``True`` の場合、起動時に全件ロードし、KVS CRUD をメモリ優先で処理する。
+                          指定しない場合は親インスタンスの設定を引き継ぐ。
 
         ⚠️ 重要な注意事項:
         - 同じテーブルに対して複数のインスタンスを作成しないでください
@@ -3822,6 +3870,7 @@ class NanaSQLite(MutableMapping):
         resolved_v2_enable_metrics = (
             self._v2_enable_metrics_raw if v2_enable_metrics is _UNSET else bool(v2_enable_metrics)
         )
+        resolved_memory_first = self._memory_first if memory_first is _UNSET else bool(memory_first)
 
         # 子インスタンス生成〜WeakSet追加をロックで保護し、
         # restore() の接続差し替えと競合しないようにする
@@ -3840,6 +3889,8 @@ class NanaSQLite(MutableMapping):
                 v2_mode=self._v2_mode,
                 v2_enable_metrics=resolved_v2_enable_metrics,
                 v2_max_dlq_size=self._v2_max_dlq_size,
+                memory_first=resolved_memory_first,
+                memory_flush_interval=self._memory_flush_interval_raw,
                 _shared_connection=self._connection,
                 _shared_lock=self._lock,
                 _shared_v2_engine=self._v2_engine,
