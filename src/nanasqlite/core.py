@@ -96,6 +96,10 @@ _ORDERBY_SUBQUERY_KEYWORDS_RE = re.compile(
     r"\b(?:SELECT|FROM|JOIN|UNION|WHERE|HAVING|LIMIT|OFFSET|EXCEPT|INTERSECT)\b",
     re.IGNORECASE,
 )
+_COLUMN_SUBQUERY_KEYWORDS_RE = re.compile(
+    r"\b(?:SELECT|FROM|JOIN|UNION|EXCEPT|INTERSECT)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -757,7 +761,8 @@ class NanaSQLite(MutableMapping):
         # SEC-01: block subquery/DML keywords in expression contexts that are
         # spliced into SELECT without parameter binding.  Column expressions also
         # need this check because aliases/functions are allowed there.
-        if context in ("order_by", "group_by", "column") and _ORDERBY_SUBQUERY_KEYWORDS_RE.search(str(expr)):
+        subquery_pattern = _COLUMN_SUBQUERY_KEYWORDS_RE if context == "column" else _ORDERBY_SUBQUERY_KEYWORDS_RE
+        if context in ("order_by", "group_by", "column") and subquery_pattern.search(str(expr)):
             msg = f"Invalid {context} clause: subquery keywords are not permitted."
             if strict or (strict is None and self.strict_sql_validation):
                 raise ValueError(msg)

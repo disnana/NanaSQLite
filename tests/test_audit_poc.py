@@ -3887,6 +3887,22 @@ class TestV156Sec01ColumnSubqueryInjection:
             )
             assert results == [{"total": 1}]
 
+    def test_legitimate_column_filter_where_still_passes(self, tmp_path):
+        """Aggregate FILTER clauses may contain WHERE without being subqueries."""
+        from nanasqlite import NanaSQLite
+
+        db_path = str(tmp_path / "sec01_column_filter_ok.db")
+        with NanaSQLite(db_path, strict_sql_validation=True) as db:
+            db["a"] = {"name": "alice", "score": 1}
+            db["b"] = {"name": "bob", "score": 0}
+            results = db.query(
+                table_name="data",
+                columns=["COUNT(*) FILTER (WHERE key IS NOT NULL) AS positives"],
+                strict_sql_validation=True,
+                allowed_sql_functions=["FILTER"],
+            )
+            assert results == [{"positives": 2}]
+
 
 class TestV155Bug01ExpiringDictDelitemTimerGuard:
     """BUG-01: ExpiringDict.__delitem__ TIMER mode guard."""
