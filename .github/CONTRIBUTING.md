@@ -29,10 +29,10 @@ pytest tests/ -v
 | バージョン | 意味 | GitHub Release |
 |-----------|------|----------------|
 | `1.0.0` | 正式リリース | Release |
+| `1.0.1dev` | 開発版（不安定） | Pre-release |
 | `1.0.1a1` | Alpha版（テスト初期段階） | Pre-release |
 | `1.0.1b1` | Beta版（機能完成、テスト中） | Pre-release |
 | `1.0.1rc1` | Release Candidate（リリース候補） | Pre-release |
-| `1.0.1dev` | 開発版（不安定） | Pre-release |
 
 #### バージョン更新例
 
