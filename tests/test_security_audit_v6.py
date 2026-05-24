@@ -12,10 +12,9 @@ Security Audit v6 - Regression Tests (TDD)
 from __future__ import annotations
 
 import gc
-import tempfile
-import threading
-import time
 import os
+import tempfile
+import time
 from typing import Any
 
 import apsw
@@ -196,9 +195,6 @@ class TestB3UniqueHookWeakref:
         db1.close()
         del db1
         gc.collect()
-
-        # _bound_db_ref() が None を返す状態になっているはず
-        ref_result = hook._bound_db_ref() if hook._bound_db_ref else None
 
         # 別の db インスタンスで使う
         db2_path = db_path.replace(".db", "_2.db")
