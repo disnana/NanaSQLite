@@ -3469,6 +3469,23 @@ class NanaSQLite(MutableMapping):
             "index_info",
             "database_list",
         }
+        writable_pragmas = {
+            "foreign_keys",
+            "journal_mode",
+            "synchronous",
+            "cache_size",
+            "temp_store",
+            "locking_mode",
+            "auto_vacuum",
+            "page_size",
+            "encoding",
+            "user_version",
+            "wal_autocheckpoint",
+            "busy_timeout",
+            "query_only",
+            "recursive_triggers",
+            "secure_delete",
+        }
 
         if pragma_name not in allowed_pragmas:
             raise ValueError(f"PRAGMA '{pragma_name}' is not allowed. Allowed: {', '.join(sorted(allowed_pragmas))}")
@@ -3477,6 +3494,12 @@ class NanaSQLite(MutableMapping):
             cursor = self.execute(f"PRAGMA {pragma_name}")
             result = cursor.fetchone()
             return result[0] if result else None
+
+        if pragma_name not in writable_pragmas:
+            raise ValueError(
+                f"PRAGMA '{pragma_name}' is read-only or unsafe to set through NanaSQLite. "
+                f"Writable: {', '.join(sorted(writable_pragmas))}"
+            )
 
         # Validate value is safe (int, float, or simple string)
         if not isinstance(value, (int, float, str)):

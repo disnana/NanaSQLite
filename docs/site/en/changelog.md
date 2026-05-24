@@ -14,6 +14,10 @@ outline: [2, 3]
   - Commas remain allowed inside balanced parentheses, such as `DECIMAL(10,2)`.
 - **BUG-02: Bounded V2 DLQ growth** (`v2_engine.py`)
   - Added a default DLQ limit of `1000`, tunable with `V2Config(max_dlq_size=...)` or `v2_max_dlq_size=...`.
+- **SEC-03: Rejected unsafe table names in `V2Engine` KVS / DLQ recovery paths** (`v2_engine.py`)
+  - Direct `V2Engine` callers now get table-name validation at KVS entry points and during DLQ recovery.
+- **SEC-04: Restricted writable PRAGMAs in `pragma()`** (`core.py`)
+  - Informational or dangerous PRAGMAs such as `schema_version` remain readable but are no longer writable through NanaSQLite.
 
 #### Bug Fixes
 

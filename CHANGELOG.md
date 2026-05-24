@@ -16,6 +16,10 @@
   - `DECIMAL(10,2)` のような括弧内カンマは許可しつつ、`TEXT, injected INTEGER` のような列定義割り込みを拒否します。
 - **BUG-02: V2 デッドレターキュー (DLQ) の無制限成長を抑制**（`v2_engine.py`）
   - DLQ にデフォルト上限 `1000` を追加し、上限到達時は最古エントリを破棄して新しい失敗を保持します。`V2Config(max_dlq_size=...)` または `v2_max_dlq_size=...` で調整でき、`None` を指定すると従来通り無制限にできます。
+- **SEC-03: `V2Engine` の KVS / DLQ 復旧経路で unsafe table_name を拒否**（`v2_engine.py`）
+  - `V2Engine` を直接利用した場合でも、`kvs_set()` / `kvs_delete()` / `kvs_get_staging()` と DLQ 復旧処理でテーブル名を検証し、SQL 断片へ unsafe な名前を連結しないようにしました。
+- **SEC-04: `pragma()` の書き込み可能 PRAGMA を制限**（`core.py`）
+  - `schema_version` や `table_info` などの情報取得系 / 危険な PRAGMA は読み取りのみ許可し、設定できる PRAGMA を明示的な allowlist に分離しました。
 
 #### バグ修正
 
@@ -1280,6 +1284,10 @@
   - Commas remain allowed inside balanced parentheses, such as `DECIMAL(10,2)`, while definitions such as `TEXT, injected INTEGER` are rejected.
 - **BUG-02: Bounded V2 Dead Letter Queue (DLQ) growth** (`v2_engine.py`)
   - Added a default DLQ limit of `1000`; when full, the oldest entry is evicted so newer failures remain visible. Tune via `V2Config(max_dlq_size=...)` or `v2_max_dlq_size=...`; pass `None` to keep the previous unbounded behavior.
+- **SEC-03: Rejected unsafe table names in `V2Engine` KVS / DLQ recovery paths** (`v2_engine.py`)
+  - Direct `V2Engine` callers now get table-name validation in `kvs_set()` / `kvs_delete()` / `kvs_get_staging()` and DLQ recovery, preventing unsafe names from being interpolated into SQL fragments.
+- **SEC-04: Restricted writable PRAGMAs in `pragma()`** (`core.py`)
+  - Informational or dangerous PRAGMAs such as `schema_version` and `table_info` remain readable but can no longer be set through NanaSQLite.
 
 #### Bug Fixes
 

@@ -36,8 +36,24 @@
 
 修正では `V2Engine(max_dlq_size=1000)` をデフォルトにし、上限到達時は最古エントリを破棄する。`V2Config(max_dlq_size=...)` と `NanaSQLite(..., v2_max_dlq_size=...)` / `AsyncNanaSQLite(..., v2_max_dlq_size=...)` から調整できる。`None` を指定した場合のみ従来通り無制限とする。
 
+### SEC-03 — `V2Engine` 直利用時の KVS / DLQ 復旧 table_name 検証漏れ
+
+**判定:** 修正済み
+
+`NanaSQLite` 経由では `_sanitize_identifier()` 済みのテーブル名が渡るが、`V2Engine` 自体は公開クラスであり、`kvs_set()` / `kvs_delete()` にコンストラクタとは別の `table_name` を渡せた。さらに DLQ 復旧経路では `table_name` を f-string で SQL に連結していた。
+
+修正では `V2Engine` 側に共通のテーブル名検証を追加し、KVS 入口、staging 参照、通常 flush、DLQ 復旧の各経路で quoted / unquoted の安全な識別子だけを受け付ける。DLQ 復旧時に unsafe table_name を見つけた場合は SQL を実行せず、その行を DLQ に隔離する。
+
+### SEC-04 — `pragma()` の読み取り許可 PRAGMA をそのまま設定にも使える
+
+**判定:** 修正済み
+
+`etc/reports/claude.md` の `pragma()` SQL injection 指摘は、現行コードでは PRAGMA 名の allowlist と値検証が入っているため、直接の SQL injection としては古い。ただし読み取り用の `schema_version` / `table_info` / `index_list` / `database_list` なども、値を渡すと設定 SQL に進める設計だった。
+
+修正では `allowed_pragmas` とは別に `writable_pragmas` を導入し、情報取得系や危険な PRAGMA は読み取りのみ許可する。既存の `foreign_keys` / `journal_mode` / `busy_timeout` などの設定用途は維持する。
+
 ## 回帰テスト
 
 ```powershell
-python -m pytest tests\test_audit_poc.py::TestV140Sec01CreateTableInjection::test_top_level_comma_in_column_type_blocked tests\test_audit_poc.py::TestV156Sec01ColumnSubqueryInjection tests\test_audit_poc.py::TestQual02V154DLQEntryDataclass::test_dlq_max_size_evicts_oldest_entry tests\test_audit_poc.py::TestQual02V154DLQEntryDataclass::test_v2_config_passes_max_dlq_size -q
+python -m pytest tests\test_audit_poc.py::TestV140Sec01CreateTableInjection::test_top_level_comma_in_column_type_blocked tests\test_audit_poc.py::TestV156Sec01ColumnSubqueryInjection tests\test_audit_poc.py::TestQual02V154DLQEntryDataclass::test_dlq_max_size_evicts_oldest_entry tests\test_audit_poc.py::TestQual02V154DLQEntryDataclass::test_v2_config_passes_max_dlq_size tests\test_audit_poc.py::TestQual02V154DLQEntryDataclass::test_v2_engine_kvs_set_rejects_unsafe_table_name tests\test_audit_poc.py::TestQual02V154DLQEntryDataclass::test_v2_engine_dlq_recovery_rejects_unsafe_table_name tests\test_security.py::TestSQLInjectionProtection::test_read_only_pragma_cannot_be_set -q
 ```

@@ -43,6 +43,17 @@ TASK_EXECUTE = "execute"
 TASK_EXECUTEMANY = "executemany"
 
 
+def _is_safe_table_name(table_name: str) -> bool:
+    """Return True when table_name is a sanitized quoted or plain identifier."""
+    return bool(_QUOTED_TABLE_NAME_RE.match(table_name) or _UNQUOTED_TABLE_NAME_RE.match(table_name))
+
+
+def _validate_table_name(table_name: str) -> None:
+    """Validate table_name before it is interpolated into v2 SQL fragments."""
+    if not _is_safe_table_name(table_name):
+        raise ValueError(f"Invalid or unsafe table name: {table_name}")
+
+
 @dataclass(order=True)
 class StrictTask:
     """A single task for the strict/raw SQL lane (Lane 2)."""
@@ -112,8 +123,7 @@ class V2Engine:
         # _sanitize_identifier().  We accept the quoted form and validate the inner name
         # strictly (alphanumeric + underscore, no embedded quotes).  Unquoted identifiers
         # are also accepted for direct V2Engine usage in tests / external callers.
-        if not (_QUOTED_TABLE_NAME_RE.match(table_name) or _UNQUOTED_TABLE_NAME_RE.match(table_name)):
-            raise ValueError(f"Invalid or unsafe table name: {table_name}")
+        _validate_table_name(table_name)
 
         self._table_name = table_name
 
@@ -230,6 +240,7 @@ class V2Engine:
 
     def kvs_set(self, table_name: str, key: str, value: Any) -> None:
         """Queue a set operation in the staging buffer."""
+        _validate_table_name(table_name)
         # Serialize immediately on the calling thread to catch type errors early
         # and prevent slow serialization during the flush transaction.
         serialized_value = self._serialize(value)
@@ -242,6 +253,7 @@ class V2Engine:
 
     def kvs_delete(self, table_name: str, key: str) -> None:
         """Queue a delete operation in the staging buffer."""
+        _validate_table_name(table_name)
         with self._staging_lock:
             self._staging_buffer[(table_name, key)] = {"action": "delete"}
             self._staging_changes += 1
@@ -256,6 +268,7 @@ class V2Engine:
         (i.e. after _staging_buffer has been swapped out but before the
         DB transaction commits).
         """
+        _validate_table_name(table_name)
         with self._staging_lock:
             result = self._staging_buffer.get((table_name, key))
             if result is None:
@@ -396,6 +409,7 @@ class V2Engine:
         table_ops: dict[str, dict[str, list]] = {}
 
         for (table_name, key), op in kvs_chunk:
+            _validate_table_name(table_name)
             if table_name not in table_ops:
                 table_ops[table_name] = {"sets": [], "deletes": []}
             if op["action"] == "set":
@@ -512,6 +526,12 @@ class V2Engine:
 
         try:
             for (table_name, key), op in failed_kvs_chunk:
+                if not _is_safe_table_name(table_name):
+                    self._add_to_dlq(
+                        f"KVS Poison Pill row '{key}' has unsafe table name: {table_name}",
+                        ((table_name, key), op),
+                    )
+                    continue
                 try:
                     cursor.execute("BEGIN IMMEDIATE TRANSACTION;")
                     if op["action"] == "set":

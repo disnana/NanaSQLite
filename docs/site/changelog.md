@@ -14,6 +14,10 @@ outline: [2, 3]
   - `DECIMAL(10,2)` のような括弧内カンマは許可しつつ、列定義割り込みを拒否します。
 - **BUG-02: V2 DLQ の無制限成長を抑制**（`v2_engine.py`）
   - DLQ にデフォルト上限 `1000` を追加しました。`V2Config(max_dlq_size=...)` または `v2_max_dlq_size=...` で調整できます。
+- **SEC-03: `V2Engine` の KVS / DLQ 復旧経路で unsafe table_name を拒否**（`v2_engine.py`）
+  - `V2Engine` 直利用時も KVS 入口と DLQ 復旧処理でテーブル名を検証します。
+- **SEC-04: `pragma()` の書き込み可能 PRAGMA を制限**（`core.py`）
+  - `schema_version` などの情報取得系 / 危険な PRAGMA は読み取りのみ許可します。
 
 #### バグ修正
 

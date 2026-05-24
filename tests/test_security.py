@@ -76,6 +76,13 @@ class TestSQLInjectionProtection:
         with pytest.raises(ValueError, match="PRAGMA string value"):
             db.pragma("journal_mode", "WAL; DROP TABLE test--")
 
+    def test_read_only_pragma_cannot_be_set(self, db):
+        """情報取得系や危険な PRAGMA は NanaSQLite 経由で設定できない。"""
+        assert db.pragma("schema_version") is not None
+
+        with pytest.raises(ValueError, match="read-only or unsafe"):
+            db.pragma("schema_version", 1)
+
     def test_dangerous_column_type(self, db):
         """Test that dangerous column types are rejected."""
         db.create_table("test", {"id": "INTEGER"})

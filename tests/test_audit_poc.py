@@ -3688,6 +3688,45 @@ class TestQual02V154DLQEntryDataclass:
             assert len(dlq) == 1
             assert dlq[0]["error"] == "second"
 
+    def test_v2_engine_kvs_set_rejects_unsafe_table_name(self, db_path):
+        """V2Engine 直利用でも KVS 入口の unsafe table_name を拒否する。"""
+        import apsw
+
+        from nanasqlite.v2_engine import V2Engine
+
+        conn = apsw.Connection(db_path)
+        engine = V2Engine(connection=conn, table_name="data", flush_mode="manual")
+        try:
+            with pytest.raises(ValueError, match="Invalid or unsafe table name"):
+                engine.kvs_set("data; DROP TABLE data; --", "key", "value")
+            with pytest.raises(ValueError, match="Invalid or unsafe table name"):
+                engine.kvs_delete("data; DROP TABLE data; --", "key")
+        finally:
+            engine.shutdown()
+            conn.close()
+
+    def test_v2_engine_dlq_recovery_rejects_unsafe_table_name(self, db_path):
+        """DLQ 復旧経路でも unsafe table_name を SQL に連結しない。"""
+        import apsw
+
+        from nanasqlite.v2_engine import V2Engine
+
+        conn = apsw.Connection(db_path)
+        conn.execute("CREATE TABLE data (key TEXT PRIMARY KEY, value TEXT)")
+        conn.execute("INSERT INTO data (key, value) VALUES ('safe', 'kept')")
+        engine = V2Engine(connection=conn, table_name="data", flush_mode="manual")
+        try:
+            engine._recover_chunk_via_dlq(
+                [(("data; DROP TABLE data; --", "bad"), {"action": "delete"})]
+            )
+            assert conn.execute("SELECT value FROM data WHERE key='safe'").fetchone()[0] == "kept"
+            dlq = engine.get_dlq()
+            assert len(dlq) == 1
+            assert "unsafe table name" in dlq[0]["error"]
+        finally:
+            engine.shutdown()
+            conn.close()
+
 
 # ---------------------------------------------------------------------------
 # v1.5.4 前倒し実施: SEC-01 — DLQ ペイロード漏洩ドキュメント
