@@ -81,6 +81,7 @@ mainブランチにpushすると：
 - テストを追加
 - lint(ruff)に合格する
 - mypy(tox)に合格する
+- codeqlに合格する
 
 ---
 
@@ -161,3 +162,4 @@ When you push to main branch:
 - Add tests for new features
 - Pass lint (ruff)
 - Pass mypy (tox)
+- Pass codeql
