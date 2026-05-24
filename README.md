@@ -487,4 +487,4 @@ db.sql_insert("users", {"name": "Alice", "age": 25})
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT License - see [LICENSE](.github/LICENSE) for details.
