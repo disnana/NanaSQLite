@@ -371,6 +371,21 @@ class AsyncNanaSQLite:
                 return True, False
             return False, False
 
+    def _try_batch_get_unbounded_cache_hit(self, keys: list[str]) -> tuple[bool, dict[str, Any]]:
+        """Return batch_get results without executor when every key is cache-known."""
+        db = self._db
+        if db is None or db._lru_mode or db._has_hooks:
+            return False, {}
+
+        results = {}
+        for key in keys:
+            try:
+                results[key] = db._data[key]
+            except KeyError:
+                if key not in db._absent_keys:
+                    return False, {}
+        return True, results
+
     # ==================== Async Dict-like Interface ====================
 
     async def aget(self, key: str, default: Any = None) -> Any:
@@ -824,6 +839,9 @@ class AsyncNanaSQLite:
             >>> results = await db.abatch_get(["key1", "key2"])
         """
         await self._ensure_initialized()
+        cache_hit, results = self._try_batch_get_unbounded_cache_hit(keys)
+        if cache_hit:
+            return results
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self._db.batch_get, keys)
 

@@ -77,6 +77,8 @@ _NOT_FOUND = object()
 
 # SQL literals to avoid duplication
 _BEGIN_IMMEDIATE = "BEGIN IMMEDIATE"
+_BATCH_GET_CHUNK_SIZE = 900
+_BATCH_GET_FULL_PLACEHOLDERS = ",".join("?" for _ in range(_BATCH_GET_CHUNK_SIZE))
 
 # PERF-10: Pre-compile combined dangerous-SQL-patterns regex at module level.
 # Combining 4 separate re.search() calls into one avoids redundant scanning
@@ -1114,11 +1116,14 @@ class NanaSQLite(MutableMapping):
         """dict[key] = value - 即時書き込み + メモリ更新"""
         self._check_connection()
 
-        # Step 1: Fetch old value for hooks (for atomicity/rollback accuracy)
-        _missing = object()
-        old_value = self._get_raw(key, _missing)
-        if old_value is _missing:
-            old_value = None
+        # PERF-30: old_value is only observable by hooks.  Avoid a cache/DB
+        # lookup on the no-hook write hot path.
+        old_value = None
+        if self._has_hooks:
+            _missing = object()
+            old_value = self._get_raw(key, _missing)
+            if old_value is _missing:
+                old_value = None
 
         # v2 Architecture: Route to background staging buffer instead of blocking DB write
         if self._v2_mode and self._v2_engine:
@@ -1433,12 +1438,16 @@ class NanaSQLite(MutableMapping):
         # 2. DBから足りない分を一括取得
         # SQLite has a limit on the number of variables (parameters) in a single query.
         # Default is usually 999. We chunk the query to stay well under this limit.
-        CHUNK_SIZE = 900
 
+        db_found_keys = set()
         with self._acquire_lock():
-            for i in range(0, len(missing_keys), CHUNK_SIZE):
-                chunk = missing_keys[i : i + CHUNK_SIZE]
-                placeholders = ",".join(["?"] * len(chunk))
+            for i in range(0, len(missing_keys), _BATCH_GET_CHUNK_SIZE):
+                chunk = missing_keys[i : i + _BATCH_GET_CHUNK_SIZE]
+                placeholders = (
+                    _BATCH_GET_FULL_PLACEHOLDERS
+                    if len(chunk) == _BATCH_GET_CHUNK_SIZE
+                    else ",".join("?" for _ in chunk)
+                )
                 sql = f"SELECT key, value FROM {self._safe_table} WHERE key IN ({placeholders})"  # nosec
 
                 cursor = self._connection.execute(sql, tuple(chunk))
@@ -1446,11 +1455,11 @@ class NanaSQLite(MutableMapping):
                     value = self._deserialize(val_str)
                     self._update_cache(key, value)
                     results[key] = value
+                    db_found_keys.add(key)
 
         # 3. DBにも存在しなかったキーを「存在しない」としてキャッシュ
-        found_keys = set(results.keys())
         for key in missing_keys:
-            if key not in found_keys:
+            if key not in db_found_keys:
                 # self._lru_mode == False means Unbounded mode.
                 if self._lru_mode:
                     self._cache.mark_cached(key)
@@ -1645,8 +1654,14 @@ class NanaSQLite(MutableMapping):
             cursor = self._connection.execute(self._sql_kv_select_all)
             rows = list(cursor)  # ロック内でフェッチ
 
-        for key, value in rows:
-            self._cache.set(key, self._deserialize(value))
+        if self._use_cache_set:
+            for key, value in rows:
+                self._cache.set(key, self._deserialize(value))
+        else:
+            # PERF-34: default unbounded cache has no eviction side effects, so
+            # bulk-populate the backing dict directly instead of dispatching
+            # through cache.set() once per row.
+            self._data.update((key, self._deserialize(value)) for key, value in rows)
 
         if not self._lru_mode:
             self._absent_keys.clear()
