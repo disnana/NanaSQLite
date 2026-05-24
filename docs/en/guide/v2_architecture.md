@@ -78,8 +78,9 @@ from nanasqlite import NanaSQLite, V2Config
 cfg = V2Config(
     flush_mode="time",
     flush_interval=1.0,
-    v2_chunk_size=500,
-    v2_enable_metrics=True
+    chunk_size=500,
+    max_dlq_size=1000,
+    enable_metrics=True
 )
 
 db = NanaSQLite("mydb.db", v2_mode=True, v2_config=cfg)
@@ -129,6 +130,8 @@ db.flush()  # Data is only persisted to disk here
 If a background SQL task fails (e.g., type violation, syntax error), it is isolated to the **Dead Letter Queue (DLQ)** instead of halting the entire system. This allows other data to continue being persisted.
 
 Previously, accessing the DLQ required direct interaction with the internal engine. It is now accessible via public APIs.
+
+The DLQ keeps up to 1000 entries by default. When the limit is reached, the oldest entry is evicted so the newest failure remains visible. Tune it with `V2Config(max_dlq_size=...)` or `NanaSQLite(..., v2_max_dlq_size=...)`; pass `None` for unbounded behavior.
 
 ```python
 # Inspect DLQ contents

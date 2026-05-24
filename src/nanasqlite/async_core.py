@@ -151,6 +151,7 @@ class AsyncNanaSQLite:
         flush_interval = kwargs.get("flush_interval", 3.0)
         flush_count = kwargs.get("flush_count", 100)
         v2_chunk_size = kwargs.get("v2_chunk_size", 1000)
+        v2_max_dlq_size = kwargs.get("v2_max_dlq_size", 1000)
         v2_enable_metrics = kwargs.get("v2_enable_metrics", False)
 
         self._db_path = db_path
@@ -184,6 +185,7 @@ class AsyncNanaSQLite:
             flush_interval = v2_config.flush_interval
             flush_count = v2_config.flush_count
             v2_chunk_size = v2_config.chunk_size
+            v2_max_dlq_size = v2_config.max_dlq_size
             v2_enable_metrics = v2_config.enable_metrics
 
         self._v2_mode = v2_mode
@@ -191,6 +193,7 @@ class AsyncNanaSQLite:
         self._flush_interval = flush_interval
         self._flush_count = flush_count
         self._v2_chunk_size = v2_chunk_size
+        self._v2_max_dlq_size = v2_max_dlq_size
         self._v2_enable_metrics = v2_enable_metrics
 
         self._closed = False
@@ -289,6 +292,7 @@ class AsyncNanaSQLite:
                     flush_interval=self._flush_interval,
                     flush_count=self._flush_count,
                     v2_chunk_size=self._v2_chunk_size,
+                    v2_max_dlq_size=self._v2_max_dlq_size,
                     v2_enable_metrics=self._v2_enable_metrics,
                 ),
             )
@@ -1550,6 +1554,7 @@ class AsyncNanaSQLite:
         async_sub_db._flush_interval = getattr(self, "_flush_interval", 3.0)
         async_sub_db._flush_count = getattr(self, "_flush_count", 100)
         async_sub_db._v2_chunk_size = getattr(self, "_v2_chunk_size", 1000)
+        async_sub_db._v2_max_dlq_size = getattr(self, "_v2_max_dlq_size", 1000)
         async_sub_db._v2_enable_metrics = getattr(self, "_v2_enable_metrics", False)
         # 子インスタンス管理
         async_sub_db._child_instances = weakref.WeakSet()

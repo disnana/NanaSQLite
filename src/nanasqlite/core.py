@@ -107,7 +107,7 @@ class V2Config:
 
     Example:
         >>> from nanasqlite import NanaSQLite, V2Config
-        >>> cfg = V2Config(flush_mode="time", flush_interval=5.0, enable_metrics=True)
+        >>> cfg = V2Config(flush_mode="time", flush_interval=5.0, max_dlq_size=1000, enable_metrics=True)
         >>> db = NanaSQLite("mydata.db", v2_mode=True, v2_config=cfg)
     """
 
@@ -115,6 +115,7 @@ class V2Config:
     flush_interval: float = 3.0
     flush_count: int = 100
     chunk_size: int = 1000
+    max_dlq_size: int | None = 1000
     enable_metrics: bool = False
 
 
@@ -209,6 +210,7 @@ class NanaSQLite(MutableMapping):
         flush_interval = kwargs.get("flush_interval", 3.0)
         flush_count = kwargs.get("flush_count", 100)
         v2_chunk_size = kwargs.get("v2_chunk_size", 1000)
+        v2_max_dlq_size = kwargs.get("v2_max_dlq_size", 1000)
         v2_enable_metrics = kwargs.get("v2_enable_metrics", False)
         cache_size = kwargs.get("cache_size")
         cache_ttl = kwargs.get("cache_ttl")
@@ -320,6 +322,7 @@ class NanaSQLite(MutableMapping):
             flush_interval = v2_config.flush_interval
             flush_count = v2_config.flush_count
             v2_chunk_size = v2_config.chunk_size
+            v2_max_dlq_size = v2_config.max_dlq_size
             v2_enable_metrics = v2_config.enable_metrics
 
         self._v2_mode = v2_mode
@@ -328,6 +331,7 @@ class NanaSQLite(MutableMapping):
         self._v2_flush_interval = flush_interval
         self._v2_flush_count = flush_count
         self._v2_chunk_size = v2_chunk_size
+        self._v2_max_dlq_size = v2_max_dlq_size
         self._v2_engine: V2Engine | None = None
 
         if self._v2_mode:
@@ -489,6 +493,7 @@ class NanaSQLite(MutableMapping):
                     flush_interval=flush_interval,
                     flush_count=flush_count,
                     max_chunk_size=v2_chunk_size,
+                    max_dlq_size=v2_max_dlq_size,
                     serialize_func=self._serialize,
                     enable_metrics=self._v2_enable_metrics_raw,
                     shared_lock=self._lock,
@@ -748,15 +753,15 @@ class NanaSQLite(MutableMapping):
                 if strict or (strict is None and self.strict_sql_validation):
                     raise ValueError(msg)
                 warnings.warn(msg, UserWarning, stacklevel=2)
-            # SEC-01: additionally block subquery/DML keywords in ORDER BY / GROUP BY.
-            # The character whitelist above permits parentheses + alphanumerics, which
-            # is enough to form "(SELECT ...)" exfiltration payloads.  We explicitly
-            # reject any expression that contains subquery keywords.
-            if _ORDERBY_SUBQUERY_KEYWORDS_RE.search(str(expr)):
-                msg = f"Invalid {context} clause: subquery keywords are not permitted."
-                if strict or (strict is None and self.strict_sql_validation):
-                    raise ValueError(msg)
-                warnings.warn(msg, UserWarning, stacklevel=2)
+
+        # SEC-01: block subquery/DML keywords in expression contexts that are
+        # spliced into SELECT without parameter binding.  Column expressions also
+        # need this check because aliases/functions are allowed there.
+        if context in ("order_by", "group_by", "column") and _ORDERBY_SUBQUERY_KEYWORDS_RE.search(str(expr)):
+            msg = f"Invalid {context} clause: subquery keywords are not permitted."
+            if strict or (strict is None and self.strict_sql_validation):
+                raise ValueError(msg)
+            warnings.warn(msg, UserWarning, stacklevel=2)
 
         # 0. legacy check for SQL injection patterns
         # test_security.py compatibility: raise ValueError for strictly dangerous patterns
@@ -2179,6 +2184,7 @@ class NanaSQLite(MutableMapping):
                         flush_interval=self._v2_flush_interval,
                         flush_count=self._v2_flush_count,
                         max_chunk_size=self._v2_chunk_size,
+                        max_dlq_size=self._v2_max_dlq_size,
                         serialize_func=self._serialize,
                         enable_metrics=self._v2_enable_metrics_raw,
                         shared_lock=self._lock,
@@ -2197,6 +2203,7 @@ class NanaSQLite(MutableMapping):
                             flush_interval=child._v2_flush_interval,
                             flush_count=child._v2_flush_count,
                             max_chunk_size=child._v2_chunk_size,
+                            max_dlq_size=child._v2_max_dlq_size,
                             serialize_func=child._serialize,
                             enable_metrics=child._v2_enable_metrics_raw,
                             shared_lock=child._lock,
@@ -2566,6 +2573,23 @@ class NanaSQLite(MutableMapping):
                 raise NanaSQLiteValidationError(
                     f"Invalid or dangerous column type for '{col_name}': "
                     "contains unauthorized characters. Quote characters and semicolons are not permitted."
+                )
+            paren_depth = 0
+            for char in _col_type_str:
+                if char == "(":
+                    paren_depth += 1
+                elif char == ")":
+                    paren_depth -= 1
+                    if paren_depth < 0:
+                        break
+                elif char == "," and paren_depth == 0:
+                    raise NanaSQLiteValidationError(
+                        f"Invalid or dangerous column type for '{col_name}': "
+                        "commas are permitted only inside balanced parentheses."
+                    )
+            if paren_depth != 0:
+                raise NanaSQLiteValidationError(
+                    f"Invalid or dangerous column type for '{col_name}': parentheses are not balanced."
                 )
             column_defs.append(f"{safe_col_name} {col_type}")
 
@@ -3772,6 +3796,7 @@ class NanaSQLite(MutableMapping):
                 hooks=resolved_hooks,
                 v2_mode=self._v2_mode,
                 v2_enable_metrics=resolved_v2_enable_metrics,
+                v2_max_dlq_size=self._v2_max_dlq_size,
                 _shared_connection=self._connection,
                 _shared_lock=self._lock,
                 _shared_v2_engine=self._v2_engine,

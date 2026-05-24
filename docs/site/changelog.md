@@ -4,6 +4,22 @@ outline: [2, 3]
 
 # 更新履歴
 
+### [1.5.6b1] - 2026-05-24
+
+#### セキュリティ修正
+
+- **SEC-01: `query(..., columns=[...])` のサブクエリ拒否を強化**（`core.py`）
+  - 列式でも `SELECT` / `FROM` などのサブクエリ系キーワードを strict モードで拒否します。
+- **SEC-02: `create_table()` の列型定義でトップレベルのカンマ注入を拒否**（`core.py`）
+  - `DECIMAL(10,2)` のような括弧内カンマは許可しつつ、列定義割り込みを拒否します。
+- **BUG-02: V2 DLQ の無制限成長を抑制**（`v2_engine.py`）
+  - DLQ にデフォルト上限 `1000` を追加しました。`V2Config(max_dlq_size=...)` または `v2_max_dlq_size=...` で調整できます。
+
+#### バグ修正
+
+- **QUAL-01: `AsyncNanaSQLite` の `lock_timeout` 転送漏れを修正**（`async_core.py`）
+  - 非同期 API でもロック取得タイムアウトが内部 DB に渡されるようにしました。
+
 ### [1.5.5] - 2026-04-30
 
 #### セキュリティ修正 (Security Remediation)

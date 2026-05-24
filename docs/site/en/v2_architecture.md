@@ -120,6 +120,8 @@ db = NanaSQLite(
 
 Operations that fail to write are isolated in the **Dead Letter Queue**. This prevents errors from blocking subsequent operations.
 
+The DLQ keeps up to 1000 entries by default. When the limit is reached, the oldest entry is evicted. Tune it with `V2Config(max_dlq_size=...)` or `v2_max_dlq_size=...`.
+
 ### Inspecting the DLQ
 
 ```python
@@ -189,6 +191,7 @@ db._v2_engine.enqueue_strict_task(task)
 | `flush_interval` | `float` | `3.0` | Interval for time mode (seconds) |
 | `flush_count` | `int` | `100` | Threshold for count mode |
 | `v2_chunk_size` | `int` | `1000` | Transaction chunk size |
+| `v2_max_dlq_size` | `int | None` | `1000` | Maximum DLQ entries. Use None for unbounded behavior |
 | `v2_enable_metrics` | `bool` | `False` | Enable detailed metrics collection |
 
 ## Async V2 Usage

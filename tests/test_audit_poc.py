@@ -417,6 +417,12 @@ class TestV140Sec01CreateTableInjection:
         }
         db.create_table("valid_table", valid_types)
 
+    def test_top_level_comma_in_column_type_blocked(self, db):
+        """Column type definitions must not inject an extra top-level column."""
+        with pytest.raises((NanaSQLiteValidationError, ValueError)):
+            db.create_table("evil_comma", {"name": "TEXT, injected INTEGER"})
+        assert not db.table_exists("evil_comma")
+
 
 # ===========================================================================
 # BUG-01 [High]: V2Engine on_success callback before COMMIT
@@ -3650,6 +3656,38 @@ class TestQual02V154DLQEntryDataclass:
         engine.shutdown()
         conn.close()
 
+    def test_dlq_max_size_evicts_oldest_entry(self, db_path):
+        """DLQ が上限を超える場合は最古のエントリを破棄する。"""
+        import apsw
+
+        from nanasqlite.v2_engine import V2Engine
+
+        conn = apsw.Connection(db_path)
+        engine = V2Engine(connection=conn, table_name="data", max_dlq_size=2)
+        engine._add_to_dlq("first", "item1")
+        engine._add_to_dlq("second", "item2")
+        engine._add_to_dlq("third", "item3")
+
+        dlq = engine.get_dlq()
+        assert [entry["error"] for entry in dlq] == ["second", "third"]
+        assert [entry["item"] for entry in dlq] == ["item2", "item3"]
+
+        engine.shutdown()
+        conn.close()
+
+    def test_v2_config_passes_max_dlq_size(self, db_path):
+        """NanaSQLite の V2Config から DLQ 上限を渡せることを確認する。"""
+        from nanasqlite import NanaSQLite, V2Config
+
+        cfg = V2Config(max_dlq_size=1)
+        with NanaSQLite(db_path, v2_mode=True, v2_config=cfg) as db:
+            assert db._v2_engine is not None
+            db._v2_engine._add_to_dlq("first", "item1")
+            db._v2_engine._add_to_dlq("second", "item2")
+            dlq = db.get_dlq()
+            assert len(dlq) == 1
+            assert dlq[0]["error"] == "second"
+
 
 # ---------------------------------------------------------------------------
 # v1.5.4 前倒し実施: SEC-01 — DLQ ペイロード漏洩ドキュメント
@@ -3802,6 +3840,52 @@ class TestV155Sec01OrderBySubqueryInjection:
         assert pattern.search("select name")
         assert not pattern.search("name ASC")
         assert not pattern.search("score DESC")
+
+
+class TestV156Sec01ColumnSubqueryInjection:
+    """SEC-01: SELECT column expressions must not accept subqueries."""
+
+    def test_column_select_keyword_raises_in_strict_mode(self, tmp_path):
+        """strict_sql_validation=True: SELECT keyword in columns raises ValueError."""
+        from nanasqlite import NanaSQLite
+
+        db_path = str(tmp_path / "sec01_column.db")
+        with NanaSQLite(db_path, strict_sql_validation=True) as db:
+            db["a"] = {"name": "alice", "score": 1}
+            with pytest.raises(ValueError):
+                db.query(
+                    table_name="data",
+                    columns=["key", "(SELECT name FROM sqlite_master) AS leaked"],
+                    strict_sql_validation=True,
+                )
+
+    def test_pagination_column_select_keyword_raises_in_strict_mode(self, tmp_path):
+        """query_with_pagination() applies the same column subquery guard."""
+        from nanasqlite import NanaSQLite
+
+        db_path = str(tmp_path / "sec01_column_page.db")
+        with NanaSQLite(db_path, strict_sql_validation=True) as db:
+            db["a"] = {"name": "alice", "score": 1}
+            with pytest.raises(ValueError):
+                db.query_with_pagination(
+                    table_name="data",
+                    columns=["(SELECT name FROM sqlite_master) AS leaked"],
+                    strict_sql_validation=True,
+                )
+
+    def test_legitimate_column_aggregate_still_passes(self, tmp_path):
+        """Allowed aggregate expressions remain usable after the subquery guard."""
+        from nanasqlite import NanaSQLite
+
+        db_path = str(tmp_path / "sec01_column_ok.db")
+        with NanaSQLite(db_path, strict_sql_validation=True) as db:
+            db["a"] = {"name": "alice", "score": 1}
+            results = db.query(
+                table_name="data",
+                columns=["COUNT(*) AS total"],
+                strict_sql_validation=True,
+            )
+            assert results == [{"total": 1}]
 
 
 class TestV155Bug01ExpiringDictDelitemTimerGuard:

@@ -100,6 +100,7 @@ class V2Engine:
         flush_interval: float = 3.0,
         flush_count: int = 100,
         max_chunk_size: int = 1000,
+        max_dlq_size: int | None = 1000,
         serialize_func: Callable[[Any], str | bytes] | None = None,
         enable_metrics: bool = False,
         shared_lock: threading.RLock | None = None,
@@ -127,6 +128,11 @@ class V2Engine:
         self._flush_interval = flush_interval
         self._flush_count = flush_count
         self._max_chunk_size = max_chunk_size
+        if max_dlq_size is not None and (
+            isinstance(max_dlq_size, bool) or not isinstance(max_dlq_size, int) or max_dlq_size <= 0
+        ):
+            raise ValueError("max_dlq_size must be None or a positive integer")
+        self._max_dlq_size = max_dlq_size
 
         # Lane 1: KVS Normal Lane (Staging Buffer)
         # Structure: {(table_name, key): {"action": "set"|"delete", "value": ...}}
@@ -207,6 +213,13 @@ class V2Engine:
             See :class:`DLQEntry` for the full security notice.
         """
         with self._dlq_lock:
+            if self._max_dlq_size is not None and len(self.dlq) >= self._max_dlq_size:
+                oldest = self.dlq.pop(0)
+                logger.warning(
+                    "NanaSQLite DLQ full (max=%d); evicting oldest entry: %s",
+                    self._max_dlq_size,
+                    oldest.error_msg,
+                )
             self.dlq.append(DLQEntry(error_msg=error_msg, item=item, timestamp=time.time()))
         if self._enable_metrics:
             with self._metrics_lock:

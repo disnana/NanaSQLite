@@ -78,8 +78,9 @@ from nanasqlite import NanaSQLite, V2Config
 cfg = V2Config(
     flush_mode="time",
     flush_interval=1.0,
-    v2_chunk_size=500,
-    v2_enable_metrics=True
+    chunk_size=500,
+    max_dlq_size=1000,
+    enable_metrics=True
 )
 
 db = NanaSQLite("mydb.db", v2_mode=True, v2_config=cfg)
@@ -129,6 +130,8 @@ db.flush()  # ここで初めてディスクに書き込まれる
 バックグラウンドでの SQL 実行が失敗した場合（型違反、SQL構文エラー等）、failed タスクは **DLQ（Dead Letter Queue）** に隔離されます。これにより、エラーが一件あっても他のデータ永続化が継続されます。
 
 以前は内部エンジンを直接操作する必要がありましたが、現在は公開 API として利用可能です。
+
+DLQ はデフォルトで最大 1000 件まで保持します。上限に達した場合は最古のエントリを破棄し、新しい失敗を保持します。必要に応じて `V2Config(max_dlq_size=...)` または `NanaSQLite(..., v2_max_dlq_size=...)` で調整できます。`None` を指定すると無制限になります。
 
 ```python
 # DLQ の内容を確認する

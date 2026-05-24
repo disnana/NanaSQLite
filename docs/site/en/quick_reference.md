@@ -16,6 +16,7 @@ class NanaSQLite(db_path: str, table: str = "data", bulk_load: bool = False,
                  flush_interval: float = 3.0,
                  flush_count: int = 100,
                  v2_chunk_size: int = 1000,
+                 v2_max_dlq_size: int | None = 1000,
                  v2_enable_metrics: bool = False)
 ```
 
@@ -39,6 +40,7 @@ A wrapper class that provides SQLite persistence with a dict-like interface.
 | `flush_interval` | `float` | `3.0` | Flush interval in seconds for `time` mode |
 | `flush_count` | `int` | `100` | Write count threshold for `count` mode |
 | `v2_chunk_size` | `int` | `1000` | Maximum number of records per flush transaction |
+| `v2_max_dlq_size` | `int | None` | `1000` | Maximum DLQ entries. Use None for unbounded behavior |
 | `v2_enable_metrics` | `bool` | `False` | Collect metrics for v2 engine flushes |
 
 ### Usage Examples

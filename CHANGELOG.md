@@ -8,6 +8,15 @@
 
 ### [1.5.6b1] - 2026-05-24
 
+#### セキュリティ修正
+
+- **SEC-01: `query(..., columns=[...])` のサブクエリ拒否を強化**（`core.py`）
+  - `ORDER BY` / `GROUP BY` と同様に、列式でも `SELECT` / `FROM` などのサブクエリ系キーワードを strict モードで拒否するようにしました。`COUNT(*) AS total` などの通常の集計式は引き続き利用できます。
+- **SEC-02: `create_table()` の列型定義でトップレベルのカンマ注入を拒否**（`core.py`）
+  - `DECIMAL(10,2)` のような括弧内カンマは許可しつつ、`TEXT, injected INTEGER` のような列定義割り込みを拒否します。
+- **BUG-02: V2 デッドレターキュー (DLQ) の無制限成長を抑制**（`v2_engine.py`）
+  - DLQ にデフォルト上限 `1000` を追加し、上限到達時は最古エントリを破棄して新しい失敗を保持します。`V2Config(max_dlq_size=...)` または `v2_max_dlq_size=...` で調整でき、`None` を指定すると従来通り無制限にできます。
+
 #### バグ修正
 
 - **QUAL-01: `AsyncNanaSQLite` の `lock_timeout` 転送漏れを修正**（`async_core.py`）
@@ -1256,6 +1265,15 @@
 ## English
 
 ### [1.5.6b1] - 2026-05-24
+
+#### Security Fixes
+
+- **SEC-01: Hardened subquery rejection for `query(..., columns=[...])`** (`core.py`)
+  - Column expressions now reject subquery keywords such as `SELECT` / `FROM` in strict mode, matching the existing ORDER BY / GROUP BY hardening. Normal aggregate expressions such as `COUNT(*) AS total` remain supported.
+- **SEC-02: Rejected top-level comma injection in `create_table()` column types** (`core.py`)
+  - Commas remain allowed inside balanced parentheses, such as `DECIMAL(10,2)`, while definitions such as `TEXT, injected INTEGER` are rejected.
+- **BUG-02: Bounded V2 Dead Letter Queue (DLQ) growth** (`v2_engine.py`)
+  - Added a default DLQ limit of `1000`; when full, the oldest entry is evicted so newer failures remain visible. Tune via `V2Config(max_dlq_size=...)` or `v2_max_dlq_size=...`; pass `None` to keep the previous unbounded behavior.
 
 #### Bug Fixes
 

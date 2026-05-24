@@ -6,9 +6,6 @@
 
 - `src/nanasqlite/async_core.py`
 - `tests/test_async.py`
-- `scratch/verify_qual_bug04_static.py`
-- `scratch/poc_async_lock_timeout.py`
-- `scratch/poc_get_db_size_memory.py`
 
 ## 結論
 
@@ -33,26 +30,13 @@
 
 ## 検証
 
-依存関係なしで実行できる静的検証:
+回帰テスト:
 
 ```powershell
-python scratch\verify_qual_bug04_static.py
+python -m pytest tests\test_async.py::TestAsyncBasicOperations::test_async_lock_timeout_forwarded_to_sync_db tests\test_async.py::TestAsyncBasicOperations::test_async_table_inherits_lock_timeout -q
 ```
 
-期待結果:
-
-- `AsyncNanaSQLite.__init__() が lock_timeout を読む: True`
-- `内部 NanaSQLite(...) に lock_timeout を渡す: True`
-- `get_db_size() に :memory: / 空パス guard がある: True`
-
-実行時 PoC:
-
-```powershell
-python scratch\poc_async_lock_timeout.py
-python scratch\poc_get_db_size_memory.py
-```
-
-この PoC は `apsw` などの実行時依存が必要。依存が不足している環境ではスキップ表示になる。
+初期調査に使った `scratch/` 配下の一時 PoC は、回帰テストへ置き換え済みのため削除した。
 
 ## 性能面の補足
 
