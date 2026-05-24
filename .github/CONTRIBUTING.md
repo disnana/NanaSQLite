@@ -79,6 +79,8 @@ mainブランチにpushすると：
 - 型ヒントを使用
 - docstringを記述（日本語OK）
 - テストを追加
+- lint(ruff)に合格する
+- mypy(tox)に合格する
 
 ---
 
