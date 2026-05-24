@@ -109,6 +109,29 @@ class TestAsyncBasicOperations:
             assert not_exists is False
 
     @pytest.mark.asyncio
+    async def test_async_lock_timeout_forwarded_to_sync_db(self, db_path):
+        """AsyncNanaSQLite の lock_timeout が内部 NanaSQLite に転送されること"""
+        async with AsyncNanaSQLite(db_path, lock_timeout=0.2) as db:
+            await db.aset("key", "value")
+
+            assert db.sync_db is not None
+            assert db.sync_db._lock_timeout == 0.2
+
+    @pytest.mark.asyncio
+    async def test_async_table_inherits_lock_timeout(self, db_path):
+        """AsyncNanaSQLite.table() の子インスタンスが親の lock_timeout を継承すること"""
+        async with AsyncNanaSQLite(db_path, lock_timeout=0.2) as db:
+            child = await db.table("child")
+            try:
+                await child.aset("key", "value")
+
+                assert child.sync_db is not None
+                assert child.sync_db._lock_timeout == 0.2
+                assert child._lock_timeout == 0.2
+            finally:
+                await child.close()
+
+    @pytest.mark.asyncio
     async def test_async_delete(self, db_path):
         """非同期削除"""
         async with AsyncNanaSQLite(db_path) as db:

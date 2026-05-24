@@ -125,6 +125,7 @@ class AsyncNanaSQLite:
             strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否 (v1.2.0)
             cache_strategy: キャッシュ戦略 (v1.1.0)
             encryption_key: 暗号化キー (v1.3.1)
+            lock_timeout: ロック取得のタイムアウト秒数。Noneで無制限待機。
             validator: バリデーション用スキーマ
             v2_mode: Trueの場合、新しいV2エンジンの試験的機能を使用する
             v2_config: V2エンジンの構成オブジェクト
@@ -142,6 +143,7 @@ class AsyncNanaSQLite:
         cache_ttl = kwargs.get("cache_ttl")
         cache_persistence_ttl = kwargs.get("cache_persistence_ttl", False)
         encryption_mode = kwargs.get("encryption_mode", "aes-gcm")
+        lock_timeout = kwargs.get("lock_timeout")
         # override coerce from kwargs if provided (v1 signature compatibility)
         coerce = kwargs.get("coerce", coerce)
         hooks = kwargs.get("hooks")
@@ -170,6 +172,7 @@ class AsyncNanaSQLite:
         self._cache_persistence_ttl = cache_persistence_ttl
         self._encryption_key = encryption_key
         self._encryption_mode = encryption_mode
+        self._lock_timeout = lock_timeout
         self._validator_raw = validator
         self._coerce_raw: bool = bool(coerce)
         self._hooks_raw: list[NanaHook] = hooks or []
@@ -277,6 +280,7 @@ class AsyncNanaSQLite:
                     cache_persistence_ttl=self._cache_persistence_ttl,
                     encryption_key=self._encryption_key,
                     encryption_mode=self._encryption_mode,
+                    lock_timeout=self._lock_timeout,
                     validator=self._validator,
                     coerce=self._coerce,
                     hooks=self._hooks,
@@ -1539,6 +1543,7 @@ class AsyncNanaSQLite:
         # 暗号化関連の設定を親インスタンスから継承する
         async_sub_db._encryption_key = self._encryption_key
         async_sub_db._encryption_mode = self._encryption_mode
+        async_sub_db._lock_timeout = self._lock_timeout
         # v2アーキテクチャ関連の設定を親インスタンスから継承する
         async_sub_db._v2_mode = getattr(self, "_v2_mode", False)
         async_sub_db._flush_mode = getattr(self, "_flush_mode", "immediate")

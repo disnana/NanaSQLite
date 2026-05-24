@@ -5,7 +5,7 @@ AsyncNanaSQLiteクラスの非同期メソッド一覧です。
 ## AsyncNanaSQLite
 
 ```python
-class AsyncNanaSQLite(db_path: str, table: str = 'data', bulk_load: bool = False, optimize: bool = True, cache_size_mb: int = 64, max_workers: int = 5, thread_name_prefix: str = 'AsyncNanaSQLite', strict_sql_validation: bool = True, allowed_sql_functions: list[str] | None = None, forbidden_sql_functions: list[str] | None = None, max_clause_length: int | None = 1000, read_pool_size: int = 0, cache_strategy: CacheType | str = <CacheType.UNBOUNDED: unbounded>, cache_size: int | None = None, cache_ttl: float | None = None, cache_persistence_ttl: bool = False, encryption_key: str | bytes | None = None, encryption_mode: Literal['aes-gcm', 'chacha20', 'fernet'] = 'aes-gcm', validator: Any | None = None, coerce: bool = False, v2_mode: bool = False, flush_mode: Literal['immediate', 'count', 'time', 'manual'] = 'immediate', flush_interval: float = 3.0, flush_count: int = 100, v2_chunk_size: int = 1000, v2_enable_metrics: bool = False) -> None
+class AsyncNanaSQLite(db_path: str, table: str = 'data', bulk_load: bool = False, optimize: bool = True, cache_size_mb: int = 64, max_workers: int = 5, thread_name_prefix: str = 'AsyncNanaSQLite', strict_sql_validation: bool = True, allowed_sql_functions: list[str] | None = None, forbidden_sql_functions: list[str] | None = None, max_clause_length: int | None = 1000, read_pool_size: int = 0, lock_timeout: float | None = None, cache_strategy: CacheType | str = <CacheType.UNBOUNDED: unbounded>, cache_size: int | None = None, cache_ttl: float | None = None, cache_persistence_ttl: bool = False, encryption_key: str | bytes | None = None, encryption_mode: Literal['aes-gcm', 'chacha20', 'fernet'] = 'aes-gcm', validator: Any | None = None, coerce: bool = False, v2_mode: bool = False, flush_mode: Literal['immediate', 'count', 'time', 'manual'] = 'immediate', flush_interval: float = 3.0, flush_count: int = 100, v2_chunk_size: int = 1000, v2_enable_metrics: bool = False) -> None
 ```
 
 (最適化されたスレッドプールを使用するNanaSQLiteの非同期ラッパー)
@@ -32,6 +32,7 @@ class AsyncNanaSQLite(db_path: str, table: str = 'data', bulk_load: bool = False
 | `forbidden_sql_functions` | `list[str] | None` | 明示的に禁止するSQL関数のリスト (v1.2.0) |
 | `max_clause_length` | `int | None` | SQL句の最大長（ReDoS対策）。Noneで制限なし (v1.2.0) |
 | `read_pool_size` | `int` | 読み取り専用プールサイズ (デフォルト: 0 = 無効) (v1.1.0) |
+| `lock_timeout` | `float | None` | 内部ロック取得の最大待機秒数。Noneで無制限待機。サブテーブルは親の設定を継承します。 |
 | `cache_strategy` | `CacheType | str` |  |
 | `cache_size` | `int | None` |  |
 | `cache_ttl` | `float | None` |  |

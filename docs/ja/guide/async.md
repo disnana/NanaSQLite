@@ -45,7 +45,8 @@ from nanasqlite import AsyncNanaSQLite
 async def main():
     # コンテキストマネージャを使用（推奨）
     # max_workers: 並行処理数に応じて調整
-    async with AsyncNanaSQLite("mydata.db", max_workers=5) as db:
+    # lock_timeout: ロック取得の最大待機秒数。None は無制限待機
+    async with AsyncNanaSQLite("mydata.db", max_workers=5, lock_timeout=2.0) as db:
         # データベース操作
         await db.aset("key", "value")
         value = await db.aget("key")

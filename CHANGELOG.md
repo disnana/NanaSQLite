@@ -6,6 +6,18 @@
 
 ## 日本語
 
+### [1.5.6b1] - 2026-05-24
+
+#### バグ修正
+
+- **QUAL-01: `AsyncNanaSQLite` の `lock_timeout` 転送漏れを修正**（`async_core.py`）
+  - `AsyncNanaSQLite(..., lock_timeout=...)` で指定した値が内部の `NanaSQLite` インスタンスに渡されず、非同期 API ではロック取得タイムアウトが実質的に無効になっていた問題を修正しました。
+  - `AsyncNanaSQLite.table()` で作成したサブテーブルも、親インスタンスの `lock_timeout` を継承することを回帰テストで確認しました。
+
+#### ドキュメント
+
+- 非同期 API ドキュメントに `lock_timeout` の説明を追加しました。
+
 ### [1.5.5] - 2026-04-30
 
 #### セキュリティ修正 (Security Remediation)
@@ -1242,6 +1254,18 @@
 
 
 ## English
+
+### [1.5.6b1] - 2026-05-24
+
+#### Bug Fixes
+
+- **QUAL-01: Fixed missing `lock_timeout` forwarding in `AsyncNanaSQLite`** (`async_core.py`)
+  - `AsyncNanaSQLite(..., lock_timeout=...)` did not forward the value to the internal `NanaSQLite` instance, effectively disabling lock acquisition timeouts for the async API.
+  - Added regression coverage confirming that sub-tables created by `AsyncNanaSQLite.table()` inherit the parent's `lock_timeout`.
+
+#### Documentation
+
+- Documented `lock_timeout` in the async API references and guides.
 
 ### [1.5.5] - 2026-04-30
 
