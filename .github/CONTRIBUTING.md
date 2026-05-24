@@ -159,3 +159,5 @@ When you push to main branch:
 - Use type hints
 - Write docstrings
 - Add tests for new features
+- Pass lint (ruff)
+- Pass mypy (tox)
