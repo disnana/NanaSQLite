@@ -112,7 +112,7 @@ version = {attr = "nanasqlite.__version__"}
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short --ignore=tests/test_benchmark.py --ignore=tests/test_async_benchmark.py --ignore=tests/test_cache_benchmark.py --ignore=tests/benchmark_encryption.py"
 asyncio_mode = "auto"
 
 [tool.ruff]

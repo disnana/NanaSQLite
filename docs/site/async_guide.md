@@ -47,7 +47,8 @@ async def main():
     # コンテキストマネージャを使用（推奨）
     # max_workers: 一般的なタスク用のスレッド数
     # read_pool_size: 並列読み込み専用の接続数 (v1.2.0+)
-    async with AsyncNanaSQLite("mydata.db", max_workers=5, read_pool_size=4) as db:
+    # lock_timeout: ロック取得の最大待機秒数。None は無制限待機
+    async with AsyncNanaSQLite("mydata.db", max_workers=5, read_pool_size=4, lock_timeout=2.0) as db:
         # データベース操作
         await db.aset("key", "value")
         value = await db.aget("key")

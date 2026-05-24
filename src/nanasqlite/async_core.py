@@ -125,6 +125,7 @@ class AsyncNanaSQLite:
             strict_sql_validation: Trueの場合、未許可の関数等を含むクエリを拒否 (v1.2.0)
             cache_strategy: キャッシュ戦略 (v1.1.0)
             encryption_key: 暗号化キー (v1.3.1)
+            lock_timeout: ロック取得のタイムアウト秒数。Noneで無制限待機。
             validator: バリデーション用スキーマ
             v2_mode: Trueの場合、新しいV2エンジンの試験的機能を使用する
             v2_config: V2エンジンの構成オブジェクト
@@ -142,6 +143,7 @@ class AsyncNanaSQLite:
         cache_ttl = kwargs.get("cache_ttl")
         cache_persistence_ttl = kwargs.get("cache_persistence_ttl", False)
         encryption_mode = kwargs.get("encryption_mode", "aes-gcm")
+        lock_timeout = kwargs.get("lock_timeout")
         # override coerce from kwargs if provided (v1 signature compatibility)
         coerce = kwargs.get("coerce", coerce)
         hooks = kwargs.get("hooks")
@@ -149,6 +151,7 @@ class AsyncNanaSQLite:
         flush_interval = kwargs.get("flush_interval", 3.0)
         flush_count = kwargs.get("flush_count", 100)
         v2_chunk_size = kwargs.get("v2_chunk_size", 1000)
+        v2_max_dlq_size = kwargs.get("v2_max_dlq_size", 1000)
         v2_enable_metrics = kwargs.get("v2_enable_metrics", False)
 
         self._db_path = db_path
@@ -170,6 +173,7 @@ class AsyncNanaSQLite:
         self._cache_persistence_ttl = cache_persistence_ttl
         self._encryption_key = encryption_key
         self._encryption_mode = encryption_mode
+        self._lock_timeout = lock_timeout
         self._validator_raw = validator
         self._coerce_raw: bool = bool(coerce)
         self._hooks_raw: list[NanaHook] = hooks or []
@@ -181,6 +185,7 @@ class AsyncNanaSQLite:
             flush_interval = v2_config.flush_interval
             flush_count = v2_config.flush_count
             v2_chunk_size = v2_config.chunk_size
+            v2_max_dlq_size = v2_config.max_dlq_size
             v2_enable_metrics = v2_config.enable_metrics
 
         self._v2_mode = v2_mode
@@ -188,6 +193,7 @@ class AsyncNanaSQLite:
         self._flush_interval = flush_interval
         self._flush_count = flush_count
         self._v2_chunk_size = v2_chunk_size
+        self._v2_max_dlq_size = v2_max_dlq_size
         self._v2_enable_metrics = v2_enable_metrics
 
         self._closed = False
@@ -277,6 +283,7 @@ class AsyncNanaSQLite:
                     cache_persistence_ttl=self._cache_persistence_ttl,
                     encryption_key=self._encryption_key,
                     encryption_mode=self._encryption_mode,
+                    lock_timeout=self._lock_timeout,
                     validator=self._validator,
                     coerce=self._coerce,
                     hooks=self._hooks,
@@ -285,6 +292,7 @@ class AsyncNanaSQLite:
                     flush_interval=self._flush_interval,
                     flush_count=self._flush_count,
                     v2_chunk_size=self._v2_chunk_size,
+                    v2_max_dlq_size=self._v2_max_dlq_size,
                     v2_enable_metrics=self._v2_enable_metrics,
                 ),
             )
@@ -338,6 +346,31 @@ class AsyncNanaSQLite:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, func, *args)
 
+    def _try_get_unbounded_cache_hit(self, key: str, default: Any = None) -> tuple[bool, Any]:
+        """Return a cached unbounded value without crossing the executor boundary."""
+        db = self._db
+        if db is None or db._lru_mode or db._has_hooks:
+            return False, None
+        try:
+            return True, db._data[key]
+        except KeyError:
+            if key in db._absent_keys:
+                return True, default
+            return False, None
+
+    def _try_contains_unbounded_cache_hit(self, key: str) -> tuple[bool, bool]:
+        """Return cached unbounded containment knowledge when available."""
+        db = self._db
+        if db is None or db._lru_mode:
+            return False, False
+        try:
+            _ = db._data[key]
+            return True, True
+        except KeyError:
+            if key in db._absent_keys:
+                return True, False
+            return False, False
+
     # ==================== Async Dict-like Interface ====================
 
     async def aget(self, key: str, default: Any = None) -> Any:
@@ -356,6 +389,9 @@ class AsyncNanaSQLite:
             >>> config = await db.aget("config", {})
         """
         await self._ensure_initialized()
+        cache_hit, value = self._try_get_unbounded_cache_hit(key, default)
+        if cache_hit:
+            return value
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self._db.get, key, default)
 
@@ -408,6 +444,9 @@ class AsyncNanaSQLite:
         await self._ensure_initialized()
         if self._db is None:
             raise RuntimeError("Database not initialized")
+        cache_hit, exists = self._try_contains_unbounded_cache_hit(key)
+        if cache_hit:
+            return exists
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self._db.__contains__, key)
 
@@ -1539,12 +1578,14 @@ class AsyncNanaSQLite:
         # 暗号化関連の設定を親インスタンスから継承する
         async_sub_db._encryption_key = self._encryption_key
         async_sub_db._encryption_mode = self._encryption_mode
+        async_sub_db._lock_timeout = self._lock_timeout
         # v2アーキテクチャ関連の設定を親インスタンスから継承する
         async_sub_db._v2_mode = getattr(self, "_v2_mode", False)
         async_sub_db._flush_mode = getattr(self, "_flush_mode", "immediate")
         async_sub_db._flush_interval = getattr(self, "_flush_interval", 3.0)
         async_sub_db._flush_count = getattr(self, "_flush_count", 100)
         async_sub_db._v2_chunk_size = getattr(self, "_v2_chunk_size", 1000)
+        async_sub_db._v2_max_dlq_size = getattr(self, "_v2_max_dlq_size", 1000)
         async_sub_db._v2_enable_metrics = getattr(self, "_v2_enable_metrics", False)
         # 子インスタンス管理
         async_sub_db._child_instances = weakref.WeakSet()

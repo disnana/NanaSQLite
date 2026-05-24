@@ -29,10 +29,10 @@ pytest tests/ -v
 | バージョン | 意味 | GitHub Release |
 |-----------|------|----------------|
 | `1.0.0` | 正式リリース | Release |
+| `1.0.1dev` | 開発版（不安定） | Pre-release |
 | `1.0.1a1` | Alpha版（テスト初期段階） | Pre-release |
 | `1.0.1b1` | Beta版（機能完成、テスト中） | Pre-release |
 | `1.0.1rc1` | Release Candidate（リリース候補） | Pre-release |
-| `1.0.1dev` | 開発版（不安定） | Pre-release |
 
 #### バージョン更新例
 
@@ -79,6 +79,9 @@ mainブランチにpushすると：
 - 型ヒントを使用
 - docstringを記述（日本語OK）
 - テストを追加
+- lint(ruff)に合格する
+- mypy(tox)に合格する
+- codeqlに合格する
 
 ---
 
@@ -107,10 +110,10 @@ Version is managed in `src/nanasqlite/__init__.py` via `__version__`.
 | Version | Meaning | GitHub Release |
 |---------|---------|----------------|
 | `1.0.0` | Stable release | Release |
+| `1.0.1dev` | Development (unstable) | Pre-release |
 | `1.0.1a1` | Alpha (early testing) | Pre-release |
 | `1.0.1b1` | Beta (feature complete, testing) | Pre-release |
 | `1.0.1rc1` | Release Candidate | Pre-release |
-| `1.0.1dev` | Development (unstable) | Pre-release |
 
 #### Version Update Examples
 
@@ -157,3 +160,6 @@ When you push to main branch:
 - Use type hints
 - Write docstrings
 - Add tests for new features
+- Pass lint (ruff)
+- Pass mypy (tox)
+- Pass codeql

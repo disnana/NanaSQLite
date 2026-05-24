@@ -45,7 +45,8 @@ from nanasqlite import AsyncNanaSQLite
 async def main():
     # Use context manager (recommended)
     # max_workers: adjust based on concurrency needs
-    async with AsyncNanaSQLite("mydata.db", max_workers=5) as db:
+    # lock_timeout: maximum seconds to wait for the internal lock; None waits indefinitely
+    async with AsyncNanaSQLite("mydata.db", max_workers=5, lock_timeout=2.0) as db:
         # Database operations
         await db.aset("key", "value")
         value = await db.aget("key")

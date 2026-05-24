@@ -17,7 +17,7 @@ import time
 import pytest
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from nanasqlite import AsyncNanaSQLite, NanaSQLite
+from nanasqlite import AsyncNanaSQLite, NanaSQLite, V2Config
 from nanasqlite.exceptions import (
     NanaSQLiteClosedError,
     NanaSQLiteDatabaseError,
@@ -416,6 +416,24 @@ class TestV140Sec01CreateTableInjection:
             "ref_id": "INTEGER REFERENCES other(id)",
         }
         db.create_table("valid_table", valid_types)
+
+    def test_top_level_comma_in_column_type_blocked(self, db):
+        """Column type definitions must not inject an extra top-level column."""
+        with pytest.raises((NanaSQLiteValidationError, ValueError)):
+            db.create_table("evil_comma", {"name": "TEXT, injected INTEGER"})
+        assert not db.table_exists("evil_comma")
+
+    def test_unbalanced_column_type_parentheses_blocked(self, db):
+        """列型定義の括弧が閉じていない場合は拒否する。"""
+        with pytest.raises((NanaSQLiteValidationError, ValueError), match="parentheses are not balanced"):
+            db.create_table("evil_unbalanced", {"amount": "DECIMAL(10,2"})
+        assert not db.table_exists("evil_unbalanced")
+
+    def test_extra_closing_column_type_parenthesis_blocked(self, db):
+        """列型定義に余分な閉じ括弧がある場合も拒否する。"""
+        with pytest.raises((NanaSQLiteValidationError, ValueError), match="parentheses are not balanced"):
+            db.create_table("evil_extra_close", {"name": "TEXT)"})
+        assert not db.table_exists("evil_extra_close")
 
 
 # ===========================================================================
@@ -3650,6 +3668,154 @@ class TestQual02V154DLQEntryDataclass:
         engine.shutdown()
         conn.close()
 
+    def test_dlq_max_size_evicts_oldest_entry(self, db_path):
+        """DLQ が上限を超える場合は最古のエントリを破棄する。"""
+        import apsw
+
+        from nanasqlite.v2_engine import V2Engine
+
+        conn = apsw.Connection(db_path)
+        engine = V2Engine(connection=conn, table_name="data", max_dlq_size=2)
+        engine._add_to_dlq("first", "item1")
+        engine._add_to_dlq("second", "item2")
+        engine._add_to_dlq("third", "item3")
+
+        dlq = engine.get_dlq()
+        assert [entry["error"] for entry in dlq] == ["second", "third"]
+        assert [entry["item"] for entry in dlq] == ["item2", "item3"]
+
+        engine.shutdown()
+        conn.close()
+
+    def test_v2_config_passes_max_dlq_size(self, db_path):
+        """NanaSQLite の V2Config から DLQ 上限を渡せることを確認する。"""
+        from nanasqlite import NanaSQLite, V2Config
+
+        cfg = V2Config(max_dlq_size=1)
+        with NanaSQLite(db_path, v2_mode=True, v2_config=cfg) as db:
+            assert db._v2_engine is not None
+            db._v2_engine._add_to_dlq("first", "item1")
+            db._v2_engine._add_to_dlq("second", "item2")
+            dlq = db.get_dlq()
+            assert len(dlq) == 1
+            assert dlq[0]["error"] == "second"
+
+    def test_v2_engine_kvs_set_rejects_unsafe_table_name(self, db_path):
+        """V2Engine 直利用でも KVS 入口の unsafe table_name を拒否する。"""
+        import apsw
+
+        from nanasqlite.v2_engine import V2Engine
+
+        conn = apsw.Connection(db_path)
+        engine = V2Engine(connection=conn, table_name="data", flush_mode="manual")
+        try:
+            with pytest.raises(ValueError, match="Invalid or unsafe table name"):
+                engine.kvs_set("data; DROP TABLE data; --", "key", "value")
+            with pytest.raises(ValueError, match="Invalid or unsafe table name"):
+                engine.kvs_delete("data; DROP TABLE data; --", "key")
+        finally:
+            engine.shutdown()
+            conn.close()
+
+    def test_v2_config_values_are_passed_to_engine(self, db_path):
+        """V2Config の各値が NanaSQLite から V2Engine に渡ることを確認する。"""
+        cfg = V2Config(
+            flush_mode="count",
+            flush_interval=7.5,
+            flush_count=12,
+            chunk_size=34,
+            max_dlq_size=56,
+            enable_metrics=True,
+        )
+
+        with NanaSQLite(db_path, v2_mode=True, v2_config=cfg) as db:
+            engine = db._v2_engine
+            assert engine is not None
+            assert engine._flush_mode == "count"
+            assert engine._flush_interval == 7.5
+            assert engine._flush_count == 12
+            assert engine._max_chunk_size == 34
+            assert engine._max_dlq_size == 56
+            assert engine.get_metrics()["flush_count"] == 0
+
+    def test_v2_engine_accepts_safe_quoted_table_name_in_kvs_paths(self, db_path):
+        """quoted 済みの安全な table_name は KVS 入口と staging 読み取りで使える。"""
+        import apsw
+
+        from nanasqlite.v2_engine import V2Engine
+
+        conn = apsw.Connection(db_path)
+        conn.execute('CREATE TABLE "data" (key TEXT PRIMARY KEY, value TEXT)')
+        engine = V2Engine(connection=conn, table_name='"data"', flush_mode="manual")
+        try:
+            engine.kvs_set('"data"', "key", {"value": 1})
+            staged = engine.kvs_get_staging('"data"', "key")
+            assert staged is not None
+            assert staged["action"] == "set"
+
+            engine.kvs_delete('"data"', "key")
+            staged = engine.kvs_get_staging('"data"', "key")
+            assert staged == {"action": "delete"}
+        finally:
+            engine.shutdown()
+            conn.close()
+
+    def test_v2_engine_staging_read_rejects_unsafe_table_name(self, db_path):
+        """staging 読み取り経路でも unsafe table_name を拒否する。"""
+        import apsw
+
+        from nanasqlite.v2_engine import V2Engine
+
+        conn = apsw.Connection(db_path)
+        engine = V2Engine(connection=conn, table_name="data", flush_mode="manual")
+        try:
+            with pytest.raises(ValueError, match="Invalid or unsafe table name"):
+                engine.kvs_get_staging("data; DROP TABLE data; --", "key")
+        finally:
+            engine.shutdown()
+            conn.close()
+
+    def test_v2_engine_process_chunk_rejects_unsafe_table_name(self, db_path):
+        """flush 内部経路でも unsafe table_name を SQL に連結しない。"""
+        import apsw
+
+        from nanasqlite.v2_engine import V2Engine
+
+        conn = apsw.Connection(db_path)
+        conn.execute("CREATE TABLE data (key TEXT PRIMARY KEY, value TEXT)")
+        engine = V2Engine(connection=conn, table_name="data", flush_mode="manual")
+        try:
+            with pytest.raises(ValueError, match="Invalid or unsafe table name"):
+                engine._process_kvs_chunk(
+                    [(("data; DROP TABLE data; --", "bad"), {"action": "delete"})]
+                )
+            assert conn.execute("SELECT name FROM sqlite_master WHERE name='data'").fetchone()
+        finally:
+            engine.shutdown()
+            conn.close()
+
+    def test_v2_engine_dlq_recovery_rejects_unsafe_table_name(self, db_path):
+        """DLQ 復旧経路でも unsafe table_name を SQL に連結しない。"""
+        import apsw
+
+        from nanasqlite.v2_engine import V2Engine
+
+        conn = apsw.Connection(db_path)
+        conn.execute("CREATE TABLE data (key TEXT PRIMARY KEY, value TEXT)")
+        conn.execute("INSERT INTO data (key, value) VALUES ('safe', 'kept')")
+        engine = V2Engine(connection=conn, table_name="data", flush_mode="manual")
+        try:
+            engine._recover_chunk_via_dlq(
+                [(("data; DROP TABLE data; --", "bad"), {"action": "delete"})]
+            )
+            assert conn.execute("SELECT value FROM data WHERE key='safe'").fetchone()[0] == "kept"
+            dlq = engine.get_dlq()
+            assert len(dlq) == 1
+            assert "unsafe table name" in dlq[0]["error"]
+        finally:
+            engine.shutdown()
+            conn.close()
+
 
 # ---------------------------------------------------------------------------
 # v1.5.4 前倒し実施: SEC-01 — DLQ ペイロード漏洩ドキュメント
@@ -3802,6 +3968,83 @@ class TestV155Sec01OrderBySubqueryInjection:
         assert pattern.search("select name")
         assert not pattern.search("name ASC")
         assert not pattern.search("score DESC")
+
+
+class TestV156Sec01ColumnSubqueryInjection:
+    """SEC-01: SELECT column expressions must not accept subqueries."""
+
+    def test_column_select_keyword_raises_in_strict_mode(self, tmp_path):
+        """strict_sql_validation=True: SELECT keyword in columns raises ValueError."""
+        from nanasqlite import NanaSQLite
+
+        db_path = str(tmp_path / "sec01_column.db")
+        with NanaSQLite(db_path, strict_sql_validation=True) as db:
+            db["a"] = {"name": "alice", "score": 1}
+            with pytest.raises(ValueError):
+                db.query(
+                    table_name="data",
+                    columns=["key", "(SELECT name FROM sqlite_master) AS leaked"],
+                    strict_sql_validation=True,
+                )
+
+    def test_pagination_column_select_keyword_raises_in_strict_mode(self, tmp_path):
+        """query_with_pagination() applies the same column subquery guard."""
+        from nanasqlite import NanaSQLite
+
+        db_path = str(tmp_path / "sec01_column_page.db")
+        with NanaSQLite(db_path, strict_sql_validation=True) as db:
+            db["a"] = {"name": "alice", "score": 1}
+            with pytest.raises(ValueError):
+                db.query_with_pagination(
+                    table_name="data",
+                    columns=["(SELECT name FROM sqlite_master) AS leaked"],
+                    strict_sql_validation=True,
+                )
+
+    def test_legitimate_column_aggregate_still_passes(self, tmp_path):
+        """Allowed aggregate expressions remain usable after the subquery guard."""
+        from nanasqlite import NanaSQLite
+
+        db_path = str(tmp_path / "sec01_column_ok.db")
+        with NanaSQLite(db_path, strict_sql_validation=True) as db:
+            db["a"] = {"name": "alice", "score": 1}
+            results = db.query(
+                table_name="data",
+                columns=["COUNT(*) AS total"],
+                strict_sql_validation=True,
+            )
+            assert results == [{"total": 1}]
+
+    def test_column_subquery_warns_in_non_strict_mode(self, tmp_path):
+        """strict_sql_validation=False では列式サブクエリを警告に留める。"""
+        from nanasqlite import NanaSQLite
+
+        db_path = str(tmp_path / "sec01_column_warn.db")
+        with NanaSQLite(db_path, strict_sql_validation=False) as db:
+            db["a"] = {"name": "alice", "score": 1}
+            with pytest.warns(UserWarning, match="Invalid column clause"):
+                rows = db.query(
+                    table_name="data",
+                    columns=["(SELECT name FROM sqlite_master) AS leaked"],
+                    strict_sql_validation=False,
+                )
+            assert rows and "leaked" in rows[0]
+
+    def test_legitimate_column_filter_where_still_passes(self, tmp_path):
+        """Aggregate FILTER clauses may contain WHERE without being subqueries."""
+        from nanasqlite import NanaSQLite
+
+        db_path = str(tmp_path / "sec01_column_filter_ok.db")
+        with NanaSQLite(db_path, strict_sql_validation=True) as db:
+            db["a"] = {"name": "alice", "score": 1}
+            db["b"] = {"name": "bob", "score": 0}
+            results = db.query(
+                table_name="data",
+                columns=["COUNT(*) FILTER (WHERE key IS NOT NULL) AS positives"],
+                strict_sql_validation=True,
+                allowed_sql_functions=["FILTER"],
+            )
+            assert results == [{"positives": 2}]
 
 
 class TestV155Bug01ExpiringDictDelitemTimerGuard:

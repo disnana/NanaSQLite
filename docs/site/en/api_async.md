@@ -5,7 +5,7 @@ Reference for the asynchronous AsyncNanaSQLite class.
 ## AsyncNanaSQLite
 
 ```python
-class AsyncNanaSQLite(db_path: str, table: str = 'data', bulk_load: bool = False, optimize: bool = True, cache_size_mb: int = 64, max_workers: int = 5, thread_name_prefix: str = 'AsyncNanaSQLite', strict_sql_validation: bool = True, allowed_sql_functions: list[str] | None = None, forbidden_sql_functions: list[str] | None = None, max_clause_length: int | None = 1000, read_pool_size: int = 0, cache_strategy: CacheType | str = <CacheType.UNBOUNDED: unbounded>, cache_size: int | None = None, cache_ttl: float | None = None, cache_persistence_ttl: bool = False, encryption_key: str | bytes | None = None, encryption_mode: Literal['aes-gcm', 'chacha20', 'fernet'] = 'aes-gcm', validator: Any | None = None, coerce: bool = False, v2_mode: bool = False, flush_mode: Literal['immediate', 'count', 'time', 'manual'] = 'immediate', flush_interval: float = 3.0, flush_count: int = 100, v2_chunk_size: int = 1000, v2_enable_metrics: bool = False) -> None
+class AsyncNanaSQLite(db_path: str, table: str = 'data', bulk_load: bool = False, optimize: bool = True, cache_size_mb: int = 64, max_workers: int = 5, thread_name_prefix: str = 'AsyncNanaSQLite', strict_sql_validation: bool = True, allowed_sql_functions: list[str] | None = None, forbidden_sql_functions: list[str] | None = None, max_clause_length: int | None = 1000, read_pool_size: int = 0, lock_timeout: float | None = None, cache_strategy: CacheType | str = <CacheType.UNBOUNDED: unbounded>, cache_size: int | None = None, cache_ttl: float | None = None, cache_persistence_ttl: bool = False, encryption_key: str | bytes | None = None, encryption_mode: Literal['aes-gcm', 'chacha20', 'fernet'] = 'aes-gcm', validator: Any | None = None, coerce: bool = False, v2_mode: bool = False, flush_mode: Literal['immediate', 'count', 'time', 'manual'] = 'immediate', flush_interval: float = 3.0, flush_count: int = 100, v2_chunk_size: int = 1000, v2_max_dlq_size: int | None = 1000, v2_enable_metrics: bool = False) -> None
 ```
 
 Async wrapper for NanaSQLite with optimized thread pool executor.
@@ -33,6 +33,7 @@ and performance in high-load scenarios.
 | `forbidden_sql_functions` | `list[str] | None` |  |
 | `max_clause_length` | `int | None` |  |
 | `read_pool_size` | `int` |  |
+| `lock_timeout` | `float | None` | Maximum number of seconds to wait for the internal lock. None waits indefinitely. Sub-tables inherit the parent setting. |
 | `cache_strategy` | `CacheType | str` |  |
 | `cache_size` | `int | None` |  |
 | `cache_ttl` | `float | None` |  |
@@ -46,6 +47,7 @@ and performance in high-load scenarios.
 | `flush_interval` | `float` |  |
 | `flush_count` | `int` |  |
 | `v2_chunk_size` | `int` |  |
+| `v2_max_dlq_size` | `int | None` | Maximum DLQ entries. Use None for unbounded behavior |
 | `v2_enable_metrics` | `bool` |  |
 
 ::: tip Example

@@ -120,6 +120,8 @@ db = NanaSQLite(
 
 書き込みに失敗した操作は **Dead Letter Queue** に隔離されます。これにより、エラーが後続の操作をブロックしません。
 
+DLQ はデフォルトで最大 1000 件まで保持します。上限に達した場合は最古のエントリを破棄します。`V2Config(max_dlq_size=...)` または `v2_max_dlq_size=...` で調整できます。
+
 ### DLQ の確認
 
 ```python
@@ -189,6 +191,7 @@ db._v2_engine.enqueue_strict_task(task)
 | `flush_interval` | `float` | `3.0` | time モードの間隔（秒） |
 | `flush_count` | `int` | `100` | count モードの件数閾値 |
 | `v2_chunk_size` | `int` | `1000` | トランザクションチャンクサイズ |
+| `v2_max_dlq_size` | `int | None` | `1000` | DLQ の最大保持件数。None で無制限 |
 | `v2_enable_metrics` | `bool` | `False` | 詳細なメトリクス収集を有効化 |
 
 ## 非同期での V2 利用

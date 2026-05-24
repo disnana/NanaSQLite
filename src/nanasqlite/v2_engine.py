@@ -43,6 +43,17 @@ TASK_EXECUTE = "execute"
 TASK_EXECUTEMANY = "executemany"
 
 
+def _is_safe_table_name(table_name: str) -> bool:
+    """Return True when table_name is a sanitized quoted or plain identifier."""
+    return bool(_QUOTED_TABLE_NAME_RE.match(table_name) or _UNQUOTED_TABLE_NAME_RE.match(table_name))
+
+
+def _validate_table_name(table_name: str) -> None:
+    """Validate table_name before it is interpolated into v2 SQL fragments."""
+    if not _is_safe_table_name(table_name):
+        raise ValueError(f"Invalid or unsafe table name: {table_name}")
+
+
 @dataclass(order=True)
 class StrictTask:
     """A single task for the strict/raw SQL lane (Lane 2)."""
@@ -100,6 +111,7 @@ class V2Engine:
         flush_interval: float = 3.0,
         flush_count: int = 100,
         max_chunk_size: int = 1000,
+        max_dlq_size: int | None = 1000,
         serialize_func: Callable[[Any], str | bytes] | None = None,
         enable_metrics: bool = False,
         shared_lock: threading.RLock | None = None,
@@ -111,8 +123,7 @@ class V2Engine:
         # _sanitize_identifier().  We accept the quoted form and validate the inner name
         # strictly (alphanumeric + underscore, no embedded quotes).  Unquoted identifiers
         # are also accepted for direct V2Engine usage in tests / external callers.
-        if not (_QUOTED_TABLE_NAME_RE.match(table_name) or _UNQUOTED_TABLE_NAME_RE.match(table_name)):
-            raise ValueError(f"Invalid or unsafe table name: {table_name}")
+        _validate_table_name(table_name)
 
         self._table_name = table_name
 
@@ -127,12 +138,21 @@ class V2Engine:
         self._flush_interval = flush_interval
         self._flush_count = flush_count
         self._max_chunk_size = max_chunk_size
+        if max_dlq_size is not None and (
+            isinstance(max_dlq_size, bool) or not isinstance(max_dlq_size, int) or max_dlq_size <= 0
+        ):
+            raise ValueError("max_dlq_size must be None or a positive integer")
+        self._max_dlq_size = max_dlq_size
 
         # Lane 1: KVS Normal Lane (Staging Buffer)
         # Structure: {(table_name, key): {"action": "set"|"delete", "value": ...}}
         self._staging_lock = threading.Lock()
         self._staging_buffer: dict[tuple[str, str], dict[str, Any]] = {}
         self._staging_changes = 0  # Track number of mutations since last flush
+        # F-002 fix: flushing buffer holds items that have been moved out of
+        # staging but not yet committed to the DB.  kvs_get_staging() consults
+        # both buffers so that readers never see a "gap" between the two states.
+        self._flushing_buffer: dict[tuple[str, str], dict[str, Any]] = {}
 
         # Lane 2: Strict / Raw SQL Lane (Priority Queue)
         self._strict_queue: queue.PriorityQueue[StrictTask] = queue.PriorityQueue()
@@ -203,6 +223,13 @@ class V2Engine:
             See :class:`DLQEntry` for the full security notice.
         """
         with self._dlq_lock:
+            if self._max_dlq_size is not None and len(self.dlq) >= self._max_dlq_size:
+                oldest = self.dlq.pop(0)
+                logger.warning(
+                    "NanaSQLite DLQ full (max=%d); evicting oldest entry: %s",
+                    self._max_dlq_size,
+                    oldest.error_msg,
+                )
             self.dlq.append(DLQEntry(error_msg=error_msg, item=item, timestamp=time.time()))
         if self._enable_metrics:
             with self._metrics_lock:
@@ -213,6 +240,7 @@ class V2Engine:
 
     def kvs_set(self, table_name: str, key: str, value: Any) -> None:
         """Queue a set operation in the staging buffer."""
+        _validate_table_name(table_name)
         # Serialize immediately on the calling thread to catch type errors early
         # and prevent slow serialization during the flush transaction.
         serialized_value = self._serialize(value)
@@ -225,6 +253,7 @@ class V2Engine:
 
     def kvs_delete(self, table_name: str, key: str) -> None:
         """Queue a delete operation in the staging buffer."""
+        _validate_table_name(table_name)
         with self._staging_lock:
             self._staging_buffer[(table_name, key)] = {"action": "delete"}
             self._staging_changes += 1
@@ -232,9 +261,19 @@ class V2Engine:
         self._check_auto_flush()
 
     def kvs_get_staging(self, table_name: str, key: str) -> dict[str, Any] | None:
-        """Read a single item from the staging buffer."""
+        """Read a single item from the staging buffer or the flushing buffer.
+
+        F-002 fix: also checks _flushing_buffer so that callers see a
+        consistent view of the data even while a flush is in progress
+        (i.e. after _staging_buffer has been swapped out but before the
+        DB transaction commits).
+        """
+        _validate_table_name(table_name)
         with self._staging_lock:
-            return self._staging_buffer.get((table_name, key))
+            result = self._staging_buffer.get((table_name, key))
+            if result is None:
+                result = self._flushing_buffer.get((table_name, key))
+            return result
 
     def _check_auto_flush(self) -> None:
         """Trigger auto-flush based on the current mode."""
@@ -321,11 +360,15 @@ class V2Engine:
         """
         start_time = time.time() if self._enable_metrics else 0.0
 
-        # 1. Capture current snapshot of staging buffer
+        # 1. Capture current snapshot of staging buffer and move it to
+        # _flushing_buffer so that kvs_get_staging() can still serve reads
+        # while the DB transaction is in progress (F-002 fix).
         with self._staging_lock:
             current_buffer = self._staging_buffer
             self._staging_buffer = {}
             self._staging_changes = 0
+            # Publish as flushing_buffer while the DB write is in flight.
+            self._flushing_buffer = current_buffer
 
         # We need to process KVS in chunks to avoid locking the DB for too long
         kvs_items = list(current_buffer.items())
@@ -345,6 +388,11 @@ class V2Engine:
                     )
                     self._recover_chunk_via_dlq(chunk)
 
+        # F-002 fix: all chunks have been committed (or sent to DLQ).
+        # Clear the flushing buffer so stale entries do not shadow future reads.
+        with self._staging_lock:
+            self._flushing_buffer = {}
+
         # Process all remaining Strict Lane tasks
         self._process_all_strict_tasks()
 
@@ -361,6 +409,7 @@ class V2Engine:
         table_ops: dict[str, dict[str, list]] = {}
 
         for (table_name, key), op in kvs_chunk:
+            _validate_table_name(table_name)
             if table_name not in table_ops:
                 table_ops[table_name] = {"sets": [], "deletes": []}
             if op["action"] == "set":
@@ -477,6 +526,12 @@ class V2Engine:
 
         try:
             for (table_name, key), op in failed_kvs_chunk:
+                if not _is_safe_table_name(table_name):
+                    self._add_to_dlq(
+                        f"KVS Poison Pill row '{key}' has unsafe table name: {table_name}",
+                        ((table_name, key), op),
+                    )
+                    continue
                 try:
                     cursor.execute("BEGIN IMMEDIATE TRANSACTION;")
                     if op["action"] == "set":
@@ -513,6 +568,25 @@ class V2Engine:
         """
         with self._dlq_lock:
             return [{"error": e.error_msg, "item": e.item, "timestamp": e.timestamp} for e in self.dlq]
+
+    def get_dlq_summary(self) -> list[dict[str, Any]]:
+        """Return a **safe** summary of the Dead Letter Queue without payload data.
+
+        Unlike :meth:`get_dlq`, this method omits the ``"item"`` field, making
+        it safe to pass to logging systems, monitoring pipelines, or external
+        APIs without risking exposure of plaintext database values.
+
+        Each entry contains only:
+
+        - ``"error"`` (*str*): human-readable error description.
+        - ``"timestamp"`` (*float*): ``time.time()`` at the time of failure.
+
+        .. note:: **B6 — DLQ payload exposure fix**
+            Use this method instead of :meth:`get_dlq` in any context where
+            the output may be forwarded to untrusted consumers.
+        """
+        with self._dlq_lock:
+            return [{"error": e.error_msg, "timestamp": e.timestamp} for e in self.dlq]
 
     def retry_dlq(self) -> None:
         """

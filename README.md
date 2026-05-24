@@ -124,7 +124,7 @@ db = NanaSQLite("high_load.db", v2_mode=True, flush_mode="time", flush_interval=
 
 # Optional: Use V2Config for cleaner initialization (v1.4.1+)
 from nanasqlite import V2Config
-cfg = V2Config(flush_mode="time", flush_interval=5.0, enable_metrics=True)
+cfg = V2Config(flush_mode="time", flush_interval=5.0, max_dlq_size=1000, enable_metrics=True)
 db = NanaSQLite("mydata.db", v2_mode=True, v2_config=cfg)
 
 # The main thread is NEVER blocked by disk I/O!
@@ -357,7 +357,7 @@ db = NanaSQLite("high_load.db", v2_mode=True, flush_mode="time", flush_interval=
 
 # オプション: V2Configを使用して設定をひとまとめに（v1.4.1+）
 from nanasqlite import V2Config
-cfg = V2Config(flush_mode="time", flush_interval=5.0, enable_metrics=True)
+cfg = V2Config(flush_mode="time", flush_interval=5.0, max_dlq_size=1000, enable_metrics=True)
 db = NanaSQLite("mydata.db", v2_mode=True, v2_config=cfg)
 
 # どんなに重いI/Oが発生しても、メインスレッドは一切ブロックされません！
@@ -487,4 +487,4 @@ db.sql_insert("users", {"name": "Alice", "age": 25})
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT License - see [LICENSE](.github/LICENSE) for details.

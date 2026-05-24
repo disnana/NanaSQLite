@@ -4,6 +4,31 @@ outline: [2, 3]
 
 # Changelog
 
+### [1.5.6b1] - 2026-05-24
+
+#### Security Fixes
+
+- **SEC-01: Hardened subquery rejection for `query(..., columns=[...])`** (`core.py`)
+  - Column expressions now reject subquery keywords such as `SELECT` / `FROM` in strict mode.
+- **SEC-02: Rejected top-level comma injection in `create_table()` column types** (`core.py`)
+  - Commas remain allowed inside balanced parentheses, such as `DECIMAL(10,2)`.
+- **BUG-02: Bounded V2 DLQ growth** (`v2_engine.py`)
+  - Added a default DLQ limit of `1000`, tunable with `V2Config(max_dlq_size=...)` or `v2_max_dlq_size=...`.
+- **SEC-03: Rejected unsafe table names in `V2Engine` KVS / DLQ recovery paths** (`v2_engine.py`)
+  - Direct `V2Engine` callers now get table-name validation at KVS entry points and during DLQ recovery.
+- **SEC-04: Restricted writable PRAGMAs in `pragma()`** (`core.py`)
+  - Informational or dangerous PRAGMAs such as `schema_version` remain readable but are no longer writable through NanaSQLite.
+
+#### Bug Fixes
+
+- **QUAL-01: Fixed missing `lock_timeout` forwarding in `AsyncNanaSQLite`** (`async_core.py`)
+  - The async API now forwards lock acquisition timeouts to its internal DB.
+
+#### Performance Improvements
+
+- **PERF-01: Faster cached hot paths for `AsyncNanaSQLite.aget()` / `acontains()`** (`async_core.py`)
+  - In the default unbounded cache mode, cached keys and known-absent keys now return without an executor round-trip.
+
 ### [1.5.5] - 2026-04-30
 
 #### Security Remediation

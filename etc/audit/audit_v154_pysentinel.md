@@ -269,7 +269,7 @@ finally:
 | SEC-06 (RE2 opt-in) | ✅ v1.5.4 で実施済み | google-re2 オプション追加、`re_fallback` パラメータ追加 |
 | QUAL-10 (validkit stub) | ✅ v1.5.4 で修正済み | ImportError スタブ |
 | BUG-01 (before_delete) | ✅ v1.5.4 で修正済み | 非 v2 パスで `before_delete` をロック内に移動 |
-| BUG-02 (DLQ上限) | ⬜ 次期バージョンで対応 | |
+| BUG-02 (DLQ上限) | ✅ v1.5.6b1 で修正済み | `V2Engine(max_dlq_size=1000)` をデフォルト化 |
 
 ---
 
