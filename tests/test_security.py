@@ -89,6 +89,12 @@ class TestSQLInjectionProtection:
 
         assert db.pragma("user_version") == 123
 
+    def test_safe_string_pragma_value_still_can_be_set(self, db):
+        """安全な文字列 PRAGMA 値は quote されて設定できる。"""
+        db.pragma("synchronous", "NORMAL")
+
+        assert db.pragma("synchronous") in {1, 2}
+
     def test_dangerous_column_type(self, db):
         """Test that dangerous column types are rejected."""
         db.create_table("test", {"id": "INTEGER"})

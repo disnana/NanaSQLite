@@ -17,7 +17,7 @@ import time
 import pytest
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from nanasqlite import AsyncNanaSQLite, NanaSQLite
+from nanasqlite import AsyncNanaSQLite, NanaSQLite, V2Config
 from nanasqlite.exceptions import (
     NanaSQLiteClosedError,
     NanaSQLiteDatabaseError,
@@ -422,6 +422,18 @@ class TestV140Sec01CreateTableInjection:
         with pytest.raises((NanaSQLiteValidationError, ValueError)):
             db.create_table("evil_comma", {"name": "TEXT, injected INTEGER"})
         assert not db.table_exists("evil_comma")
+
+    def test_unbalanced_column_type_parentheses_blocked(self, db):
+        """列型定義の括弧が閉じていない場合は拒否する。"""
+        with pytest.raises((NanaSQLiteValidationError, ValueError), match="parentheses are not balanced"):
+            db.create_table("evil_unbalanced", {"amount": "DECIMAL(10,2"})
+        assert not db.table_exists("evil_unbalanced")
+
+    def test_extra_closing_column_type_parenthesis_blocked(self, db):
+        """列型定義に余分な閉じ括弧がある場合も拒否する。"""
+        with pytest.raises((NanaSQLiteValidationError, ValueError), match="parentheses are not balanced"):
+            db.create_table("evil_extra_close", {"name": "TEXT)"})
+        assert not db.table_exists("evil_extra_close")
 
 
 # ===========================================================================
@@ -3705,6 +3717,27 @@ class TestQual02V154DLQEntryDataclass:
             engine.shutdown()
             conn.close()
 
+    def test_v2_config_values_are_passed_to_engine(self, db_path):
+        """V2Config の各値が NanaSQLite から V2Engine に渡ることを確認する。"""
+        cfg = V2Config(
+            flush_mode="count",
+            flush_interval=7.5,
+            flush_count=12,
+            chunk_size=34,
+            max_dlq_size=56,
+            enable_metrics=True,
+        )
+
+        with NanaSQLite(db_path, v2_mode=True, v2_config=cfg) as db:
+            engine = db._v2_engine
+            assert engine is not None
+            assert engine._flush_mode == "count"
+            assert engine._flush_interval == 7.5
+            assert engine._flush_count == 12
+            assert engine._max_chunk_size == 34
+            assert engine._max_dlq_size == 56
+            assert engine.get_metrics()["flush_count"] == 0
+
     def test_v2_engine_accepts_safe_quoted_table_name_in_kvs_paths(self, db_path):
         """quoted 済みの安全な table_name は KVS 入口と staging 読み取りで使える。"""
         import apsw
@@ -3981,6 +4014,21 @@ class TestV156Sec01ColumnSubqueryInjection:
                 strict_sql_validation=True,
             )
             assert results == [{"total": 1}]
+
+    def test_column_subquery_warns_in_non_strict_mode(self, tmp_path):
+        """strict_sql_validation=False では列式サブクエリを警告に留める。"""
+        from nanasqlite import NanaSQLite
+
+        db_path = str(tmp_path / "sec01_column_warn.db")
+        with NanaSQLite(db_path, strict_sql_validation=False) as db:
+            db["a"] = {"name": "alice", "score": 1}
+            with pytest.warns(UserWarning, match="Invalid column clause"):
+                rows = db.query(
+                    table_name="data",
+                    columns=["(SELECT name FROM sqlite_master) AS leaked"],
+                    strict_sql_validation=False,
+                )
+            assert rows and "leaked" in rows[0]
 
     def test_legitimate_column_filter_where_still_passes(self, tmp_path):
         """Aggregate FILTER clauses may contain WHERE without being subqueries."""
