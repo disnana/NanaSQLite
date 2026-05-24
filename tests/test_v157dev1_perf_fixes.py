@@ -34,8 +34,7 @@ def test_setitem_without_hooks_skips_old_value_lookup(db_path):
     PERF-30: フック無しの単体書き込みでは old_value が観測されないため、
     _get_raw() による余分なキャッシュ/DB確認を行わない。
     """
-    db = NanaSQLite(db_path)
-    try:
+    with NanaSQLite(db_path) as db:
         calls = []
 
         def spy_get_raw(self, key, default=None):
@@ -50,8 +49,6 @@ def test_setitem_without_hooks_skips_old_value_lookup(db_path):
         assert calls == []
         assert db["k1"] == {"value": 1}
         assert db["k2"] == {"value": 2}
-    finally:
-        db.close()
 
 
 def test_setitem_with_hooks_keeps_old_value_for_success_hook(db_path):
@@ -75,10 +72,9 @@ def test_setitem_with_hooks_keeps_old_value_for_success_hook(db_path):
         def on_write_success(self, db, key, value, old_value):
             self.events.append((key, value, old_value))
 
-    db = NanaSQLite(db_path)
     hook = RecordingHook()
-    db.add_hook(hook)
-    try:
+    with NanaSQLite(db_path) as db:
+        db.add_hook(hook)
         db["k"] = "first"
         db["k"] = "second"
 
@@ -87,8 +83,6 @@ def test_setitem_with_hooks_keeps_old_value_for_success_hook(db_path):
             ("k", "second", "first"),
         ]
         assert db["k"] == "second"
-    finally:
-        db.close()
 
 
 def test_batch_get_mixed_cache_db_and_missing_keys(db_path):
@@ -96,8 +90,7 @@ def test_batch_get_mixed_cache_db_and_missing_keys(db_path):
     PERF-31 regression: キャッシュヒットが多い batch_get() でも、DBから
     実際に見つかったキーだけを DB-hit として扱い、未存在キーだけを negative cache 化する。
     """
-    db = NanaSQLite(db_path)
-    try:
+    with NanaSQLite(db_path) as db:
         db.batch_update({"cached": 1, "db_only": 2})
         assert db["cached"] == 1
         db.clear_cache()
@@ -109,8 +102,6 @@ def test_batch_get_mixed_cache_db_and_missing_keys(db_path):
         assert "missing" in db._absent_keys
         assert "db_only" not in db._absent_keys
         assert "cached" not in db._absent_keys
-    finally:
-        db.close()
 
 
 def test_batch_get_full_chunk_placeholder_is_precomputed():
@@ -155,14 +146,10 @@ def test_load_all_default_unbounded_bulk_populates_without_cache_set(db_path):
     PERF-34: サイズ制限なし unbounded キャッシュでは、load_all() が cache.set()
     を1件ずつ呼ばず、背後の dict をまとめて更新する。
     """
-    setup_db = NanaSQLite(db_path)
-    try:
+    with NanaSQLite(db_path) as setup_db:
         setup_db.batch_update({f"k{i}": i for i in range(5)})
-    finally:
-        setup_db.close()
 
-    db = NanaSQLite(db_path)
-    try:
+    with NanaSQLite(db_path) as db:
         calls = []
         original_set = db._cache.set
 
@@ -176,8 +163,6 @@ def test_load_all_default_unbounded_bulk_populates_without_cache_set(db_path):
 
         assert calls == []
         assert db.to_dict() == {f"k{i}": i for i in range(5)}
-    finally:
-        db.close()
 
 
 def test_memory_first_crud_uses_memory_before_flush(db_path):
@@ -185,8 +170,7 @@ def test_memory_first_crud_uses_memory_before_flush(db_path):
     PERF-35: memory_first=True では CRUD の真実をメモリに置き、
     SQLite への永続化はバックグラウンド flush / close に任せる。
     """
-    db = NanaSQLite(db_path, memory_first=True)
-    try:
+    with NanaSQLite(db_path, memory_first=True) as db:
         assert db._memory_first is True
         assert db._v2_mode is True
         assert db._v2_flush_mode == "time"
@@ -202,15 +186,10 @@ def test_memory_first_crud_uses_memory_before_flush(db_path):
         assert len(db) == 1
         assert db.keys() == ["b"]
         assert db.batch_get(["a", "b", "missing"]) == {"b": 2}
-    finally:
-        db.close()
 
-    reopened = NanaSQLite(db_path)
-    try:
+    with NanaSQLite(db_path) as reopened:
         assert "a" not in reopened
         assert reopened["b"] == 2
-    finally:
-        reopened.close()
 
 
 def test_memory_first_rejects_bounded_or_ttl_cache(db_path):
@@ -230,8 +209,7 @@ def test_memory_first_clear_keeps_memory_truth_for_new_writes(db_path):
     PERF-35 regression: clear() 後も memory_first の全件ロード済み状態を維持し、
     未 flush の新規書き込みを len()/keys()/batch_get() がメモリから見られるようにする。
     """
-    db = NanaSQLite(db_path, memory_first=True)
-    try:
+    with NanaSQLite(db_path, memory_first=True) as db:
         db.batch_update({"old": 1})
         db.clear()
         db["new"] = 2
@@ -240,49 +218,35 @@ def test_memory_first_clear_keeps_memory_truth_for_new_writes(db_path):
         assert len(db) == 1
         assert db.keys() == ["new"]
         assert db.batch_get(["old", "new"]) == {"new": 2}
-    finally:
-        db.close()
 
 
 def test_memory_first_time_flush_persists_without_close(db_path):
     """
     PERF-35: close() を待たなくても、変更があれば time flush で差分が永続化される。
     """
-    db = NanaSQLite(db_path, memory_first=True, memory_flush_interval=0.05)
-    try:
+    with NanaSQLite(db_path, memory_first=True, memory_flush_interval=0.05) as db:
         db["timed"] = {"ok": True}
 
         deadline = time.time() + 2.0
         persisted = False
         while time.time() < deadline:
-            reader = NanaSQLite(db_path)
-            try:
+            with NanaSQLite(db_path) as reader:
                 persisted = reader.get("timed") == {"ok": True}
-            finally:
-                reader.close()
             if persisted:
                 break
             time.sleep(0.05)
 
         assert persisted is True
-    finally:
-        db.close()
 
 
 def test_memory_first_get_fresh_flushes_pending_delta(db_path):
     """
     PERF-35: get_fresh() は memory_first の pending delta を先に flush してから DB を読む。
     """
-    db = NanaSQLite(db_path, memory_first=True, flush_mode="manual")
-    try:
+    with NanaSQLite(db_path, memory_first=True, flush_mode="manual") as db:
         db["fresh"] = "pending"
 
         assert db.get_fresh("fresh") == "pending"
 
-        reader = NanaSQLite(db_path)
-        try:
+        with NanaSQLite(db_path) as reader:
             assert reader["fresh"] == "pending"
-        finally:
-            reader.close()
-    finally:
-        db.close()
