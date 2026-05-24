@@ -101,9 +101,7 @@ class TestF002FlushingBufferGap:
         clear_cache 後の読み取りでデータが消えないことを確認する。
         """
         cfg = V2Config(flush_mode="count", flush_count=50)  # 手動で溜める
-        db = NanaSQLite(db_path, v2_mode=True, v2_config=cfg)
-
-        try:
+        with NanaSQLite(db_path, v2_mode=True, v2_config=cfg) as db:
             db["sentinel_key"] = "sentinel_value"
 
             # キャッシュをクリアして staging/DB から参照させる
@@ -115,8 +113,6 @@ class TestF002FlushingBufferGap:
             assert val == "sentinel_value", (
                 f"FAIL (F-002): clear_cache 後に書き込んだ値が消えた: got {val!r}"
             )
-        finally:
-            db.close()
 
     def test_flushing_buffer_attribute_exists(self):
         """
@@ -155,27 +151,25 @@ class TestB3UniqueHookWeakref:
         hook = UniqueHook("email", use_index=True)
 
         # DB インスタンスを作成してインデックスをビルドさせる
-        db = NanaSQLite(db_path, v2_mode=False)
-        db["user1"] = {"email": "a@example.com"}
+        with NanaSQLite(db_path, v2_mode=False) as db:
+            db["user1"] = {"email": "a@example.com"}
 
-        # before_write を呼んでインデックスを構築させる
-        hook.before_write(db, "user2", {"email": "b@example.com"})
+            # before_write を呼んでインデックスを構築させる
+            hook.before_write(db, "user2", {"email": "b@example.com"})
 
-        # インデックスが構築されている状態で _bound_db_ref を強制的に None にする
-        # （DB インスタンスが GC されたシナリオのシミュレート）
-        import weakref
-        hook._bound_db_ref = weakref.ref(lambda: None)  # すぐに GC される
-        gc.collect()  # 強制 GC
+            # インデックスが構築されている状態で _bound_db_ref を強制的に None にする
+            # （DB インスタンスが GC されたシナリオのシミュレート）
+            import weakref
+            hook._bound_db_ref = weakref.ref(lambda: None)  # すぐに GC される
+            gc.collect()  # 強制 GC
 
-        # この時点で _bound_db_ref() は None を返す
-        # before_write() を呼んでも AttributeError が起きないこと
-        try:
-            result = hook.before_write(db, "user3", {"email": "c@example.com"})
-            assert result == {"email": "c@example.com"}
-        except AttributeError as e:
-            pytest.fail(f"FAIL (B3): weakref が None の際に AttributeError が発生した: {e}")
-        finally:
-            db.close()
+            # この時点で _bound_db_ref() は None を返す
+            # before_write() を呼んでも AttributeError が起きないこと
+            try:
+                result = hook.before_write(db, "user3", {"email": "c@example.com"})
+                assert result == {"email": "c@example.com"}
+            except AttributeError as e:
+                pytest.fail(f"FAIL (B3): weakref が None の際に AttributeError が発生した: {e}")
 
     def test_weakref_none_triggers_index_rebuild(self, db_path):
         """
@@ -184,30 +178,27 @@ class TestB3UniqueHookWeakref:
         """
         hook = UniqueHook("email", use_index=True)
 
-        db1 = NanaSQLite(db_path, v2_mode=False)
-        db1["u1"] = {"email": "x@example.com"}
+        with NanaSQLite(db_path, v2_mode=False) as db1:
+            db1["u1"] = {"email": "x@example.com"}
 
-        # db1 でインデックスを構築
-        hook.before_write(db1, "u2", {"email": "y@example.com"})
-        assert hook._index_built is True
+            # db1 でインデックスを構築
+            hook.before_write(db1, "u2", {"email": "y@example.com"})
+            assert hook._index_built is True
 
-        db1.close()
         del db1
         gc.collect()
 
         # 別の db インスタンスで使う
         db2_path = db_path.replace(".db", "_2.db")
-        db2 = NanaSQLite(db2_path, v2_mode=False)
-        db2["u1"] = {"email": "x@example.com"}
+        with NanaSQLite(db2_path, v2_mode=False) as db2:
+            db2["u1"] = {"email": "x@example.com"}
 
-        try:
-            # 別インスタンス or weakref None の場合に再構築されること
-            # AttributeError が起きなければ OK
-            hook.before_write(db2, "u3", {"email": "z@example.com"})
-        except AttributeError as e:
-            pytest.fail(f"FAIL (B3): 別DBインスタンスで AttributeError が発生した: {e}")
-        finally:
-            db2.close()
+            try:
+                # 別インスタンス or weakref None の場合に再構築されること
+                # AttributeError が起きなければ OK
+                hook.before_write(db2, "u3", {"email": "z@example.com"})
+            except AttributeError as e:
+                pytest.fail(f"FAIL (B3): 別DBインスタンスで AttributeError が発生した: {e}")
 
 
 # ============================================================
@@ -319,47 +310,37 @@ class TestRegressionNoSideEffects:
 
     def test_v2_immediate_mode_still_works(self, db_path):
         """immediate モードの基本動作が維持されていること"""
-        db = NanaSQLite(db_path, v2_mode=True, flush_mode="immediate")
-        try:
+        with NanaSQLite(db_path, v2_mode=True, flush_mode="immediate") as db:
             db["k"] = "v"
             time.sleep(0.3)
             fresh = db.get_fresh("k")
             assert fresh == "v"
-        finally:
-            db.close()
 
     def test_v2_manual_flush_still_works(self, db_path):
         """manual flush の基本動作が維持されていること"""
-        db = NanaSQLite(db_path, v2_mode=True, flush_mode="manual")
-        try:
+        with NanaSQLite(db_path, v2_mode=True, flush_mode="manual") as db:
             db["k"] = "v"
             db.flush()
             time.sleep(0.2)
             fresh = db.get_fresh("k")
             assert fresh == "v"
-        finally:
-            db.close()
 
     def test_unique_hook_still_detects_duplicates(self, db_path):
         """UniqueHook の重複検出が維持されていること"""
         from nanasqlite.exceptions import NanaSQLiteValidationError
 
         hook = UniqueHook("email")
-        db = NanaSQLite(db_path, hooks=[hook])
-        try:
+        with NanaSQLite(db_path, hooks=[hook]) as db:
             db["u1"] = {"email": "dup@example.com"}
             with pytest.raises(NanaSQLiteValidationError):
                 db["u2"] = {"email": "dup@example.com"}
-        finally:
-            db.close()
 
     def test_unique_hook_with_index_still_works(self, db_path):
         """UniqueHook use_index=True の動作が維持されていること"""
         from nanasqlite.exceptions import NanaSQLiteValidationError
 
         hook = UniqueHook("email", use_index=True)
-        db = NanaSQLite(db_path, hooks=[hook])
-        try:
+        with NanaSQLite(db_path, hooks=[hook]) as db:
             db["u1"] = {"email": "x@example.com"}
             db["u2"] = {"email": "y@example.com"}
             # 同一キーの上書きは許可
@@ -367,8 +348,6 @@ class TestRegressionNoSideEffects:
             # 重複は拒否
             with pytest.raises(NanaSQLiteValidationError):
                 db["u3"] = {"email": "y@example.com"}
-        finally:
-            db.close()
 
     def test_dlq_retry_still_works(self):
         """DLQ の retry_dlq() が維持されていること"""

@@ -3705,6 +3705,40 @@ class TestQual02V154DLQEntryDataclass:
             engine.shutdown()
             conn.close()
 
+    def test_v2_engine_staging_read_rejects_unsafe_table_name(self, db_path):
+        """staging 読み取り経路でも unsafe table_name を拒否する。"""
+        import apsw
+
+        from nanasqlite.v2_engine import V2Engine
+
+        conn = apsw.Connection(db_path)
+        engine = V2Engine(connection=conn, table_name="data", flush_mode="manual")
+        try:
+            with pytest.raises(ValueError, match="Invalid or unsafe table name"):
+                engine.kvs_get_staging("data; DROP TABLE data; --", "key")
+        finally:
+            engine.shutdown()
+            conn.close()
+
+    def test_v2_engine_process_chunk_rejects_unsafe_table_name(self, db_path):
+        """flush 内部経路でも unsafe table_name を SQL に連結しない。"""
+        import apsw
+
+        from nanasqlite.v2_engine import V2Engine
+
+        conn = apsw.Connection(db_path)
+        conn.execute("CREATE TABLE data (key TEXT PRIMARY KEY, value TEXT)")
+        engine = V2Engine(connection=conn, table_name="data", flush_mode="manual")
+        try:
+            with pytest.raises(ValueError, match="Invalid or unsafe table name"):
+                engine._process_kvs_chunk(
+                    [(("data; DROP TABLE data; --", "bad"), {"action": "delete"})]
+                )
+            assert conn.execute("SELECT name FROM sqlite_master WHERE name='data'").fetchone()
+        finally:
+            engine.shutdown()
+            conn.close()
+
     def test_v2_engine_dlq_recovery_rejects_unsafe_table_name(self, db_path):
         """DLQ 復旧経路でも unsafe table_name を SQL に連結しない。"""
         import apsw
