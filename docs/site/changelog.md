@@ -20,6 +20,11 @@ outline: [2, 3]
 - **QUAL-01: `AsyncNanaSQLite` の `lock_timeout` 転送漏れを修正**（`async_core.py`）
   - 非同期 API でもロック取得タイムアウトが内部 DB に渡されるようにしました。
 
+#### パフォーマンス改善
+
+- **PERF-01: `AsyncNanaSQLite.aget()` / `acontains()` のキャッシュ済みホットパスを高速化**（`async_core.py`）
+  - デフォルトの unbounded キャッシュで、キャッシュ済みキーと既知の未存在キーを executor 往復なしで返します。
+
 ### [1.5.5] - 2026-04-30
 
 #### セキュリティ修正 (Security Remediation)

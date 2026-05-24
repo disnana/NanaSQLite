@@ -109,6 +109,78 @@ class TestAsyncBasicOperations:
             assert not_exists is False
 
     @pytest.mark.asyncio
+    async def test_async_get_cached_hit_skips_executor(self, db_path, monkeypatch):
+        """キャッシュ済みの aget() は executor 往復なしで返す"""
+        db = AsyncNanaSQLite(db_path)
+        try:
+            await db.aset("hot", {"value": 1})
+            loop = asyncio.get_running_loop()
+
+            with monkeypatch.context() as m:
+                m.setattr(
+                    loop,
+                    "run_in_executor",
+                    lambda *args, **kwargs: pytest.fail("cached aget() should not use executor"),
+                )
+                assert await db.aget("hot") == {"value": 1}
+        finally:
+            await db.close()
+
+    @pytest.mark.asyncio
+    async def test_async_get_known_absent_skips_executor(self, db_path, monkeypatch):
+        """既知の未存在キーに対する aget() は executor 往復なしで default を返す"""
+        db = AsyncNanaSQLite(db_path)
+        try:
+            assert await db.aget("ghost", "first") == "first"
+            loop = asyncio.get_running_loop()
+
+            with monkeypatch.context() as m:
+                m.setattr(
+                    loop,
+                    "run_in_executor",
+                    lambda *args, **kwargs: pytest.fail("known-absent aget() should not use executor"),
+                )
+                assert await db.aget("ghost", "second") == "second"
+        finally:
+            await db.close()
+
+    @pytest.mark.asyncio
+    async def test_async_contains_cached_hit_skips_executor(self, db_path, monkeypatch):
+        """キャッシュ済みの acontains() は executor 往復なしで返す"""
+        db = AsyncNanaSQLite(db_path)
+        try:
+            await db.aset("hot", "value")
+            loop = asyncio.get_running_loop()
+
+            with monkeypatch.context() as m:
+                m.setattr(
+                    loop,
+                    "run_in_executor",
+                    lambda *args, **kwargs: pytest.fail("cached acontains() should not use executor"),
+                )
+                assert await db.acontains("hot") is True
+        finally:
+            await db.close()
+
+    @pytest.mark.asyncio
+    async def test_async_contains_known_absent_skips_executor(self, db_path, monkeypatch):
+        """既知の未存在キーに対する acontains() は executor 往復なしで返す"""
+        db = AsyncNanaSQLite(db_path)
+        try:
+            assert await db.acontains("ghost") is False
+            loop = asyncio.get_running_loop()
+
+            with monkeypatch.context() as m:
+                m.setattr(
+                    loop,
+                    "run_in_executor",
+                    lambda *args, **kwargs: pytest.fail("known-absent acontains() should not use executor"),
+                )
+                assert await db.acontains("ghost") is False
+        finally:
+            await db.close()
+
+    @pytest.mark.asyncio
     async def test_async_lock_timeout_forwarded_to_sync_db(self, db_path):
         """AsyncNanaSQLite の lock_timeout が内部 NanaSQLite に転送されること"""
         async with AsyncNanaSQLite(db_path, lock_timeout=0.2) as db:

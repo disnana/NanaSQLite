@@ -23,6 +23,12 @@
   - `AsyncNanaSQLite(..., lock_timeout=...)` で指定した値が内部の `NanaSQLite` インスタンスに渡されず、非同期 API ではロック取得タイムアウトが実質的に無効になっていた問題を修正しました。
   - `AsyncNanaSQLite.table()` で作成したサブテーブルも、親インスタンスの `lock_timeout` を継承することを回帰テストで確認しました。
 
+#### パフォーマンス改善
+
+- **PERF-01: `AsyncNanaSQLite.aget()` / `acontains()` のキャッシュ済みホットパスを高速化**（`async_core.py`）
+  - デフォルトの unbounded キャッシュで、キャッシュ済みキーおよび既知の未存在キーを executor 往復なしで返すようにしました。キャッシュミス、LRU/TTL、フック付き読み取りは従来通り同期 DB 側へ委譲します。
+  - 非同期ベンチマークにキャッシュ済み読み取りと既知未存在キー読み取りのケースを追加しました。
+
 #### ドキュメント
 
 - 非同期 API ドキュメントに `lock_timeout` の説明を追加しました。
@@ -1280,6 +1286,12 @@
 - **QUAL-01: Fixed missing `lock_timeout` forwarding in `AsyncNanaSQLite`** (`async_core.py`)
   - `AsyncNanaSQLite(..., lock_timeout=...)` did not forward the value to the internal `NanaSQLite` instance, effectively disabling lock acquisition timeouts for the async API.
   - Added regression coverage confirming that sub-tables created by `AsyncNanaSQLite.table()` inherit the parent's `lock_timeout`.
+
+#### Performance Improvements
+
+- **PERF-01: Faster cached hot paths for `AsyncNanaSQLite.aget()` / `acontains()`** (`async_core.py`)
+  - In the default unbounded cache mode, cached keys and known-absent keys now return without an executor round-trip. Cache misses, LRU/TTL modes, and hook-backed reads continue to delegate to the synchronous DB path.
+  - Added async benchmark cases for cached reads and known-absent reads.
 
 #### Documentation
 

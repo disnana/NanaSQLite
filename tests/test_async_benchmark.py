@@ -149,6 +149,30 @@ class TestAsyncReadBenchmarks:
 
         benchmark(read_single)
 
+    def test_async_cached_read_hot_path(self, benchmark, async_db_with_data_instance):
+        """非同期キャッシュ済み読み込み（executor 回避ホットパス）"""
+        run_async(async_db_with_data_instance.aget("key_500"))
+
+        def read_cached():
+            async def _read():
+                return await async_db_with_data_instance.aget("key_500")
+
+            return run_async(_read())
+
+        benchmark(read_cached)
+
+    def test_async_known_absent_read_hot_path(self, benchmark, async_db_with_data_instance):
+        """非同期の既知未存在キー読み込み（executor 回避ホットパス）"""
+        run_async(async_db_with_data_instance.aget("missing_key", None))
+
+        def read_known_absent():
+            async def _read():
+                return await async_db_with_data_instance.aget("missing_key", None)
+
+            return run_async(_read())
+
+        benchmark(read_known_absent)
+
     def test_async_batch_get(self, benchmark, async_db_with_data_instance):
         """非同期バッチ取得（100件）"""
         keys = [f"key_{i}" for i in range(100)]

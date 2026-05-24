@@ -346,6 +346,31 @@ class AsyncNanaSQLite:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, func, *args)
 
+    def _try_get_unbounded_cache_hit(self, key: str, default: Any = None) -> tuple[bool, Any]:
+        """Return a cached unbounded value without crossing the executor boundary."""
+        db = self._db
+        if db is None or db._lru_mode or db._has_hooks:
+            return False, None
+        try:
+            return True, db._data[key]
+        except KeyError:
+            if key in db._absent_keys:
+                return True, default
+            return False, None
+
+    def _try_contains_unbounded_cache_hit(self, key: str) -> tuple[bool, bool]:
+        """Return cached unbounded containment knowledge when available."""
+        db = self._db
+        if db is None or db._lru_mode:
+            return False, False
+        try:
+            _ = db._data[key]
+            return True, True
+        except KeyError:
+            if key in db._absent_keys:
+                return True, False
+            return False, False
+
     # ==================== Async Dict-like Interface ====================
 
     async def aget(self, key: str, default: Any = None) -> Any:
@@ -364,6 +389,9 @@ class AsyncNanaSQLite:
             >>> config = await db.aget("config", {})
         """
         await self._ensure_initialized()
+        cache_hit, value = self._try_get_unbounded_cache_hit(key, default)
+        if cache_hit:
+            return value
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self._db.get, key, default)
 
@@ -416,6 +444,9 @@ class AsyncNanaSQLite:
         await self._ensure_initialized()
         if self._db is None:
             raise RuntimeError("Database not initialized")
+        cache_hit, exists = self._try_contains_unbounded_cache_hit(key)
+        if cache_hit:
+            return exists
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self._db.__contains__, key)
 

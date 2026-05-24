@@ -20,6 +20,11 @@ outline: [2, 3]
 - **QUAL-01: Fixed missing `lock_timeout` forwarding in `AsyncNanaSQLite`** (`async_core.py`)
   - The async API now forwards lock acquisition timeouts to its internal DB.
 
+#### Performance Improvements
+
+- **PERF-01: Faster cached hot paths for `AsyncNanaSQLite.aget()` / `acontains()`** (`async_core.py`)
+  - In the default unbounded cache mode, cached keys and known-absent keys now return without an executor round-trip.
+
 ### [1.5.5] - 2026-04-30
 
 #### Security Remediation
