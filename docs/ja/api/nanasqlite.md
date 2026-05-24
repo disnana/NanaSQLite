@@ -26,7 +26,9 @@ def __init__(self, db_path: str, table: str = "data", bulk_load: bool = False,
              max_clause_length: int | None = 1000,
              lock_timeout: float | None = None,
              validator: Any | None = None,
-             coerce: bool = False)
+             coerce: bool = False,
+             memory_first: bool = False,
+             memory_flush_interval: float = 5.0)
 ```
 
 NanaSQLiteデータベース接続を初期化します。
@@ -46,6 +48,8 @@ NanaSQLiteデータベース接続を初期化します。
 - `validator` (dict | Schema | None, 任意): validkit-py のバリデーションスキーマ（辞書または `Schema` オブジェクト）。指定すると `__setitem__` （`db["key"] = value`）の実行時にスキーマ検証を実行します。スキーマ違反の場合は `NanaSQLiteValidationError` を送出します。使用には `pip install nanasqlite[validation]` が必要です。(v1.3.4b2以降)
 - `coerce` (bool, 任意): `True` の場合、validkit-py が返す変換済みの値をDBに保存します。
   **重要**: 型変換が実際に行われるためには、スキーマの各フィールドバリデーターに `.coerce()` を呼び出す必要があります（例: `v.int().coerce()`）。フィールドに `.coerce()` がない場合、型が一致しない値は `coerce=True` が設定されていてもバリデーションエラーになります。このパラメータは「変換済みの値を保存するか」を制御するだけです。`validator` が設定されている場合のみ有効。デフォルトは `False`。(v1.3.4b2以降)
+- `memory_first` (bool, 任意): CRUD 速度特化のメモリ優先モードを有効化します。KVS 全体をメモリへ読み込み、CRUD 操作をメモリ上で処理し、変更差分を v2 エンジンでバックグラウンドフラッシュします。デフォルトの無制限キャッシュが必要で、シングルプロセス専用です。デフォルトは `False`。(v1.5.7dev1以降)
+- `memory_flush_interval` (float, 任意): `memory_first=True` の差分フラッシュ間隔（秒）。デフォルトは `5.0`。(v1.5.7dev1以降)
 
 ---
 
@@ -73,7 +77,8 @@ def table(self, table_name: str,
           cache_ttl: float | None = ...,
           cache_persistence_ttl: bool | None = ...,
           validator: Any | None = ...,
-          coerce: bool = ...) -> NanaSQLite
+          coerce: bool = ...,
+          memory_first: bool | None = ...) -> NanaSQLite
 ```
 
 指定したサブテーブル用の新しい `NanaSQLite` インスタンスを返します。
@@ -88,6 +93,7 @@ def table(self, table_name: str,
 - `cache_persistence_ttl` (bool | None, 任意): TTL が切れたキャッシュエントリをディスクに永続化するか。省略時は親の設定を継承。(v1.3.4b2以降)
 - `validator` (dict | Schema | None, 任意): このサブテーブル用の validkit-py スキーマ。省略時は親インスタンスのスキーマを自動継承します。`None` を明示的に渡すとバリデーションを無効化できます。(v1.3.4b2以降)
 - `coerce` (bool, 任意): `True` の場合、このサブテーブルで validkit-py の変換済みの値を保存します。スキーマのフィールドバリデーターに `.coerce()` が必要です。省略時は親インスタンスの設定を引き継ぎます。(v1.3.4b2以降)
+- `memory_first` (bool | None, 任意): このテーブルでメモリ優先モードを有効または無効にします。省略時は親インスタンスの設定を引き継ぎます。(v1.5.7dev1以降)
 
 **戻り値:**
 - `NanaSQLite`: 指定したテーブルを操作する新しいインスタンス。

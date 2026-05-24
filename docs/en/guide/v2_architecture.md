@@ -86,6 +86,31 @@ cfg = V2Config(
 db = NanaSQLite("mydb.db", v2_mode=True, v2_config=cfg)
 ```
 
+### CRUD-Optimized Memory-First Mode (v1.5.7dev1+)
+
+`memory_first=True` is a CRUD-optimized option built on the v2 engine's time-based flush. It loads the whole KVS table into memory at startup, then serves `get` / `set` / `delete` / `len` / `keys` / `batch_get` and similar CRUD operations from memory. Only changed keys are flushed back to SQLite in the background.
+
+```python
+from nanasqlite import NanaSQLite
+
+db = NanaSQLite(
+    "mydb.db",
+    memory_first=True,
+    memory_flush_interval=5.0,  # Default: 5 seconds
+)
+
+db["session:1"] = {"user": "alice"}
+assert db["session:1"]["user"] == "alice"
+
+db.flush(wait=True)  # Explicit persistence checkpoint
+db.close()
+```
+
+Regular `v2_mode=True` is for asynchronous writes. `memory_first=True` goes further: memory becomes the source of truth for CRUD operations, and SQLite is updated by periodic delta flushes. Use it only when the full dataset fits comfortably in memory and the application is single-process.
+
+> [!CAUTION]
+> `memory_first=True` is not compatible with LRU / TTL / `cache_size` / `cache_persistence_ttl`. If the process is forcibly killed, changes since the last flush may be lost. Call `db.flush(wait=True)` at important boundaries.
+
 ### Async (AsyncNanaSQLite)
 
 ```python
@@ -193,9 +218,11 @@ db = NanaSQLite("mydb.db", v2_mode=True, v2_chunk_size=500)
 > - `gunicorn --workers=N` (N > 1) with FastAPI/Flask
 > - Applications using `multiprocessing` workers
 > - Daemons using `fork`
+> - Multiple processes using `memory_first=True` against the same database file
 
 ### Data Consistency
 - In `manual` or `count` mode, if the process is killed forcibly, **buffered data will be lost**.
+- In `memory_first=True`, changes since the last periodic flush may be lost.
 - **IMPORTANT**: While the `atexit` handler automatically flushes data on normal process termination, it cannot protect against OS-level forced kills (`SIGKILL`) or power failures.
 - For mission-critical data, it is recommended to call `db.flush(wait=True)` explicitly or use the default `immediate` mode.
 - Always call `db.close()` on shutdown to flush any remaining buffer.
@@ -212,5 +239,6 @@ If another process reads the same SQLite file before the flush completes, it may
 
 - [ ] Is v2 mode only used in a single-process environment?
 - [ ] Is the data-loss risk understood for `manual` / `count` modes?
+- [ ] For `memory_first=True`, does the whole dataset fit in memory and can important boundaries call `flush(wait=True)`?
 - [ ] Is `db.close()` or `atexit` guaranteed to be called in production?
 - [ ] Has `v2_chunk_size` been tuned for large batch workloads?

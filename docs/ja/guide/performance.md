@@ -69,6 +69,45 @@ pip install "nanasqlite[speed]"
 
 ---
 
+## 🧠 CRUD 速度特化: `memory_first=True` (v1.5.7dev1+)
+
+CRUD の読み書きを最優先したい場合は、メモリ優先モードを使用できます。
+
+```python
+from nanasqlite import NanaSQLite
+
+db = NanaSQLite("app.db", memory_first=True)
+
+db["user:1"] = {"name": "Alice"}
+user = db["user:1"]       # メモリから即座に取得
+db.flush(wait=True)       # 重要な区切りでは明示的に永続化
+db.close()                # 終了時にも残りの差分をフラッシュ
+```
+
+`memory_first=True` は起動時に KVS 全体をメモリへ読み込み、その後の CRUD 操作をメモリ上で完結させます。変更差分は v2 エンジンによりバックグラウンドでまとめて SQLite へフラッシュされます。デフォルトでは変更がある場合に約 5 秒ごとにフラッシュします。
+
+```python
+db = NanaSQLite(
+    "app.db",
+    memory_first=True,
+    memory_flush_interval=2.0,  # 2秒ごとに差分をフラッシュ
+)
+```
+
+### 向いている用途
+- 単一プロセスで動くアプリケーション
+- CRUD が非常に多く、読み書きレイテンシを最小化したい場合
+- データセット全体をメモリに載せられる規模
+- 重要なタイミングで `flush(wait=True)` または `close()` を呼べる設計
+
+### 注意点
+- LRU / TTL / `cache_size` / `cache_persistence_ttl` とは併用できません。メモリ優先モードでは無制限キャッシュが前提です。
+- プロセスが強制終了された場合、最後のフラッシュ以降の差分は失われる可能性があります。
+- 別プロセスや外部ツールが同じ SQLite ファイルを更新しても、メモリ上の値には自動反映されません。
+- マルチプロセス環境では使用しないでください。通常の v2 モードと同様にシングルプロセス専用です。
+
+---
+
 ## 🔍 インデックスによる検索の高速化
 
 `query()` や `query_with_pagination()` を使用して、Key-Valueペア以外のデータ（JSON内の特定フィールドなど）を検索する場合、インデックスが不可欠です。
@@ -98,6 +137,7 @@ db.create_index("idx_user_age", "data", ["age"])
 - [ ] 大量処理に `batch_update` を使っているか？
 - [ ] 頻繁な検索に `create_index` を適用しているか？
 - [ ] `optimize=True`（デフォルト）を使用しているか？
+- [ ] CRUD 速度最優先かつシングルプロセスなら `memory_first=True` を検討したか？
 - [ ] SSD環境で動作させているか？
 
 ---

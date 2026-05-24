@@ -104,6 +104,45 @@ sessions = db.table("sessions",
 
 ---
 
+## 🧠 CRUD-Optimized Mode: `memory_first=True` (v1.5.7dev1+)
+
+Use memory-first mode when CRUD latency matters more than immediate disk persistence.
+
+```python
+from nanasqlite import NanaSQLite
+
+db = NanaSQLite("app.db", memory_first=True)
+
+db["user:1"] = {"name": "Alice"}
+user = db["user:1"]       # Served immediately from memory
+db.flush(wait=True)       # Explicit persistence checkpoint
+db.close()                # Flushes remaining changes on shutdown
+```
+
+`memory_first=True` loads the whole KVS table into memory at startup and keeps CRUD operations in memory. Changed keys are coalesced and flushed to SQLite by the v2 engine in the background. By default, NanaSQLite flushes only when there are changes and about every 5 seconds.
+
+```python
+db = NanaSQLite(
+    "app.db",
+    memory_first=True,
+    memory_flush_interval=2.0,  # Flush changed keys every 2 seconds
+)
+```
+
+### Best for
+- Single-process applications
+- Very hot CRUD workloads where read/write latency is the priority
+- Datasets that comfortably fit in memory
+- Applications that can call `flush(wait=True)` or `close()` at important boundaries
+
+### Caveats
+- Not compatible with LRU / TTL / `cache_size` / `cache_persistence_ttl`; memory-first mode requires an unbounded cache.
+- If the process is forcibly killed, changes since the last flush may be lost.
+- External writes to the same SQLite file are not automatically reflected in memory.
+- Do not use it in multi-process deployments. Like regular v2 mode, it is single-process only.
+
+---
+
 ## 🔍 Fast Search via Indexing
 
 When using `query()` or `query_with_pagination()` to search for data other than the primary key (e.g., searching within JSON fields), indexing is essential.
@@ -133,4 +172,5 @@ db.create_index("idx_user_age", "data", ["age"])
 - [ ] Are you using `batch_update` for bulk processing?
 - [ ] Have you applied `create_index` for frequent searches?
 - [ ] Are you using the default `optimize=True`?
+- [ ] For CRUD-first single-process workloads, have you considered `memory_first=True`?
 - [ ] Is the database running on an SSD?

@@ -39,6 +39,32 @@ db = NanaSQLite(
 )
 ```
 
+## CRUD-Optimized Memory-First Mode
+
+`memory_first=True` is a CRUD-optimized option built on the V2 engine's time-based flush. It loads the whole KVS table into memory at startup, then serves `get` / `set` / `delete` / `len` / `keys` / `batch_get` and similar CRUD operations from memory. Only changed keys are flushed back to SQLite in the background.
+
+```python
+from nanasqlite import NanaSQLite
+
+db = NanaSQLite(
+    "app.db",
+    memory_first=True,
+    memory_flush_interval=5.0,  # Default: 5 seconds
+)
+
+db["session:1"] = {"user": "alice"}
+assert db["session:1"]["user"] == "alice"
+
+db.flush(wait=True)  # Explicit persistence checkpoint
+db.close()
+```
+
+Regular `v2_mode=True` is for asynchronous writes. `memory_first=True` goes further: memory becomes the source of truth for CRUD operations, and SQLite is updated by periodic delta flushes. Use it only when the full dataset fits comfortably in memory and the application is single-process.
+
+::: warning Caution
+`memory_first=True` is not compatible with LRU / TTL / `cache_size` / `cache_persistence_ttl`. If the process is forcibly killed, changes since the last flush may be lost. Call `db.flush(wait=True)` at important boundaries.
+:::
+
 ## Flush Modes
 
 The V2 engine writes data to the database in the background. Choose from four flush modes:
@@ -234,8 +260,10 @@ async def main():
 - Write-heavy applications (logging, sensor data, chat)
 - Minimizing write latency
 - Single-process applications
+- `memory_first=True` when CRUD latency is the priority and the full dataset fits in memory
 
 **Stick with V1 when:**
 - Immediate data persistence is required
 - Running in a multi-process environment (e.g., Gunicorn workers)
 - Simple CRUD applications
+- The full dataset cannot fit comfortably in memory

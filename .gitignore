@@ -109,3 +109,4 @@ docs/site/.vitepress/cache/
 docs/site/.vitepress/.temp/
 実験用（ローカル用）/
 coverage.json
+uv.lock

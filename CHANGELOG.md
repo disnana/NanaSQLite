@@ -6,6 +6,27 @@
 
 ## 日本語
 
+### [1.5.7dev1] - 2026-05-24
+
+#### パフォーマンス改善
+
+- **PERF-30: フック無し `__setitem__` の不要な旧値取得を省略**（`core.py`）
+  - `on_write_success` 用の `old_value` はフックが登録されている場合だけ取得するようにしました。
+  - デフォルト構成の単体書き込みで、余分なキャッシュ/DB 確認を避けます。
+- **PERF-31 / PERF-32: `batch_get()` の一括取得ホットパスを軽量化**（`core.py`）
+  - DB 未取得キー判定を、結果全体ではなく DB に問い合わせたキーだけに限定しました。
+  - フルチャンク用の `IN (...)` プレースホルダー文字列を事前計算し、大量キー取得時の文字列生成を減らしました。
+- **PERF-33: `AsyncNanaSQLite.abatch_get()` の全件キャッシュ既知パスを高速化**（`async_core.py`）
+  - デフォルトの unbounded キャッシュかつフック無しで、要求キーがすべてキャッシュ済みまたは既知の未存在キーの場合、executor 往復なしで返します。
+- **PERF-34: `load_all()` のデフォルトキャッシュ投入を一括化**（`core.py`）
+  - サイズ制限なし unbounded キャッシュでは、1件ずつ `cache.set()` せず背後の dict をまとめて更新します。
+- **PERF-35: `memory_first=True` を追加**（`core.py`）
+  - KVS CRUD を全件ロード済みメモリ上で完結させ、差分は v2 engine の time flush でバックグラウンド永続化します。
+  - デフォルトでは `flush_interval=5.0` 相当で、`close()` 時は v2 engine の最終 flush により永続化されます。
+  - 既存挙動には影響しない明示オプションです。全件メモリ保持が前提のため、LRU/TTL や `cache_size` 付きキャッシュとは併用できません。
+  - v2 engine の time flush は、変更が無い場合に空 flush をワーカーへ投げないようにしました。
+  - pytest-benchmark と Actions のベンチ集計に memory-first CRUD ベンチを追加しました。
+
 ### [1.5.6b1] - 2026-05-24
 
 #### セキュリティ修正
@@ -1273,6 +1294,27 @@
 
 
 ## English
+
+### [1.5.7dev1] - 2026-05-24
+
+#### Performance Improvements
+
+- **PERF-30: Skip unnecessary old-value lookup for hook-free `__setitem__`** (`core.py`)
+  - `old_value` for `on_write_success` is now fetched only when hooks are registered.
+  - Default single-key writes avoid an extra cache/DB lookup.
+- **PERF-31 / PERF-32: Lighten the `batch_get()` bulk-read hot path** (`core.py`)
+  - Missing-key detection now tracks only keys queried from SQLite instead of building a set from the full result.
+  - Full-chunk `IN (...)` placeholders are precomputed to reduce string construction during large batch reads.
+- **PERF-33: Speed up fully cache-known `AsyncNanaSQLite.abatch_get()`** (`async_core.py`)
+  - With the default unbounded cache and no hooks, async batch reads now return without an executor round trip when every requested key is cached or known absent.
+- **PERF-34: Bulk-populate the default cache in `load_all()`** (`core.py`)
+  - For unlimited unbounded caches, `load_all()` now updates the backing dict directly instead of calling `cache.set()` for every row.
+- **PERF-35: Add `memory_first=True`** (`core.py`)
+  - KVS CRUD now has an explicit memory-first option that serves loaded data from memory and persists deltas through the v2 engine's timed background flush.
+  - The default interval is equivalent to `flush_interval=5.0`, and `close()` performs the v2 engine's final flush.
+  - This is opt-in and does not affect existing behavior. Because it requires full in-memory ownership, it rejects LRU/TTL and bounded caches.
+  - The v2 engine's timed flush now skips submitting empty flush jobs when there are no changes.
+  - Added memory-first CRUD benchmarks to pytest-benchmark and the Actions benchmark summary.
 
 ### [1.5.6b1] - 2026-05-24
 

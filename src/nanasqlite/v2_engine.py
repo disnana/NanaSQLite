@@ -328,6 +328,11 @@ class V2Engine:
         # Reset timer if in time mode
         if self._flush_mode == "time":
             self._flush_event.set()
+            if not wait:
+                with self._staging_lock:
+                    has_kvs_changes = bool(self._staging_buffer)
+                if not has_kvs_changes and self._strict_queue.empty():
+                    return
 
         # Coalesce concurrent flush requests: only submit one _perform_flush to
         # the executor at a time.  If a submission is already queued (lock is

@@ -39,6 +39,32 @@ db = NanaSQLite(
 )
 ```
 
+## CRUD 特化のメモリ優先モード
+
+`memory_first=True` は V2 エンジンの time フラッシュを利用する、CRUD 速度特化のオプションです。起動時に KVS 全体をメモリへ読み込み、以後の `get` / `set` / `delete` / `len` / `keys` / `batch_get` などをメモリ上で完結させます。変更差分だけがバックグラウンドで SQLite にフラッシュされます。
+
+```python
+from nanasqlite import NanaSQLite
+
+db = NanaSQLite(
+    "app.db",
+    memory_first=True,
+    memory_flush_interval=5.0,  # デフォルト: 5秒
+)
+
+db["session:1"] = {"user": "alice"}
+assert db["session:1"]["user"] == "alice"
+
+db.flush(wait=True)  # 重要な区切りでは明示的に永続化
+db.close()
+```
+
+通常の `v2_mode=True` は「書き込みを非同期化する」ための設定です。一方、`memory_first=True` は「CRUD の正本をメモリ側に置き、差分だけを定期的に永続化する」ための設定です。データセット全体がメモリに載る単一プロセス用途に向いています。
+
+::: warning 注意
+`memory_first=True` は LRU / TTL / `cache_size` / `cache_persistence_ttl` と併用できません。また、プロセスが強制終了された場合は最後のフラッシュ以降の差分が失われる可能性があります。重要な区切りでは `db.flush(wait=True)` を呼んでください。
+:::
+
 ## フラッシュモード
 
 V2 エンジンはデータをバックグラウンドでデータベースに書き込みます。4 つのフラッシュモードから選択できます:
@@ -234,8 +260,10 @@ async def main():
 - 書き込みが頻繁なアプリケーション（ログ、センサーデータ、チャット）
 - 書き込みレイテンシを最小化したい場合
 - シングルプロセスアプリケーション
+- CRUD レイテンシを最優先し、全データをメモリに載せられる場合は `memory_first=True`
 
 **V1 を使うべき場面:**
 - データの即時永続化が必要
 - マルチプロセス環境（Gunicorn ワーカーなど）
 - シンプルな CRUD アプリケーション
+- データセット全体をメモリに載せられない場合
