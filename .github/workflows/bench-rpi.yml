@@ -23,7 +23,7 @@ jobs:
     outputs:
       run_benchmark: ${{ steps.check.outputs.run_benchmark }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -60,7 +60,7 @@ jobs:
     outputs:
       image_tag: ${{ steps.tag.outputs.tag }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set image tag
         id: tag
@@ -78,7 +78,7 @@ jobs:
     runs-on: [self-hosted, rpi]
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Run sync benchmarks (no network)
         run: |
@@ -105,7 +105,7 @@ jobs:
     runs-on: [self-hosted, rpi]
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Run async benchmarks (no network)
         run: |
@@ -150,7 +150,7 @@ jobs:
           echo "## 📊 Performance Benchmarks (RPI)" >> $GITHUB_STEP_SUMMARY
           echo "⏭️ **Benchmarks skipped** - No changes in \`src/\` directory" >> $GITHUB_STEP_SUMMARY
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: needs.should-run.outputs.run_benchmark == 'true'
         with:
           fetch-depth: 0
