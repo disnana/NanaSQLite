@@ -69,7 +69,7 @@ pip install "nanasqlite[speed]"
 
 ---
 
-## 🧠 CRUD 速度特化: `memory_first=True` (v1.5.7dev1+)
+## 🧠 CRUD 速度特化: `memory_first=True` (v1.5.7+)
 
 CRUD の読み書きを最優先したい場合は、メモリ優先モードを使用できます。
 

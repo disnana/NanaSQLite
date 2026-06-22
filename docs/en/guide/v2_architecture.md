@@ -86,7 +86,7 @@ cfg = V2Config(
 db = NanaSQLite("mydb.db", v2_mode=True, v2_config=cfg)
 ```
 
-### CRUD-Optimized Memory-First Mode (v1.5.7dev1+)
+### CRUD-Optimized Memory-First Mode (v1.5.7+)
 
 `memory_first=True` is a CRUD-optimized option built on the v2 engine's time-based flush. It loads the whole KVS table into memory at startup, then serves `get` / `set` / `delete` / `len` / `keys` / `batch_get` and similar CRUD operations from memory. Only changed keys are flushed back to SQLite in the background.
 

@@ -86,7 +86,7 @@ cfg = V2Config(
 db = NanaSQLite("mydb.db", v2_mode=True, v2_config=cfg)
 ```
 
-### CRUD 特化のメモリ優先モード (v1.5.7dev1+)
+### CRUD 特化のメモリ優先モード (v1.5.7+)
 
 `memory_first=True` は v2 エンジンの time フラッシュを利用する、CRUD 速度特化のオプションです。起動時に KVS 全体をメモリへ読み込み、以後の `get` / `set` / `delete` / `len` / `keys` / `batch_get` などをメモリ上で完結させます。変更差分だけがバックグラウンドで SQLite にフラッシュされます。
 

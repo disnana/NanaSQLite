@@ -48,8 +48,8 @@ Initializes the NanaSQLite database connection.
 - `validator` (dict | Schema | None, optional): A validkit-py validation schema (plain dict or `Schema` object). When supplied, every `__setitem__` call (`db["key"] = value`) validates the value against the schema before writing. Raises `NanaSQLiteValidationError` on schema violations. Requires `pip install nanasqlite[validation]`. (v1.3.4b2+)
 - `coerce` (bool, optional): When `True`, the coerced/converted value returned by validkit-py is stored instead of the original.
   **Important**: Type coercion requires `.coerce()` to be called on each field validator in the schema (e.g., `v.int().coerce()`). Without that, values whose types don't match the schema still fail validation even when `coerce=True`. This parameter only controls whether the converted result is persisted. Only has effect when `validator` is also set. Defaults to `False`. (v1.3.4b2+)
-- `memory_first` (bool, optional): Enables the CRUD-optimized memory-first mode. Loads the full KVS table into memory, serves CRUD operations from memory, and flushes changed keys through the v2 engine in the background. Requires the default unbounded cache and is single-process only. Defaults to `False`. (v1.5.7dev1+)
-- `memory_flush_interval` (float, optional): Flush interval in seconds for `memory_first=True`. Defaults to `5.0`. (v1.5.7dev1+)
+- `memory_first` (bool, optional): Enables the CRUD-optimized memory-first mode. Loads the full KVS table into memory, serves CRUD operations from memory, and flushes changed keys through the v2 engine in the background. Requires the default unbounded cache and is single-process only. Defaults to `False`. (v1.5.7+)
+- `memory_flush_interval` (float, optional): Flush interval in seconds for `memory_first=True`. Defaults to `5.0`. (v1.5.7+)
 
 ---
 
@@ -93,7 +93,7 @@ The new instance shares the same underlying connection and lock as the parent, e
 - `cache_persistence_ttl` (bool | None, optional): Whether to persist expired TTL entries to disk for this table. When omitted, inherits the parent's setting. (v1.3.4b2+)
 - `validator` (dict | Schema | None, optional): A validkit-py schema for this sub-table. When omitted, the parent's schema is inherited automatically. Pass `None` explicitly to disable validation for this sub-table. (v1.3.4b2+)
 - `coerce` (bool, optional): When `True`, the coerced/converted value returned by validkit-py is stored for this sub-table. Requires `.coerce()` on the field validators in the schema to take effect. When omitted, the parent's `coerce` setting is inherited automatically. (v1.3.4b2+)
-- `memory_first` (bool | None, optional): Enables or disables memory-first mode for this table. When omitted, inherits the parent's setting. (v1.5.7dev1+)
+- `memory_first` (bool | None, optional): Enables or disables memory-first mode for this table. When omitted, inherits the parent's setting. (v1.5.7+)
 
 **Returns:**
 - `NanaSQLite`: A new instance targeting the specified table.

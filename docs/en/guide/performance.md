@@ -69,7 +69,7 @@ pip install "nanasqlite[speed]"
 
 ---
 
-## 🧠 CRUD-Optimized Mode: `memory_first=True` (v1.5.7dev1+)
+## 🧠 CRUD-Optimized Mode: `memory_first=True` (v1.5.7+)
 
 Use memory-first mode when CRUD latency matters more than immediate disk persistence.
 
