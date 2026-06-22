@@ -16,11 +16,11 @@
     "autoprefixer": "^10.4.27",
     "postcss": "^8.5.9",
     "tailwindcss": "^4.2.2",
-    "vite": "^6.4.2",
+    "vite": "^6.4.3",
     "vitepress": "^1.6.4",
     "vue": "^3.5.32"
   },
   "overrides": {
-    "vite": "$vite"
+    "vite": "^6.4.3"
   }
 }
