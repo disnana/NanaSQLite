@@ -168,6 +168,9 @@ class NanaSQLite(MutableMapping):
         coerce: True の場合、validator に基づいて値を型変換してから永続化する (オプション)
     """
 
+    _table_instance_registry: dict[tuple[str, str], weakref.ReferenceType[NanaSQLite]] = {}
+    _table_instance_registry_lock = threading.Lock()
+
     def __init__(
         self,
         db_path: str,
@@ -221,6 +224,7 @@ class NanaSQLite(MutableMapping):
         cache_size = kwargs.get("cache_size")
         cache_ttl = kwargs.get("cache_ttl")
         cache_persistence_ttl = kwargs.get("cache_persistence_ttl", False)
+        warn_duplicate_table_instance = kwargs.get("warn_duplicate_table_instance", True)
         allowed_sql_functions = kwargs.get("allowed_sql_functions")
         forbidden_sql_functions = kwargs.get("forbidden_sql_functions")
         max_clause_length = kwargs.get("max_clause_length", 1000)
@@ -407,6 +411,7 @@ class NanaSQLite(MutableMapping):
         self._cache_size_raw: int | None = cache_size
         self._cache_ttl_raw: float | None = cache_ttl
         self._cache_persistence_ttl_raw: bool = cache_persistence_ttl
+        self._warn_duplicate_table_instance: bool = bool(warn_duplicate_table_instance)
         self._cache: CacheStrategy = create_cache(cache_strategy, cache_size, ttl=cache_ttl, on_expire=on_expire)
         self._data = self._cache.get_data()
         self._lru_mode = cache_strategy in (CacheType.LRU, "lru", CacheType.TTL, "ttl")
@@ -459,6 +464,7 @@ class NanaSQLite(MutableMapping):
         self._child_instances = weakref.WeakSet()  # WeakSetによる弱参照追跡（死んだ参照は自動的にクリーンアップ）
         self._is_closed: bool = False  # 接続が閉じられたか
         self._parent_closed: bool = False  # 親接続が閉じられたか
+        self._table_instance_registry_key_value: tuple[str, str] | None = None
 
         # 接続とロックの共有または新規作成
         if _shared_connection is not None:
@@ -909,6 +915,7 @@ class NanaSQLite(MutableMapping):
         親インスタンスから呼ばれ、親が閉じられたことをマークする
         """
         self._parent_closed = True
+        self._unregister_table_instance()
 
     def _serialize(self, value: Any) -> bytes | str:
         """シリアライズ (JSON -> Encryption if enabled)"""
@@ -2316,6 +2323,8 @@ class NanaSQLite(MutableMapping):
             raise NanaSQLiteTransactionError(
                 "Cannot close connection while transaction is in progress. Please commit or rollback first."
             )
+
+        self._unregister_table_instance()
 
         # 子インスタンスに通知
         for child in self._child_instances:
@@ -3774,6 +3783,30 @@ class NanaSQLite(MutableMapping):
         except (ValueError, TypeError, Exception):
             return val
 
+    @classmethod
+    def _table_instance_registry_key(cls, db_path: str, safe_table: str) -> tuple[str, str]:
+        if cls._is_in_memory_path(db_path):
+            return (db_path, safe_table)
+        return (os.path.abspath(db_path), safe_table)
+
+    @classmethod
+    def _register_table_instance(cls, key: tuple[str, str], instance: NanaSQLite) -> bool:
+        with cls._table_instance_registry_lock:
+            existing_ref = cls._table_instance_registry.get(key)
+            existing = existing_ref() if existing_ref is not None else None
+            cls._table_instance_registry[key] = weakref.ref(instance)
+            return existing is not None and existing is not instance
+
+    def _unregister_table_instance(self) -> None:
+        key = self._table_instance_registry_key_value
+        if key is None:
+            return
+        with self._table_instance_registry_lock:
+            existing_ref = self._table_instance_registry.get(key)
+            if existing_ref is not None and existing_ref() is self:
+                del self._table_instance_registry[key]
+        self._table_instance_registry_key_value = None
+
     def table(
         self,
         table_name: str,
@@ -3786,6 +3819,7 @@ class NanaSQLite(MutableMapping):
         hooks: list[NanaHook] | None | EllipsisType = _UNSET,
         v2_enable_metrics: bool | EllipsisType = _UNSET,
         memory_first: bool | EllipsisType = _UNSET,
+        warn_duplicate_table_instance: bool | EllipsisType = _UNSET,
     ):
         """
         新しいインスタンスを作成しますが、SQLite接続とロックは共有します。
@@ -3812,6 +3846,8 @@ class NanaSQLite(MutableMapping):
                                指定しない場合は親インスタンスの設定を引き継ぐ。
             memory_first: ``True`` の場合、起動時に全件ロードし、KVS CRUD をメモリ優先で処理する。
                           指定しない場合は親インスタンスの設定を引き継ぐ。
+            warn_duplicate_table_instance: 同じDB・同じテーブルの既存 table() インスタンスがある場合に警告する。
+                                           指定しない場合は親インスタンスの設定を引き継ぐ。
 
         ⚠️ 重要な注意事項:
         - 同じテーブルに対して複数のインスタンスを作成しないでください
@@ -3871,6 +3907,11 @@ class NanaSQLite(MutableMapping):
             self._v2_enable_metrics_raw if v2_enable_metrics is _UNSET else bool(v2_enable_metrics)
         )
         resolved_memory_first = self._memory_first if memory_first is _UNSET else bool(memory_first)
+        resolved_warn_duplicate = (
+            self._warn_duplicate_table_instance
+            if warn_duplicate_table_instance is _UNSET
+            else bool(warn_duplicate_table_instance)
+        )
 
         # 子インスタンス生成〜WeakSet追加をロックで保護し、
         # restore() の接続差し替えと競合しないようにする
@@ -3891,6 +3932,7 @@ class NanaSQLite(MutableMapping):
                 v2_max_dlq_size=self._v2_max_dlq_size,
                 memory_first=resolved_memory_first,
                 memory_flush_interval=self._memory_flush_interval_raw,
+                warn_duplicate_table_instance=resolved_warn_duplicate,
                 _shared_connection=self._connection,
                 _shared_lock=self._lock,
                 _shared_v2_engine=self._v2_engine,
@@ -3903,6 +3945,19 @@ class NanaSQLite(MutableMapping):
 
             # 子インスタンスを追跡 (WeakSetに直接オブジェクトを追加すると、WeakSetが弱参照を保持する)
             self._child_instances.add(child)
+
+        if resolved_warn_duplicate:
+            registry_key = self._table_instance_registry_key(self._db_path, child._safe_table)
+            if self._register_table_instance(registry_key, child):
+                warnings.warn(
+                    f"Table '{table_name}' already has an active NanaSQLite table() instance for this database. "
+                    "Multiple live instances keep independent caches and may observe stale values. "
+                    "Reuse the first table instance, call close(), or pass warn_duplicate_table_instance=False "
+                    "when this is intentional.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            child._table_instance_registry_key_value = registry_key
 
         return child
 
