@@ -64,7 +64,7 @@ def close() -> None
 ### `table`
 
 ```python
-def table(table_name: str, cache_strategy: CacheType | Literal['unbounded', 'lru', 'ttl'] | None = None, cache_size: int | None = None, cache_ttl: float | None = None, cache_persistence_ttl: bool | None = None, validator: Any | None | types.EllipsisType = Ellipsis, coerce: bool | types.EllipsisType = Ellipsis, v2_enable_metrics: bool | types.EllipsisType = Ellipsis)
+def table(table_name: str, cache_strategy: CacheType | Literal['unbounded', 'lru', 'ttl'] | None = None, cache_size: int | None = None, cache_ttl: float | None = None, cache_persistence_ttl: bool | None = None, validator: Any | None | types.EllipsisType = Ellipsis, coerce: bool | types.EllipsisType = Ellipsis, v2_enable_metrics: bool | types.EllipsisType = Ellipsis, memory_first: bool | types.EllipsisType = Ellipsis, warn_duplicate_table_instance: bool | types.EllipsisType = Ellipsis)
 ```
 
 #### Parameter
@@ -79,6 +79,8 @@ def table(table_name: str, cache_strategy: CacheType | Literal['unbounded', 'lru
 | `validator` | `Any | None | types.EllipsisType` |  |
 | `coerce` | `bool | types.EllipsisType` | ``True`` の場合、validkit-py の自動変換機能を有効にする。 sub1 = db.table("users") users_db = db.table("users") |
 | `v2_enable_metrics` | `bool | types.EllipsisType` |  |
+| `memory_first` | `bool | types.EllipsisType` | Enables or disables memory-first mode for this table. When omitted, inherits the parent's setting |
+| `warn_duplicate_table_instance` | `bool | types.EllipsisType` | Warns when another live table() instance targets the same database and table. Pass False when intentional |
 
 ::: warning Raises
 :::

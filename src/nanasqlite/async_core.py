@@ -153,6 +153,7 @@ class AsyncNanaSQLite:
         v2_chunk_size = kwargs.get("v2_chunk_size", 1000)
         v2_max_dlq_size = kwargs.get("v2_max_dlq_size", 1000)
         v2_enable_metrics = kwargs.get("v2_enable_metrics", False)
+        warn_duplicate_table_instance = kwargs.get("warn_duplicate_table_instance", True)
 
         self._db_path = db_path
         self._table = table
@@ -174,6 +175,7 @@ class AsyncNanaSQLite:
         self._encryption_key = encryption_key
         self._encryption_mode = encryption_mode
         self._lock_timeout = lock_timeout
+        self._warn_duplicate_table_instance = bool(warn_duplicate_table_instance)
         self._validator_raw = validator
         self._coerce_raw: bool = bool(coerce)
         self._hooks_raw: list[NanaHook] = hooks or []
@@ -294,6 +296,7 @@ class AsyncNanaSQLite:
                     v2_chunk_size=self._v2_chunk_size,
                     v2_max_dlq_size=self._v2_max_dlq_size,
                     v2_enable_metrics=self._v2_enable_metrics,
+                    warn_duplicate_table_instance=self._warn_duplicate_table_instance,
                 ),
             )
 
@@ -1513,6 +1516,7 @@ class AsyncNanaSQLite:
         validator: Any | None | EllipsisType = _UNSET,
         coerce: bool | EllipsisType = _UNSET,
         hooks: list[NanaHook] | None | EllipsisType = _UNSET,
+        warn_duplicate_table_instance: bool | EllipsisType = _UNSET,
     ) -> AsyncNanaSQLite:
         """
         非同期でサブテーブルのAsyncNanaSQLiteインスタンスを取得
@@ -1543,6 +1547,8 @@ class AsyncNanaSQLite:
             hooks: このテーブル用のフックのリスト。
                    指定しない場合は親インスタンスのフックを引き継ぐ。
                    ``None`` を明示的に渡すとフックなしで使用できる。
+            warn_duplicate_table_instance: 同じDB・同じテーブルの既存 table() インスタンスがある場合に警告する。
+                                           指定しない場合は親インスタンスの設定を引き継ぐ。
 
         Returns:
             AsyncNanaSQLite: 指定したテーブルを操作するAsyncNanaSQLiteインスタンス
@@ -1560,7 +1566,13 @@ class AsyncNanaSQLite:
         loop = asyncio.get_running_loop()
         sub_db = await loop.run_in_executor(
             self._executor,
-            lambda: self._db.table(table_name, validator=validator, coerce=coerce, hooks=hooks),
+            lambda: self._db.table(
+                table_name,
+                validator=validator,
+                coerce=coerce,
+                hooks=hooks,
+                warn_duplicate_table_instance=warn_duplicate_table_instance,
+            ),
         )
 
         # 新しいAsyncNanaSQLiteラッパーを作成（__init__をバイパス）
@@ -1597,6 +1609,11 @@ class AsyncNanaSQLite:
         async_sub_db._encryption_key = self._encryption_key
         async_sub_db._encryption_mode = self._encryption_mode
         async_sub_db._lock_timeout = self._lock_timeout
+        async_sub_db._warn_duplicate_table_instance = (
+            self._warn_duplicate_table_instance
+            if warn_duplicate_table_instance is _UNSET
+            else bool(warn_duplicate_table_instance)
+        )
         # v2アーキテクチャ関連の設定を親インスタンスから継承する
         async_sub_db._v2_mode = getattr(self, "_v2_mode", False)
         async_sub_db._flush_mode = getattr(self, "_flush_mode", "immediate")

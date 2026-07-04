@@ -70,7 +70,8 @@ Closes the database connection and shuts down the thread pool.
 ```python
 async def table(self, table_name: str,
                 validator: Any | None = ...,
-                coerce: bool = ...) -> AsyncNanaSQLite
+                coerce: bool = ...,
+                warn_duplicate_table_instance: bool | None = ...) -> AsyncNanaSQLite
 ```
 
 Asynchronously creates a new `AsyncNanaSQLite` instance for a sub-table.
@@ -80,6 +81,9 @@ Shares the thread pool and connection with the parent.
 - `table_name` (str): The name of the sub-table.
 - `validator` (dict | Schema | None, optional): A validkit-py schema for this sub-table. When omitted, the parent's schema is inherited automatically. Pass `None` explicitly to disable validation for this sub-table. (v1.3.4b2+)
 - `coerce` (bool, optional): When `True`, enables auto-conversion for this sub-table. When omitted, the parent's `coerce` setting is inherited automatically. (v1.3.4b2+)
+- `warn_duplicate_table_instance` (bool | None, optional): Warns when another live `table()` instance targets the same database and table. Pass `False` when intentional. (v1.5.8+)
+
+**Cache consistency note:** Multiple live instances for the same sub-table keep independent caches and may observe stale values. Reuse one table instance when possible.
 
 ---
 

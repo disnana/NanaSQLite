@@ -2,7 +2,7 @@ import warnings
 
 import pytest
 
-from nanasqlite import NanaSQLite
+from nanasqlite import AsyncNanaSQLite, NanaSQLite
 
 
 @pytest.fixture(autouse=True)
@@ -66,3 +66,35 @@ def test_closed_table_instance_is_unregistered(tmp_path):
     second["k"] = "v"
     assert second["k"] == "v"
     db.close()
+
+
+@pytest.mark.asyncio
+async def test_async_duplicate_table_instance_warns(tmp_path):
+    async with AsyncNanaSQLite(str(tmp_path / "db.db")) as db:
+        first = await db.table("users")
+        try:
+            with pytest.warns(UserWarning, match="already has an active NanaSQLite table"):
+                second = await db.table("users")
+            try:
+                await second.aset("k", "v")
+                assert await second.aget("k") == "v"
+            finally:
+                await second.close()
+        finally:
+            await first.close()
+
+
+@pytest.mark.asyncio
+async def test_async_duplicate_table_warning_can_be_disabled(tmp_path):
+    async with AsyncNanaSQLite(str(tmp_path / "db.db")) as db:
+        first = await db.table("users")
+        try:
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                second = await db.table("users", warn_duplicate_table_instance=False)
+            try:
+                assert caught == []
+            finally:
+                await second.close()
+        finally:
+            await first.close()

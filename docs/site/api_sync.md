@@ -76,7 +76,7 @@ def close() -> None
 ### `table`
 
 ```python
-def table(table_name: str, cache_strategy: CacheType | Literal['unbounded', 'lru', 'ttl'] | None = None, cache_size: int | None = None, cache_ttl: float | None = None, cache_persistence_ttl: bool | None = None, validator: Any | None | types.EllipsisType = Ellipsis, coerce: bool | types.EllipsisType = Ellipsis, v2_enable_metrics: bool | types.EllipsisType = Ellipsis, memory_first: bool | types.EllipsisType = Ellipsis)
+def table(table_name: str, cache_strategy: CacheType | Literal['unbounded', 'lru', 'ttl'] | None = None, cache_size: int | None = None, cache_ttl: float | None = None, cache_persistence_ttl: bool | None = None, validator: Any | None | types.EllipsisType = Ellipsis, coerce: bool | types.EllipsisType = Ellipsis, v2_enable_metrics: bool | types.EllipsisType = Ellipsis, memory_first: bool | types.EllipsisType = Ellipsis, warn_duplicate_table_instance: bool | types.EllipsisType = Ellipsis)
 ```
 
 新しいインスタンスを作成しますが、SQLite接続とロックは共有します。
@@ -96,6 +96,7 @@ def table(table_name: str, cache_strategy: CacheType | Literal['unbounded', 'lru
 | `coerce` | `bool | types.EllipsisType` | ``True`` の場合、validkit-py の自動変換機能を有効にする。 指定しない場合は親インスタンスの設定を引き継ぐ。 ⚠️ 重要な注意事項: - 同じテーブルに対して複数のインスタンスを作成しないでください 各インスタンスは独立したキャッシュを持つため、キャッシュ不整合が発生します - 推奨: テーブルインスタンスを変数に保存して再利用してください |
 | `v2_enable_metrics` | `bool | types.EllipsisType` |  |
 | `memory_first` | `bool | types.EllipsisType` | このテーブルでメモリ優先モードを有効または無効にする。省略時は親インスタンスの設定を引き継ぐ |
+| `warn_duplicate_table_instance` | `bool | types.EllipsisType` | 同じDB・同じテーブルを指す生存中の table() インスタンスがある場合に警告する。意図的な場合は False を渡す |
 
 ::: warning 例外
 - NanaSQLiteConnectionError: 接続が閉じられている場合

@@ -78,7 +78,8 @@ def table(self, table_name: str,
           cache_persistence_ttl: bool | None = ...,
           validator: Any | None = ...,
           coerce: bool = ...,
-          memory_first: bool | None = ...) -> NanaSQLite
+          memory_first: bool | None = ...,
+          warn_duplicate_table_instance: bool | None = ...) -> NanaSQLite
 ```
 
 Returns a new `NanaSQLite` instance for a specific sub-table.
@@ -94,6 +95,9 @@ The new instance shares the same underlying connection and lock as the parent, e
 - `validator` (dict | Schema | None, optional): A validkit-py schema for this sub-table. When omitted, the parent's schema is inherited automatically. Pass `None` explicitly to disable validation for this sub-table. (v1.3.4b2+)
 - `coerce` (bool, optional): When `True`, the coerced/converted value returned by validkit-py is stored for this sub-table. Requires `.coerce()` on the field validators in the schema to take effect. When omitted, the parent's `coerce` setting is inherited automatically. (v1.3.4b2+)
 - `memory_first` (bool | None, optional): Enables or disables memory-first mode for this table. When omitted, inherits the parent's setting. (v1.5.7+)
+- `warn_duplicate_table_instance` (bool | None, optional): Warns when another live `table()` instance targets the same database and table. This check runs only when creating the table instance and does not affect read/write hot paths. Pass `False` when intentional. (v1.5.8+)
+
+**Cache consistency note:** Multiple live instances for the same sub-table keep independent caches and may observe stale values. Reuse one table instance when possible.
 
 **Returns:**
 - `NanaSQLite`: A new instance targeting the specified table.

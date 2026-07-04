@@ -70,7 +70,8 @@ async def close(self) -> None
 ```python
 async def table(self, table_name: str,
                 validator: Any | None = ...,
-                coerce: bool = ...) -> AsyncNanaSQLite
+                coerce: bool = ...,
+                warn_duplicate_table_instance: bool | None = ...) -> AsyncNanaSQLite
 ```
 
 サブテーブル用の新しい `AsyncNanaSQLite` インスタンスを非同期に作成します。
@@ -80,6 +81,9 @@ async def table(self, table_name: str,
 - `table_name` (str): サブテーブルの名前。
 - `validator` (dict | Schema | None, 任意): このサブテーブル用の validkit-py スキーマ。省略時は親インスタンスのスキーマを自動継承。`None` を明示すると無効化。(v1.3.4b2以降)
 - `coerce` (bool, 任意): `True` の場合、このサブテーブルで自動変換を有効にします。省略時は親インスタンスの設定を引き継ぎます。(v1.3.4b2以降)
+- `warn_duplicate_table_instance` (bool | None, 任意): 同じDB・同じテーブルを指す生存中の `table()` インスタンスがある場合に警告します。意図的な場合は `False` を渡します。(v1.5.8以降)
+
+**キャッシュ整合性の注意:** 同じサブテーブルに対する複数の生存中インスタンスは独立したキャッシュを持つため、古い値を観測する可能性があります。可能な限り1つのテーブルインスタンスを再利用してください。
 
 ---
 

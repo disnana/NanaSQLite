@@ -92,7 +92,7 @@ def close() -> None
 ### `table`
 
 ```python
-def table(table_name: str, validator: Any | None | types.EllipsisType = Ellipsis, coerce: bool | types.EllipsisType = Ellipsis) -> AsyncNanaSQLite
+def table(table_name: str, validator: Any | None | types.EllipsisType = Ellipsis, coerce: bool | types.EllipsisType = Ellipsis, warn_duplicate_table_instance: bool | types.EllipsisType = Ellipsis) -> AsyncNanaSQLite
 ```
 
 sub1 = await db.table("users")
@@ -106,6 +106,7 @@ sub1 = await db.table("users")
 | `table_name` | `str` |  |
 | `validator` | `Any | None | types.EllipsisType` |  |
 | `coerce` | `bool | types.EllipsisType` | ``True`` の場合、validkit-py の自動変換機能を有効にする。 |
+| `warn_duplicate_table_instance` | `bool | types.EllipsisType` | Warns when another live table() instance targets the same database and table. Pass False when intentional |
 
 #### Returns
 

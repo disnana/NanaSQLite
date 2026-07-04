@@ -10,10 +10,11 @@
 
 #### 品質改善
 
-- **QUAL-01: `table()` の重複インスタンス警告を追加**（`core.py`）
+- **QUAL-01: `table()` の重複インスタンス警告を追加**（`core.py`, `async_core.py`）
   - 同じDB・同じテーブルに対して複数の `table()` インスタンスが生きている場合、独立キャッシュによる古い値の観測リスクを `UserWarning` で知らせるようにしました。
   - チェックは `table()` 生成時のみ実行し、通常の読み書き・一括取得などのホットパスには処理を追加していません。
-  - 意図的に複数インスタンスを使う場合は `warn_duplicate_table_instance=False` で抑制できます。
+  - 同期・非同期 API ともに、意図的に複数インスタンスを使う場合は `warn_duplicate_table_instance=False` で抑制できます。
+  - API ドキュメントにキャッシュ整合性の注意と抑制オプションを追記しました。
 
 ### [1.5.7] - 2026-06-22
 
@@ -1308,10 +1309,11 @@
 
 #### Quality Improvements
 
-- **QUAL-01: Added duplicate `table()` instance warnings** (`core.py`)
+- **QUAL-01: Added duplicate `table()` instance warnings** (`core.py`, `async_core.py`)
   - NanaSQLite now emits a `UserWarning` when multiple live `table()` instances target the same database and table, where independent caches can observe stale values.
   - The check runs only when creating a table instance and does not add work to normal read, write, or batch-get hot paths.
-  - Intentional duplicate instances can opt out with `warn_duplicate_table_instance=False`.
+  - Both sync and async APIs can opt out with `warn_duplicate_table_instance=False` when duplicate instances are intentional.
+  - API docs now describe the cache-consistency note and opt-out option.
 
 ### [1.5.7] - 2026-06-22
 

@@ -78,7 +78,8 @@ def table(self, table_name: str,
           cache_persistence_ttl: bool | None = ...,
           validator: Any | None = ...,
           coerce: bool = ...,
-          memory_first: bool | None = ...) -> NanaSQLite
+          memory_first: bool | None = ...,
+          warn_duplicate_table_instance: bool | None = ...) -> NanaSQLite
 ```
 
 指定したサブテーブル用の新しい `NanaSQLite` インスタンスを返します。
@@ -94,6 +95,9 @@ def table(self, table_name: str,
 - `validator` (dict | Schema | None, 任意): このサブテーブル用の validkit-py スキーマ。省略時は親インスタンスのスキーマを自動継承します。`None` を明示的に渡すとバリデーションを無効化できます。(v1.3.4b2以降)
 - `coerce` (bool, 任意): `True` の場合、このサブテーブルで validkit-py の変換済みの値を保存します。スキーマのフィールドバリデーターに `.coerce()` が必要です。省略時は親インスタンスの設定を引き継ぎます。(v1.3.4b2以降)
 - `memory_first` (bool | None, 任意): このテーブルでメモリ優先モードを有効または無効にします。省略時は親インスタンスの設定を引き継ぎます。(v1.5.7以降)
+- `warn_duplicate_table_instance` (bool | None, 任意): 同じDB・同じテーブルを指す生存中の `table()` インスタンスがある場合に警告します。このチェックはテーブルインスタンス作成時のみ実行され、読み書きのホットパスには影響しません。意図的な場合は `False` を渡します。(v1.5.8以降)
+
+**キャッシュ整合性の注意:** 同じサブテーブルに対する複数の生存中インスタンスは独立したキャッシュを持つため、古い値を観測する可能性があります。可能な限り1つのテーブルインスタンスを再利用してください。
 
 **戻り値:**
 - `NanaSQLite`: 指定したテーブルを操作する新しいインスタンス。

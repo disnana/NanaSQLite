@@ -95,7 +95,7 @@ def close() -> None
 ### `table`
 
 ```python
-def table(table_name: str, validator: Any | None | types.EllipsisType = Ellipsis, coerce: bool | types.EllipsisType = Ellipsis) -> AsyncNanaSQLite
+def table(table_name: str, validator: Any | None | types.EllipsisType = Ellipsis, coerce: bool | types.EllipsisType = Ellipsis, warn_duplicate_table_instance: bool | types.EllipsisType = Ellipsis) -> AsyncNanaSQLite
 ```
 
 非同期でサブテーブルのAsyncNanaSQLiteインスタンスを取得
@@ -121,6 +121,7 @@ def table(table_name: str, validator: Any | None | types.EllipsisType = Ellipsis
 | `table_name` | `str` | 取得するサブテーブル名 |
 | `validator` | `Any | None | types.EllipsisType` | このテーブル用の validkit-py スキーマ。 指定しない場合は親インスタンスのスキーマを引き継ぐ。 ``None`` を明示的に渡すとバリデーションなしで使用できる。 |
 | `coerce` | `bool | types.EllipsisType` | ``True`` の場合、validkit-py の自動変換機能を有効にする。 指定しない場合は親インスタンスの設定を引き継ぐ。 |
+| `warn_duplicate_table_instance` | `bool | types.EllipsisType` | 同じDB・同じテーブルを指す生存中の table() インスタンスがある場合に警告する。意図的な場合は False を渡す |
 
 #### 戻り値
 
