@@ -2535,8 +2535,8 @@ class NanaSQLite(MutableMapping):
                     if connection is not None:
                         try:
                             connection.close()
-                        except apsw.Error:
-                            pass
+                        except apsw.Error as cleanup_err:
+                            logger.debug("Failed to close restore cleanup connection: %s", cleanup_err)
                 if tmp_path is not None:
                     try:
                         os.unlink(tmp_path)
