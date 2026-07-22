@@ -202,12 +202,42 @@ jobs:
         retention-days: 7
 
   # ============================================
+  # niltest Specs - Development-only, Python 3.11
+  # ============================================
+  niltest_specs:
+    name: niltest executable specs
+    needs: should-run
+    if: needs.should-run.outputs.run_ci == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.11'
+
+    - name: Install package and development spec tools
+      run: uv pip install --system -e . pytest niltest==1.2.1
+
+    - name: Run focused executable specifications
+      env:
+        NILTEST_MODE: test
+      run: python -m pytest tests/v160_niltest_specs.py --niltest -q
+
+  # ============================================
   # All-Green Summary - Always runs
   # skipped は正常扱い（src/tests 未変更の場合）
   # ============================================
   summary:
     name: ✅ All Checks
-    needs: [should-run, lint, type, test]
+    needs: [should-run, lint, type, test, niltest_specs]
     runs-on: ubuntu-latest
     timeout-minutes: 3
     if: always()
@@ -220,6 +250,7 @@ jobs:
         echo "📝 lint → ${{ needs.lint.result == 'success' && '✓ success' || needs.lint.result == 'skipped' && '⏭ skipped' || format('✗ {0}', needs.lint.result) }} [required]"
         echo "📝 type → ${{ needs.type.result == 'success' && '✓ success' || needs.type.result == 'skipped' && '⏭ skipped' || format('✗ {0}', needs.type.result) }} [required]"
         echo "📝 test → ${{ needs.test.result == 'success' && '✓ success' || needs.test.result == 'skipped' && '⏭ skipped' || format('✗ {0}', needs.test.result) }} [required]"
+        echo "📝 niltest → ${{ needs.niltest_specs.result == 'success' && '✓ success' || needs.niltest_specs.result == 'skipped' && '⏭ skipped' || format('✗ {0}', needs.niltest_specs.result) }} [required]"
         echo ""
 
         # skipped は正常扱い（src/tests 未変更によるスキップ）
@@ -227,7 +258,8 @@ jobs:
         for result in \
           "${{ needs.lint.result }}" \
           "${{ needs.type.result }}" \
-          "${{ needs.test.result }}"; do
+          "${{ needs.test.result }}" \
+          "${{ needs.niltest_specs.result }}"; do
           if [[ "$result" != "success" && "$result" != "skipped" ]]; then
             FAILED=true
           fi
@@ -273,6 +305,13 @@ jobs:
           *)         echo "| 🧪 Tests | ❌ Failed |"    >> $GITHUB_STEP_SUMMARY ;;
         esac
 
+        case "${{ needs.niltest_specs.result }}" in
+          success)   echo "| 📜 niltest specs | ✅ Passed |"    >> $GITHUB_STEP_SUMMARY ;;
+          cancelled) echo "| 📜 niltest specs | ⚠️ Cancelled |" >> $GITHUB_STEP_SUMMARY ;;
+          skipped)   echo "| 📜 niltest specs | ⏭️ Skipped |"   >> $GITHUB_STEP_SUMMARY ;;
+          *)         echo "| 📜 niltest specs | ❌ Failed |"    >> $GITHUB_STEP_SUMMARY ;;
+        esac
+
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
         echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
@@ -289,6 +328,7 @@ jobs:
         echo "python -m tox -e lint    # Ruff linter" >> $GITHUB_STEP_SUMMARY
         echo "python -m tox -e type    # mypy type check" >> $GITHUB_STEP_SUMMARY
         echo "pytest tests/            # Run tests" >> $GITHUB_STEP_SUMMARY
+        echo "NILTEST_MODE=test pytest tests/v160_niltest_specs.py --niltest" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
   # ============================================
@@ -372,6 +412,9 @@ jobs:
 
     - name: Build package
       run: python -m build
+
+    - name: Verify development tools are absent from distributions
+      run: python scripts/verify_distribution.py dist/*
 
     - name: Generate hashes
       id: hash
@@ -481,7 +524,7 @@ jobs:
     # above. PyPI Trusted Publishing requires these attestations. This is correct
     # and desirable behaviour — no action is needed.
     - name: Publish to PyPI
-      uses: pypa/gh-action-pypi-publish@v1.14.0
+      uses: pypa/gh-action-pypi-publish@2834a314042ef964da07689278dd1e9d773e8afd # v1.14.1
 
   # ============================================
   # Release - Main branch only, after publish

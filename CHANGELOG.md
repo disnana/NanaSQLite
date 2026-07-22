@@ -6,7 +6,28 @@
 
 ## 日本語
 
-### [1.5.8] - Unreleased
+### [1.6.0] - 2026-07-22
+
+#### 安定性・データ保護
+
+- `backup()` を安全な既定動作へ更新しました。v2 / `memory_first` の同期フラッシュ、DLQ検査、同一ディレクトリの一時DB作成、`PRAGMA integrity_check`、原子的置換を行います。
+- `backup(..., verify=False, flush=False, allow_incomplete=True)` により、必要な場合だけ各安全機構を明示的に緩和できます。
+- `restore()` は置換前に入力DBを検証し、SQLiteオンラインバックアップAPIでlive WALを含む一貫したスナップショットを作成します。
+- restore失敗時にv2エンジンを復旧し、親と `table()` 子インスタンスが単一のエンジンを共有するよう修正しました。
+- トランザクションのrollbackとrestore後にキャッシュおよびフックの逆引きインデックスを無効化し、古い値の観測を防ぎます。
+
+#### 新機能
+
+- `increment()` / `aincrement()` を追加しました。数値または辞書のトップレベル数値フィールドをSQLiteトランザクション内で原子的に更新します。
+- `patch()` / `apatch()` を追加しました。辞書値を浅くマージし、暗号化・hooks・LRU/TTL・v2・`memory_first`の全モードで同じ契約を提供します。
+
+#### 開発・品質
+
+- `niltest==1.2.1` をPython 3.10以上限定の開発dependency groupとして追加し、決定的な内部ロジックだけを専用specで検証します。
+- 配布物検査を追加し、niltestが通常依存・製品コード・wheel/sdistへ混入しないことをCIで確認します。
+- 原子的更新、検証付きバックアップ、非同期APIの回帰テストとベンチマークを追加しました。
+
+### [1.5.8] - 2026-07-04
 
 #### 品質改善
 
@@ -1305,7 +1326,28 @@
 
 ## English
 
-### [1.5.8] - Unreleased
+### [1.6.0] - 2026-07-22
+
+#### Stability and data protection
+
+- `backup()` now defaults to a synchronized v2 / `memory_first` flush, DLQ validation, a same-directory temporary database, `PRAGMA integrity_check`, and atomic destination replacement.
+- `backup(..., verify=False, flush=False, allow_incomplete=True)` provides explicit performance-oriented opt-outs.
+- `restore()` validates its input before replacement and uses SQLite's online backup API to capture a consistent snapshot, including committed live WAL contents.
+- Failed restores restart the v2 engine, and parent/`table()` children retain one shared engine after reconnecting.
+- Rollback and restore invalidate caches and hook inverse indexes to prevent stale observations.
+
+#### Features
+
+- Added `increment()` / `aincrement()` for atomic scalar or top-level numeric-field updates.
+- Added `patch()` / `apatch()` for atomic shallow dictionary merges across encryption, hooks, LRU/TTL, v2, and `memory_first` modes.
+
+#### Development and quality
+
+- Added `niltest==1.2.1` as a Python 3.10+ development dependency group with focused executable specifications.
+- Added distribution verification that rejects niltest runtime metadata, bundled modules, or production imports.
+- Added regression and benchmark coverage for atomic updates, verified backup, restore recovery, and async APIs.
+
+### [1.5.8] - 2026-07-04
 
 #### Quality Improvements
 

@@ -4,30 +4,88 @@ outline: [2, 3]
 
 # 更新履歴
 
+### [1.6.0] - 2026-07-22
+
+#### 安定性・データ保護
+
+- `backup()` を安全な既定動作へ更新しました。v2 / `memory_first` の同期フラッシュ、DLQ検査、同一ディレクトリの一時DB作成、`PRAGMA integrity_check`、原子的置換を行います。
+- `backup(..., verify=False, flush=False, allow_incomplete=True)` により、必要な場合だけ各安全機構を明示的に緩和できます。
+- `restore()` は置換前に入力DBを検証し、SQLiteオンラインバックアップAPIでlive WALを含む一貫したスナップショットを作成します。
+- restore失敗時にv2エンジンを復旧し、親と `table()` 子インスタンスが単一のエンジンを共有するよう修正しました。
+- トランザクションのrollbackとrestore後にキャッシュおよびフックの逆引きインデックスを無効化し、古い値の観測を防ぎます。
+
+#### 新機能
+
+- `increment()` / `aincrement()` を追加しました。数値または辞書のトップレベル数値フィールドをSQLiteトランザクション内で原子的に更新します。
+- `patch()` / `apatch()` を追加しました。辞書値を浅くマージし、暗号化・hooks・LRU/TTL・v2・`memory_first`の全モードで同じ契約を提供します。
+
+#### 開発・品質
+
+- `niltest==1.2.1` をPython 3.10以上限定の開発dependency groupとして追加し、決定的な内部ロジックだけを専用specで検証します。
+- 配布物検査を追加し、niltestが通常依存・製品コード・wheel/sdistへ混入しないことをCIで確認します。
+- 原子的更新、検証付きバックアップ、非同期APIの回帰テストとベンチマークを追加しました。
+
+### [1.5.8] - 2026-07-04
+
+#### 品質改善
+
+- **QUAL-01: `table()` の重複インスタンス警告を追加**（`core.py`, `async_core.py`）
+  - 同じDB・同じテーブルに対して複数の `table()` インスタンスが生きている場合、独立キャッシュによる古い値の観測リスクを `UserWarning` で知らせるようにしました。
+  - チェックは `table()` 生成時のみ実行し、通常の読み書き・一括取得などのホットパスには処理を追加していません。
+  - 同期・非同期 API ともに、意図的に複数インスタンスを使う場合は `warn_duplicate_table_instance=False` で抑制できます。
+  - API ドキュメントにキャッシュ整合性の注意と抑制オプションを追記しました。
+
+### [1.5.7] - 2026-06-22
+
+#### パフォーマンス改善
+
+- **PERF-30: フック無し `__setitem__` の不要な旧値取得を省略**（`core.py`）
+  - `on_write_success` 用の `old_value` はフックが登録されている場合だけ取得するようにしました。
+  - デフォルト構成の単体書き込みで、余分なキャッシュ/DB 確認を避けます。
+- **PERF-31 / PERF-32: `batch_get()` の一括取得ホットパスを軽量化**（`core.py`）
+  - DB 未取得キー判定を、結果全体ではなく DB に問い合わせたキーだけに限定しました。
+  - フルチャンク用の `IN (...)` プレースホルダー文字列を事前計算し、大量キー取得時の文字列生成を減らしました。
+- **PERF-33: `AsyncNanaSQLite.abatch_get()` の全件キャッシュ既知パスを高速化**（`async_core.py`）
+  - デフォルトの unbounded キャッシュかつフック無しで、要求キーがすべてキャッシュ済みまたは既知の未存在キーの場合、executor 往復なしで返します。
+- **PERF-34: `load_all()` のデフォルトキャッシュ投入を一括化**（`core.py`）
+  - サイズ制限なし unbounded キャッシュでは、1件ずつ `cache.set()` せず背後の dict をまとめて更新します。
+- **PERF-35: `memory_first=True` を追加**（`core.py`）
+  - KVS CRUD を全件ロード済みメモリ上で完結させ、差分は v2 engine の time flush でバックグラウンド永続化します。
+  - デフォルトでは `flush_interval=5.0` 相当で、`close()` 時は v2 engine の最終 flush により永続化されます。
+  - 既存挙動には影響しない明示オプションです。全件メモリ保持が前提のため、LRU/TTL や `cache_size` 付きキャッシュとは併用できません。
+  - v2 engine の time flush は、変更が無い場合に空 flush をワーカーへ投げないようにしました。
+  - pytest-benchmark と Actions のベンチ集計に memory-first CRUD ベンチを追加しました。
+
 ### [1.5.6b1] - 2026-05-24
 
 #### セキュリティ修正
 
 - **SEC-01: `query(..., columns=[...])` のサブクエリ拒否を強化**（`core.py`）
-  - 列式でも `SELECT` / `FROM` などのサブクエリ系キーワードを strict モードで拒否します。
+  - `ORDER BY` / `GROUP BY` と同様に、列式でも `SELECT` / `FROM` などのサブクエリ系キーワードを strict モードで拒否するようにしました。`COUNT(*) AS total` などの通常の集計式は引き続き利用できます。
 - **SEC-02: `create_table()` の列型定義でトップレベルのカンマ注入を拒否**（`core.py`）
-  - `DECIMAL(10,2)` のような括弧内カンマは許可しつつ、列定義割り込みを拒否します。
-- **BUG-02: V2 DLQ の無制限成長を抑制**（`v2_engine.py`）
-  - DLQ にデフォルト上限 `1000` を追加しました。`V2Config(max_dlq_size=...)` または `v2_max_dlq_size=...` で調整できます。
+  - `DECIMAL(10,2)` のような括弧内カンマは許可しつつ、`TEXT, injected INTEGER` のような列定義割り込みを拒否します。
+- **BUG-02: V2 デッドレターキュー (DLQ) の無制限成長を抑制**（`v2_engine.py`）
+  - DLQ にデフォルト上限 `1000` を追加し、上限到達時は最古エントリを破棄して新しい失敗を保持します。`V2Config(max_dlq_size=...)` または `v2_max_dlq_size=...` で調整でき、`None` を指定すると従来通り無制限にできます。
 - **SEC-03: `V2Engine` の KVS / DLQ 復旧経路で unsafe table_name を拒否**（`v2_engine.py`）
-  - `V2Engine` 直利用時も KVS 入口と DLQ 復旧処理でテーブル名を検証します。
+  - `V2Engine` を直接利用した場合でも、`kvs_set()` / `kvs_delete()` / `kvs_get_staging()` と DLQ 復旧処理でテーブル名を検証し、SQL 断片へ unsafe な名前を連結しないようにしました。
 - **SEC-04: `pragma()` の書き込み可能 PRAGMA を制限**（`core.py`）
-  - `schema_version` などの情報取得系 / 危険な PRAGMA は読み取りのみ許可します。
+  - `schema_version` や `table_info` などの情報取得系 / 危険な PRAGMA は読み取りのみ許可し、設定できる PRAGMA を明示的な allowlist に分離しました。
 
 #### バグ修正
 
 - **QUAL-01: `AsyncNanaSQLite` の `lock_timeout` 転送漏れを修正**（`async_core.py`）
-  - 非同期 API でもロック取得タイムアウトが内部 DB に渡されるようにしました。
+  - `AsyncNanaSQLite(..., lock_timeout=...)` で指定した値が内部の `NanaSQLite` インスタンスに渡されず、非同期 API ではロック取得タイムアウトが実質的に無効になっていた問題を修正しました。
+  - `AsyncNanaSQLite.table()` で作成したサブテーブルも、親インスタンスの `lock_timeout` を継承することを回帰テストで確認しました。
 
 #### パフォーマンス改善
 
 - **PERF-01: `AsyncNanaSQLite.aget()` / `acontains()` のキャッシュ済みホットパスを高速化**（`async_core.py`）
-  - デフォルトの unbounded キャッシュで、キャッシュ済みキーと既知の未存在キーを executor 往復なしで返します。
+  - デフォルトの unbounded キャッシュで、キャッシュ済みキーおよび既知の未存在キーを executor 往復なしで返すようにしました。キャッシュミス、LRU/TTL、フック付き読み取りは従来通り同期 DB 側へ委譲します。
+  - 非同期ベンチマークにキャッシュ済み読み取りと既知未存在キー読み取りのケースを追加しました。
+
+#### ドキュメント
+
+- 非同期 API ドキュメントに `lock_timeout` の説明を追加しました。
 
 ### [1.5.5] - 2026-04-30
 
@@ -55,22 +113,66 @@ outline: [2, 3]
 
 - **BUG-01 (pop hook lock): `pop()` の `before_delete` フックをロック内へ移動**（`core.py`）
   - `pop()` の非 v2 モードで `before_delete` フックがロック外で呼ばれていたため、`__delitem__` の SEC-05 修正との一貫性が失われていました。
+  - 非 v2 パスで `before_delete` の呼び出しを `_acquire_lock()` ブロック内に移動し、フック実行と DB 削除をアトミックに実行するよう修正しました。`self._lock` は `threading.RLock` のため同一スレッドからの再入呼び出しもデッドロックしません。
+  - また、フックが例外を送出した場合に DB 削除が実行されず、キーが保持されることを確認しました。
+
 - **BUG-02 (batch_update hook result): `batch_update()` でフック変換値を常に適用**（`core.py`）
-  - `batch_update()` の非 coerce パスにおいて `before_write` フックの返り値が無視されていたバグを修正しました。
+  - `batch_update()` の非 coerce パスにおいて `before_write` フックの返り値が無視されていたため、`PydanticHook` などの変換フックが `__setitem__` では機能するのに `batch_update()` では機能しないサイレントな不整合が発生していました。
+  - `if self._coerce:` の 2 分岐構造を廃止し、統一された copy-on-write パターンに変更しました。フックが値を変更しない場合は新しい dict は生成されません（メモリ効率を維持）。
+  - `ValidkitHook` は `coerce=False` 時に自身でフック内部で変換を行わないため、既存の coerce=False テストとの後方互換性は維持されています。
+
 - **BUG-03 (batch_delete hook lock): `batch_delete()` の `before_delete` フックをロック内へ移動**（`core.py`）
-  - `batch_delete()` の非 v2 モードで `before_delete` フックがロック外で呼ばれていた問題を修正しました。
+  - `batch_delete()` の非 v2 モードで `before_delete` フックがロック外で呼ばれていました。
+  - v2 モードではフックはロック外（`__delitem__` v2 パスと同様）、非 v2 モードではロック内で実行するよう修正しました。
 
 #### セキュリティ修正
 
 - **SEC-05: `UniqueHook` TOCTOU 競合状態の修正**（`core.py`, `hooks.py`）
-  - 非 v2 モードにおいて、フック呼び出しと DB 更新を同一ロック内で行うよう修正し、競合状態を解消しました。
+  - `__setitem__` において `before_write` フックの呼び出しをロックの外側で行っていたため、マルチスレッド環境で UniqueHook の一意性チェックと DB 書き込みの間に別スレッドが割り込む TOCTOU 競合が発生していました。
+  - 非 v2 モードでは `__setitem__` の `before_write` および `__delitem__` の `before_delete` の呼び出しを `_acquire_lock()` の内側に移動し、一意性チェック・削除前チェックと DB 更新をアトミックに実行するよう修正しました。`self._lock` は `threading.RLock` のためフックからの再入呼び出しでもデッドロックは発生しません。
+  - UniqueHook の docstring を更新し「WARNING」を削除して修正済みの動作を記載しました（SEC-03 → SEC-05）。
+  - v2 モードでは非同期フラッシュ構造上の制約があるため、v2 モードでの厳格な一意制約には SQLite UNIQUE 制約の使用を推奨します。
+
+#### セキュリティ強化
+
 - **SEC-06 opt-in: `google-re2` による ReDoS 対策強化**（`compat.py`, `hooks.py`, `pyproject.toml`）
-  - RE2 エンジンをサポートし、安全な正規表現マッチングを選択可能にしました。
+  - `pip install nanasqlite[re2]` で `google-re2`（RE2 エンジン）をインストールすると、`BaseHook` のすべての正規表現コンパイルおよびマッチングに RE2 エンジンが使用されます。
+  - RE2 エンジンは線形時間計算量を保証するため、どんなパターンでも ReDoS 攻撃が不可能になります。
+  - RE2 利用時は `logging.debug` でメッセージを出力します（`nanasqlite.compat` ロガー）。
+  - RE2 非インストール時は従来通りの危険パターンブラックリスト検証が機能します。
+  - `pyproject.toml` に `re2 = ["google-re2>=1.1"]` オプション依存と `all` extras への追加。
+  - `dev` extras にも `google-re2>=1.1` を追加し、CI テストで実際の RE2 エンジンを使用するよう変更。
+  - エラーメッセージを更新し `pip install nanasqlite[re2]` への案内を追記。
+  - **`re_fallback` パラメータを `BaseHook` に追加**: RE2 が対応していないパターン（後方参照 `(\w)\1`、先読み `(?=...)` 等）を使用した場合のフォールバック動作を制御。
+    - `re_fallback=False`（デフォルト）: RE2 の `re2.Error` をそのまま伝播させ、ReDoS 保護を維持。
+    - `re_fallback=True`: `warnings.warn` を出力した上で標準 `re` エンジンにフォールバック。このパターンでは ReDoS 保護が無効になります。
 
 #### パフォーマンス改善
 
 - **PERF-01: `UniqueHook` — `use_index=True` opt-in 逆引きインデックス**（`hooks.py`）
-  - O(1) での一意性チェックを可能にする逆引きインデックス機能を導入しました。
+  - 従来 `before_write` のたびに `db.items()` で全件スキャン（O(N)）していたため、大規模テーブルで著しいボトルネックになっていました。
+  - `UniqueHook("email", use_index=True)` を指定すると、最初の書き込み時にのみ O(N) の逆引きインデックスを構築し、以降の一意性チェックを O(1) で実行します。
+  - インデックスは `before_write`・`before_delete` コールバックで自動更新されます。フックライフサイクル外でDBを変更した場合は `hook.invalidate_index()` でインデックスを再構築できます。
+  - 後方互換: `use_index=False`（デフォルト）では従来の O(N) 動作が維持されます。
+
+- **PERF-02: `BaseHook.__init__` — コンパイル済み `Pattern` 型の再コンパイル省略**（`hooks.py`）
+  - 非 RE2 モードで既コンパイル済みの `re.Pattern` オブジェクトを渡した場合、`re.compile()` による再コンパイルを省略してコンパイル済みオブジェクトをそのまま利用します。
+  - セキュリティ上の要件として、`pattern.pattern` テキストに対する `_validate_regex_pattern` の ReDoS バリデーションは引き続き実行されます（コンパイル済み Pattern を経由してブラックリストを迂回できないよう保証）。
+  - これにより安全性を維持したままフック初期化時のオーバーヘッドを削減しました。
+
+#### セキュリティ強化（前倒し）
+
+- **SEC-01: DLQ ペイロード漏洩リスクのドキュメント化**（`v2_engine.py`）
+  - DLQ エントリには KVS の `op["value"]`（シリアライズ済み値）が含まれるため、非暗号化DBでは `get_dlq()` 経由でプレーンテキスト値が外部に漏洩するリスクがあります。
+  - `DLQEntry` dataclass・`_add_to_dlq()`・`get_dlq()` の各 docstring に **SEC-01** セキュリティ注記を追加し、本番環境でのロギング・モニタリング連携時の注意点を明記しました。
+
+#### コード品質改善（前倒し）
+
+- **QUAL-01: `compat.py` — `re2_module` 型アノテーション改善**（`compat.py`）
+  - `re2_module = None  # type: ignore[assignment]` を `re2_module: types.ModuleType | None = None` に変更し、mypy が使用箇所で型を追跡できるようにしました。
+
+- **QUAL-02: `v2_engine.py` — `DLQEntry` dataclass 導入**（`v2_engine.py`）
+  - DLQ の内部表現を `list[tuple[str, Any, float]]` から `list[DLQEntry]` に変更しました。`DLQEntry` は `dataclass` で定義された明示的な型です。`get_dlq()` の戻り値（`list[dict]`）は後方互換を維持します。
 
 
 ---
@@ -79,26 +181,35 @@ outline: [2, 3]
 
 #### パフォーマンス改善
 
-- **PERF-21: `execute_many()` — Python ループ → `cursor.executemany()`**（`core.py`）
-  - APSW 組み込みの `executemany()` を使い、per-item の Python 関数呼び出しオーバーヘッドを排除。`test_execute_many`・`test_import_from_dict_list` で約 15% 改善。
+- **PERF-21: `execute_many()` — Python ループ → `cursor.executemany()` に変更**（`core.py`）
+  - `execute_many()` の実装がバインドパラメータのリストを Python の `for` ループで一件ずつ `cursor.execute()` していました。APSW 組み込みの `cursor.executemany()` を使うことで Python 側の関数呼び出しオーバーヘッドを排除しました。
+  - 影響テスト: `test_execute_many`・`test_import_from_dict_list` で約 15% 高速化。
 
 - **PERF-22: `batch_delete()` — フック未登録時の事前チェックループを省略**（`core.py`）
-  - `_has_hooks = False`（デフォルト）の場合、全キーへの `_ensure_cached()` 呼び出しをスキップ。
+  - `batch_delete()` は削除前に全キーに対して `_ensure_cached()` を呼び出していましたが、その唯一の目的は `before_delete` フックの呼び出しでした。`_has_hooks` が `False` の場合（デフォルト）にはこのループ全体を完全にスキップするよう変更しました。
+  - 影響テスト: `test_batch_delete` でフックなし時のオーバーヘッドを削減。
 
-- **PERF-23: `batch_update()` — シリアライズのロック外移動・`dict.update()`・`_absent_keys` ガード**（`core.py`）
-  - `_serialize()` をロック外へ移動（`__setitem__` と同方針）、キャッシュ更新に `dict.update()` を使用（per-key ループ比 約 6 倍高速）、`_absent_keys` 更新に `if` ガード + `difference_update()` を適用。約 9% 高速化。
+- **PERF-23: `batch_update()` — シリアライズをロック外へ移動・`dict.update()` 使用・`_absent_keys` ガード追加**（`core.py`）
+  - シリアライズ（`_serialize()` 呼び出し）は SQLite 接続に触れない純粋な Python/JSON 処理であるため、`_acquire_lock()` の外に移動しました（`__setitem__` と同様の方針）。
+  - Unbounded モードのキャッシュ更新を per-key 代入ループから `dict.update()` に変更しました。`dict.update()` は C レベルで実装されており、Python ループの約 6 倍高速です。
+  - v2 パスも同様に `dict.update()` + ガードを適用。
+  - `_absent_keys.discard()` の per-key 呼び出しを `if self._absent_keys: self._absent_keys.difference_update(mapping.keys())` に置き換え、空セット時のハッシュ計算を完全に排除しました。
+  - 影響テスト: `test_batch_write_100`・`test_batch_update_partial_100` で約 9% 高速化。
 
-- **PERF-24: `batch_update_partial()` — `dict.update()` + `_absent_keys` ガード**（`core.py`）
-  - PERF-23 と同様の最適化を v1 / v2 両パスに適用。
+- **PERF-24: `batch_update_partial()` — `dict.update()` + `_absent_keys` ガード適用**（`core.py`）
+  - `batch_update()` (PERF-23) と同様の最適化を `batch_update_partial()` の v1 / v2 両パスに適用しました。
 
-- **PERF-25: `batch_delete()` — `_absent_keys.update(keys)` 一括化**（`core.py`）
-  - per-key `add()` ループを `update(keys)` 一括呼び出しに変更。
+- **PERF-25: `batch_delete()` — `_absent_keys.add()` per-key → `_absent_keys.update(keys)` に変更**（`core.py`）
+  - 削除後のキャッシュ更新で、キーごとに `_absent_keys.add(key)` を呼び出していたものを `_absent_keys.update(keys)` の一括呼び出しに変更しました。ハッシュ計算コストとセット内部の再割り当て回数を削減します。
+  - v2 パスも同様に変更。
 
 - **PERF-26: `begin_transaction()` / `commit()` / `rollback()` — `execute()` オーバーヘッドをバイパス**（`core.py`）
-  - `self._connection.execute()` を直接呼び出し、v2 判定・SQL strip/upper・重複 `_check_connection()` を排除。
+  - これらのメソッドは内部で `self.execute("BEGIN IMMEDIATE")` 等を呼び出していましたが、`execute()` には v2 モード判定・SQL 文字列の `strip().upper()` 処理・追加の `_check_connection()` 呼び出しが含まれます。`with self._acquire_lock(): self._connection.execute(...)` を直接使うことでこれらのオーバーヘッドを排除しました。
+  - 影響テスト: `test_context_manager_transaction`・`test_begin_commit`・`test_begin_rollback` で高速化。
 
 - **PERF-29: `_serialize()` — 暗号化なし時の早期リターン**（`core.py`）
-  - `__init__` 時に `_no_encrypt` フラグを事前計算し、`_fernet` / `_aead` の属性ルックアップを全書き込みパスでスキップ。
+  - `__init__` 時に `_no_encrypt: bool` フラグを事前計算し、暗号化が無効な場合（デフォルト）は `if self._fernet:` / `if self._aead:` の 2 回の属性ルックアップをスキップして即座に返すようにしました（PERF-20 と同様の手法）。
+  - 影響テスト: `test_nested_write`・`test_write_encryption[plaintext]`・その他全書き込みパスで微小な高速化。
 
 ---
 
@@ -107,67 +218,103 @@ outline: [2, 3]
 #### バグ修正
 
 - **[Medium] BUG-01: `setdefault()` + `before_write` 変換フック組み合わせ時の返値誤り**（`core.py`）
-  - `before_write` フックが値を変換する場合（`ValidkitHook(coerce=True)` / `PydanticHook` 等）、PERF-18 最適化で元の `default` に対して `after_read` を適用してしまう問題を修正。`_has_hooks` が True の場合はキャッシュから変換後の値を読み直してから `after_read` を適用するよう変更。
+  - PERF-18 最適化で `self[key] = default` 後に `self[key]` を再読み込みせず直接 `default` を `after_read` フックに渡す実装としましたが、`ValidkitHook(coerce=True)` や `PydanticHook` のように `before_write` フックが値を変換する場合に誤った値を返す問題がありました（例: `"hello"` → `"HELLO"` と変換されるフックがあっても `"hello"` を返してしまう）。
+  - **修正**: `self[key] = default` の後、`_has_hooks` が True の場合はキャッシュから実際に格納された値を読み直してから `after_read` フックを適用するよう変更しました。フックがない場合は従来どおり `default` を直接返します（パフォーマンス最適化を維持）。
+  - 対応する POC: `etc/poc/poc_bug01_setdefault_coerce_hook.py`
 
 #### パフォーマンス修正（v1.5.3rc2 ベンチマーク低下対応）
 
-- **[High] PERF-14/15/16: Unbounded モード読み取りホットパスの try/except 高速化**（`core.py`）
-  - `__getitem__` / `get()` / `__contains__` で `.get(key, sentinel)` を `d[key]` + `try/except` に置き換え。キャッシュヒット時 **約 1.9 倍**高速化。`test_single_read_cached` で **-15%** 改善。
+- **[High] PERF-14: Unbounded モード `__getitem__` の try/except 高速パス**（`core.py`）
+  - キャッシュヒット時のホットパスで `.get(key, _NOT_FOUND)` + センチネル同一性比較を使用していました。Python の辞書直接アクセス `d[key]` は `try/except KeyError` パターンで呼び出すと、センチネルオブジェクト生成・キーワード引数処理・同一性比較が不要になり約 1.9 倍高速になります。`test_single_read_cached` で **-15%** の改善を確認。
+  - `_ensure_cached()`・`__getitem__`・`get()` のすべての Unbounded ホットパスに適用しました。
 
-- **[Medium] PERF-17: `_update_cache` 空 `_absent_keys` 時の `discard()` 省略**（`core.py`）
-  - 書き込み専用ワークロードで不要なハッシュ計算を排除する `if self._absent_keys:` ガードを追加。
+- **[High] PERF-15: Unbounded モード `get()` の try/except 高速パス**（`core.py`）
+  - PERF-14 と同様の最適化を `get()` メソッドに適用しました。`test_read_encryption[fernet]` で **-11.6%** の改善を確認。
 
-- **[Medium] PERF-18: `setdefault()` の冗長 `self[key]` 呼び出し省略**（`core.py`）
-  - 新規キー書き込み後の再読み込みを省略し、デフォルト値を直接返すよう変更。
+- **[High] PERF-16: Unbounded モード `__contains__` の try/except 高速パス**（`core.py`）
+  - PERF-14 と同様の最適化を `__contains__` メソッドに適用しました。
 
-- **[Medium] PERF-19: `pop()` Unbounded モードでの直接 `_data` アクセス**（`core.py`）
-  - `self._cache.get()` の代わりに `self._data[key]` を使用してメソッドディスパッチコストを排除。
+- **[Medium] PERF-17: `_update_cache` での空セット `discard()` 呼び出し省略**（`core.py`）
+  - v1.5.2 の `_absent_keys` 導入以降、`_update_cache()` は毎回 `self._absent_keys.discard(key)` を呼んでいました。書き込み中心のワークロードでは `_absent_keys` は空のままのため、無駄なハッシュ計算が発生していました。`if self._absent_keys:` ガードを追加し、空セットの場合はスキップするよう変更しました。
 
-- **[Medium] PERF-20: `_has_hooks` 事前計算フラグ**（`core.py`）
-  - 全 KV ホットパスの `if self._hooks:` を事前計算 bool フラグ `_has_hooks` に置き換え、`list.__len__` の呼び出しを排除。
+- **[Medium] PERF-18: `setdefault()` の冗長な `self[key]` 呼び出し省略**（`core.py`）
+  - `setdefault()` はキーが存在しない場合に `self[key] = default` で書き込み後、さらに `self[key]` で読み戻していました。書き込み後の値はすでに既知であるため、再度の `__getitem__` 呼び出しを省略してデフォルト値を直接返すよう変更しました。また Unbounded モードでは `_cache.get()` のポリモーフィックな呼び出しを `_data[key]` 直接アクセスに置き換えました。
+
+- **[Medium] PERF-19: `pop()` の Unbounded モードでの直接 `_data` アクセス**（`core.py`）
+  - `pop()` は値の取得に `self._cache.get(key)` を使用していました。Unbounded モードでは `_data` に実値が直接格納されているため、`self._data[key]` で取得することでポリモーフィックなメソッドディスパッチ（LRU では `move_to_end()` を伴う）を回避できます。
+
+- **[Medium] PERF-20: `_has_hooks` 事前計算フラグによる全ホットパスの高速化**（`core.py`）
+  - `__getitem__`・`__setitem__`・`__delitem__`・`get()`・`get_fresh()`・`batch_get()`・`pop()`・`setdefault()`・`batch_update_partial()`・`batch_delete()` のすべてのホットパスで `if self._hooks:` を使用していました。これは毎回リストの `__len__` を呼び出すオーバーヘッドがあります。`__init__` 時に `self._has_hooks: bool = bool(self._hooks)` を事前計算し、`add_hook()` 時も更新するよう変更しました。
+
+#### テスト
+
+- `tests/test_v153_perf_fixes.py` に以下を追加（PERF-14〜20 の動作検証 および BUG-01 回帰テスト）:
+  - キャッシュヒット時の `__getitem__` / `get()` / `__contains__` の正確性
+  - `_update_cache` の空 `_absent_keys` 時のスキップ動作
+  - `setdefault()` の新キー・既存キーの返値（フックあり・なし）
+  - `pop()` の Unbounded モードでの正確性
+  - `_has_hooks` の初期化・`add_hook()` 後の更新確認
+  - BUG-01: `before_write` 変換フック付き `setdefault()` の正確な返値検証
 
 ### [1.5.3rc1] - 2026-04-07
 
 #### パフォーマンス修正（v1.5.3 プレリリース監査）
 
 - **[High] PERF-07: 共通 SQL 文字列の `__init__` 時事前計算**（`core.py`）
-  - 全 KV ホットパスで f-string による SQL 文字列再構築を排除。`__init__` 時に 6 種の SQL テンプレートを事前計算してインスタンス変数に保持します。
-  - **効果**: 書き込み・読み込み・削除・カウント等の全 KV 操作で文字列構築コストを排除。
+  - `__setitem__`・`__delitem__`・`__contains__`・`__len__`・`_write_to_db`・`_read_from_db`・`_delete_from_db`・`load_all`・`batch_update`・`batch_delete` の全ホットパスで、毎呼び出し f-string によって同一の SQL 文字列（テーブル名を含む INSERT / DELETE / SELECT 等）を再構築していました。`__init__` 時に 6 種類の SQL テンプレートを事前計算してインスタンス変数に保持し、ホットパスでは直接参照するよう変更しました。
+  - **効果**: 書き込み・読み込み・削除・カウント等の全 KV 操作で文字列構築コストを排除。`test_single_write` / `test_execute_raw` / `test_sql_insert_single` の改善に寄与。
 
 - **[Medium] PERF-08: Unbounded モードでの `to_dict()` / `copy()` MISSING フィルタ省略**（`core.py`）
-  - Unbounded モードでは `_data` に MISSING センチネルが格納されないため、`dict(self._data)` を直接返すよう変更しました。
+  - Unbounded モードでは `_data` に MISSING センチネルが格納されることはないため、毎回 `{k: v for k, v in _data.items() if v is not MISSING}` で全要素の同一性比較を行う必要はありませんでした。Unbounded モードでは `dict(self._data)` を直接返すよう変更し、LRU/TTL モードでのみフィルタを適用します。
   - **効果**: `test_to_dict_1000` / `test_copy` の改善に寄与。
 
 - **[Medium] PERF-09: LRU `__getitem__` での二重キャッシュルックアップ排除**（`core.py`）
-  - キャッシュヒット時の `_data` 在籍確認を先行させ、`self._cache.get()` を 1 回の呼び出しで完結するよう変更しました。
-  - **効果**: LRU/TTL キャッシュヒット時の `move_to_end()` 冗長呼び出しを排除。
+  - LRU/TTL モードの `__getitem__` は `_ensure_cached()` 内部で `self._cache.get()`（LRU では `move_to_end()` を伴う）を 1 回呼び、さらに戻り値取得のために同じキーで `self._cache.get()` を再度呼んでいました。キャッシュヒット時の `_data` 在籍確認を先行させ、`self._cache.get()` を 1 回の呼び出しで完結するよう変更しました。
+  - **効果**: LRU/TTL キャッシュヒット時の `move_to_end()` 冗長呼び出しを排除。`test_cache_hit[lru]` / `test_cache_hit[ttl]` の改善に寄与。
 
 - **[Medium] PERF-10: `_validate_expression()` の正規表現最適化と関数スキャン早期スキップ**（`core.py`）
-  - 4 パターンをモジュールレベルで事前コンパイルした単一正規表現 `_DANGEROUS_SQL_RE` に統合。`(` が含まれない式では関数スキャンをスキップします。
-  - **注意**: 非 strict モードでは複数の危険パターンが同時マッチしても警告は 1 件のみ発行されます。
+  - `_validate_expression()` が毎呼び出し 4 つの危険パターン文字列を `re.search()` で個別にスキャンしていました。4 パターンをモジュールレベルで事前コンパイルした単一正規表現 `_DANGEROUS_SQL_RE` に統合し、1 回のスキャンで検出するよう変更しました。また、式に `(` が含まれない場合（典型的な `id = ?` 等）は高コストな `sanitize_sql_for_function_scan()` + `re.findall()` の実行を完全にスキップします。
+  - **注意**: 非 strict モードでは、複数の危険パターンが同時にマッチしても警告は 1 件のみ発行されます（以前は複数件）。strict モード（例外発生）の挙動は変わりません。
+  - **効果**: `exists()` / `sql_update()` / `sql_delete()` のホットパスで複数のシングルパターン regex 走査を排除。`test_sql_update_single` / `test_exists_check` / `test_execute_raw` の改善に寄与。
 
 - **[Medium] PERF-11: `ExpiringDict._check_expiry()` のロックフリー早期リターン最適化**（`utils.py`）
-  - 期限切れでないキーのロック取得をスキップするロックフリー楽観的プレチェックを追加しました。
-  - **効果**: TTL キャッシュのキャッシュヒット時のロック取得回数を削減。
+  - `_check_expiry()` は毎呼び出し `threading.RLock` を取得していました。TTL キャッシュのヒットパスでは 1 回のキーアクセスにつき複数回 `_check_expiry()` が呼ばれるため、このロック取得コストが積み重なっていました。CPython の GIL 下では `dict.get()` はアトミックであるため、ロックなしで `_exptimes.get(key)` を読み取り、期限切れでない場合は即座に `False` を返す楽観的プレチェックを追加しました。
+  - **効果**: TTL キャッシュのキャッシュヒット時のロック取得回数を削減。`test_cache_hit[ttl]` / `test_ttl_expiry_check` の改善に寄与。
 
 - **[High] PERF-12: LRU/TTL モードの `get()` における二重キャッシュルックアップ排除**（`core.py`）（v1.5.3 監査で発見）
-  - PERF-09 で `__getitem__` を最適化した際に `get()` に同じ問題が残存していました。同パターンを適用しました。
+  - PERF-09 で `__getitem__` を最適化した際、同じ二重ルックアップ問題が `get()` メソッドに残存していました。`get()` は `to_dict()` / `items()` のホットパスでも利用されるため影響が大きい問題です。`__getitem__` と同じパターン（`_data` 在籍確認 → `cache.get()` 1 回）を適用しました。
+  - **効果**: LRU/TTL キャッシュヒット時の `move_to_end()` 冗長呼び出しを `get()` でも排除。`test_cache_hit[lru]` / `test_cache_hit[ttl]` のさらなる改善に寄与。
 
 - **[Medium] PERF-13: Unbounded モードの `values()` / `items()` における MISSING フィルタ省略**（`core.py`）（v1.5.3 監査で発見）
-  - PERF-08 と同様の最適化を `values()` / `items()` にも適用しました。
+  - PERF-08 で `to_dict()` を最適化した際、同じ最適化が `values()` と `items()` に適用されていませんでした。Unbounded モードではこれらも `list(self._data.values())` / `list(self._data.items())` を直接返すよう変更しました。
+  - **効果**: `test_to_dict_1000` / 全データ取得系ホットパスのさらなる改善に寄与。
+
+#### 新規ベンチマークテスト追加
+
+- `tests/test_benchmark.py` に `test_cache_hit[lru]` / `test_cache_hit[ttl]` を追加。単一キーへの繰り返しアクセスによるキャッシュヒットパスのオーバーヘッドを計測する。
 
 #### テスト
 
-- `tests/test_v153_perf_fixes.py` を追加（PERF-07〜11 の回帰テスト 19 件）。
-- `tests/test_audit_poc.py` に `TestPerf12GetDoubleLookup` / `TestPerf13ValuesItemsFilter` を追加。
+- `tests/test_v153_perf_fixes.py` を追加し、以下を検証:
+  - PERF-07: `_sql_kv_*` 事前計算属性の存在と正確性
+  - PERF-08: `to_dict()` / `copy()` が Unbounded / LRU 両モードで MISSING を含まないこと
+  - PERF-09: LRU / TTL `__getitem__` がキャッシュヒット・不在キーで正しく動作すること
+  - PERF-10: 単純な WHERE 句・関数付き WHERE 句・危険パターンの検出が正しく機能すること
+  - PERF-11: `ExpiringDict._check_expiry()` の有効期限前後の挙動が正しいこと
+- `tests/test_audit_poc.py` に `TestPerf12GetDoubleLookup` / `TestPerf13ValuesItemsFilter` を追加:
+  - PERF-12: LRU/TTL `get()` がキャッシュヒット・不在キーで正しく動作すること
+  - PERF-13: `values()` / `items()` が Unbounded / LRU 両モードで MISSING を含まないこと
+
 
 ### [1.5.2] - 2026-04-06
 
 #### パフォーマンス修正（v1.5.0dev1 以降の性能低下 継続対応）
 
 - **[High] PERF-06: Unbounded キャッシュ読み取りホットパスの分岐最適化**（`core.py`）
-  - `__getitem__` / `get` / `__contains__` / `_ensure_cached` の Unbounded モードで、キャッシュ済み読み取り時の判定順序を見直しました。存在データは `_data` を優先して処理し、known-absent の追跡は `_absent_keys` に分離することで、正のキャッシュヒット時に不要な分岐や membership 判定が入らないよう整理しました。
-  - `_data` 優先の fast-path と negative cache（known-absent）専用分岐に再編し、不要な `_ensure_cached()` 呼び出しを削減しました。
+  - `__getitem__` / `get` / `__contains__` / `_ensure_cached` の Unbounded モードで、内部メタデータ参照を優先してから `_data` を確認する経路が残っており、正のキャッシュヒット時にも不要な membership 判定が追加され、キャッシュ済み読み取りで無視できないオーバーヘッドになっていました。
+  - 1. `_data` を先に確認する fast-path に変更（ヒット時は即 return）
+  - 2. known-absent の早期 return は `_absent_keys` に限定
+  - 3. `__getitem__` / `get` でも同様の fast-path を適用し、不要な `_ensure_cached()` 呼び出しを回避
   - **効果**: キャッシュ済み読み取り・存在確認の追加オーバーヘッドを削減（既存 API/挙動は維持）。
 
 #### 破壊的変更（許可済み対応）
@@ -178,7 +325,16 @@ outline: [2, 3]
 
 #### テスト
 
-- `tests/test_v152_perf_fastpath.py` を追加し、`_data` 優先 fast-path と negative cache セマンティクス維持を検証。
+- `tests/test_v152_perf_fastpath.py` を追加し、以下を検証:
+  - Unbounded モードで `_data` 優先 fast-path が機能すること
+  - 既知の不在キー（negative cache）挙動が維持されること
+
+#### 監査（`etc/audit/audit_prompt.md` 準拠）
+
+- フェーズ1〜6の観点で差分監査を実施し、今回の修正範囲（read/contains ホットパス）において:
+  - 後方互換性を壊す変更なし
+  - 新規セキュリティ問題の導入なし
+  - 既存の negative cache セマンティクス維持を確認
 
 ### [1.5.1] - 2026-04-05
 
@@ -329,9 +485,18 @@ outline: [2, 3]
 - 従来の `validator` パラメータは内部的に `ValidkitHook` へと自動変換されるようになり、後方互換性が100%維持されています。
 - `batch_update`, `get`, `batch_get`, `setdefault`, `pop` など、あらゆるアクセス経路でフックが等しく適用されるように内部ロジックを統合・堅牢化しました。
 
-### [1.4.1] - 2026-03-25
+### [1.4.1] - 2026-03-27
 
 #### セキュリティ修正
+- QUAL-07 [High] 同期版 `NanaSQLite` クラスに V2 エンジンの管理メソッドを追加し、完全な機能パリティを実現しました。
+- CORE [Critical] `clear()`、`load_all()`、`restore()` メソッドにおける V2 エンジンの整合性を強化し、データの不整合や「幽霊書き込み」を防止しました。
+- SEC-01/02 [Critical] `column_type` バリデーションに ReDoS 対策を施したホワイトリスト方式を導入し、セキュリティを強化しました。
+- CONC-01/02 [High] V2 エンジンと `ExpiringDict` におけるマルチスレッド実行時のレースコンディションおよびデッドロックを修正しました。
+- **[Critical] PERF-02**: `table()` メソッドで作成された子インスタンスが親の `V2Engine` を共有するように改善。これにより、テーブルごとにスレッドや `atexit` ハンドラが生成されるリソースリーク（およびプロセス終了時のハングアップ）を解消しました。
+- **[Critical] DEADLOCK-01**: `V2Engine` において `StrictTask` の処理中にデッドロックが発生し、`pytest` 等の並列実行中にプロセスがハングアップする問題を修正しました。タスク処理のトランザクション分離と、`shutdown` 時の確実なイベント解放を実装しました。
+- **[Critical] MULTI-TENANT-01**: `V2Engine` が単一のテーブル名に依存していた不具合を修正。複数のテーブルインスタンスが一つのエンジンを共有しても、データが混同されないマルチテナント（テーブル単位の分離）に対応しました。
+- **[High] QUAL-08**: `V2Engine.shutdown()` の堅牢性を強化。二重実行の防止、`atexit` ハンドラの確実な解除、およびシャットダウン時のフラッシュ処理の安全性を向上させました。
+- QUAL-05 [Medium] V2 モードでの明示的な `begin_transaction()` 呼び出しに対するガードを追加し、バックグラウンドフラッシュとの衝突を防止しました。
 - **[Medium] SEC-02**: `core.py` における `column_type` バリデーションの正規表現を脆弱性パターン（`[\w ]*`）から安全なパターンに修正し、SonarQube が警告していた ReDoS（正規表現によるサービス拒否）の脆弱性を完全に解消しました。
 
 #### バグ修正
@@ -347,6 +512,7 @@ outline: [2, 3]
 - **[Critical] CONC-01**: `NanaSQLite` の内部キャッシュ更新処理が DB ロックの外側で行われていたため、マルチスレッド環境（`AsyncNanaSQLite` 等）で `RuntimeError` やキャッシュ破損、TOCTOU 競合が発生する問題を修正。キャッシュ操作を DB ロックの保護下に移動しました。
 - **[Critical] CONC-02**: V2モードで `table()` を使用して子インスタンスを作成した際、同じ SQLite 接続に対して複数のスレッドが同時にトランザクションを開始しようとしてクラッシュする問題を修正。親子の V2Engine 間で `shared_lock` を共有し、排他制御を強化しました。
 - **[Critical] ASYNC-01**: `AsyncNanaSQLite` において V2 モード用のメソッド（`aflush`, `aget_dlq` 等）が未実装であった問題を修正。同期版と同等のすべての管理機能を非同期 API として追加しました。
+- **[High] QUAL-07**: 同期版 `NanaSQLite` にも V2 管理メソッドを追加し、非同期版との完全な機能パリティを実現。
 - **[High] QUAL-05**: V2モードにおいて `begin_transaction()` 等の明示的なトランザクション操作を行うと V2 エンジンのバックグラウンド処理と衝突するため、V2モード時は明示的なトランザクションを禁止（例外送出）するようにガードを追加しました。
 - **[High] QUAL-06**: `AsyncNanaSQLite.table()` において `v2_enable_metrics` 設定が子インスタンスに継承されない不具合を修正しました。
 - **[Medium] SEC-01 (強化)**: `create_table()` のカラム型バリデーションをブラックリスト方式からホワイトリスト方式（正規表現による記号制限）へ移行し、検知パターンを強化しました。
@@ -358,6 +524,15 @@ outline: [2, 3]
 - **[Low] QUAL-01**: `ExpiringDict` のスケジューラスレッド停止処理を改善し、インスタンス破棄時やクリア時のクリーンアップをより堅牢にしました。（1.4.1rc1）
 - **[Low] QUAL-03**: ソースコード内のマジックリテラル（`"BEGIN IMMEDIATE"` 等）の共通定数化を行い、保守性を向上させました。
 - **[Low] CI-01**: SonarQube Cloud の「Quality Gate」における誤検知（ドキュメントやスクリプトがカバレッジに含まれる問題）を解消し、認知複雑度などの非本質的な警告を抑制する設定を導入しました。
+- **[Low] QUAL-09**: `utils.py` の `list(dict.keys())` を `list(dict)` に変更し、不要な `.keys()` 呼び出しを削除しました（SonarCloud指摘対応）。
+- **[Low] QUAL-10 (新機能)**: `V2Config` データクラスを追加し、v2関連パラメータ（`flush_mode`, `flush_interval`, `flush_count`, `chunk_size`, `enable_metrics`）をひとまとめにして渡せるようにしました。既存の個別引数は後方互換のためすべて維持されます。SonarCloud の「パラメータが多すぎる（brain-overload）」警告への対応です。
+  ```python
+  from nanasqlite import NanaSQLite, V2Config
+  cfg = V2Config(flush_mode="time", flush_interval=5.0, enable_metrics=True)
+  db = NanaSQLite("mydata.db", v2_mode=True, v2_config=cfg)
+  ```
+- **[Low] CI-02**: `bench-rpi.yml` において、`docker run` 実行前に `docker rm -f` を追加し、キャンセル後の再実行時にコンテナ名が競合するエラー（`"Conflict. The container name is already in use"`）を解消しました。
+
 
 #### 新機能: V2エンジンの利便性と観測性の向上 (オプトイン)
 - **デッドレターキュー (DLQ) の可視化**:

@@ -14,13 +14,12 @@ import logging
 import math
 import os
 import re
-import shutil
 import stat
 import tempfile
 import threading
 import warnings
 import weakref
-from collections.abc import Iterator, MutableMapping
+from collections.abc import Callable, Iterator, MutableMapping
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Literal
@@ -79,6 +78,83 @@ _NOT_FOUND = object()
 _BEGIN_IMMEDIATE = "BEGIN IMMEDIATE"
 _BATCH_GET_CHUNK_SIZE = 900
 _BATCH_GET_FULL_PLACEHOLDERS = ",".join("?" for _ in range(_BATCH_GET_CHUNK_SIZE))
+
+
+def _integrity_check_ok(rows: Any) -> bool:
+    """Return True only when SQLite's integrity_check reports exactly ``ok``."""
+    normalized = [str(row[0]).strip().lower() for row in rows if row]
+    return normalized == ["ok"]
+
+
+def _validate_finite_number(value: Any, name: str) -> int | float:
+    """Validate public numeric inputs without accepting bool or non-finite floats."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise NanaSQLiteValidationError(f"{name} must be an int or float, not {type(value).__name__}")
+    if not math.isfinite(value):
+        raise NanaSQLiteValidationError(f"{name} must be finite")
+    return value
+
+
+def _apply_increment_value(
+    current: Any,
+    amount: int | float,
+    *,
+    field: str | None,
+    default: int | float | None,
+) -> Any:
+    """Pure implementation used by increment() and development specifications."""
+    amount = _validate_finite_number(amount, "amount")
+    if default is not None:
+        default = _validate_finite_number(default, "default")
+
+    if field is None:
+        if current is _NOT_FOUND:
+            if default is None:
+                raise KeyError("value")
+            base = default
+        else:
+            base = current
+        if base is None:
+            raise NanaSQLiteValidationError("stored value must be an int or float, not NoneType")
+        base = _validate_finite_number(base, "stored value")
+        result = base + amount
+        return _validate_finite_number(result, "increment result")
+
+    if not isinstance(field, str) or not field:
+        raise NanaSQLiteValidationError("field must be a non-empty string or None")
+    if current is _NOT_FOUND:
+        if default is None:
+            raise KeyError(field)
+        value: dict[str, Any] = {}
+    elif not isinstance(current, dict):
+        raise NanaSQLiteValidationError("stored value must be a dict when field is specified")
+    else:
+        value = dict(current)
+
+    if field in value:
+        base = _validate_finite_number(value[field], f"field '{field}'")
+    elif default is not None:
+        base = default
+    else:
+        raise KeyError(field)
+    result = base + amount
+    value[field] = _validate_finite_number(result, "increment result")
+    return value
+
+
+def _apply_shallow_patch(current: Any, changes: Any, *, create: bool) -> dict[str, Any]:
+    """Pure shallow-merge implementation used by patch() and development specs."""
+    if not isinstance(changes, dict):
+        raise NanaSQLiteValidationError("changes must be a dict")
+    if current is _NOT_FOUND:
+        if not create:
+            raise KeyError("value")
+        current = {}
+    if not isinstance(current, dict):
+        raise NanaSQLiteValidationError("stored value must be a dict")
+    result = dict(current)
+    result.update(changes)
+    return result
 
 # PERF-10: Pre-compile combined dangerous-SQL-patterns regex at module level.
 # Combining 4 separate re.search() calls into one avoids redundant scanning
@@ -273,6 +349,11 @@ class NanaSQLite(MutableMapping):
         self._sql_kv_count: str = f"SELECT COUNT(*) FROM {sanitized_table}"  # nosec
         # PERF-E: Pre-compute SELECT key query used by _get_all_keys_from_db() (keys() / __iter__).
         self._sql_kv_select_keys: str = f"SELECT key FROM {sanitized_table}"  # nosec
+        # ``sanitized_table`` is produced by _sanitize_identifier() and is quoted
+        # exactly once above. JSON paths and keys remain bound parameters.
+        self._sql_kv_json_extract: str = (
+            f"SELECT json_extract(value, ?) FROM {sanitized_table} WHERE key = ?"  # nosec B608
+        )
         # lock_timeout を __init__ で一度だけ検証・正規化する（_acquire_lock の高頻度パスでの検証を省く）
         if lock_timeout is not None:
             invalid = (
@@ -516,18 +597,7 @@ class NanaSQLite(MutableMapping):
             if _shared_v2_engine is not None:
                 self._v2_engine = _shared_v2_engine
             else:
-                self._v2_engine = V2Engine(
-                    connection=self._connection,
-                    table_name=self._safe_table,
-                    flush_mode=flush_mode,
-                    flush_interval=flush_interval,
-                    flush_count=flush_count,
-                    max_chunk_size=v2_chunk_size,
-                    max_dlq_size=v2_max_dlq_size,
-                    serialize_func=self._serialize,
-                    enable_metrics=self._v2_enable_metrics_raw,
-                    shared_lock=self._lock,
-                )
+                self._v2_engine = self._create_v2_engine()
 
         # 一括ロード
         if bulk_load:
@@ -621,7 +691,29 @@ class NanaSQLite(MutableMapping):
         # Keep the pre-computed flag in sync (PERF-20).
         self._has_hooks = True
 
+    def _invalidate_hook_indexes(self) -> None:
+        """Invalidate optional hook indexes after rollback or database replacement."""
+        for hook in self._hooks:
+            invalidate = getattr(hook, "invalidate_index", None)
+            if callable(invalidate):
+                invalidate()
+
     # ==================== Private Methods ====================
+
+    def _create_v2_engine(self) -> V2Engine:
+        """Create a v2 engine from the normalized instance configuration."""
+        return V2Engine(
+            connection=self._connection,
+            table_name=self._safe_table,
+            flush_mode=self._v2_flush_mode,
+            flush_interval=self._v2_flush_interval,
+            flush_count=self._v2_flush_count,
+            max_chunk_size=self._v2_chunk_size,
+            max_dlq_size=self._v2_max_dlq_size,
+            serialize_func=self._serialize,
+            enable_metrics=self._v2_enable_metrics_raw,
+            shared_lock=self._lock,
+        )
 
     @staticmethod
     def _is_in_memory_path(path: str) -> bool:
@@ -1602,6 +1694,99 @@ class NanaSQLite(MutableMapping):
         for key, value in kwargs.items():
             self[key] = value
 
+    def _atomic_transform(self, key: str, transform: Callable[[Any], Any]) -> Any:
+        """Atomically read, transform, persist, and cache one KVS value."""
+        self._check_connection()
+
+        # v2/memory_first may have a newer staged value than SQLite.  Make it
+        # durable before opening the explicit transaction used by this operation.
+        if self._v2_mode and self._v2_engine:
+            self._v2_engine.flush(wait=True)
+            if self._v2_engine.get_dlq():
+                raise NanaSQLiteDatabaseError(
+                    "Atomic update refused because the v2 dead-letter queue is not empty"
+                )
+
+        with self._acquire_lock():
+            cursor = self._connection.cursor()
+            owns_transaction = not self._in_transaction
+            previous_busy_timeout = None
+            if owns_transaction:
+                timeout_row = cursor.execute("PRAGMA busy_timeout").fetchone()
+                previous_busy_timeout = int(timeout_row[0]) if timeout_row else 0
+                if previous_busy_timeout == 0:
+                    timeout_ms = 5000 if self._lock_timeout is None else max(1, int(self._lock_timeout * 1000))
+                    cursor.execute(f"PRAGMA busy_timeout = {timeout_ms}")
+            try:
+                if owns_transaction:
+                    cursor.execute(_BEGIN_IMMEDIATE)
+                row = cursor.execute(self._sql_kv_select, (key,)).fetchone()
+                old_value = _NOT_FOUND if row is None else self._deserialize(row[0])
+                value = transform(old_value)
+                if self._has_hooks:
+                    for hook in self._hooks:
+                        value = hook.before_write(self, key, value)
+                serialized = self._serialize(value)
+                cursor.execute(self._sql_kv_insert, (key, serialized))
+                if owns_transaction:
+                    cursor.execute("COMMIT")
+            except Exception:
+                if owns_transaction:
+                    try:
+                        cursor.execute("ROLLBACK")
+                    except apsw.Error:
+                        logger.exception("Failed to roll back atomic update for key %r", key)
+                raise
+            finally:
+                if owns_transaction and previous_busy_timeout == 0:
+                    try:
+                        cursor.execute("PRAGMA busy_timeout = 0")
+                    except apsw.Error as exc:
+                        logger.warning("Failed to restore SQLite busy_timeout after atomic update: %s", exc)
+
+            previous = None if old_value is _NOT_FOUND else old_value
+            if self._has_hooks:
+                for hook in self._hooks:
+                    if hasattr(hook, "on_write_success"):
+                        hook.on_write_success(self, key, value, previous)
+            self._update_cache(key, value)
+            return value
+
+    def increment(
+        self,
+        key: str,
+        amount: int | float = 1,
+        *,
+        field: str | None = None,
+        default: int | float | None = None,
+    ) -> Any:
+        """Atomically increment a numeric value or a top-level numeric dict field.
+
+        A missing key or field raises ``KeyError`` unless ``default`` is given.
+        Boolean and non-finite numeric values are rejected.
+        """
+
+        def transform(current: Any) -> Any:
+            try:
+                return _apply_increment_value(current, amount, field=field, default=default)
+            except KeyError:
+                if current is _NOT_FOUND:
+                    raise KeyError(key) from None
+                raise
+
+        return self._atomic_transform(key, transform)
+
+    def patch(self, key: str, changes: dict[str, Any], *, create: bool = False) -> Any:
+        """Atomically apply a shallow dictionary merge and return the stored value."""
+
+        def transform(current: Any) -> dict[str, Any]:
+            try:
+                return _apply_shallow_patch(current, changes, create=create)
+            except KeyError:
+                raise KeyError(key) from None
+
+        return self._atomic_transform(key, transform)
+
     def flush(self, wait: bool = False) -> None:
         """
         [v2 Feature] Explicitly flush the v2 engine's background buffer and queue to SQLite.
@@ -2051,7 +2236,38 @@ class NanaSQLite(MutableMapping):
             except apsw.Error as e:
                 logger.error("SQL error during background expiration for key '%s': %s", key, e)
 
-    def backup(self, dest_path: str) -> None:
+    @staticmethod
+    def _verify_connection_integrity(connection: apsw.Connection, label: str) -> None:
+        rows = list(connection.execute("PRAGMA integrity_check"))
+        if not _integrity_check_ok(rows):
+            details = "; ".join(str(row[0]) for row in rows if row) or "no result"
+            raise NanaSQLiteDatabaseError(f"Integrity check failed for {label}: {details}")
+
+    @classmethod
+    def _verify_database_file(cls, path: str, label: str) -> None:
+        connection = None
+        try:
+            connection = apsw.Connection(path, flags=apsw.SQLITE_OPEN_READONLY)
+            cls._verify_connection_integrity(connection, label)
+        except NanaSQLiteDatabaseError:
+            raise
+        except (apsw.Error, OSError) as exc:
+            raise NanaSQLiteDatabaseError(f"Could not verify {label}: {exc}", exc) from exc
+        finally:
+            if connection is not None:
+                try:
+                    connection.close()
+                except apsw.Error:
+                    logger.warning("Failed to close integrity-check connection for %r", path)
+
+    def backup(
+        self,
+        dest_path: str,
+        *,
+        verify: bool = True,
+        flush: bool = True,
+        allow_incomplete: bool = False,
+    ) -> None:
         """
         データベースをファイルにバックアップする
 
@@ -2063,6 +2279,9 @@ class NanaSQLite(MutableMapping):
 
         Args:
             dest_path: バックアップ先ファイルパス
+            verify: 作成したバックアップに ``PRAGMA integrity_check`` を実行する
+            flush: v2/memory_first の保留書き込みを先に同期フラッシュする
+            allow_incomplete: DLQ が残る不完全な状態のバックアップを許可する
 
         Raises:
             NanaSQLiteClosedError: 接続が閉じられている場合
@@ -2101,19 +2320,55 @@ class NanaSQLite(MutableMapping):
                 self._db_path,
                 e,
             )
+
+        if flush and self._v2_mode and self._v2_engine:
+            self._v2_engine.flush(wait=True)
+        if not allow_incomplete and self._v2_mode and self._v2_engine and self._v2_engine.get_dlq():
+            raise NanaSQLiteDatabaseError(
+                "Backup refused because the v2 dead-letter queue is not empty; "
+                "retry or clear failed writes, or pass allow_incomplete=True"
+            )
+
         # ロックは接続参照の取得のみに限定する。
         # 実際のバックアップ処理は SQLite のオンラインバックアップ API に委ねるため
         # NanaSQLite のロックを保持し続ける必要がない。
         # これにより backup() 実行中も他の NanaSQLite 操作をブロックしない。
         with self._acquire_lock():
             conn_ref = self._connection
+
+        destination = os.path.abspath(os.fspath(dest_path))
+        destination_dir = os.path.dirname(destination)
+        destination_name = os.path.basename(destination)
+        temp_path: str | None = None
         dest_conn = None
         try:
-            dest_conn = apsw.Connection(dest_path)
+            fd, temp_path = tempfile.mkstemp(
+                prefix=f".{destination_name}.", suffix=".tmp", dir=destination_dir
+            )
+            os.close(fd)
+            dest_conn = apsw.Connection(temp_path)
             with dest_conn.backup("main", conn_ref, "main") as b:
                 while not b.done:
                     b.step(100)
-        except apsw.Error as e:
+            if verify:
+                self._verify_connection_integrity(dest_conn, "backup")
+            dest_conn.close()
+            dest_conn = None
+
+            # Preserve existing destination permissions where possible.
+            try:
+                existing_mode = stat.S_IMODE(os.stat(destination).st_mode)
+            except OSError:
+                existing_mode = None
+            if existing_mode is not None:
+                os.chmod(temp_path, existing_mode)
+            with open(temp_path, "r+b") as temp_file:
+                os.fsync(temp_file.fileno())
+            os.replace(temp_path, destination)
+            temp_path = None
+        except NanaSQLiteDatabaseError:
+            raise
+        except (apsw.Error, OSError) as e:
             raise NanaSQLiteDatabaseError(f"Backup failed: {e}", e) from e
         finally:
             if dest_conn is not None:
@@ -2121,6 +2376,13 @@ class NanaSQLite(MutableMapping):
                     dest_conn.close()
                 except apsw.Error as close_err:
                     logger.error("Error closing destination connection after backup: %s", close_err)
+            if temp_path is not None:
+                try:
+                    os.unlink(temp_path)
+                except FileNotFoundError:
+                    pass
+                except OSError as cleanup_err:
+                    logger.warning("Failed to remove temporary backup file %r: %s", temp_path, cleanup_err)
 
     def restore(self, src_path: str) -> None:
         """
@@ -2151,6 +2413,14 @@ class NanaSQLite(MutableMapping):
                 "restore() can only be called on the primary (connection-owning) instance. "
                 "Use the original NanaSQLite instance, not one obtained via table()."
             )
+        if self._in_transaction:
+            raise NanaSQLiteTransactionError(
+                "Cannot restore while a transaction is in progress. Please commit or rollback first."
+            )
+
+        # Validate before shutting down v2 or closing the live connection.  A
+        # corrupt or non-SQLite source therefore leaves the current DB usable.
+        self._verify_database_file(src_path, "restore source")
 
         # v2 Architecture: Shutdown background engine before acquiring lock
         # to prevent deadlock with background flush thread (which also needs the lock).
@@ -2166,25 +2436,33 @@ class NanaSQLite(MutableMapping):
             # ロック内でスナップショットを取得し、table() と競合しないようにする
             children = list(self._child_instances)
             tmp_path = None
+            source_conn = None
+            temp_conn = None
+            live_connection_closed = False
             try:
                 # 元DBのパーミッションを先に取得しておく（接続クローズ後も stat は可能だがここで取る）
                 try:
                     original_mode = os.stat(self._db_path).st_mode
                 except OSError:
                     original_mode = None
-                # 少なくとも src_path がオープン可能かどうかを、接続クローズ前に確認する
-                # 事前の isfile/access チェックは TOCTOU になるため行わず、open() の成否で判断する
-                with open(src_path, "rb") as src_f:
-                    self._connection.close()
-                    # 一時ファイルへコピー→fsync→os.replace() で原子的に置き換える
-                    # open()/コピー中の OSError は外側の except (apsw.Error, OSError) で捕捉して
-                    # NanaSQLiteDatabaseError に変換する
-                    db_dir = os.path.dirname(os.path.abspath(self._db_path))
-                    fd, tmp_path = tempfile.mkstemp(dir=db_dir)
-                    with os.fdopen(fd, "wb") as tmp_f:
-                        shutil.copyfileobj(src_f, tmp_f)
-                        tmp_f.flush()
-                        os.fsync(tmp_f.fileno())
+                # Materialize a consistent SQLite snapshot into a temporary DB.
+                # Using the backup API includes committed WAL contents from a live source.
+                db_dir = os.path.dirname(os.path.abspath(self._db_path))
+                fd, tmp_path = tempfile.mkstemp(prefix=".nanasqlite-restore-", suffix=".tmp", dir=db_dir)
+                os.close(fd)
+                source_conn = apsw.Connection(src_path, flags=apsw.SQLITE_OPEN_READONLY)
+                temp_conn = apsw.Connection(tmp_path)
+                with temp_conn.backup("main", source_conn, "main") as backup:
+                    while not backup.done:
+                        backup.step(100)
+                self._verify_connection_integrity(temp_conn, "restore snapshot")
+                temp_conn.close()
+                temp_conn = None
+                source_conn.close()
+                source_conn = None
+                with open(tmp_path, "r+b") as tmp_file:
+                    os.fsync(tmp_file.fileno())
+
                 # 元DBのパーミッションを一時ファイルに適用してから原子的に置き換える
                 if original_mode is not None:
                     try:
@@ -2196,6 +2474,8 @@ class NanaSQLite(MutableMapping):
                             tmp_path,
                             chmod_err,
                         )
+                self._connection.close()
+                live_connection_closed = True
                 os.replace(tmp_path, self._db_path)
                 tmp_path = None  # replace 成功したので cleanup 不要
                 # WAL モード使用時に残る可能性のあるサイドカーファイルを削除する。
@@ -2247,63 +2527,55 @@ class NanaSQLite(MutableMapping):
                 except OSError:
                     self._db_stat_key = None
 
-                # v2 Architecture: Re-initialize engine with new connection
+                # v2 Architecture: Re-initialize one shared engine for parent/children.
                 if self._v2_mode:
-                    self._v2_engine = V2Engine(
-                        connection=self._connection,
-                        table_name=self._safe_table,
-                        flush_mode=self._v2_flush_mode,
-                        flush_interval=self._v2_flush_interval,
-                        flush_count=self._v2_flush_count,
-                        max_chunk_size=self._v2_chunk_size,
-                        max_dlq_size=self._v2_max_dlq_size,
-                        serialize_func=self._serialize,
-                        enable_metrics=self._v2_enable_metrics_raw,
-                        shared_lock=self._lock,
-                    )
-
+                    self._v2_engine = self._create_v2_engine()
                 for child in children:
                     child._connection = self._connection
-                    # Child instances also need their engines re-initialized if in V2 mode
                     if child._v2_mode:
-                        if child._v2_engine:
-                            child._v2_engine.shutdown()
-                        child._v2_engine = V2Engine(
-                            connection=child._connection,
-                            table_name=child._safe_table,
-                            flush_mode=child._v2_flush_mode,
-                            flush_interval=child._v2_flush_interval,
-                            flush_count=child._v2_flush_count,
-                            max_chunk_size=child._v2_chunk_size,
-                            max_dlq_size=child._v2_max_dlq_size,
-                            serialize_func=child._serialize,
-                            enable_metrics=child._v2_enable_metrics_raw,
-                            shared_lock=child._lock,
-                        )
+                        child._v2_engine = self._v2_engine
 
                 self.clear_cache()
+                self._invalidate_hook_indexes()
                 for child in children:
                     child.clear_cache()
-            except (apsw.Error, OSError) as e:
+                    child._invalidate_hook_indexes()
+            except (apsw.Error, OSError, NanaSQLiteDatabaseError) as e:
+                for connection in (temp_conn, source_conn):
+                    if connection is not None:
+                        try:
+                            connection.close()
+                        except apsw.Error as cleanup_err:
+                            logger.debug("Failed to close restore cleanup connection: %s", cleanup_err)
                 if tmp_path is not None:
                     try:
                         os.unlink(tmp_path)
                     except OSError as cleanup_err:
                         logger.debug("Failed to remove temporary restore file %r: %s", tmp_path, cleanup_err)
                 try:
-                    self._connection = apsw.Connection(self._db_path)
-                    if self._optimize:
-                        self._apply_optimizations(self._cache_size_mb)
+                    if live_connection_closed:
+                        self._connection = apsw.Connection(self._db_path)
+                        if self._optimize:
+                            self._apply_optimizations(self._cache_size_mb)
                     for child in children:
                         child._connection = self._connection
+                    if self._v2_mode:
+                        self._v2_engine = self._create_v2_engine()
+                        for child in children:
+                            if child._v2_mode:
+                                child._v2_engine = self._v2_engine
                     self.clear_cache()
+                    self._invalidate_hook_indexes()
                     for child in children:
                         child.clear_cache()
+                        child._invalidate_hook_indexes()
                 except apsw.Error:
                     self._is_closed = True
                     for child in children:
                         child._mark_parent_closed()
                     self._child_instances.clear()
+                if isinstance(e, NanaSQLiteDatabaseError):
+                    raise
                 raise NanaSQLiteDatabaseError(f"Restore failed: {e}", e) from e
 
     def close(self) -> None:
@@ -3693,10 +3965,14 @@ class NanaSQLite(MutableMapping):
                 self._connection.execute("ROLLBACK")
                 self._in_transaction = False
                 self._transaction_depth = 0
+                self.clear_cache()
+                self._invalidate_hook_indexes()
         except apsw.Error as e:
             # ロールバック失敗は深刻なので状態をリセット
             self._in_transaction = False
             self._transaction_depth = 0
+            self.clear_cache()
+            self._invalidate_hook_indexes()
             raise NanaSQLiteDatabaseError(
                 f"Failed to rollback transaction: {e}", original_error=e
             ) from e
@@ -3759,9 +4035,8 @@ class NanaSQLite(MutableMapping):
             path = f"$.{path.lstrip('.')}"
 
         # クエリ実行
-        query = f"SELECT json_extract(value, ?) FROM {self._safe_table} WHERE key = ?"
         with self._acquire_lock():
-            cursor = self.execute(query, (path, key))
+            cursor = self.execute(self._sql_kv_json_extract, (path, key))
             result = cursor.fetchone()
 
         if not result or result[0] is None:

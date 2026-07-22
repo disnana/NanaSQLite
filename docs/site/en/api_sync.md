@@ -5,7 +5,7 @@ Reference for the synchronous NanaSQLite class.
 ## NanaSQLite
 
 ```python
-class NanaSQLite(db_path: str, table: str = 'data', bulk_load: bool = False, optimize: bool = True, cache_size_mb: int = 64, strict_sql_validation: bool = True, allowed_sql_functions: list[str] | None = None, forbidden_sql_functions: list[str] | None = None, max_clause_length: int | None = 1000, cache_strategy: CacheType | Literal['unbounded', 'lru', 'ttl'] = <CacheType.UNBOUNDED: unbounded>, cache_size: int | None = None, cache_ttl: float | None = None, cache_persistence_ttl: bool = False, encryption_key: str | bytes | None = None, encryption_mode: Literal['aes-gcm', 'chacha20', 'fernet'] = 'aes-gcm', lock_timeout: float | None = None, validator: Any | None = None, coerce: bool = False, v2_mode: bool = False, flush_mode: Literal['immediate', 'count', 'time', 'manual'] = 'immediate', flush_interval: float = 3.0, flush_count: int = 100, v2_chunk_size: int = 1000, v2_max_dlq_size: int | None = 1000, v2_enable_metrics: bool = False, _shared_connection: apsw.Connection | None = None, _shared_lock: threading.RLock | None = None)
+class NanaSQLite(db_path: str, table: str = 'data', bulk_load: bool = False, optimize: bool = True, cache_size_mb: int = 64, strict_sql_validation: bool = True, validator: Any | None = None, coerce: bool = False, v2_mode: bool = False, v2_config: V2Config | None = None, **kwargs: Any)
 ```
 
 APSW SQLite-backed dict wrapper with Security and Connection Enhancements (v1.2.0).
@@ -23,27 +23,10 @@ In v1.2.0, enhanced dynamic SQL validation, ReDoS protection, and strict connect
 | `optimize` | `bool` |  |
 | `cache_size_mb` | `int` |  |
 | `strict_sql_validation` | `bool` |  |
-| `allowed_sql_functions` | `list[str] | None` |  |
-| `forbidden_sql_functions` | `list[str] | None` |  |
-| `max_clause_length` | `int | None` |  |
-| `cache_strategy` | `CacheType | Literal[unbounded, lru, ttl]` |  |
-| `cache_size` | `int | None` |  |
-| `cache_ttl` | `float | None` |  |
-| `cache_persistence_ttl` | `bool` |  |
-| `encryption_key` | `str | bytes | None` |  |
-| `encryption_mode` | `Literal[aes-gcm, chacha20, fernet]` |  |
-| `lock_timeout` | `float | None` |  |
 | `validator` | `Any | None` |  |
 | `coerce` | `bool` | ``True`` の場合、validkit-py の自動変換（コアース）機能を有効にする。 |
 | `v2_mode` | `bool` |  |
-| `flush_mode` | `Literal[immediate, count, time, manual]` |  |
-| `flush_interval` | `float` |  |
-| `flush_count` | `int` |  |
-| `v2_chunk_size` | `int` |  |
-| `v2_max_dlq_size` | `int | None` | Maximum DLQ entries. Use None for unbounded behavior |
-| `v2_enable_metrics` | `bool` |  |
-| `_shared_connection` | `apsw.Connection | None` |  |
-| `_shared_lock` | `threading.RLock | None` |  |
+| `v2_config` | `V2Config | None` |  |
 
 
 
@@ -64,7 +47,7 @@ def close() -> None
 ### `table`
 
 ```python
-def table(table_name: str, cache_strategy: CacheType | Literal['unbounded', 'lru', 'ttl'] | None = None, cache_size: int | None = None, cache_ttl: float | None = None, cache_persistence_ttl: bool | None = None, validator: Any | None | types.EllipsisType = Ellipsis, coerce: bool | types.EllipsisType = Ellipsis, v2_enable_metrics: bool | types.EllipsisType = Ellipsis, memory_first: bool | types.EllipsisType = Ellipsis, warn_duplicate_table_instance: bool | types.EllipsisType = Ellipsis)
+def table(table_name: str, cache_strategy: CacheType | Literal['unbounded', 'lru', 'ttl'] | None = None, cache_size: int | None = None, cache_ttl: float | None = None, cache_persistence_ttl: bool | None = None, validator: Any | None | EllipsisType = Ellipsis, coerce: bool | EllipsisType = Ellipsis, hooks: list[NanaHook] | None | EllipsisType = Ellipsis, v2_enable_metrics: bool | EllipsisType = Ellipsis, memory_first: bool | EllipsisType = Ellipsis, warn_duplicate_table_instance: bool | EllipsisType = Ellipsis)
 ```
 
 #### Parameter
@@ -76,11 +59,12 @@ def table(table_name: str, cache_strategy: CacheType | Literal['unbounded', 'lru
 | `cache_size` | `int | None` |  |
 | `cache_ttl` | `float | None` |  |
 | `cache_persistence_ttl` | `bool | None` |  |
-| `validator` | `Any | None | types.EllipsisType` |  |
-| `coerce` | `bool | types.EllipsisType` | ``True`` の場合、validkit-py の自動変換機能を有効にする。 sub1 = db.table("users") users_db = db.table("users") |
-| `v2_enable_metrics` | `bool | types.EllipsisType` |  |
-| `memory_first` | `bool | types.EllipsisType` | Enables or disables memory-first mode for this table. When omitted, inherits the parent's setting |
-| `warn_duplicate_table_instance` | `bool | types.EllipsisType` | Warns when another live table() instance targets the same database and table. Pass False when intentional |
+| `validator` | `Any | None | EllipsisType` |  |
+| `coerce` | `bool | EllipsisType` | ``True`` の場合、validkit-py の自動変換機能を有効にする。 ``None`` を明示的に渡すとフックなしで使用できる。 |
+| `hooks` | `list[NanaHook] | None | EllipsisType` |  |
+| `v2_enable_metrics` | `bool | EllipsisType` | ``True`` の場合、V2 エンジンのメトリクス収集を有効にする。 |
+| `memory_first` | `bool | EllipsisType` | ``True`` の場合、起動時に全件ロードし、KVS CRUD をメモリ優先で処理する。 sub1 = db.table("users") users_db = db.table("users") |
+| `warn_duplicate_table_instance` | `bool | EllipsisType` |  |
 
 ::: warning Raises
 :::
@@ -347,6 +331,87 @@ def batch_get(keys: list[str]) -> dict[str, Any]
 
 ---
 
+### `increment`
+
+```python
+def increment(key: str, amount: int | float = 1, *, field: str | None = None, default: int | float | None = None) -> Any
+```
+
+Atomically increment a numeric value or a top-level numeric dict field.
+
+A missing key or field raises ``KeyError`` unless ``default`` is given.
+Boolean and non-finite numeric values are rejected.
+
+
+---
+
+### `patch`
+
+```python
+def patch(key: str, changes: dict[str, Any], *, create: bool = False) -> Any
+```
+
+Atomically apply a shallow dictionary merge and return the stored value.
+
+
+---
+
+### `flush`
+
+```python
+def flush(wait: bool = False) -> None
+```
+
+[v2 Feature] Explicitly flush the v2 engine's background buffer and queue to SQLite.
+If v2_mode is False, this operates as a no-op.
+
+
+---
+
+### `get_dlq`
+
+```python
+def get_dlq() -> list[dict[str, Any]]
+```
+
+
+
+
+---
+
+### `retry_dlq`
+
+```python
+def retry_dlq() -> None
+```
+
+
+
+
+---
+
+### `clear_dlq`
+
+```python
+def clear_dlq() -> None
+```
+
+
+
+
+---
+
+### `get_v2_metrics`
+
+```python
+def get_v2_metrics() -> dict[str, Any]
+```
+
+
+
+
+---
+
 ### `load_all`
 
 ```python
@@ -361,7 +426,7 @@ def load_all() -> None
 ### `refresh`
 
 ```python
-def refresh(key: str = None) -> None
+def refresh(key: str | None = None) -> None
 ```
 
 ---
@@ -445,61 +510,6 @@ def batch_delete(keys: list[str]) -> None
 #### Returns
 
 None
-
-
----
-
-### `flush`
-
-```python
-def flush() -> None
-```
-
-
-
-
----
-
-### `get_dlq`
-
-```python
-def get_dlq() -> list[dict[str, Any]]
-```
-
-
-
-
----
-
-### `retry_dlq`
-
-```python
-def retry_dlq() -> None
-```
-
-
-
-
----
-
-### `clear_dlq`
-
-```python
-def clear_dlq() -> None
-```
-
-
-
-
----
-
-### `get_v2_metrics`
-
-```python
-def get_v2_metrics() -> dict[str, Any]
-```
-
-
 
 
 ---
@@ -626,7 +636,7 @@ def sql_insert(table_name: str, data: dict) -> int
 ### `sql_update`
 
 ```python
-def sql_update(table_name: str, data: dict, where: str, parameters: tuple = None) -> int
+def sql_update(table_name: str, data: dict, where: str, parameters: tuple | None = None) -> int
 ```
 
 #### Parameter
@@ -636,7 +646,7 @@ def sql_update(table_name: str, data: dict, where: str, parameters: tuple = None
 | `table_name` | `str` |  |
 | `data` | `dict` |  |
 | `where` | `str` |  |
-| `parameters` | `tuple` |  |
+| `parameters` | `tuple | None` |  |
 
 #### Returns
 
@@ -658,7 +668,7 @@ def sql_update(table_name: str, data: dict, where: str, parameters: tuple = None
 ### `sql_delete`
 
 ```python
-def sql_delete(table_name: str, where: str, parameters: tuple = None) -> int
+def sql_delete(table_name: str, where: str, parameters: tuple | None = None) -> int
 ```
 
 #### Parameter
@@ -667,7 +677,7 @@ def sql_delete(table_name: str, where: str, parameters: tuple = None) -> int
 |---|---|---|
 | `table_name` | `str` |  |
 | `where` | `str` |  |
-| `parameters` | `tuple` |  |
+| `parameters` | `tuple | None` |  |
 
 #### Returns
 
@@ -685,7 +695,7 @@ def sql_delete(table_name: str, where: str, parameters: tuple = None) -> int
 ### `upsert`
 
 ```python
-def upsert(table_name: str | Any = None, data: Any = None, conflict_columns: list[str] = None) -> int | None
+def upsert(table_name: str | Any = None, data: Any = None, conflict_columns: list[str] | None = None) -> int | None
 ```
 
 #### Parameter
@@ -693,7 +703,7 @@ def upsert(table_name: str | Any = None, data: Any = None, conflict_columns: lis
 | Parameter | Type | Description |
 |---|---|---|
 | `table_name` | `str | Any` |  |
-| `conflict_columns` | `list[str]` |  |
+| `conflict_columns` | `list[str] | None` |  |
 
 #### Returns
 
@@ -716,22 +726,22 @@ def upsert(table_name: str | Any = None, data: Any = None, conflict_columns: lis
 ### `query`
 
 ```python
-def query(table_name: str = None, columns: list[str] = None, where: str = None, parameters: tuple = None, order_by: str = None, limit: int = None, strict_sql_validation: bool = None, allowed_sql_functions: list[str] = None, forbidden_sql_functions: list[str] = None, override_allowed: bool = False) -> list[dict]
+def query(table_name: str | None = None, columns: list[str] | None = None, where: str | None = None, parameters: tuple | None = None, order_by: str | None = None, limit: int | None = None, strict_sql_validation: bool | None = None, allowed_sql_functions: list[str] | None = None, forbidden_sql_functions: list[str] | None = None, override_allowed: bool = False) -> list[dict]
 ```
 
 #### Parameter
 
 | Parameter | Type | Description |
 |---|---|---|
-| `table_name` | `str` |  |
-| `columns` | `list[str]` |  |
-| `where` | `str` |  |
-| `parameters` | `tuple` |  |
-| `order_by` | `str` |  |
-| `limit` | `int` |  |
-| `strict_sql_validation` | `bool` |  |
-| `allowed_sql_functions` | `list[str]` |  |
-| `forbidden_sql_functions` | `list[str]` |  |
+| `table_name` | `str | None` |  |
+| `columns` | `list[str] | None` |  |
+| `where` | `str | None` |  |
+| `parameters` | `tuple | None` |  |
+| `order_by` | `str | None` |  |
+| `limit` | `int | None` |  |
+| `strict_sql_validation` | `bool | None` |  |
+| `allowed_sql_functions` | `list[str] | None` |  |
+| `forbidden_sql_functions` | `list[str] | None` |  |
 | `override_allowed` | `bool` |  |
 
 #### Returns
@@ -763,19 +773,19 @@ def query(table_name: str = None, columns: list[str] = None, where: str = None, 
 ### `count`
 
 ```python
-def count(table_name: str = None, where: str = None, parameters: tuple = None, strict_sql_validation: bool = None, allowed_sql_functions: list[str] = None, forbidden_sql_functions: list[str] = None, override_allowed: bool = False) -> int
+def count(table_name: str | None = None, where: str | None = None, parameters: tuple | None = None, strict_sql_validation: bool | None = None, allowed_sql_functions: list[str] | None = None, forbidden_sql_functions: list[str] | None = None, override_allowed: bool = False) -> int
 ```
 
 #### Parameter
 
 | Parameter | Type | Description |
 |---|---|---|
-| `table_name` | `str` |  |
-| `where` | `str` |  |
-| `parameters` | `tuple` |  |
-| `strict_sql_validation` | `bool` |  |
-| `allowed_sql_functions` | `list[str]` |  |
-| `forbidden_sql_functions` | `list[str]` |  |
+| `table_name` | `str | None` |  |
+| `where` | `str | None` |  |
+| `parameters` | `tuple | None` |  |
+| `strict_sql_validation` | `bool | None` |  |
+| `allowed_sql_functions` | `list[str] | None` |  |
+| `forbidden_sql_functions` | `list[str] | None` |  |
 | `override_allowed` | `bool` |  |
 
 ::: tip Example
@@ -791,7 +801,7 @@ def count(table_name: str = None, where: str = None, parameters: tuple = None, s
 ### `exists`
 
 ```python
-def exists(table_name: str, where: str, parameters: tuple = None) -> bool
+def exists(table_name: str, where: str, parameters: tuple | None = None) -> bool
 ```
 
 #### Parameter
@@ -800,7 +810,7 @@ def exists(table_name: str, where: str, parameters: tuple = None) -> bool
 |---|---|---|
 | `table_name` | `str` |  |
 | `where` | `str` |  |
-| `parameters` | `tuple` |  |
+| `parameters` | `tuple | None` |  |
 
 #### Returns
 
@@ -819,24 +829,24 @@ def exists(table_name: str, where: str, parameters: tuple = None) -> bool
 ### `query_with_pagination`
 
 ```python
-def query_with_pagination(table_name: str = None, columns: list[str] = None, where: str = None, parameters: tuple = None, order_by: str = None, limit: int = None, offset: int = None, group_by: str = None, strict_sql_validation: bool = None, allowed_sql_functions: list[str] = None, forbidden_sql_functions: list[str] = None, override_allowed: bool = False) -> list[dict]
+def query_with_pagination(table_name: str | None = None, columns: list[str] | None = None, where: str | None = None, parameters: tuple | None = None, order_by: str | None = None, limit: int | None = None, offset: int | None = None, group_by: str | None = None, strict_sql_validation: bool | None = None, allowed_sql_functions: list[str] | None = None, forbidden_sql_functions: list[str] | None = None, override_allowed: bool = False) -> list[dict]
 ```
 
 #### Parameter
 
 | Parameter | Type | Description |
 |---|---|---|
-| `table_name` | `str` |  |
-| `columns` | `list[str]` |  |
-| `where` | `str` |  |
-| `parameters` | `tuple` |  |
-| `order_by` | `str` |  |
-| `limit` | `int` |  |
-| `offset` | `int` |  |
-| `group_by` | `str` |  |
-| `strict_sql_validation` | `bool` |  |
-| `allowed_sql_functions` | `list[str]` |  |
-| `forbidden_sql_functions` | `list[str]` |  |
+| `table_name` | `str | None` |  |
+| `columns` | `list[str] | None` |  |
+| `where` | `str | None` |  |
+| `parameters` | `tuple | None` |  |
+| `order_by` | `str | None` |  |
+| `limit` | `int | None` |  |
+| `offset` | `int | None` |  |
+| `group_by` | `str | None` |  |
+| `strict_sql_validation` | `bool | None` |  |
+| `allowed_sql_functions` | `list[str] | None` |  |
+| `forbidden_sql_functions` | `list[str] | None` |  |
 | `override_allowed` | `bool` |  |
 
 #### Returns
@@ -931,7 +941,7 @@ def execute_many(sql: str, parameters_list: list[tuple]) -> None
 ### `fetch_one`
 
 ```python
-def fetch_one(sql: str, parameters: tuple = None) -> tuple | None
+def fetch_one(sql: str, parameters: tuple | None = None) -> tuple | None
 ```
 
 #### Parameter
@@ -939,7 +949,7 @@ def fetch_one(sql: str, parameters: tuple = None) -> tuple | None
 | Parameter | Type | Description |
 |---|---|---|
 | `sql` | `str` |  |
-| `parameters` | `tuple` |  |
+| `parameters` | `tuple | None` |  |
 
 #### Returns
 
@@ -958,7 +968,7 @@ def fetch_one(sql: str, parameters: tuple = None) -> tuple | None
 ### `fetch_all`
 
 ```python
-def fetch_all(sql: str, parameters: tuple = None) -> list[tuple]
+def fetch_all(sql: str, parameters: tuple | None = None) -> list[tuple]
 ```
 
 #### Parameter
@@ -966,7 +976,7 @@ def fetch_all(sql: str, parameters: tuple = None) -> list[tuple]
 | Parameter | Type | Description |
 |---|---|---|
 | `sql` | `str` |  |
-| `parameters` | `tuple` |  |
+| `parameters` | `tuple | None` |  |
 
 #### Returns
 
@@ -988,7 +998,7 @@ def fetch_all(sql: str, parameters: tuple = None) -> list[tuple]
 ### `create_table`
 
 ```python
-def create_table(table_name: str, columns: dict, if_not_exists: bool = True, primary_key: str = None) -> None
+def create_table(table_name: str, columns: dict, if_not_exists: bool = True, primary_key: str | None = None) -> None
 ```
 
 #### Parameter
@@ -998,7 +1008,7 @@ def create_table(table_name: str, columns: dict, if_not_exists: bool = True, pri
 | `table_name` | `str` |  |
 | `columns` | `dict` |  |
 | `if_not_exists` | `bool` |  |
-| `primary_key` | `str` |  |
+| `primary_key` | `str | None` |  |
 
 ::: tip Example
 ```python
@@ -1163,14 +1173,14 @@ def alter_table_add_column(table_name: str, column_name: str, column_type: str, 
 ### `get_table_schema`
 
 ```python
-def get_table_schema(table_name: str = None) -> list[dict]
+def get_table_schema(table_name: str | None = None) -> list[dict]
 ```
 
 #### Parameter
 
 | Parameter | Type | Description |
 |---|---|---|
-| `table_name` | `str` |  |
+| `table_name` | `str | None` |  |
 
 #### Returns
 
@@ -1190,14 +1200,14 @@ def get_table_schema(table_name: str = None) -> list[dict]
 ### `list_indexes`
 
 ```python
-def list_indexes(table_name: str = None) -> list[dict]
+def list_indexes(table_name: str | None = None) -> list[dict]
 ```
 
 #### Parameter
 
 | Parameter | Type | Description |
 |---|---|---|
-| `table_name` | `str` |  |
+| `table_name` | `str | None` |  |
 
 #### Returns
 
@@ -1305,7 +1315,7 @@ def pragma(pragma_name: str, value: Any = None) -> Any
 ### `backup`
 
 ```python
-def backup(dest_path: str) -> None
+def backup(dest_path: str, *, verify: bool = True, flush: bool = True, allow_incomplete: bool = False) -> None
 ```
 
 #### Parameter
@@ -1313,6 +1323,9 @@ def backup(dest_path: str) -> None
 | Parameter | Type | Description |
 |---|---|---|
 | `dest_path` | `str` |  |
+| `verify` | `bool` | 作成したバックアップに ``PRAGMA integrity_check`` を実行する |
+| `flush` | `bool` |  |
+| `allow_incomplete` | `bool` |  |
 
 
 
@@ -1365,7 +1378,7 @@ def set_model(key: str, model: Any) -> None
 ### `get_model`
 
 ```python
-def get_model(key: str, model_class: type = None) -> Any
+def get_model(key: str, model_class: type | None = None) -> Any
 ```
 
 #### Parameter
@@ -1373,7 +1386,7 @@ def get_model(key: str, model_class: type = None) -> Any
 | Parameter | Type | Description |
 |---|---|---|
 | `key` | `str` |  |
-| `model_class` | `type` |  |
+| `model_class` | `type | None` |  |
 
 #### Returns
 
@@ -1388,6 +1401,24 @@ def get_model(key: str, model_class: type = None) -> Any
 ---
 
 ## Other Methods
+
+### `add_hook`
+
+```python
+def add_hook(hook: NanaHook) -> None
+```
+
+[v1.5.0 Feature] Add a hook/constraint to intercept read, write, and delete operations.
+
+#### Parameter
+
+| Parameter | Type | Description |
+|---|---|---|
+| `hook` | `NanaHook` | Instantiated hook (e.g., CheckHook, UniqueHook, PydanticHook). |
+
+
+
+---
 
 ### `export_table_to_dict`
 
@@ -1438,6 +1469,30 @@ def import_from_dict_list(table_name: str, data_list: list[dict]) -> int
         {"name": "Bob", "age": 30}
     ]
     count = db.import_from_dict_list("users", users)
+```
+:::
+
+
+---
+
+### `get_by_path`
+
+```python
+def get_by_path(key: str, path: str)
+```
+
+:param key:
+:param path:
+:return:
+
+::: warning Raises
+:::
+
+::: tip Example
+```python
+    # 例: JSON列から特定のフィールドを取得
+    db.get_by_path("Alice", "$.age")
+    db.get_by_path("Bob", "$.score")
 ```
 :::
 

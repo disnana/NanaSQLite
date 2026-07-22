@@ -88,6 +88,13 @@ all = [
     "google-re2>=1.1",
 ]
 
+# Development-only executable specifications.  PEP 735 dependency groups are
+# intentionally excluded from wheel/sdist runtime metadata.
+[dependency-groups]
+spec = [
+    "niltest==1.2.1; python_version >= '3.10'",
+]
+
 [project.urls]
 Homepage = "https://github.com/disnana/nanasqlite"
 Documentation = "https://nanasqlite.disnana.com/"

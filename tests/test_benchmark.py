@@ -1459,3 +1459,25 @@ class TestExtendedBenchmarks:
                 counter[0] += 1
 
             benchmark(partial_op)
+
+    def test_atomic_increment(self, benchmark, db_path):
+        """increment() の同期トランザクションコスト"""
+        from nanasqlite import NanaSQLite
+
+        with NanaSQLite(db_path) as db:
+            db["counter"] = 0
+            benchmark(lambda: db.increment("counter"))
+
+    def test_atomic_patch(self, benchmark, db_path):
+        """patch() の浅い更新コスト"""
+        from nanasqlite import NanaSQLite
+
+        with NanaSQLite(db_path) as db:
+            db["profile"] = {"name": "Nana", "count": 0}
+            counter = [0]
+
+            def patch_op():
+                counter[0] += 1
+                return db.patch("profile", {"count": counter[0]})
+
+            benchmark(patch_op)

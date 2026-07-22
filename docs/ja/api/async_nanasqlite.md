@@ -211,6 +211,44 @@ async def batch_delete(self, keys: list[str]) -> None
 ```
 非同期の一括削除。
 
+### `aincrement`（エイリアス: `increment`）
+
+```python
+async def aincrement(
+    self,
+    key: str,
+    amount: int | float = 1,
+    *,
+    field: str | None = None,
+    default: int | float | None = None,
+) -> Any
+```
+
+同期版 `increment()` と同じ原子的更新をexecutor上で実行します。
+
+### `apatch`（エイリアス: `patch`）
+
+```python
+async def apatch(self, key: str, changes: dict[str, Any], *, create: bool = False) -> Any
+```
+
+同期版 `patch()` と同じ浅い辞書マージをexecutor上で実行します。
+
+### `abackup`
+
+```python
+async def abackup(
+    self,
+    target_path: str,
+    *,
+    verify: bool = True,
+    flush: bool = True,
+    allow_incomplete: bool = False,
+) -> None
+```
+
+同期版 `backup()` と同じ安全なバックアップ処理を非同期で実行します。
+
 ### `abatch_get`
 
 ```python

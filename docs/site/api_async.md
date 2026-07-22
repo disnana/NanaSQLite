@@ -5,7 +5,7 @@ AsyncNanaSQLiteクラスの非同期メソッド一覧です。
 ## AsyncNanaSQLite
 
 ```python
-class AsyncNanaSQLite(db_path: str, table: str = 'data', bulk_load: bool = False, optimize: bool = True, cache_size_mb: int = 64, max_workers: int = 5, thread_name_prefix: str = 'AsyncNanaSQLite', strict_sql_validation: bool = True, allowed_sql_functions: list[str] | None = None, forbidden_sql_functions: list[str] | None = None, max_clause_length: int | None = 1000, read_pool_size: int = 0, lock_timeout: float | None = None, cache_strategy: CacheType | str = <CacheType.UNBOUNDED: unbounded>, cache_size: int | None = None, cache_ttl: float | None = None, cache_persistence_ttl: bool = False, encryption_key: str | bytes | None = None, encryption_mode: Literal['aes-gcm', 'chacha20', 'fernet'] = 'aes-gcm', validator: Any | None = None, coerce: bool = False, v2_mode: bool = False, flush_mode: Literal['immediate', 'count', 'time', 'manual'] = 'immediate', flush_interval: float = 3.0, flush_count: int = 100, v2_chunk_size: int = 1000, v2_max_dlq_size: int | None = 1000, v2_enable_metrics: bool = False) -> None
+class AsyncNanaSQLite(db_path: str, table: str = 'data', bulk_load: bool = False, optimize: bool = True, cache_size_mb: int = 64, max_workers: int = 5, strict_sql_validation: bool = True, validator: Any | None = None, coerce: bool = False, v2_mode: bool = False, v2_config: V2Config | None = None, **kwargs: Any) -> None
 ```
 
 (最適化されたスレッドプールを使用するNanaSQLiteの非同期ラッパー)
@@ -26,28 +26,11 @@ class AsyncNanaSQLite(db_path: str, table: str = 'data', bulk_load: bool = False
 | `optimize` | `bool` | Trueの場合、WALモードなど高速化設定を適用 |
 | `cache_size_mb` | `int` | SQLiteキャッシュサイズ（MB）、デフォルト64MB |
 | `max_workers` | `int` | スレッドプール内の最大ワーカー数（デフォルト: 5） |
-| `thread_name_prefix` | `str` | スレッド名のプレフィックス（デフォルト: "AsyncNanaSQLite"） |
 | `strict_sql_validation` | `bool` | Trueの場合、未許可の関数等を含むクエリを拒否 (v1.2.0) |
-| `allowed_sql_functions` | `list[str] | None` | 追加で許可するSQL関数のリスト (v1.2.0) |
-| `forbidden_sql_functions` | `list[str] | None` | 明示的に禁止するSQL関数のリスト (v1.2.0) |
-| `max_clause_length` | `int | None` | SQL句の最大長（ReDoS対策）。Noneで制限なし (v1.2.0) |
-| `read_pool_size` | `int` | 読み取り専用プールサイズ (デフォルト: 0 = 無効) (v1.1.0) |
-| `lock_timeout` | `float | None` | 内部ロック取得の最大待機秒数。Noneで無制限待機。サブテーブルは親の設定を継承します。 |
-| `cache_strategy` | `CacheType | str` |  |
-| `cache_size` | `int | None` |  |
-| `cache_ttl` | `float | None` |  |
-| `cache_persistence_ttl` | `bool` |  |
-| `encryption_key` | `str | bytes | None` | 暗号化キー (v1.3.1) |
-| `encryption_mode` | `Literal[aes-gcm, chacha20, fernet]` |  |
-| `validator` | `Any | None` | validkit-py のスキーマ（辞書または Schema オブジェクト）。 指定すると、値の書き込み時にバリデーションを実行する。 ``pip install nanasqlite[validation]`` が必要。 |
-| `coerce` | `bool` | ``True`` の場合、validkit-py の自動変換機能を有効にする。 バリデーション後、変換済みの値をDBに書き込む。デフォルト: ``False``。 |
-| `v2_mode` | `bool` | True の場合、新アーキテクチャ（バックグラウンド非同期書き込み）を有効化 |
-| `flush_mode` | `Literal[immediate, count, time, manual]` | v2のフラッシュモード (immediate, count, time, manual) |
-| `flush_interval` | `float` | v2のtimeモード時の秒数 |
-| `flush_count` | `int` | v2のcountモード時の書き込み閾値 |
-| `v2_chunk_size` | `int` | v2モード時の1トランザクションあたりの最大アイテム数 |
-| `v2_max_dlq_size` | `int | None` | DLQ の最大保持件数。None で無制限 |
-| `v2_enable_metrics` | `bool` | True の場合、v2エンジンのフラッシュメトリクスを収集する。 |
+| `validator` | `Any | None` | バリデーション用スキーマ |
+| `coerce` | `bool` |  |
+| `v2_mode` | `bool` | Trueの場合、新しいV2エンジンの試験的機能を使用する |
+| `v2_config` | `V2Config | None` | V2エンジンの構成オブジェクト **kwargs: その他の設定項目のための可変引数 (allowed_sql_functions, cache_ttl 等) |
 
 ::: tip 使用例
 ```python
@@ -95,7 +78,7 @@ def close() -> None
 ### `table`
 
 ```python
-def table(table_name: str, validator: Any | None | types.EllipsisType = Ellipsis, coerce: bool | types.EllipsisType = Ellipsis, warn_duplicate_table_instance: bool | types.EllipsisType = Ellipsis) -> AsyncNanaSQLite
+def table(table_name: str, validator: Any | None | EllipsisType = Ellipsis, coerce: bool | EllipsisType = Ellipsis, hooks: list[NanaHook] | None | EllipsisType = Ellipsis, warn_duplicate_table_instance: bool | EllipsisType = Ellipsis) -> AsyncNanaSQLite
 ```
 
 非同期でサブテーブルのAsyncNanaSQLiteインスタンスを取得
@@ -119,15 +102,16 @@ def table(table_name: str, validator: Any | None | types.EllipsisType = Ellipsis
 | 引数名 | 型 | 説明 |
 |---|---|---|
 | `table_name` | `str` | 取得するサブテーブル名 |
-| `validator` | `Any | None | types.EllipsisType` | このテーブル用の validkit-py スキーマ。 指定しない場合は親インスタンスのスキーマを引き継ぐ。 ``None`` を明示的に渡すとバリデーションなしで使用できる。 |
-| `coerce` | `bool | types.EllipsisType` | ``True`` の場合、validkit-py の自動変換機能を有効にする。 指定しない場合は親インスタンスの設定を引き継ぐ。 |
-| `warn_duplicate_table_instance` | `bool | types.EllipsisType` | 同じDB・同じテーブルを指す生存中の table() インスタンスがある場合に警告する。意図的な場合は False を渡す |
+| `validator` | `Any | None | EllipsisType` | このテーブル用の validkit-py スキーマ。 指定しない場合は親インスタンスのスキーマを引き継ぐ。 ``None`` を明示的に渡すとバリデーションなしで使用できる。 |
+| `coerce` | `bool | EllipsisType` | ``True`` の場合、validkit-py の自動変換機能を有効にする。 指定しない場合は親インスタンスの設定を引き継ぐ。 |
+| `hooks` | `list[NanaHook] | None | EllipsisType` | このテーブル用のフックのリスト。 指定しない場合は親インスタンスのフックを引き継ぐ。 ``None`` を明示的に渡すとフックなしで使用できる。 |
+| `warn_duplicate_table_instance` | `bool | EllipsisType` | 同じDB・同じテーブルの既存 table() インスタンスがある場合に警告する。 指定しない場合は親インスタンスの設定を引き継ぐ。 |
 
 #### 戻り値
 
 **Type:** `AsyncNanaSQLite`
 
-指定したテーブルを操作するAsyncNanaSQLiteインスタンス
+AsyncNanaSQLite: 指定したテーブルを操作するAsyncNanaSQLiteインスタンス
 
 ::: tip 使用例
 ```python
@@ -301,6 +285,188 @@ aclear_cache のエイリアス
 
 ## データ管理
 
+### `aflush`
+
+```python
+def aflush(wait: bool = False) -> None
+```
+
+[v2 Feature] 非同期でv2エンジンのバックグラウンドバッファとキューをSQLiteに明示的にフラッシュする。
+v2_modeがFalseの場合は何もしない。
+
+::: tip 使用例
+```python
+    await db.aflush(wait=True)
+```
+:::
+
+
+---
+
+### `flush`
+
+```python
+def flush(wait: bool = False) -> None
+```
+
+[v2 Feature] 非同期でv2エンジンのバックグラウンドバッファとキューをSQLiteに明示的にフラッシュする。
+v2_modeがFalseの場合は何もしない。
+
+::: tip 使用例
+```python
+    await db.aflush(wait=True)
+```
+:::
+
+
+---
+
+### `aget_dlq`
+
+```python
+def aget_dlq() -> list[dict[str, Any]]
+```
+
+[v2 Feature] 非同期でデッドレターキュー（DLQ）の内容を取得します。
+v2モードが無効な場合は空のリストを返します。
+
+::: tip 使用例
+```python
+    failed = await db.aget_dlq()
+```
+:::
+
+
+---
+
+### `get_dlq`
+
+```python
+def get_dlq() -> list[dict[str, Any]]
+```
+
+[v2 Feature] 非同期でデッドレターキュー（DLQ）の内容を取得します。
+v2モードが無効な場合は空のリストを返します。
+
+::: tip 使用例
+```python
+    failed = await db.aget_dlq()
+```
+:::
+
+
+---
+
+### `aretry_dlq`
+
+```python
+def aretry_dlq() -> None
+```
+
+[v2 Feature] 非同期でDLQ内の全アイテムを再試行キューに戻します。
+v2モードが無効な場合は何もしません。
+
+::: tip 使用例
+```python
+    await db.aretry_dlq()
+```
+:::
+
+
+---
+
+### `retry_dlq`
+
+```python
+def retry_dlq() -> None
+```
+
+[v2 Feature] 非同期でDLQ内の全アイテムを再試行キューに戻します。
+v2モードが無効な場合は何もしません。
+
+::: tip 使用例
+```python
+    await db.aretry_dlq()
+```
+:::
+
+
+---
+
+### `aclear_dlq`
+
+```python
+def aclear_dlq() -> None
+```
+
+[v2 Feature] 非同期でDLQの内容をクリアします。
+v2モードが無効な場合は何もしません。
+
+::: tip 使用例
+```python
+    await db.aclear_dlq()
+```
+:::
+
+
+---
+
+### `clear_dlq`
+
+```python
+def clear_dlq() -> None
+```
+
+[v2 Feature] 非同期でDLQの内容をクリアします。
+v2モードが無効な場合は何もしません。
+
+::: tip 使用例
+```python
+    await db.aclear_dlq()
+```
+:::
+
+
+---
+
+### `aget_v2_metrics`
+
+```python
+def aget_v2_metrics() -> dict[str, Any]
+```
+
+[v2 Feature] 非同期でメトリクス情報を取得します( v2_enable_metrics=True 時のみ有効)。
+v2モード自体またはメトリクスが無効な場合は空の辞書を返します。
+
+::: tip 使用例
+```python
+    metrics = await db.aget_v2_metrics()
+    print(metrics["flush_count"])
+```
+:::
+
+
+---
+
+### `get_v2_metrics`
+
+```python
+def get_v2_metrics() -> dict[str, Any]
+```
+
+[v2 Feature] 非同期でメトリクス情報を取得します( v2_enable_metrics=True 時のみ有効)。
+v2モード自体またはメトリクスが無効な場合は空の辞書を返します。
+
+::: tip 使用例
+```python
+    metrics = await db.aget_v2_metrics()
+    print(metrics["flush_count"])
+```
+:::
+
+
+---
+
 ### `load_all`
 
 ```python
@@ -321,7 +487,7 @@ def load_all() -> None
 ### `refresh`
 
 ```python
-def refresh(key: str = None) -> None
+def refresh(key: str | None = None) -> None
 ```
 
 非同期でキャッシュを更新
@@ -330,7 +496,7 @@ def refresh(key: str = None) -> None
 
 | 引数名 | 型 | 説明 |
 |---|---|---|
-| `key` | `str` | 更新するキー（Noneの場合は全キャッシュ） |
+| `key` | `str | None` | 更新するキー（Noneの場合は全キャッシュ） |
 
 ::: tip 使用例
 ```python
@@ -424,6 +590,50 @@ def batch_update_partial(mapping: dict[str, Any]) -> dict[str, str]
 
 ---
 
+### `aincrement`
+
+```python
+def aincrement(key: str, amount: int | float = 1, *, field: str | None = None, default: int | float | None = None) -> Any
+```
+
+
+
+
+---
+
+### `increment`
+
+```python
+def increment(key: str, amount: int | float = 1, *, field: str | None = None, default: int | float | None = None) -> Any
+```
+
+
+
+
+---
+
+### `apatch`
+
+```python
+def apatch(key: str, changes: dict[str, Any], *, create: bool = False) -> Any
+```
+
+
+
+
+---
+
+### `patch`
+
+```python
+def patch(key: str, changes: dict[str, Any], *, create: bool = False) -> Any
+```
+
+
+
+
+---
+
 ### `batch_delete`
 
 ```python
@@ -471,118 +681,6 @@ DBから取得した最新の値
     value = await db.get_fresh("key")
 ```
 :::
-
-
----
-
-### `aflush`
-
-```python
-def aflush() -> None
-```
-
-[v2 Feature] 非同期で v2 エンジンのバックグラウンドバッファを SQLite にフラッシュします。
-v2モードが無効な場合は何もしません。
-
-
----
-
-### `flush`
-
-```python
-def flush() -> None
-```
-
-[v2 Feature] 非同期で v2 エンジンのバックグラウンドバッファを SQLite にフラッシュします。
-v2モードが無効な場合は何もしません。
-
-
----
-
-### `aget_dlq`
-
-```python
-def aget_dlq() -> list[dict[str, Any]]
-```
-
-[v2 Feature] 非同期でデッドレターキュー（DLQ）の内容を取得します。
-
-
----
-
-### `get_dlq`
-
-```python
-def get_dlq() -> list[dict[str, Any]]
-```
-
-[v2 Feature] 非同期でデッドレターキュー（DLQ）の内容を取得します。
-
-
----
-
-### `aretry_dlq`
-
-```python
-def aretry_dlq() -> None
-```
-
-[v2 Feature] デッドレターキュー（DLQ）内の全アイテムを再試行キューに戻します。
-
-
----
-
-### `retry_dlq`
-
-```python
-def retry_dlq() -> None
-```
-
-[v2 Feature] デッドレターキュー（DLQ）内の全アイテムを再試行キューに戻します。
-
-
----
-
-### `aclear_dlq`
-
-```python
-def aclear_dlq() -> None
-```
-
-[v2 Feature] デッドレターキュー（DLQ）の内容をクリアします。
-
-
----
-
-### `clear_dlq`
-
-```python
-def clear_dlq() -> None
-```
-
-[v2 Feature] デッドレターキュー（DLQ）の内容をクリアします。
-
-
----
-
-### `aget_v2_metrics`
-
-```python
-def aget_v2_metrics() -> dict[str, Any]
-```
-
-[v2 Feature] 現在の v2 メトリクス情報を取得します。
-
-
----
-
-### `get_v2_metrics`
-
-```python
-def get_v2_metrics() -> dict[str, Any]
-```
-
-[v2 Feature] 現在の v2 メトリクス情報を取得します。
 
 
 ---
@@ -692,6 +790,32 @@ def transaction()
 
 ## SQLラッパー (CRUD)
 
+### `upsert`
+
+```python
+def upsert(table_name: str | None = None, data: dict[str, Any] | Any | None = None, *, conflict_columns: list[str] | None = None) -> None
+```
+
+非同期でUPSERT（存在すれば更新、なければ挿入）を実行します。
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `table_name` | `str | None` | テーブル名（またはv2互換モード時のキー） |
+| `data` | `dict[str, Any] | Any | None` | 挿入・更新するデータ（またはv2互換モード時の値） |
+| `conflict_columns` | `list[str] | None` | 重複判定に使用するカラム名のリスト |
+
+::: tip 使用例
+```python
+    await db.aupsert("users", {"id": 1, "name": "Alice"})
+    await db.aupsert("user:1", {"name": "Nana"})
+```
+:::
+
+
+---
+
 ### `sql_insert`
 
 ```python
@@ -798,7 +922,7 @@ def sql_delete(table_name: str, where: str, parameters: tuple | None = None) -> 
 ### `query`
 
 ```python
-def query(table_name: str = None, columns: list[str] = None, where: str = None, parameters: tuple | None = None, order_by: str = None, limit: int = None, strict_sql_validation: bool = None, allowed_sql_functions: list[str] = None, forbidden_sql_functions: list[str] = None, override_allowed: bool = False) -> list[dict]
+def query(table_name: str | None = None, columns: list[str] | None = None, where: str | None = None, parameters: tuple | None = None, order_by: str | None = None, limit: int | None = None, strict_sql_validation: bool | None = None, allowed_sql_functions: list[str] | None = None, forbidden_sql_functions: list[str] | None = None, override_allowed: bool = False) -> list[dict]
 ```
 
 非同期でSELECTクエリを実行
@@ -807,15 +931,15 @@ def query(table_name: str = None, columns: list[str] = None, where: str = None, 
 
 | 引数名 | 型 | 説明 |
 |---|---|---|
-| `table_name` | `str` | テーブル名 |
-| `columns` | `list[str]` | 取得するカラムのリスト |
-| `where` | `str` | WHERE句の条件 |
+| `table_name` | `str | None` | テーブル名 |
+| `columns` | `list[str] | None` | 取得するカラムのリスト |
+| `where` | `str | None` | WHERE句の条件 |
 | `parameters` | `tuple | None` | WHERE句のパラメータ |
-| `order_by` | `str` | ORDER BY句 |
-| `limit` | `int` | LIMIT句 |
-| `strict_sql_validation` | `bool` | Trueの場合、未許可の関数等を含むクエリを拒否 |
-| `allowed_sql_functions` | `list[str]` | このクエリで一時的に許可するSQL関数のリスト |
-| `forbidden_sql_functions` | `list[str]` | このクエリで一時的に禁止するSQL関数のリスト |
+| `order_by` | `str | None` | ORDER BY句 |
+| `limit` | `int | None` | LIMIT句 |
+| `strict_sql_validation` | `bool | None` | Trueの場合、未許可の関数等を含むクエリを拒否 |
+| `allowed_sql_functions` | `list[str] | None` | このクエリで一時的に許可するSQL関数のリスト |
+| `forbidden_sql_functions` | `list[str] | None` | このクエリで一時的に禁止するSQL関数のリスト |
 | `override_allowed` | `bool` | Trueの場合、インスタンス許可設定を無視 |
 
 #### 戻り値
@@ -843,7 +967,7 @@ def query(table_name: str = None, columns: list[str] = None, where: str = None, 
 ### `query_with_pagination`
 
 ```python
-def query_with_pagination(table_name: str = None, columns: list[str] = None, where: str = None, parameters: tuple | None = None, order_by: str = None, limit: int = None, offset: int = None, group_by: str = None, strict_sql_validation: bool = None, allowed_sql_functions: list[str] = None, forbidden_sql_functions: list[str] = None, override_allowed: bool = False) -> list[dict]
+def query_with_pagination(table_name: str | None = None, columns: list[str] | None = None, where: str | None = None, parameters: tuple | None = None, order_by: str | None = None, limit: int | None = None, offset: int | None = None, group_by: str | None = None, strict_sql_validation: bool | None = None, allowed_sql_functions: list[str] | None = None, forbidden_sql_functions: list[str] | None = None, override_allowed: bool = False) -> list[dict]
 ```
 
 非同期で拡張されたクエリを実行
@@ -852,17 +976,17 @@ def query_with_pagination(table_name: str = None, columns: list[str] = None, whe
 
 | 引数名 | 型 | 説明 |
 |---|---|---|
-| `table_name` | `str` | テーブル名 |
-| `columns` | `list[str]` | 取得するカラム |
-| `where` | `str` | WHERE句 |
+| `table_name` | `str | None` | テーブル名 |
+| `columns` | `list[str] | None` | 取得するカラム |
+| `where` | `str | None` | WHERE句 |
 | `parameters` | `tuple | None` | パラメータ |
-| `order_by` | `str` | ORDER BY句 |
-| `limit` | `int` | LIMIT句 |
-| `offset` | `int` | OFFSET句 |
-| `group_by` | `str` | GROUP BY句 |
-| `strict_sql_validation` | `bool` | Trueの場合、未許可の関数等を含むクエリを拒否 |
-| `allowed_sql_functions` | `list[str]` | このクエリで一時的に許可するSQL関数のリスト |
-| `forbidden_sql_functions` | `list[str]` | このクエリで一時的に禁止するSQL関数のリスト |
+| `order_by` | `str | None` | ORDER BY句 |
+| `limit` | `int | None` | LIMIT句 |
+| `offset` | `int | None` | OFFSET句 |
+| `group_by` | `str | None` | GROUP BY句 |
+| `strict_sql_validation` | `bool | None` | Trueの場合、未許可の関数等を含むクエリを拒否 |
+| `allowed_sql_functions` | `list[str] | None` | このクエリで一時的に許可するSQL関数のリスト |
+| `forbidden_sql_functions` | `list[str] | None` | このクエリで一時的に禁止するSQL関数のリスト |
 | `override_allowed` | `bool` | Trueの場合、インスタンス許可設定を無視 |
 
 #### 戻り値
@@ -891,7 +1015,7 @@ def query_with_pagination(table_name: str = None, columns: list[str] = None, whe
 ### `count`
 
 ```python
-def count(table_name: str = None, where: str = None, parameters: tuple | None = None, strict_sql_validation: bool = None, allowed_sql_functions: list[str] = None, forbidden_sql_functions: list[str] = None, override_allowed: bool = False) -> int
+def count(table_name: str | None = None, where: str | None = None, parameters: tuple | None = None, strict_sql_validation: bool | None = None, allowed_sql_functions: list[str] | None = None, forbidden_sql_functions: list[str] | None = None, override_allowed: bool = False) -> int
 ```
 
 非同期でレコード数を取得
@@ -900,12 +1024,12 @@ def count(table_name: str = None, where: str = None, parameters: tuple | None = 
 
 | 引数名 | 型 | 説明 |
 |---|---|---|
-| `table_name` | `str` | テーブル名 |
-| `where` | `str` | WHERE句の条件 |
+| `table_name` | `str | None` | テーブル名 |
+| `where` | `str | None` | WHERE句の条件 |
 | `parameters` | `tuple | None` | WHERE句のパラメータ |
-| `strict_sql_validation` | `bool` | Trueの場合、未許可の関数等を含むクエリを拒否 |
-| `allowed_sql_functions` | `list[str]` | このクエリで一時的に許可するSQL関数のリスト |
-| `forbidden_sql_functions` | `list[str]` | このクエリで一時的に禁止するSQL関数のリスト |
+| `strict_sql_validation` | `bool | None` | Trueの場合、未許可の関数等を含むクエリを拒否 |
+| `allowed_sql_functions` | `list[str] | None` | このクエリで一時的に許可するSQL関数のリスト |
+| `forbidden_sql_functions` | `list[str] | None` | このクエリで一時的に禁止するSQL関数のリスト |
 | `override_allowed` | `bool` | Trueの場合、インスタンス許可設定を無視 |
 
 #### 戻り値
@@ -1045,7 +1169,7 @@ def fetch_all(sql: str, parameters: tuple | None = None) -> list[tuple]
 ### `create_table`
 
 ```python
-def create_table(table_name: str, columns: dict, if_not_exists: bool = True, primary_key: str = None) -> None
+def create_table(table_name: str, columns: dict, if_not_exists: bool = True, primary_key: str | None = None) -> None
 ```
 
 非同期でテーブルを作成
@@ -1057,7 +1181,7 @@ def create_table(table_name: str, columns: dict, if_not_exists: bool = True, pri
 | `table_name` | `str` | テーブル名 |
 | `columns` | `dict` | カラム定義のdict |
 | `if_not_exists` | `bool` | Trueの場合、存在しない場合のみ作成 |
-| `primary_key` | `str` | プライマリキーのカラム名 |
+| `primary_key` | `str | None` | プライマリキーのカラム名 |
 
 ::: tip 使用例
 ```python
@@ -1278,6 +1402,22 @@ Pydanticモデルのインスタンス
 ---
 
 ## その他のメソッド
+
+### `add_hook`
+
+```python
+def add_hook(hook: NanaHook) -> None
+```
+
+#### 引数名
+
+| 引数名 | 型 | 説明 |
+|---|---|---|
+| `hook` | `NanaHook` | Any object implementing the NanaHook protocol. |
+
+
+
+---
 
 ### `aget`
 
@@ -1542,7 +1682,7 @@ def apop(key: str, *args) -> Any
 ### `aupdate`
 
 ```python
-def aupdate(mapping: dict = None, **kwargs) -> None
+def aupdate(mapping: dict | None = None, **kwargs) -> None
 ```
 
 非同期で複数のキーを更新
@@ -1551,7 +1691,7 @@ def aupdate(mapping: dict = None, **kwargs) -> None
 
 | 引数名 | 型 | 説明 |
 |---|---|---|
-| `mapping` | `dict` | 更新するキーと値のdict **kwargs: キーワード引数として渡す更新 |
+| `mapping` | `dict | None` | 更新するキーと値のdict **kwargs: キーワード引数として渡す更新 |
 
 ::: tip 使用例
 ```python
@@ -1628,7 +1768,7 @@ def aload_all() -> None
 ### `arefresh`
 
 ```python
-def arefresh(key: str = None) -> None
+def arefresh(key: str | None = None) -> None
 ```
 
 非同期でキャッシュを更新
@@ -1637,7 +1777,7 @@ def arefresh(key: str = None) -> None
 
 | 引数名 | 型 | 説明 |
 |---|---|---|
-| `key` | `str` | 更新するキー（Noneの場合は全キャッシュ） |
+| `key` | `str | None` | 更新するキー（Noneの場合は全キャッシュ） |
 
 ::: tip 使用例
 ```python
@@ -2032,7 +2172,7 @@ def afetch_all(sql: str, parameters: tuple | None = None) -> list[tuple]
 ### `acreate_table`
 
 ```python
-def acreate_table(table_name: str, columns: dict, if_not_exists: bool = True, primary_key: str = None) -> None
+def acreate_table(table_name: str, columns: dict, if_not_exists: bool = True, primary_key: str | None = None) -> None
 ```
 
 非同期でテーブルを作成
@@ -2044,7 +2184,7 @@ def acreate_table(table_name: str, columns: dict, if_not_exists: bool = True, pr
 | `table_name` | `str` | テーブル名 |
 | `columns` | `dict` | カラム定義のdict |
 | `if_not_exists` | `bool` | Trueの場合、存在しない場合のみ作成 |
-| `primary_key` | `str` | プライマリキーのカラム名 |
+| `primary_key` | `str | None` | プライマリキーのカラム名 |
 
 ::: tip 使用例
 ```python
@@ -2089,7 +2229,7 @@ def acreate_index(index_name: str, table_name: str, columns: list[str], unique: 
 ### `aquery`
 
 ```python
-def aquery(table_name: str = None, columns: list[str] = None, where: str = None, parameters: tuple | None = None, order_by: str = None, limit: int = None, strict_sql_validation: bool = None, allowed_sql_functions: list[str] = None, forbidden_sql_functions: list[str] = None, override_allowed: bool = False) -> list[dict]
+def aquery(table_name: str | None = None, columns: list[str] | None = None, where: str | None = None, parameters: tuple | None = None, order_by: str | None = None, limit: int | None = None, strict_sql_validation: bool | None = None, allowed_sql_functions: list[str] | None = None, forbidden_sql_functions: list[str] | None = None, override_allowed: bool = False) -> list[dict]
 ```
 
 非同期でSELECTクエリを実行
@@ -2098,15 +2238,15 @@ def aquery(table_name: str = None, columns: list[str] = None, where: str = None,
 
 | 引数名 | 型 | 説明 |
 |---|---|---|
-| `table_name` | `str` | テーブル名 |
-| `columns` | `list[str]` | 取得するカラムのリスト |
-| `where` | `str` | WHERE句の条件 |
+| `table_name` | `str | None` | テーブル名 |
+| `columns` | `list[str] | None` | 取得するカラムのリスト |
+| `where` | `str | None` | WHERE句の条件 |
 | `parameters` | `tuple | None` | WHERE句のパラメータ |
-| `order_by` | `str` | ORDER BY句 |
-| `limit` | `int` | LIMIT句 |
-| `strict_sql_validation` | `bool` | Trueの場合、未許可の関数等を含むクエリを拒否 |
-| `allowed_sql_functions` | `list[str]` | このクエリで一時的に許可するSQL関数のリスト |
-| `forbidden_sql_functions` | `list[str]` | このクエリで一時的に禁止するSQL関数のリスト |
+| `order_by` | `str | None` | ORDER BY句 |
+| `limit` | `int | None` | LIMIT句 |
+| `strict_sql_validation` | `bool | None` | Trueの場合、未許可の関数等を含むクエリを拒否 |
+| `allowed_sql_functions` | `list[str] | None` | このクエリで一時的に許可するSQL関数のリスト |
+| `forbidden_sql_functions` | `list[str] | None` | このクエリで一時的に禁止するSQL関数のリスト |
 | `override_allowed` | `bool` | Trueの場合、インスタンス許可設定を無視 |
 
 #### 戻り値
@@ -2134,7 +2274,7 @@ def aquery(table_name: str = None, columns: list[str] = None, where: str = None,
 ### `aquery_with_pagination`
 
 ```python
-def aquery_with_pagination(table_name: str = None, columns: list[str] = None, where: str = None, parameters: tuple | None = None, order_by: str = None, limit: int = None, offset: int = None, group_by: str = None, strict_sql_validation: bool = None, allowed_sql_functions: list[str] = None, forbidden_sql_functions: list[str] = None, override_allowed: bool = False) -> list[dict]
+def aquery_with_pagination(table_name: str | None = None, columns: list[str] | None = None, where: str | None = None, parameters: tuple | None = None, order_by: str | None = None, limit: int | None = None, offset: int | None = None, group_by: str | None = None, strict_sql_validation: bool | None = None, allowed_sql_functions: list[str] | None = None, forbidden_sql_functions: list[str] | None = None, override_allowed: bool = False) -> list[dict]
 ```
 
 非同期で拡張されたクエリを実行
@@ -2143,17 +2283,17 @@ def aquery_with_pagination(table_name: str = None, columns: list[str] = None, wh
 
 | 引数名 | 型 | 説明 |
 |---|---|---|
-| `table_name` | `str` | テーブル名 |
-| `columns` | `list[str]` | 取得するカラム |
-| `where` | `str` | WHERE句 |
+| `table_name` | `str | None` | テーブル名 |
+| `columns` | `list[str] | None` | 取得するカラム |
+| `where` | `str | None` | WHERE句 |
 | `parameters` | `tuple | None` | パラメータ |
-| `order_by` | `str` | ORDER BY句 |
-| `limit` | `int` | LIMIT句 |
-| `offset` | `int` | OFFSET句 |
-| `group_by` | `str` | GROUP BY句 |
-| `strict_sql_validation` | `bool` | Trueの場合、未許可の関数等を含むクエリを拒否 |
-| `allowed_sql_functions` | `list[str]` | このクエリで一時的に許可するSQL関数のリスト |
-| `forbidden_sql_functions` | `list[str]` | このクエリで一時的に禁止するSQL関数のリスト |
+| `order_by` | `str | None` | ORDER BY句 |
+| `limit` | `int | None` | LIMIT句 |
+| `offset` | `int | None` | OFFSET句 |
+| `group_by` | `str | None` | GROUP BY句 |
+| `strict_sql_validation` | `bool | None` | Trueの場合、未許可の関数等を含むクエリを拒否 |
+| `allowed_sql_functions` | `list[str] | None` | このクエリで一時的に許可するSQL関数のリスト |
+| `forbidden_sql_functions` | `list[str] | None` | このクエリで一時的に禁止するSQL関数のリスト |
 | `override_allowed` | `bool` | Trueの場合、インスタンス許可設定を無視 |
 
 #### 戻り値
@@ -2359,7 +2499,7 @@ def asql_delete(table_name: str, where: str, parameters: tuple | None = None) ->
 ### `acount`
 
 ```python
-def acount(table_name: str = None, where: str = None, parameters: tuple | None = None, strict_sql_validation: bool = None, allowed_sql_functions: list[str] = None, forbidden_sql_functions: list[str] = None, override_allowed: bool = False) -> int
+def acount(table_name: str | None = None, where: str | None = None, parameters: tuple | None = None, strict_sql_validation: bool | None = None, allowed_sql_functions: list[str] | None = None, forbidden_sql_functions: list[str] | None = None, override_allowed: bool = False) -> int
 ```
 
 非同期でレコード数を取得
@@ -2368,12 +2508,12 @@ def acount(table_name: str = None, where: str = None, parameters: tuple | None =
 
 | 引数名 | 型 | 説明 |
 |---|---|---|
-| `table_name` | `str` | テーブル名 |
-| `where` | `str` | WHERE句の条件 |
+| `table_name` | `str | None` | テーブル名 |
+| `where` | `str | None` | WHERE句の条件 |
 | `parameters` | `tuple | None` | WHERE句のパラメータ |
-| `strict_sql_validation` | `bool` | Trueの場合、未許可の関数等を含むクエリを拒否 |
-| `allowed_sql_functions` | `list[str]` | このクエリで一時的に許可するSQL関数のリスト |
-| `forbidden_sql_functions` | `list[str]` | このクエリで一時的に禁止するSQL関数のリスト |
+| `strict_sql_validation` | `bool | None` | Trueの場合、未許可の関数等を含むクエリを拒否 |
+| `allowed_sql_functions` | `list[str] | None` | このクエリで一時的に許可するSQL関数のリスト |
+| `forbidden_sql_functions` | `list[str] | None` | このクエリで一時的に禁止するSQL関数のリスト |
 | `override_allowed` | `bool` | Trueの場合、インスタンス許可設定を無視 |
 
 #### 戻り値
@@ -2424,7 +2564,7 @@ DBのデータは削除せず、メモリ上のキャッシュのみ破棄しま
 ### `atable`
 
 ```python
-def atable(table_name: str, validator: Any | None | types.EllipsisType = Ellipsis, coerce: bool | types.EllipsisType = Ellipsis) -> AsyncNanaSQLite
+def atable(table_name: str, validator: Any | None | EllipsisType = Ellipsis, coerce: bool | EllipsisType = Ellipsis, hooks: list[NanaHook] | None | EllipsisType = Ellipsis, warn_duplicate_table_instance: bool | EllipsisType = Ellipsis) -> AsyncNanaSQLite
 ```
 
 非同期でサブテーブルのAsyncNanaSQLiteインスタンスを取得
@@ -2448,14 +2588,16 @@ def atable(table_name: str, validator: Any | None | types.EllipsisType = Ellipsi
 | 引数名 | 型 | 説明 |
 |---|---|---|
 | `table_name` | `str` | 取得するサブテーブル名 |
-| `validator` | `Any | None | types.EllipsisType` | このテーブル用の validkit-py スキーマ。 指定しない場合は親インスタンスのスキーマを引き継ぐ。 ``None`` を明示的に渡すとバリデーションなしで使用できる。 |
-| `coerce` | `bool | types.EllipsisType` | ``True`` の場合、validkit-py の自動変換機能を有効にする。 指定しない場合は親インスタンスの設定を引き継ぐ。 |
+| `validator` | `Any | None | EllipsisType` | このテーブル用の validkit-py スキーマ。 指定しない場合は親インスタンスのスキーマを引き継ぐ。 ``None`` を明示的に渡すとバリデーションなしで使用できる。 |
+| `coerce` | `bool | EllipsisType` | ``True`` の場合、validkit-py の自動変換機能を有効にする。 指定しない場合は親インスタンスの設定を引き継ぐ。 |
+| `hooks` | `list[NanaHook] | None | EllipsisType` | このテーブル用のフックのリスト。 指定しない場合は親インスタンスのフックを引き継ぐ。 ``None`` を明示的に渡すとフックなしで使用できる。 |
+| `warn_duplicate_table_instance` | `bool | EllipsisType` | 同じDB・同じテーブルの既存 table() インスタンスがある場合に警告する。 指定しない場合は親インスタンスの設定を引き継ぐ。 |
 
 #### 戻り値
 
 **Type:** `AsyncNanaSQLite`
 
-指定したテーブルを操作するAsyncNanaSQLiteインスタンス
+AsyncNanaSQLite: 指定したテーブルを操作するAsyncNanaSQLiteインスタンス
 
 ::: tip 使用例
 ```python
@@ -2473,7 +2615,7 @@ def atable(table_name: str, validator: Any | None | types.EllipsisType = Ellipsi
 ### `abackup`
 
 ```python
-def abackup(target_path: str) -> None
+def abackup(target_path: str, *, verify: bool = True, flush: bool = True, allow_incomplete: bool = False) -> None
 ```
 
 非同期でデータベースを指定のパスにバックアップします。
@@ -2483,6 +2625,9 @@ def abackup(target_path: str) -> None
 | 引数名 | 型 | 説明 |
 |---|---|---|
 | `target_path` | `str` | バックアップ先のファイルパス |
+| `verify` | `bool` | バックアップ作成後に整合性を検証する |
+| `flush` | `bool` | v2/memory_first の保留書き込みを先に同期フラッシュする |
+| `allow_incomplete` | `bool` | DLQ が残る状態でのバックアップを許可する |
 
 
 
@@ -2531,7 +2676,7 @@ PRAGMAの結果
 ### `aget_table_schema`
 
 ```python
-def aget_table_schema(table_name: str = None) -> list[dict]
+def aget_table_schema(table_name: str | None = None) -> list[dict]
 ```
 
 非同期でテーブルのスキーマ情報を取得します。
@@ -2540,7 +2685,7 @@ def aget_table_schema(table_name: str = None) -> list[dict]
 
 | 引数名 | 型 | 説明 |
 |---|---|---|
-| `table_name` | `str` | 対象のテーブル名（Noneの場合は自身のテーブル） |
+| `table_name` | `str | None` | 対象のテーブル名（Noneの場合は自身のテーブル） |
 
 #### 戻り値
 
@@ -2554,7 +2699,7 @@ def aget_table_schema(table_name: str = None) -> list[dict]
 ### `alist_indexes`
 
 ```python
-def alist_indexes(table_name: str = None) -> list[str]
+def alist_indexes(table_name: str | None = None) -> list[str]
 ```
 
 非同期でテーブルのインデックス一覧を取得します。
@@ -2563,7 +2708,7 @@ def alist_indexes(table_name: str = None) -> list[str]
 
 | 引数名 | 型 | 説明 |
 |---|---|---|
-| `table_name` | `str` | 対象のテーブル名（Noneの場合は自身のテーブル） |
+| `table_name` | `str | None` | 対象のテーブル名（Noneの場合は自身のテーブル） |
 
 #### 戻り値
 
@@ -2597,7 +2742,7 @@ def aalter_table_add_column(table_name: str, column_name: str, column_type: str)
 ### `aupsert`
 
 ```python
-def aupsert(table_name: str | Any = None, data: Any = None, conflict_columns: list[str] = None) -> int | None
+def aupsert(table_name: str | Any = None, data: Any = None, conflict_columns: list[str] | None = None) -> int | None
 ```
 
 非同期で UPSERT 操作を実行します。
@@ -2608,7 +2753,7 @@ def aupsert(table_name: str | Any = None, data: Any = None, conflict_columns: li
 |---|---|---|
 | `table_name` | `str | Any` | テーブル名、または第2引数がNoneの場合はキー名 |
 | `data` |  | カラム名と値のdict、または第1引数がキー名の場合は値 |
-| `conflict_columns` | `list[str]` | 競合判定に使用するカラム（Noneの場合はINSERT OR REPLACE） |
+| `conflict_columns` | `list[str] | None` | 競合判定に使用するカラム（Noneの場合はINSERT OR REPLACE） |
 
 #### 戻り値
 

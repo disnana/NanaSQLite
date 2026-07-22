@@ -768,6 +768,33 @@ class AsyncNanaSQLite:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self._db.batch_update_partial, mapping)
 
+    async def aincrement(
+        self,
+        key: str,
+        amount: int | float = 1,
+        *,
+        field: str | None = None,
+        default: int | float | None = None,
+    ) -> Any:
+        """Atomically increment a numeric value or top-level numeric dict field."""
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        operation = functools.partial(
+            self._db.increment,
+            key,
+            amount,
+            field=field,
+            default=default,
+        )
+        return await loop.run_in_executor(self._executor, operation)
+
+    async def apatch(self, key: str, changes: dict[str, Any], *, create: bool = False) -> Any:
+        """Atomically apply a shallow dictionary merge and return the stored value."""
+        await self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        operation = functools.partial(self._db.patch, key, changes, create=create)
+        return await loop.run_in_executor(self._executor, operation)
+
     async def batch_delete(self, keys: list[str]) -> None:
         """
         非同期で一括削除（高速）
@@ -1650,16 +1677,33 @@ class AsyncNanaSQLite:
     afetch_one = fetch_one
     afetch_all = fetch_all
 
-    async def abackup(self, target_path: str) -> None:
+    async def abackup(
+        self,
+        target_path: str,
+        *,
+        verify: bool = True,
+        flush: bool = True,
+        allow_incomplete: bool = False,
+    ) -> None:
         """
         非同期でデータベースを指定のパスにバックアップします。
 
         Args:
             target_path: バックアップ先のファイルパス
+            verify: バックアップ作成後に整合性を検証する
+            flush: v2/memory_first の保留書き込みを先に同期フラッシュする
+            allow_incomplete: DLQ が残る状態でのバックアップを許可する
         """
         await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.backup, target_path)
+        operation = functools.partial(
+            self._db.backup,
+            target_path,
+            verify=verify,
+            flush=flush,
+            allow_incomplete=allow_incomplete,
+        )
+        await loop.run_in_executor(self._executor, operation)
 
     async def arestore(self, source_path: str) -> None:
         """
@@ -1866,6 +1910,8 @@ class AsyncNanaSQLite:
     values = avalues
     items = aitems
     flush = aflush
+    increment = aincrement
+    patch = apatch
     get_dlq = aget_dlq
     retry_dlq = aretry_dlq
     clear_dlq = aclear_dlq
