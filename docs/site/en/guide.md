@@ -1,3 +1,7 @@
+---
+outline: false
+---
+
 # NanaSQLite Tutorial
 
 A step-by-step guide to learning NanaSQLite from basics to advanced features.
@@ -18,7 +22,27 @@ pip install nanasqlite
 pip install "nanasqlite[speed]"
 ```
 
-## Core Learning Path
+## Learning path
+
+You do not need to read every feature first. Choose a path and build up in three practical stages.
+
+<div class="learning-path" role="list">
+  <a class="learning-path__card" href="#lesson-1-your-first-database" role="listitem">
+    <span class="learning-path__step">01 · Foundations</span>
+    <strong>Store and retrieve</strong>
+    <span>Create your first database with the familiar dictionary interface.</span>
+  </a>
+  <a class="learning-path__card" href="#lesson-3-dictionary-operations" role="listitem">
+    <span class="learning-path__step">02 · Everyday use</span>
+    <strong>Work with data safely</strong>
+    <span>Learn dictionary operations, tables, and error handling.</span>
+  </a>
+  <a class="learning-path__card" href="#lesson-9-async-usage-advanced" role="listitem">
+    <span class="learning-path__step">03 · Production</span>
+    <strong>Tune performance and operations</strong>
+    <span>Move on to async use, caching, and backups.</span>
+  </a>
+</div>
 
 ## Lesson 1: Your First Database
 

@@ -14,6 +14,10 @@ A step-by-step guide to learning NanaSQLite from basics to advanced features.
 pip install nanasqlite
 ```
 
+## Learning path
+
+You do not need to read every feature first. Start with lessons 1–3 to learn the dictionary interface, then move to error handling, async use, and backups as needed.
+
 ## Lesson 1: Your First Database
 
 ### Creating a Database

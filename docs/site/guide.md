@@ -1,3 +1,7 @@
+---
+outline: false
+---
+
 # NanaSQLite チュートリアル
 
 基礎から応用まで、NanaSQLiteを段階的に学ぶガイドです。
@@ -18,7 +22,27 @@ pip install nanasqlite
 pip install "nanasqlite[speed]"
 ```
 
-## 学習パス（基礎〜応用）
+## 学習パス
+
+最初から全機能を追う必要はありません。用途に合わせて、次の3段階で進められます。
+
+<div class="learning-path" role="list">
+  <a class="learning-path__card" href="#レッスン1-最初のデータベース" role="listitem">
+    <span class="learning-path__step">01 · 基礎</span>
+    <strong>保存して取り出す</strong>
+    <span>辞書と同じ感覚で、最初のデータベースを作ります。</span>
+  </a>
+  <a class="learning-path__card" href="#レッスン3-辞書操作" role="listitem">
+    <span class="learning-path__step">02 · 実用</span>
+    <strong>データを安全に扱う</strong>
+    <span>辞書操作、テーブル、エラー処理を身につけます。</span>
+  </a>
+  <a class="learning-path__card" href="#レッスン9-非同期の使用上級" role="listitem">
+    <span class="learning-path__step">03 · 応用</span>
+    <strong>性能と運用を整える</strong>
+    <span>非同期、キャッシュ、バックアップへ進みます。</span>
+  </a>
+</div>
 
 ## レッスン1: 最初のデータベース
 
