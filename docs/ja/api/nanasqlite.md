@@ -571,20 +571,68 @@ def get_last_insert_rowid(self) -> int
 
 ---
 
+## 原子的更新 (v1.6.0以降)
+
+### `increment`
+
+```python
+def increment(
+    self,
+    key: str,
+    amount: int | float = 1,
+    *,
+    field: str | None = None,
+    default: int | float | None = None,
+) -> Any
+```
+
+数値、または辞書のトップレベル数値フィールドを原子的に加算します。キーやフィールドが存在しない場合は `KeyError`、`default` 指定時はその値を初期値として使用します。暗号化、hooks、v2、`memory_first` に対応します。
+
+```python
+db["counter"] = 10
+db.increment("counter", -1)  # 9
+
+db["user"] = {"score": 5}
+db.increment("user", 2, field="score")  # {"score": 7}
+```
+
+### `patch`
+
+```python
+def patch(self, key: str, changes: dict[str, Any], *, create: bool = False) -> Any
+```
+
+既存の辞書値へ浅いマージを原子的に適用します。キーが存在しない場合は `KeyError` となり、`create=True` の場合だけ新規辞書を作成します。
+
+```python
+db["user"] = {"name": "Nana", "active": False}
+db.patch("user", {"active": True})
+```
+
 ## バックアップ & リストア (v1.3.4b1以降)
 
 ### `backup`
 
 ```python
-def backup(self, dest_path: str) -> None
+def backup(
+    self,
+    dest_path: str,
+    *,
+    verify: bool = True,
+    flush: bool = True,
+    allow_incomplete: bool = False,
+) -> None
 ```
 
 APSW の SQLite オンラインバックアップ API を使用して、現在のデータベースをファイルにバックアップします。
-バックアップはページ単位で実行されるため、他の SQLite 接続が同時に読み書きしていても安全に動作します。
-バックアップ実行中に NanaSQLite の内部ロックを保持しないため、同一プロセス内の他の NanaSQLite 操作をブロックしません。
+バックアップは一時DBに作成され、整合性検証に成功した場合だけ出力先へ原子的に置換されます。
+既定では v2 / `memory_first` の保留書き込みを同期flushし、DLQが空であることも確認します。
 
 **パラメータ:**
 - `dest_path` (str): バックアップ先のファイルパス。
+- `verify` (bool): `PRAGMA integrity_check` を実行する。既定値 `True`。
+- `flush` (bool): v2 / `memory_first` の保留書き込みを同期flushする。既定値 `True`。
+- `allow_incomplete` (bool): DLQが残る状態のバックアップを許可する。既定値 `False`。
 
 **例外:**
 - `NanaSQLiteClosedError`: 接続が閉じられている場合。
@@ -607,7 +655,7 @@ def restore(self, src_path: str) -> None
 ```
 
 バックアップファイルからデータベースをリストアします。
-現在の接続を閉じ、バックアップファイルを DB ファイルに上書きコピーし、
+入力DBを検証してlive WALを含む一貫したスナップショットを作成後、現在の接続を閉じてDBファイルを置換し、
 stale な WAL/SHM/journal サイドカーファイル（`-wal`/`-shm`/`-journal`）を削除してから接続を再確立します。
 リストア後はメモリキャッシュが自動的にクリアされます。
 

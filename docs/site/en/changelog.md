@@ -4,30 +4,88 @@ outline: [2, 3]
 
 # Changelog
 
+### [1.6.0] - Unreleased
+
+#### Stability and data protection
+
+- `backup()` now defaults to a synchronized v2 / `memory_first` flush, DLQ validation, a same-directory temporary database, `PRAGMA integrity_check`, and atomic destination replacement.
+- `backup(..., verify=False, flush=False, allow_incomplete=True)` provides explicit performance-oriented opt-outs.
+- `restore()` validates its input before replacement and uses SQLite's online backup API to capture a consistent snapshot, including committed live WAL contents.
+- Failed restores restart the v2 engine, and parent/`table()` children retain one shared engine after reconnecting.
+- Rollback and restore invalidate caches and hook inverse indexes to prevent stale observations.
+
+#### Features
+
+- Added `increment()` / `aincrement()` for atomic scalar or top-level numeric-field updates.
+- Added `patch()` / `apatch()` for atomic shallow dictionary merges across encryption, hooks, LRU/TTL, v2, and `memory_first` modes.
+
+#### Development and quality
+
+- Added `niltest==1.2.1` as a Python 3.10+ development dependency group with focused executable specifications.
+- Added distribution verification that rejects niltest runtime metadata, bundled modules, or production imports.
+- Added regression and benchmark coverage for atomic updates, verified backup, restore recovery, and async APIs.
+
+### [1.5.8] - 2026-07-22
+
+#### Quality Improvements
+
+- **QUAL-01: Added duplicate `table()` instance warnings** (`core.py`, `async_core.py`)
+  - NanaSQLite now emits a `UserWarning` when multiple live `table()` instances target the same database and table, where independent caches can observe stale values.
+  - The check runs only when creating a table instance and does not add work to normal read, write, or batch-get hot paths.
+  - Both sync and async APIs can opt out with `warn_duplicate_table_instance=False` when duplicate instances are intentional.
+  - API docs now describe the cache-consistency note and opt-out option.
+
+### [1.5.7] - 2026-06-22
+
+#### Performance Improvements
+
+- **PERF-30: Skip unnecessary old-value lookup for hook-free `__setitem__`** (`core.py`)
+  - `old_value` for `on_write_success` is now fetched only when hooks are registered.
+  - Default single-key writes avoid an extra cache/DB lookup.
+- **PERF-31 / PERF-32: Lighten the `batch_get()` bulk-read hot path** (`core.py`)
+  - Missing-key detection now tracks only keys queried from SQLite instead of building a set from the full result.
+  - Full-chunk `IN (...)` placeholders are precomputed to reduce string construction during large batch reads.
+- **PERF-33: Speed up fully cache-known `AsyncNanaSQLite.abatch_get()`** (`async_core.py`)
+  - With the default unbounded cache and no hooks, async batch reads now return without an executor round trip when every requested key is cached or known absent.
+- **PERF-34: Bulk-populate the default cache in `load_all()`** (`core.py`)
+  - For unlimited unbounded caches, `load_all()` now updates the backing dict directly instead of calling `cache.set()` for every row.
+- **PERF-35: Add `memory_first=True`** (`core.py`)
+  - KVS CRUD now has an explicit memory-first option that serves loaded data from memory and persists deltas through the v2 engine's timed background flush.
+  - The default interval is equivalent to `flush_interval=5.0`, and `close()` performs the v2 engine's final flush.
+  - This is opt-in and does not affect existing behavior. Because it requires full in-memory ownership, it rejects LRU/TTL and bounded caches.
+  - The v2 engine's timed flush now skips submitting empty flush jobs when there are no changes.
+  - Added memory-first CRUD benchmarks to pytest-benchmark and the Actions benchmark summary.
+
 ### [1.5.6b1] - 2026-05-24
 
 #### Security Fixes
 
 - **SEC-01: Hardened subquery rejection for `query(..., columns=[...])`** (`core.py`)
-  - Column expressions now reject subquery keywords such as `SELECT` / `FROM` in strict mode.
+  - Column expressions now reject subquery keywords such as `SELECT` / `FROM` in strict mode, matching the existing ORDER BY / GROUP BY hardening. Normal aggregate expressions such as `COUNT(*) AS total` remain supported.
 - **SEC-02: Rejected top-level comma injection in `create_table()` column types** (`core.py`)
-  - Commas remain allowed inside balanced parentheses, such as `DECIMAL(10,2)`.
-- **BUG-02: Bounded V2 DLQ growth** (`v2_engine.py`)
-  - Added a default DLQ limit of `1000`, tunable with `V2Config(max_dlq_size=...)` or `v2_max_dlq_size=...`.
+  - Commas remain allowed inside balanced parentheses, such as `DECIMAL(10,2)`, while definitions such as `TEXT, injected INTEGER` are rejected.
+- **BUG-02: Bounded V2 Dead Letter Queue (DLQ) growth** (`v2_engine.py`)
+  - Added a default DLQ limit of `1000`; when full, the oldest entry is evicted so newer failures remain visible. Tune via `V2Config(max_dlq_size=...)` or `v2_max_dlq_size=...`; pass `None` to keep the previous unbounded behavior.
 - **SEC-03: Rejected unsafe table names in `V2Engine` KVS / DLQ recovery paths** (`v2_engine.py`)
-  - Direct `V2Engine` callers now get table-name validation at KVS entry points and during DLQ recovery.
+  - Direct `V2Engine` callers now get table-name validation in `kvs_set()` / `kvs_delete()` / `kvs_get_staging()` and DLQ recovery, preventing unsafe names from being interpolated into SQL fragments.
 - **SEC-04: Restricted writable PRAGMAs in `pragma()`** (`core.py`)
-  - Informational or dangerous PRAGMAs such as `schema_version` remain readable but are no longer writable through NanaSQLite.
+  - Informational or dangerous PRAGMAs such as `schema_version` and `table_info` remain readable but can no longer be set through NanaSQLite.
 
 #### Bug Fixes
 
 - **QUAL-01: Fixed missing `lock_timeout` forwarding in `AsyncNanaSQLite`** (`async_core.py`)
-  - The async API now forwards lock acquisition timeouts to its internal DB.
+  - `AsyncNanaSQLite(..., lock_timeout=...)` did not forward the value to the internal `NanaSQLite` instance, effectively disabling lock acquisition timeouts for the async API.
+  - Added regression coverage confirming that sub-tables created by `AsyncNanaSQLite.table()` inherit the parent's `lock_timeout`.
 
 #### Performance Improvements
 
 - **PERF-01: Faster cached hot paths for `AsyncNanaSQLite.aget()` / `acontains()`** (`async_core.py`)
-  - In the default unbounded cache mode, cached keys and known-absent keys now return without an executor round-trip.
+  - In the default unbounded cache mode, cached keys and known-absent keys now return without an executor round-trip. Cache misses, LRU/TTL modes, and hook-backed reads continue to delegate to the synchronous DB path.
+  - Added async benchmark cases for cached reads and known-absent reads.
+
+#### Documentation
+
+- Documented `lock_timeout` in the async API references and guides.
 
 ### [1.5.5] - 2026-04-30
 
@@ -36,7 +94,7 @@ outline: [2, 3]
 - **F-002: Resolved State Inconsistency in UniqueHook** (`core.py`, `hooks.py`, `protocols.py`)
   - Fixed a race where in-memory indices were updated even if the database write failed. Introduced `on_write_success` and `on_delete_success` callbacks to the `NanaHook` protocol to ensure indices are only updated after successful DB commitment.
 - **F-003: Hardened SQL Injection Protection for ORDER BY / GROUP BY** (`core.py`)
-  - Implemented whitelist validation for clauses where parameter binding is not supported by SQLite, permitting only safe characters (alphanumeric, underscore, space, comma, dot, parentheses, comparison operators, and quoting characters such as `'`, `"`, `` ` ``, `[`, `]`). Added detection of subquery keywords (e.g. `SELECT`, `FROM`) and a pre-check for structural injection patterns (`--`, `/*`, `;`).
+  - Implemented strict whitelist validation (allowing only alphanumeric, underscores, dots, commas, and spaces) for clauses where parameter binding is not supported by SQLite.
 - **F-004: Prevented Information Exposure in Dead Letter Queue (DLQ)** (`v2_engine.py`)
   - Verified and hardened logging to ensure sensitive payloads are not leaked in error logs during background flush failures. Added security warnings to DLQ-related documentation.
 - **F-005: Fixed Race Condition in ExpiringDict (TTL Cache)** (`utils.py`)
@@ -54,23 +112,68 @@ outline: [2, 3]
 #### Bug Fixes
 
 - **BUG-01 (pop hook lock): Move `before_delete` hook call inside lock in `pop()`** (`core.py`)
-  - Fixed an inconsistency where hooks were called outside the lock in `pop()`.
-- **BUG-02 (batch_update hook result): Always apply hook-returned values** (`core.py`)
-  - Fixed a bug where transforming hooks were ignored in `batch_update()` under certain conditions.
+  - In non-v2 mode, `before_delete` hooks in `pop()` were called outside the lock, breaking consistency with the SEC-05 fix applied to `__delitem__`. The hook call and the DB delete now run atomically under `_acquire_lock()`. `self._lock` is a `threading.RLock`, so reentrant calls from hooks do not deadlock.
+  - If a hook raises, the DB deletion is skipped and the key is retained.
+
+- **BUG-02 (batch_update hook result): Always apply hook-returned values in `batch_update()`** (`core.py`)
+  - The non-coerce branch of `batch_update()` silently discarded the return value of `before_write` hooks, causing transforming hooks (e.g. `PydanticHook`, custom hooks) to work through `__setitem__` but be silently ignored in `batch_update()`.
+  - Removed the `if self._coerce:` two-branch structure in favour of a unified copy-on-write pattern that always applies hook transformations. A new dict is only allocated when at least one hook changes a value. `ValidkitHook` internally controls whether to transform based on its own `coerce` setting, preserving backward compatibility.
+
 - **BUG-03 (batch_delete hook lock): Move `before_delete` hook call inside lock in `batch_delete()`** (`core.py`)
-  - Ensured atomicity for hooks in `batch_delete()`.
+  - In non-v2 mode, `before_delete` hooks in `batch_delete()` were called outside the lock, inconsistent with the fixed `__delitem__`. Hooks now run inside the lock in non-v2 mode; v2 mode continues to run hooks outside the lock (consistent with `__delitem__` v2 path).
 
 #### Security Fixes
 
 - **SEC-05: Fixed TOCTOU race condition in `UniqueHook`** (`core.py`, `hooks.py`)
-  - Resolved a race condition by moving hook validation inside the instance lock.
-- **SEC-06 opt-in: `google-re2` ReDoS protection** (`compat.py`, `hooks.py`, `pyproject.toml`)
-  - Added support for the RE2 regex engine to guarantee linear-time matching and prevent ReDoS.
+  - `before_write` hooks in `__setitem__` and `before_delete` hooks in `__delitem__` were called outside the `_acquire_lock()` context, allowing a race window where two concurrent threads could both pass the uniqueness check and write duplicate values, or a pre-delete consistency check could be violated by a concurrent operation.
+  - In non-v2 mode, both the `before_write` and `before_delete` invocations are now inside the `_acquire_lock()` block, making the hook check and the DB write/delete atomic. Since `self._lock` is a `threading.RLock`, reentrant calls from hooks (e.g., `db.items()`) do not deadlock.
+  - Updated `UniqueHook` docstring: removed the old `WARNING` and described the fix (SEC-03 → SEC-05).
+  - v2 mode is unaffected (asynchronous flush architecture); use SQLite UNIQUE constraints for strict uniqueness in v2 mode.
 
-#### Performance Improvements
+#### Security Enhancement
+
+- **SEC-06 opt-in: `google-re2` ReDoS protection** (`compat.py`, `hooks.py`, `pyproject.toml`)
+  - Installing `pip install nanasqlite[re2]` enables the RE2 engine for all regex compilation and matching in `BaseHook`. RE2 guarantees linear-time execution for any input, making ReDoS attacks impossible.
+  - A `logging.debug` message is emitted at import time when RE2 is active (`nanasqlite.compat` logger).
+  - Without RE2, the existing dangerous-pattern blacklist validation continues to function.
+  - Added `re2 = ["google-re2>=1.1"]` optional dependency to `pyproject.toml` and included it in `all`.
+  - Added `google-re2>=1.1` to `dev` extras so that CI tests run with the real RE2 engine.
+  - Updated error message in `_validate_regex_pattern` to suggest `pip install nanasqlite[re2]`.
+  - **Added `re_fallback` parameter to `BaseHook`**: controls fallback behaviour when RE2 rejects a pattern (e.g. backreferences `(\w)\1`, lookarounds `(?=...)`).
+    - `re_fallback=False` (default): propagates `re2.Error` unchanged; ReDoS protection is fully maintained.
+    - `re_fallback=True`: emits `warnings.warn` and falls back to the standard `re` engine; ReDoS protection is disabled for that pattern.
+
+#### Performance Improvements (accelerated)
 
 - **PERF-01: `UniqueHook` — opt-in inverse index (`use_index=True`)** (`hooks.py`)
-  - Introduced an O(1) inverse index for `UniqueHook` to eliminate O(N) scans.
+  - The default `before_write` performed an O(N) full scan via `db.items()` on every write, becoming a severe bottleneck for large tables.
+  - Pass `use_index=True` to enable a lazy-built inverse index (`{field_value → key}`): the index is constructed once on the first write (O(N)) and subsequent uniqueness checks are O(1).
+  - The index is kept up-to-date automatically through `before_write` and `before_delete` callbacks. Call `hook.invalidate_index()` after any out-of-lifecycle DB modifications (e.g. `db.execute()`).
+  - Backward-compatible: `use_index=False` (default) preserves the original O(N) behaviour.
+
+- **PERF-02: `BaseHook.__init__` — skip recompilation for already-compiled `Pattern`** (`hooks.py`)
+  - In non-RE2 mode, passing an already-compiled `re.Pattern` object no longer triggers `re.compile()` again. The compiled `Pattern` object is used directly, reducing hook initialization overhead.
+  - The `_validate_regex_pattern` check on `pattern.pattern` is **still executed** for security (ensuring compiled patterns cannot bypass the dangerous-pattern blacklist).
+  - Safety is preserved while reducing unnecessary recompilation overhead.
+
+#### Security Enhancement (accelerated)
+
+- **SEC-01: Document DLQ payload exposure risk** (`v2_engine.py`)
+  - DLQ entries contain serialised KVS values (`op["value"]`); for unencrypted databases, `get_dlq()` exposes plaintext data to any consumer of the returned list.
+  - Added a **SEC-01** security notice to `DLQEntry`, `_add_to_dlq()`, and `get_dlq()` docstrings, advising callers to log only `error_msg`/`timestamp` in production and to handle `item` in a trusted context only.
+
+#### Code Quality (accelerated)
+
+- **QUAL-01: `compat.py` — proper type annotation for `re2_module`** (`compat.py`)
+  - Changed `re2_module = None  # type: ignore[assignment]` to `re2_module: types.ModuleType | None = None`, eliminating the `type: ignore` escape and allowing mypy to track the type at all usage sites.
+
+- **QUAL-02: `v2_engine.py` — introduce `DLQEntry` dataclass** (`v2_engine.py`)
+  - Replaced the untyped `list[tuple[str, Any, float]]` DLQ storage with `list[DLQEntry]`, where `DLQEntry` is a typed `@dataclass` with fields `error_msg`, `item`, and `timestamp`. `get_dlq()` still returns `list[dict]` for backward compatibility.
+
+#### Code Quality
+
+- **QUAL-10: `compat.py` — replace `validkit_validate = None` with a stub function** (`compat.py`)
+  - When `validkit-py` is not installed, `validkit_validate = None` caused a confusing `TypeError: 'NoneType' object is not callable`. Changed to a stub that raises `ImportError` with a clear installation message.
 
 
 ---
@@ -79,26 +182,31 @@ outline: [2, 3]
 
 #### Performance Improvements
 
-- **PERF-21: `execute_many()` — Python loop → `cursor.executemany()`** (`core.py`)
-  - Eliminates per-item Python function-call overhead. ~15% improvement for `test_execute_many` and `test_import_from_dict_list`.
+- **PERF-21: `execute_many()` — Python loop replaced with `cursor.executemany()`** (`core.py`)
+  - `execute_many()` was iterating `parameters_list` with a `for` loop calling `cursor.execute()` per item. Switching to APSW's built-in `cursor.executemany()` eliminates per-parameter Python call overhead. ~15% improvement for `test_execute_many` and `test_import_from_dict_list`.
 
-- **PERF-22: `batch_delete()` — skip pre-check loop when no hooks** (`core.py`)
-  - When `_has_hooks=False` (default), the full `_ensure_cached()` loop over all keys is skipped entirely.
+- **PERF-22: `batch_delete()` — skip pre-check loop when no hooks are registered** (`core.py`)
+  - `batch_delete()` iterated all keys calling `_ensure_cached()` before deletion. Its only purpose was firing `before_delete` hooks. When `_has_hooks` is `False` (the default), this loop is now skipped entirely, saving O(n) function-call overhead per batch.
 
 - **PERF-23: `batch_update()` — serialize outside lock, `dict.update()`, `_absent_keys` guard** (`core.py`)
-  - Serialization moved outside the lock. Cache update uses `dict.update()` (~6× faster than a per-key loop). `_absent_keys` update guarded and batched with `difference_update()`. ~9% overall improvement.
+  - Serialization (`_serialize()`) is pure Python/JSON work that does not touch the SQLite connection; moved it outside the lock (consistent with `__setitem__`).
+  - Unbounded-mode cache update changed from a per-key assignment loop to `dict.update()`, which is ~6× faster (C-level implementation).
+  - `_absent_keys.discard()` per-key calls replaced with `if self._absent_keys: self._absent_keys.difference_update(mapping.keys())`, eliminating all hash operations when the set is empty (the common write-heavy case).
+  - Same improvements applied to the v2 path.
+  - ~9% overall improvement for `test_batch_write_100`.
 
 - **PERF-24: `batch_update_partial()` — `dict.update()` + `_absent_keys` guard** (`core.py`)
-  - Same optimizations as PERF-23 applied to both v1 and v2 paths.
+  - Same optimizations as PERF-23 applied to both v1 and v2 paths of `batch_update_partial()`.
 
-- **PERF-25: `batch_delete()` — `_absent_keys.update(keys)` bulk call** (`core.py`)
-  - Per-key `add()` loop replaced with a single `update(keys)` call.
+- **PERF-25: `batch_delete()` — per-key `_absent_keys.add()` → `_absent_keys.update(keys)`** (`core.py`)
+  - After deletion, all absent keys are now added to `_absent_keys` with a single `update(keys)` call instead of individual `add(key)` calls in a loop, reducing hash-computation overhead.
+  - Same change applied to the v2 path.
 
 - **PERF-26: `begin_transaction()` / `commit()` / `rollback()` — bypass `execute()` overhead** (`core.py`)
-  - Call `self._connection.execute()` directly under the lock, skipping v2-mode dispatch, SQL `strip().upper()`, and redundant `_check_connection()`.
+  - These methods previously called `self.execute("BEGIN IMMEDIATE")` etc., routing through the full `execute()` dispatch (v2-mode check, `strip().upper()`, duplicate `_check_connection()` call). They now call `self._connection.execute()` directly under the acquired lock, saving several redundant operations per transaction. Improvement observed in `test_context_manager_transaction`, `test_begin_commit`, and `test_begin_rollback`.
 
 - **PERF-29: `_serialize()` — early return for no-encryption case** (`core.py`)
-  - `_no_encrypt` bool flag pre-computed in `__init__`. Eliminates `_fernet`/`_aead` attribute lookups on every write when encryption is disabled.
+  - A `_no_encrypt: bool` flag is pre-computed in `__init__` (same pattern as PERF-20's `_has_hooks`). When encryption is disabled (the default), `_serialize()` now returns immediately after JSON encoding without evaluating the `if self._fernet:` and `if self._aead:` attribute-lookup branches. Small but consistent improvement across all write paths.
 
 ---
 
@@ -107,68 +215,98 @@ outline: [2, 3]
 #### Bug Fixes
 
 - **[Medium] BUG-01: `setdefault()` returns wrong value when `before_write` hook transforms the default** (`core.py`)
-  - With `ValidkitHook(coerce=True)` or `PydanticHook`, PERF-18 was applying `after_read` to the original `default` rather than the stored (transformed) value. Fixed by reading from cache when `_has_hooks` is True.
+  - The PERF-18 optimisation applied `after_read` hooks to the original `default` argument rather than the potentially hook-transformed value actually stored in cache. For example, with `ValidkitHook(coerce=True)` or `PydanticHook` that transforms values on write, `setdefault("k", "hello")` would store `"HELLO"` but return `"hello"`.
+  - **Fix**: When `_has_hooks` is True, the new code reads the stored (potentially transformed) value from `_data`/cache after the write and applies `after_read` hooks to that. When `_has_hooks` is False no hooks can transform values, so returning `default` directly (the PERF-18 fast path) remains valid.
+  - POC: `etc/poc/poc_bug01_setdefault_coerce_hook.py`
 
 #### Performance Fixes (v1.5.3rc2 benchmark regression fix)
 
-- **[High] PERF-14/15/16: try/except fast path for Unbounded mode read hot paths** (`core.py`)
-  - Replaced `.get(key, sentinel)` with direct `d[key]` + `try/except` in `__getitem__`, `get()`, and `__contains__`. Approximately **1.9x** faster for the cache-hit case. Measured **-15%** on `test_single_read_cached`.
+- **[High] PERF-14: try/except fast path for `__getitem__` in Unbounded mode** (`core.py`)
+  - The cache-hit hot path used `.get(key, _NOT_FOUND)` plus a sentinel identity check. Direct dict access `d[key]` via `try/except KeyError` eliminates sentinel creation, keyword-argument processing, and the identity compare — approximately **1.9x** faster for the common cache-hit case. Applied to `_ensure_cached()`, `__getitem__`, and `get()`. Measured **-15%** improvement on `test_single_read_cached`.
+
+- **[High] PERF-15: try/except fast path for `get()` in Unbounded mode** (`core.py`)
+  - Same optimisation as PERF-14 applied to `get()`. Measured **-11.6%** improvement on `test_read_encryption[fernet]`.
+
+- **[High] PERF-16: try/except fast path for `__contains__` in Unbounded mode** (`core.py`)
+  - Same optimisation as PERF-14 applied to `__contains__`.
 
 - **[Medium] PERF-17: Guard empty `_absent_keys.discard()` in `_update_cache()`** (`core.py`)
-  - Added `if self._absent_keys:` guard to skip unnecessary hash computation in write-heavy workloads.
+  - Since v1.5.2's `_absent_keys` introduction, `_update_cache()` called `self._absent_keys.discard(key)` on every write — even when the set was empty (common in write-heavy workloads). Added an `if self._absent_keys:` guard so the hash computation is skipped when unnecessary.
 
-- **[Medium] PERF-18: Eliminate redundant `self[key]` in `setdefault()`** (`core.py`)
-  - Return the default value directly after writing instead of re-entering `__getitem__`.
+- **[Medium] PERF-18: Eliminate redundant `self[key]` round-trip in `setdefault()`** (`core.py`)
+  - After writing a new default, `setdefault()` re-read the value via `self[key]` (a full `__getitem__` call). Since the value is already known, it is now returned directly. Also switched Unbounded mode to use `_data[key]` instead of the polymorphic `_cache.get()`.
 
 - **[Medium] PERF-19: Direct `_data` access in `pop()` for Unbounded mode** (`core.py`)
-  - Use `self._data[key]` instead of `self._cache.get()` to avoid polymorphic method dispatch.
+  - `pop()` retrieved the value via `self._cache.get(key)`. In Unbounded mode `_data` holds the real value; using `self._data[key]` avoids the polymorphic method dispatch (and `move_to_end()` overhead in LRU mode).
 
-- **[Medium] PERF-20: Pre-computed `_has_hooks` flag** (`core.py`)
-  - Replace `if self._hooks:` with a pre-computed `bool` flag `_has_hooks` across all KV hot paths, eliminating `list.__len__` overhead on every operation.
+- **[Medium] PERF-20: Pre-computed `_has_hooks` flag to speed up all hot paths** (`core.py`)
+  - All hot paths (`__getitem__`, `__setitem__`, `__delitem__`, `get()`, `get_fresh()`, `batch_get()`, `pop()`, `setdefault()`, `batch_update_partial()`, `batch_delete()`) were calling `if self._hooks:` which triggers `list.__len__` on every operation. A `self._has_hooks: bool` flag is now pre-computed at `__init__` time and kept in sync by `add_hook()`.
+
+#### Tests
+
+- Extended `tests/test_v153_perf_fixes.py` to cover PERF-14 through PERF-20 correctness and BUG-01 regression tests.
 
 ### [1.5.3rc1] - 2026-04-07
 
 #### Performance Fixes (v1.5.3 pre-release audit)
 
-- **[High] PERF-07: Pre-compute common SQL strings at `__init__`** (`core.py`)
-  - All KV hot paths were rebuilding the same table-qualified SQL via f-strings on every call. Six SQL template strings are now pre-computed once at init time and stored as instance attributes.
-  - **Impact**: Eliminates string-construction overhead from all KV operations (write, read, delete, contains, count).
+- **[High] PERF-07: Pre-compute common SQL strings at `__init__` time** (`core.py`)
+  - Hot paths (`__setitem__`, `__delitem__`, `__contains__`, `__len__`, `_write_to_db`, `_read_from_db`, `_delete_from_db`, `load_all`, `batch_update`, `batch_delete`) were re-building the same SQL strings (containing the quoted table name) via f-strings on every call. Six SQL template strings are now pre-computed at instance creation time and referenced directly on the hot paths.
+  - **Impact**: Eliminates string-building overhead on every KV operation. Improves `test_single_write` / `test_execute_raw` / `test_sql_insert_single`.
 
-- **[Medium] PERF-08: Skip MISSING filter in `to_dict()` / `copy()` for Unbounded mode** (`core.py`)
-  - MISSING is never stored in Unbounded `_data`, so `dict(self._data)` is returned directly without a per-element predicate.
-  - **Impact**: Improves `test_to_dict_1000` / `test_copy`.
+- **[Medium] PERF-08: Skip MISSING sentinel filter in `to_dict()` / `copy()` for Unbounded mode** (`core.py`)
+  - In Unbounded mode `_data` never holds the MISSING sentinel, so the per-element `if v is not MISSING` predicate in the dict comprehension was unnecessary overhead. Unbounded mode now returns `dict(self._data)` directly; LRU/TTL mode still applies the filter.
+  - **Impact**: Reduces overhead for `test_to_dict_1000` / `test_copy`.
 
-- **[Medium] PERF-09: Eliminate double cache lookup in LRU/TTL `__getitem__`** (`core.py`)
-  - Restructured to check `_data` membership first, then one `cache.get()` call — eliminating a redundant `move_to_end()` on every cache hit.
-  - **Impact**: Reduces cache-hit overhead for LRU/TTL `__getitem__`.
+- **[Medium] PERF-09: Eliminate double LRU cache lookup in `__getitem__`** (`core.py`)
+  - In LRU/TTL mode, `__getitem__` called `_ensure_cached()` (which internally calls `self._cache.get()`, invoking `move_to_end()`) and then called `self._cache.get()` a second time to retrieve the value — two `move_to_end()` calls for a single cache hit. Restructured to check `_data` membership first and call `self._cache.get()` exactly once for the cache-hit path.
+  - **Impact**: Removes redundant `move_to_end()` on LRU cache hits. Improves `test_cache_hit[lru]` / `test_cache_hit[ttl]`.
 
-- **[Medium] PERF-10: Regex consolidation and function-scan skip in `_validate_expression()`** (`core.py`)
-  - Four separate `re.search()` calls replaced by one pre-compiled module-level `_DANGEROUS_SQL_RE`. Expressions with no `(` skip the function-scan entirely.
-  - **Note**: In non-strict mode, multiple dangerous patterns in one expression now emit a single `UserWarning` instead of one per pattern. Strict mode (exception) behavior unchanged.
+- **[Medium] PERF-10: Pre-compiled regex and early skip for `_validate_expression()`** (`core.py`)
+  - `_validate_expression()` ran four separate `re.search()` calls with individual pattern strings on every invocation. Combined into a single module-level pre-compiled regex `_DANGEROUS_SQL_RE`. Also added an early return when the expression contains no `(`, skipping the expensive `sanitize_sql_for_function_scan()` + `re.findall()` that is only needed when function calls are present.
+  - **Impact**: Reduces regex overhead for typical parameterised WHERE clauses. Improves `test_sql_update_single` / `test_exists_check` / `test_execute_raw`.
 
-- **[Medium] PERF-11: Lock-free fast path in `ExpiringDict._check_expiry()`** (`utils.py`)
-  - Adds an optimistic lock-free pre-check for live keys, skipping the `RLock` acquire/release for the common non-expired case.
-  - **Impact**: Reduces lock acquisitions on TTL cache hit paths.
+- **[Medium] PERF-11: Lock-free fast-path in `ExpiringDict._check_expiry()`** (`utils.py`)
+  - `_check_expiry()` always acquired `threading.RLock` even for keys that were clearly not expired. Under CPython's GIL, individual `dict.get()` is atomic, so an optimistic lock-free pre-check against `_exptimes` is safe. When the expiry time has not been reached the method now returns `False` immediately without touching the lock.
+  - **Impact**: Reduces lock-acquire overhead on TTL cache hit path. Improves `test_cache_hit[ttl]` / `test_ttl_expiry_check`.
 
-- **[High] PERF-12: Eliminate double cache lookup in LRU/TTL `get()`** (`core.py`) *(found by v1.5.3 audit)*
-  - Applied the same fix as PERF-09 to `get()`, which had the same double-lookup issue.
+#### New Benchmark Tests
 
-- **[Medium] PERF-13: Skip MISSING filter in `values()` / `items()` for Unbounded mode** (`core.py`) *(found by v1.5.3 audit)*
-  - Applied the same PERF-08 optimisation to `values()` and `items()`.
+- Added `test_cache_hit[lru]` / `test_cache_hit[ttl]` to `tests/test_benchmark.py` to measure the cache hit overhead for a single key with repeated reads.
 
 #### Tests
 
-- Added `tests/test_v153_perf_fixes.py` (19 regression tests covering PERF-07 through PERF-11).
-- Added `TestPerf12GetDoubleLookup` / `TestPerf13ValuesItemsFilter` to `tests/test_audit_poc.py`.
+- Added `tests/test_v153_perf_fixes.py` covering:
+  - PERF-07: Presence and correctness of `_sql_kv_*` pre-computed attributes
+  - PERF-08: `to_dict()` / `copy()` returns no MISSING sentinels in both Unbounded and LRU modes
+  - PERF-09: LRU / TTL `__getitem__` returns correct values on cache hit / miss / MISSING sentinel
+  - PERF-10: Simple WHERE clauses, function-bearing WHERE clauses, and dangerous patterns all handled correctly
+  - PERF-11: `ExpiringDict._check_expiry()` behaves correctly before and after expiry
+- Added `TestPerf12GetDoubleLookup` / `TestPerf13ValuesItemsFilter` to `tests/test_audit_poc.py`:
+  - PERF-12: LRU / TTL `get()` returns correct values on cache hit / known-absent / miss
+  - PERF-13: `values()` / `items()` contains no MISSING sentinels in both Unbounded and LRU modes
+
+- **[High] PERF-12: Eliminate double cache lookup in `get()` for LRU/TTL mode** (`core.py`) *(found by v1.5.3 audit)*
+  - When PERF-09 fixed `__getitem__`, the same double-lookup issue remained in `get()`. The `get()` method called `_ensure_cached()` (which calls `cache.get()` → `move_to_end()` internally) and then called `cache.get()` again to retrieve the value. Applied the same `_data` membership check + single `cache.get()` pattern as PERF-09.
+  - **Impact**: Eliminates redundant `move_to_end()` in `get()` for LRU/TTL cache hits. Further improves `test_cache_hit[lru]` / `test_cache_hit[ttl]`.
+
+- **[Medium] PERF-13: Skip MISSING sentinel filter in `values()` / `items()` for Unbounded mode** (`core.py`) *(found by v1.5.3 audit)*
+  - When PERF-08 optimised `to_dict()`, the same optimisation was not applied to `values()` and `items()`. Unbounded mode now returns `list(_data.values())` / `list(_data.items())` directly without the per-element `if v is not MISSING` predicate.
+  - **Impact**: Reduces per-element overhead in `values()` and `items()` for Unbounded mode.
+
+- **Note (QUAL-01)**: In non-strict mode, `_validate_expression()` now emits a single `UserWarning` even when multiple dangerous patterns match (e.g., `; DROP TABLE`). Previously, one warning was emitted per matching pattern. In strict mode (exception-raising), behaviour is unchanged. Code that relies on the count of `UserWarning`s emitted for a single expression should be updated.
 
 ### [1.5.2] - 2026-04-06
 
 #### Performance Fixes (Follow-up for regression since v1.5.0dev1)
 
 - **[High] PERF-06: Fast-path optimization for Unbounded cache reads** (`core.py`)
-  - In Unbounded mode, read-heavy paths (`__getitem__`, `get`, `__contains__`, `_ensure_cached`) still had extra branching before the `_data` check on hot read paths, adding avoidable membership checks even for positive cache hits.
-  - Reorganized the path to prioritize `_data` lookup first and use `_absent_keys` only for known-absent fast return.
-  - **Impact**: Lower overhead for cached reads and contains checks while preserving existing behavior.
+  - In Unbounded mode, read-heavy paths (`__getitem__`, `get`, `__contains__`, `_ensure_cached`) still had metadata checks before looking at `_data`, adding avoidable membership checks even for positive cache hits.
+  - Changes:
+    1. Prioritize `_data` lookup as the primary fast-path for positive cache hits
+    2. Use `_absent_keys` only for known-absent early return
+    3. Apply the same fast-path pattern in `__getitem__` / `get` to reduce unnecessary `_ensure_cached()` calls
+  - **Impact**: Reduces overhead on cached read / contains hot paths while preserving existing public behavior.
 
 #### Breaking Change (approved)
 
@@ -178,7 +316,16 @@ outline: [2, 3]
 
 #### Tests
 
-- Added `tests/test_v152_perf_fastpath.py` to verify the `_data`-first fast-path and preserved negative-cache semantics.
+- Added `tests/test_v152_perf_fastpath.py` to verify:
+  - `_data`-first fast-path behavior in Unbounded mode
+  - Preserved negative-cache semantics for known-absent keys
+
+#### Audit (`etc/audit/audit_prompt.md` aligned)
+
+- Performed focused audit checks (Phase 1-6 perspective) on the changed scope:
+  - No backward-incompatible API change
+  - No new security issue introduced
+  - Negative-cache semantics preserved
 
 ### [1.5.1] - 2026-04-05
 
@@ -328,9 +475,18 @@ Fixed performance regressions observed in RPI benchmarks that appeared starting 
 - The legacy `validator` parameter is internally converted to a `ValidkitHook`, preserving 100% backward compatibility.
 - Internal logic has been unified and hardened to ensure hooks are equally applied across all access paths, including `batch_update`, `get`, `batch_get`, `setdefault`, and `pop`.
 
-### [1.4.1] - 2026-03-25
+### [1.4.1] - 2026-03-27
 
 #### Security Fixes
+- **QUAL-07 [High]**: Added V2 engine management methods to the synchronous `NanaSQLite` class, achieving full feature parity between sync and async versions.
+- **CORE [Critical]**: Hardened V2 engine consistency in `clear()`, `load_all()`, and `restore()` methods to prevent data desynchronization and "ghost writes" during state transitions.
+- **SEC-01/02 [Critical]**: Introduced whitelist-based validation for `column_type` with ReDoS-safe patterns, enhancing protection against SQL injection and denial-of-service.
+- **CONC-01/02 [High]**: Fixed race conditions and deadlocks in the V2 engine and `ExpiringDict` during multi-threaded execution.
+- **[Critical] PERF-02**: Improved `table()` method to share the parent's `V2Engine` instance. This resolves resource leaks (thread and `atexit` handler accumulation) that caused hangs during process exit.
+- **[Critical] DEADLOCK-01**: Resolved deadlocks in `V2Engine` during `StrictTask` processing that caused processes to hang during parallel execution (e.g., `pytest-xdist`). Implemented transaction isolation for task processing and reliable event release during `shutdown`.
+- **[Critical] MULTI-TENANT-01**: Fixed a bug where `V2Engine` was tied to a single table name. Refactored the engine to support multi-tenancy (table-level isolation), ensuring data is not mixed when multiple table instances share the same engine.
+- **[High] QUAL-08**: Enhanced `V2Engine.shutdown()` robustness with double-invocation prevention, reliable `atexit` unregistration, and safer final flush logic.
+- **QUAL-05 [Medium]**: Added guards against explicit `begin_transaction()` calls in V2 mode to prevent conflicts with background flushing operations.
 - **[Medium] SEC-02**: Fixed the `column_type` validation regular expression in `core.py` from a vulnerable pattern (`[\w ]*`) to a safe pattern, completely resolving the ReDoS (Regular Expression Denial of Service) vulnerability warned by SonarQube.
 
 #### Bug Fixes
@@ -346,10 +502,10 @@ Fixed performance regressions observed in RPI benchmarks that appeared starting 
 - **[Critical] CONC-01**: Fixed potential `RuntimeError`, cache corruption, and TOCTOU races in multi-threaded environments (e.g., `AsyncNanaSQLite`) by moving internal cache mutations into the scope of the database lock.
 - **[Critical] CONC-02**: Resolved a crash when using `table()` in V2 mode where multiple background engines sharing the same SQLite connection would attempt to start overlapping transactions. Implemented `shared_lock` propagation across parent/child V2 engines.
 - **[Critical] ASYNC-01**: Implemented missing V2 management methods (`aflush`, `aget_dlq`, `aretry_dlq`, `aclear_dlq`, `aget_v2_metrics`) in `AsyncNanaSQLite`.
+- **[High] QUAL-07**: Added V2 management methods to the synchronous `NanaSQLite` class, achieving full feature parity between sync and async engines.
 - **[High] QUAL-05**: Added guards to forbid explicit transaction operations (`begin_transaction`, etc.) in V2 mode, preventing fatal conflicts with the engine's automated background flushing.
 - **[High] QUAL-06**: Fixed a bug where `v2_enable_metrics` setting was not inherited by child instances in `AsyncNanaSQLite.table()`.
 - **[Medium] SEC-01 (Hardened)**: Upgraded `create_table()` column type validation from a blacklist approach to a strict whitelist-based regular expression for enhanced security.
-- **[Medium] SEC-02**: Resolved a sonar-reported ReDoS vulnerability in `core.py` by replacing the loose `[\w ]*` regex with a safe pattern for column type validation.
 
 #### Performance Improvements
 - **[Low] PERF-01**: Introduced "negative caching" for LRU and TTL cache strategies to store the result of searches for keys that do not exist in the database, reducing I/O load during repeated access. (Also discovered and fixed a breaking bug before release where internal sentinels could leak due to this feature). (1.4.1rc1)
@@ -358,6 +514,14 @@ Fixed performance regressions observed in RPI benchmarks that appeared starting 
 - **[Low] QUAL-01**: Improved the `ExpiringDict` scheduler thread stop logic to ensure more robust cleanup during instance destruction or clearing. (1.4.1rc1)
 - **[Low] QUAL-03**: Deduplicated magic literals (e.g., `"BEGIN IMMEDIATE"`) into module-level constants to improve maintainability.
 - **[Low] CI-01**: Resolved SonarQube Cloud "Quality Gate" false positives by excluding non-source files (docs, scripts) from coverage and suppressing non-essential maintainability warnings through configuration.
+- **[Low] QUAL-09**: Removed unnecessary `.keys()` calls in `utils.py` (`list(dict.keys())` → `list(dict)`) to address SonarCloud code smell warnings.
+- **[Low] QUAL-10 (New Feature)**: Introduced `V2Config` dataclass to group v2-related parameters (`flush_mode`, `flush_interval`, `flush_count`, `chunk_size`, `enable_metrics`) into a single object. All existing individual parameters remain available for full backward compatibility. This addresses SonarCloud's "brain-overload" warning for the `__init__` method having too many parameters.
+  ```python
+  from nanasqlite import NanaSQLite, V2Config
+  cfg = V2Config(flush_mode="time", flush_interval=5.0, enable_metrics=True)
+  db = NanaSQLite("mydata.db", v2_mode=True, v2_config=cfg)
+  ```
+- **[Low] CI-02**: Added `docker rm -f` before `docker run` in `bench-rpi.yml` to resolve container name conflicts (`"Conflict. The container name is already in use"`) that occurred when a prior workflow run was cancelled.
 
 #### New Features: Enhanced V2 Engine Usability and Observability (Opt-in)
 - **Dead Letter Queue (DLQ) Visibility**:
