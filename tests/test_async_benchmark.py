@@ -1596,6 +1596,46 @@ class TestAsyncExtendedBenchmarks:
 
         benchmark(schema_op)
 
+    def test_async_atomic_increment(self, benchmark, db_path):
+        """非同期increment()のexecutor往復を含むコスト"""
+        from nanasqlite import AsyncNanaSQLite
+
+        async def setup():
+            db = AsyncNanaSQLite(db_path)
+            await db.aset("counter", 0)
+            return db
+
+        db = run_async(setup())
+
+        def increment_op():
+            return run_async(db.aincrement("counter"))
+
+        try:
+            benchmark(increment_op)
+        finally:
+            run_async(db.close())
+
+    def test_async_atomic_patch(self, benchmark, db_path):
+        """非同期patch()のexecutor往復を含むコスト"""
+        from nanasqlite import AsyncNanaSQLite
+
+        async def setup():
+            db = AsyncNanaSQLite(db_path)
+            await db.aset("profile", {"count": 0})
+            return db
+
+        db = run_async(setup())
+        counter = [0]
+
+        def patch_op():
+            counter[0] += 1
+            return run_async(db.apatch("profile", {"count": counter[0]}))
+
+        try:
+            benchmark(patch_op)
+        finally:
+            run_async(db.close())
+
     def test_async_alter_table_add_column(self, benchmark, db_path):
         """非同期 alter_table_add_column 実行"""
         from nanasqlite import AsyncNanaSQLite
