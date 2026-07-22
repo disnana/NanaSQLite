@@ -19,6 +19,14 @@ def test_increment_scalar_and_missing_default(tmp_path):
         assert db.increment("new", 2, default=10) == 12
         with pytest.raises(KeyError):
             db.increment("missing")
+        db["null"] = None
+        with pytest.raises(NanaSQLiteValidationError, match="NoneType"):
+            db.increment("null")
+
+
+def test_get_by_path_rejects_unsafe_table_identifier(tmp_path):
+    with pytest.raises(NanaSQLiteValidationError):
+        NanaSQLite(str(tmp_path / "unsafe-table.db"), table='data; DROP TABLE data; --')
 
 
 def test_increment_dict_field_and_validation(tmp_path):

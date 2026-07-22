@@ -4,7 +4,7 @@ outline: [2, 3]
 
 # Changelog
 
-### [1.6.0] - Unreleased
+### [1.6.0] - 2026-07-22
 
 #### Stability and data protection
 
@@ -25,7 +25,7 @@ outline: [2, 3]
 - Added distribution verification that rejects niltest runtime metadata, bundled modules, or production imports.
 - Added regression and benchmark coverage for atomic updates, verified backup, restore recovery, and async APIs.
 
-### [1.5.8] - 2026-07-22
+### [1.5.8] - 2026-07-04
 
 #### Quality Improvements
 

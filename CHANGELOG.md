@@ -6,7 +6,7 @@
 
 ## 日本語
 
-### [1.6.0] - Unreleased
+### [1.6.0] - 2026-07-22
 
 #### 安定性・データ保護
 
@@ -27,7 +27,7 @@
 - 配布物検査を追加し、niltestが通常依存・製品コード・wheel/sdistへ混入しないことをCIで確認します。
 - 原子的更新、検証付きバックアップ、非同期APIの回帰テストとベンチマークを追加しました。
 
-### [1.5.8] - 2026-07-22
+### [1.5.8] - 2026-07-04
 
 #### 品質改善
 
@@ -1326,7 +1326,7 @@
 
 ## English
 
-### [1.6.0] - Unreleased
+### [1.6.0] - 2026-07-22
 
 #### Stability and data protection
 
@@ -1347,7 +1347,7 @@
 - Added distribution verification that rejects niltest runtime metadata, bundled modules, or production imports.
 - Added regression and benchmark coverage for atomic updates, verified backup, restore recovery, and async APIs.
 
-### [1.5.8] - 2026-07-22
+### [1.5.8] - 2026-07-04
 
 #### Quality Improvements
 

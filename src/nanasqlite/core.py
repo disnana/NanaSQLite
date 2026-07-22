@@ -108,9 +108,14 @@ def _apply_increment_value(
         default = _validate_finite_number(default, "default")
 
     if field is None:
-        base = default if current is _NOT_FOUND else current
-        if base is _NOT_FOUND or base is None:
-            raise KeyError("value")
+        if current is _NOT_FOUND:
+            if default is None:
+                raise KeyError("value")
+            base = default
+        else:
+            base = current
+        if base is None:
+            raise NanaSQLiteValidationError("stored value must be an int or float, not NoneType")
         base = _validate_finite_number(base, "stored value")
         result = base + amount
         return _validate_finite_number(result, "increment result")
@@ -344,6 +349,11 @@ class NanaSQLite(MutableMapping):
         self._sql_kv_count: str = f"SELECT COUNT(*) FROM {sanitized_table}"  # nosec
         # PERF-E: Pre-compute SELECT key query used by _get_all_keys_from_db() (keys() / __iter__).
         self._sql_kv_select_keys: str = f"SELECT key FROM {sanitized_table}"  # nosec
+        # ``sanitized_table`` is produced by _sanitize_identifier() and is quoted
+        # exactly once above. JSON paths and keys remain bound parameters.
+        self._sql_kv_json_extract: str = (
+            f"SELECT json_extract(value, ?) FROM {sanitized_table} WHERE key = ?"  # nosec B608
+        )
         # lock_timeout を __init__ で一度だけ検証・正規化する（_acquire_lock の高頻度パスでの検証を省く）
         if lock_timeout is not None:
             invalid = (
@@ -4025,9 +4035,8 @@ class NanaSQLite(MutableMapping):
             path = f"$.{path.lstrip('.')}"
 
         # クエリ実行
-        query = f"SELECT json_extract(value, ?) FROM {self._safe_table} WHERE key = ?"
         with self._acquire_lock():
-            cursor = self.execute(query, (path, key))
+            cursor = self.execute(self._sql_kv_json_extract, (path, key))
             result = cursor.fetchone()
 
         if not result or result[0] is None:
