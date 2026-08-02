@@ -94,7 +94,8 @@ class TestBug02AeadPlaintextFallback:
         conn.commit()
         conn.close()
 
-        db = NanaSQLite(db_path, encryption_key=key)
+        # Legacy plaintext compatibility is an explicit migration opt-in.
+        db = NanaSQLite(db_path, encryption_key=key, allow_legacy_plaintext=True)
         try:
             with caplog.at_level(logging.WARNING, logger="nanasqlite.core"):
                 val = db["test"]
