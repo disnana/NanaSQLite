@@ -31,6 +31,10 @@ with NanaSQLite("secure.db", encryption_key=raw_key) as db:
     data = db["secret"]
 ```
 
+### 既存の平文データを暗号化へ移行する場合
+
+AEAD（`aes-gcm` / `chacha20`）では、暗号化が有効なのに平文の行を見つけた場合、デフォルトでエラーにします。旧データを段階的に移行する期間だけ、`allow_legacy_plaintext=True` を明示して読み込み、暗号化キーで再保存してください。通常運用ではこのオプションを有効にしないでください。
+
 ### ChaCha20-Poly1305
 
 ```python

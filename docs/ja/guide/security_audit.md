@@ -26,7 +26,7 @@
 - `AsyncNanaSQLite` と V2 Engine の入力検証・キュー境界を確認
 - 検証結果:
   - `python -m tox -e lint,type` — PASS
-  - `python -m pytest tests -x -q` — **1051 passed, 12 skipped**
+  - `python -m pytest tests -q` — **1062 passed, 12 skipped**
 
 ## 確認済みの防御
 
@@ -36,7 +36,7 @@
 | 列型経由の注入 | 文字種と括弧深さを検証。列定義を追加できるトップレベルのカンマを拒否 |
 | `ORDER BY` / `GROUP BY` / 列式 | 構造文字、危険な SQL、サブクエリ系キーワード、未許可関数を検査 |
 | PRAGMA | 名称を許可リスト化し、設定可能な PRAGMA をさらに限定 |
-| 暗号化値 | AEAD は `os.urandom(12)` の nonce を使用。復号失敗時に平文へフォールバックしない |
+| 暗号化値 | AEAD は `os.urandom(12)` の nonce を使用し、デフォルトでは平文行を拒否。旧平文は明示的な移行オプトインが必要 |
 | バックアップ／復元 | integrity check、同一ファイル防止、一時ファイルからの原子的置換、WAL/SHM の隔離を実施 |
 | V2 の任意テーブル名 | V2 Engine 単体利用時を含め、安全な quoted / unquoted 識別子のみ許可 |
 
@@ -69,6 +69,8 @@ db.query("users", where="email = ?", parameters=(email,))
 ## 暗号化に関する補足
 
 AEAD は正しく認証付き暗号として利用されています。現在の保存形式は AAD を使用しないため、キー名などの文脈結合を将来追加する場合は、既存 DB を読めるバージョン付きフォーマットとして導入する必要があります。これは現時点の脆弱性ではありません。
+
+AEAD 有効時に非 bytes の行を検出すると、デフォルトではエラーになります。旧平文 DB を移行する場合だけ `allow_legacy_plaintext=True` を一時的に指定し、読み込んだ値を暗号化キーで再保存した後、オプションを無効にしてください。
 
 ## 性能面の状況
 

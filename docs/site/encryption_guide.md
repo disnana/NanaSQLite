@@ -43,6 +43,10 @@ with NanaSQLite("secure.db", encryption_key=raw_key) as db:
     print(data)  # {"password": "s3cret", "api_key": "abc123"}
 ```
 
+### 既存の平文データを移行する場合
+
+AEAD（`aes-gcm` / `chacha20`）では平文行をデフォルトで拒否します。明示的な移行期間だけ `allow_legacy_plaintext=True` を指定して値を読み込み、暗号化キーで再保存した後、通常運用ではこのオプションを無効にしてください。
+
 ### ChaCha20-Poly1305
 
 ARM デバイスやハードウェア AES が利用できない環境で高速に動作します:
