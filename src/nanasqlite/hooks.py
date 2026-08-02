@@ -208,6 +208,15 @@ class BaseHook:
         """
         return value
 
+    def validate_batch_write(self, db: Any, mapping: dict[str, Any]) -> None:
+        """Validate relationships between values in one batch.
+
+        Most hooks only need per-key validation.  Hooks such as
+        :class:`UniqueHook` may override this method to enforce constraints
+        that cannot be checked correctly one item at a time.
+        """
+        pass
+
     def on_write_success(self, db: Any, key: str, value: Any, old_value: Any) -> None:
         """Default implementation for on_write_success. Does nothing."""
         pass
@@ -248,7 +257,6 @@ class CheckHook(BaseHook):
         if not self.check_func(key, value):
             raise NanaSQLiteValidationError(self.error_msg)
         return value
-
 
 class UniqueHook(BaseHook):
     """Ensures a specific field in a dictionary value is unique across the table.
@@ -423,6 +431,51 @@ class UniqueHook(BaseHook):
                 if self._extract_field(k, v) == check_val:
                     raise NanaSQLiteValidationError("Unique constraint violation: duplicate value detected")
         return value
+
+    def validate_batch_write(self, db: Any, mapping: dict[str, Any]) -> None:
+        """Check both intra-batch and batch-versus-database duplicates.
+
+        ``before_write`` is intentionally a single-key hook.  Calling it for
+        every item in a batch cannot see values that have not been committed
+        yet, and an inverse index is updated only after a successful write.
+        This explicit batch pass closes both false-negative and false-positive
+        cases while retaining the normal hook lifecycle.
+        """
+        candidates: list[tuple[str, Any]] = []
+        for key, value in mapping.items():
+            if not self._should_run(key):
+                continue
+            check_val = self._extract_field(key, value)
+            if check_val is None:
+                continue
+            if self.use_index:
+                try:
+                    hash(check_val)
+                except TypeError as exc:
+                    field_name = self.field.__name__ if callable(self.field) else str(self.field)
+                    raise NanaSQLiteValidationError(
+                        f"UniqueHook: use_index=True requires hashable field values, "
+                        f"but field '{field_name}' returned an unhashable value."
+                    ) from exc
+            if any(existing_value == check_val for _, existing_value in candidates):
+                raise NanaSQLiteValidationError("Unique constraint violation: duplicate value detected")
+            candidates.append((key, check_val))
+
+        if not candidates:
+            return
+
+        updated_keys = set(mapping)
+        existing_values = []
+        for key, value in db.items():
+            if key in updated_keys:
+                continue
+            existing_value = self._extract_field(key, value)
+            if existing_value is not None:
+                existing_values.append(existing_value)
+
+        for _, check_val in candidates:
+            if any(existing_value == check_val for existing_value in existing_values):
+                raise NanaSQLiteValidationError("Unique constraint violation: duplicate value detected")
 
     def on_write_success(self, db: Any, key: str, value: Any, old_value: Any) -> None:
         """DB 書き込み成功時に逆引きインデックスを更新する。"""

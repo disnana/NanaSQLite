@@ -284,6 +284,11 @@ class TTLCache(CacheStrategy):
         self._data.clear()
         self._cached_keys.clear()
 
+    def close(self) -> None:
+        """Stop the underlying expiration worker permanently."""
+        self._data.close()
+        self._cached_keys.clear()
+
     def mark_cached(self, key: str) -> None:
         self.set(key, MISSING)
 

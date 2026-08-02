@@ -135,6 +135,7 @@ class AsyncNanaSQLite:
         thread_name_prefix = kwargs.get("thread_name_prefix", "AsyncNanaSQLite")
         cache_strategy = kwargs.get("cache_strategy", CacheType.UNBOUNDED)
         encryption_key = kwargs.get("encryption_key")
+        allow_legacy_plaintext = bool(kwargs.get("allow_legacy_plaintext", False))
         allowed_sql_functions = kwargs.get("allowed_sql_functions")
         forbidden_sql_functions = kwargs.get("forbidden_sql_functions")
         max_clause_length = kwargs.get("max_clause_length", 1000)
@@ -174,6 +175,7 @@ class AsyncNanaSQLite:
         self._cache_persistence_ttl = cache_persistence_ttl
         self._encryption_key = encryption_key
         self._encryption_mode = encryption_mode
+        self._allow_legacy_plaintext = allow_legacy_plaintext
         self._lock_timeout = lock_timeout
         self._warn_duplicate_table_instance = bool(warn_duplicate_table_instance)
         self._validator_raw = validator
@@ -285,6 +287,7 @@ class AsyncNanaSQLite:
                     cache_persistence_ttl=self._cache_persistence_ttl,
                     encryption_key=self._encryption_key,
                     encryption_mode=self._encryption_mode,
+                    allow_legacy_plaintext=self._allow_legacy_plaintext,
                     lock_timeout=self._lock_timeout,
                     validator=self._validator,
                     coerce=self._coerce,
@@ -1635,6 +1638,7 @@ class AsyncNanaSQLite:
         # 暗号化関連の設定を親インスタンスから継承する
         async_sub_db._encryption_key = self._encryption_key
         async_sub_db._encryption_mode = self._encryption_mode
+        async_sub_db._allow_legacy_plaintext = self._allow_legacy_plaintext
         async_sub_db._lock_timeout = self._lock_timeout
         async_sub_db._warn_duplicate_table_instance = (
             self._warn_duplicate_table_instance

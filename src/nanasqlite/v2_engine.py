@@ -20,6 +20,7 @@ import atexit
 import contextlib
 import itertools
 import logging
+import math
 import queue
 import re
 import threading
@@ -134,6 +135,17 @@ class V2Engine:
         # Flush Settings
         if flush_mode not in ("immediate", "count", "time", "manual"):
             raise ValueError(f"Invalid flush_mode: {flush_mode}")
+        if (
+            isinstance(flush_interval, bool)
+            or not isinstance(flush_interval, (int, float))
+            or not math.isfinite(flush_interval)
+            or flush_interval <= 0
+        ):
+            raise ValueError("flush_interval must be a positive finite number")
+        if isinstance(flush_count, bool) or not isinstance(flush_count, int) or flush_count <= 0:
+            raise ValueError("flush_count must be a positive integer")
+        if isinstance(max_chunk_size, bool) or not isinstance(max_chunk_size, int) or max_chunk_size <= 0:
+            raise ValueError("max_chunk_size must be a positive integer")
         self._flush_mode = flush_mode
         self._flush_interval = flush_interval
         self._flush_count = flush_count
