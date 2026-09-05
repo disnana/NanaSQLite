@@ -174,7 +174,7 @@ jobs:
           name: async-benchmark-results-rpi-py3.12
           path: async-benchmark-results/async-benchmark-results-rpi-py3.12
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         if: needs.should-run.outputs.run_benchmark == 'true'
         with:
           python-version: '3.11'
