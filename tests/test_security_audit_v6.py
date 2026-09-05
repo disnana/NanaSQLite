@@ -256,7 +256,7 @@ class TestB6DLQExposure:
         # "error" と "timestamp" は含まれる
         assert "error" in entry, "get_dlq_summary() に 'error' フィールドがない"
         assert "timestamp" in entry, "get_dlq_summary() に 'timestamp' フィールドがない"
-        assert entry["error"] == "Test error for B6"
+        assert entry["error"] == "write_failed"
 
         engine.shutdown()
         conn.close()

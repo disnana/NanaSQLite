@@ -6,6 +6,24 @@
 
 ## 日本語
 
+### [1.6.1] - 2026-09-05
+
+- docsのPostCSS・nanoid・Browserslistを修正版へ更新し、Bun Auditの指摘を解消しました。 / Update vulnerable docs dependencies and pass Bun Audit.
+
+- 通常の一括読取りを追加最適化しました。同期版は既知の未存在キーを含む場合も辞書の高速経路を使い、非同期版は全件ヒットで辞書内包表記、混在時は局所変数を使います。
+
+- 実DBの書込みロック後に一部の失敗行が復旧対象から漏れる問題と、古いDLQの再試行が新しいKVS更新・削除を上書きする問題を修正しました。
+- 全件キャッシュヒット時の `batch_get()` にも読み取りフックを適用します。既定のフックなし一括読取りは辞書の高速経路を使います。
+- 上限なしの非同期処理も、呼出元のキャンセル後に終了を待つようにしました。トランザクションによる終了失敗からの復旧も可能です。
+- ベンチマークを実ファイルDB・別プロセス・時間とメモリの分離・保存値照合で再構成しました。Actionsは同一ジョブで旧版と変更版を交互に測定します。
+
+- 保存状態を取得する `get_status()` / `aget_status()` と、例外文・値を伏せる `get_dlq_summary()` / `aget_dlq_summary()` を追加しました。待ち件数・待ち時間・処理中状態・累積失敗・DLQ破棄件数を確認できます。
+- `AsyncNanaSQLite` に `max_pending_operations` と `admission_timeout` を追加しました。子テーブルで枠を共有し、投入後のキャンセルでは実処理終了まで枠を保持します。初期化と終了処理も呼び出し元のキャンセルから保護します。
+- `iter_items()` / `aiter_items()` を追加しました。キャッシュを全件ロードせず、復号・読み取りフックを適用したキー順の分割走査ができます。
+- 即時保存向けの `cache_consistency="auto"` を追加しました。別接続のコミット・共有接続の変更・ロールバックを考慮し、古い値・未存在キャッシュ・フックインデックスを無効化します。既定は従来の `manual` です。
+- 内部エンジンの `get_dlq_summary()` は `error` に固定コード `write_failed` を返します。詳細は信頼されたコードで既存の `get_dlq()` を使用してください。
+- 利用方法・一貫性の範囲・キャンセルの契約は [運用ガイド](docs/site/operations.md) を参照してください。
+
 ### [1.6.0] - 2026-07-22
 
 #### 安定性・データ保護
@@ -1325,6 +1343,24 @@
 
 
 ## English
+
+### [1.6.1] - 2026-09-05
+
+- docsのPostCSS・nanoid・Browserslistを修正版へ更新し、Bun Auditの指摘を解消しました。 / Update vulnerable docs dependencies and pass Bun Audit.
+
+- Optimize ordinary batch reads while retaining dict storage: extend the sync fast path to known absences and reduce async batch loop overhead.
+
+- Recover every failed row after a SQLite write lock, and skip superseded KVS failures during DLQ retry.
+- Apply read hooks on fully cached batch reads and optimize the default hook-free batch path.
+- Drain cancelled unbounded asynchronous writes on close and permit recovery after transaction-related close failures.
+- Compare revisions in the same Actions job using isolated file databases, separate timing/allocation runs, and persisted-value verification.
+
+- Added `get_status()` / `aget_status()` and redacted `get_dlq_summary()` / `aget_dlq_summary()` for queue counts/age, in-flight work, failure totals and DLQ evictions.
+- Added shared async `max_pending_operations` and `admission_timeout`. Cancellation after submission retains capacity until the worker finishes; initialization and shutdown are shielded from caller cancellation.
+- Added `iter_items()` / `aiter_items()` for bounded keyset iteration with decryption and read hooks, without filling the cache.
+- Added opt-in `cache_consistency="auto"` for immediate persistence, invalidating stale values, negative entries and hook indexes after external commits or shared-connection changes. Default remains `manual`.
+- Engine `get_dlq_summary()` now returns fixed `write_failed` codes instead of potentially sensitive exception text. Trusted callers can still inspect `get_dlq()`.
+- See the [operations guide](docs/site/en/operations.md) for consistency and cancellation contracts.
 
 ### [1.6.0] - 2026-07-22
 

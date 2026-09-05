@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # Quoted form   e.g. "data"  — inner name must be a strict SQL identifier.
 # Unquoted form e.g.  data   — same constraint, no surrounding quotes.
 _QUOTED_TABLE_NAME_RE = re.compile(r'^"[a-zA-Z_][a-zA-Z0-9_]*"$')
-_UNQUOTED_TABLE_NAME_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+_UNQUOTED_TABLE_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 # Task types for the strict lane
 TASK_EXECUTE = "execute"
@@ -67,6 +67,7 @@ class StrictTask:
     # Future-proof: Callback for when the task is successfully executed in the background
     on_success: Callable | None = field(compare=False, default=None)
     on_error: Callable[[Exception], None] | None = field(compare=False, default=None)
+    queued_at: float = field(compare=False, default_factory=time.monotonic)
 
 
 @dataclass
@@ -161,6 +162,7 @@ class V2Engine:
         self._staging_lock = threading.Lock()
         self._staging_buffer: dict[tuple[str, str], dict[str, Any]] = {}
         self._staging_changes = 0  # Track number of mutations since last flush
+        self._staging_since: float | None = None
         # F-002 fix: flushing buffer holds items that have been moved out of
         # staging but not yet committed to the DB.  kvs_get_staging() consults
         # both buffers so that readers never see a "gap" between the two states.
@@ -175,6 +177,11 @@ class V2Engine:
         # See DLQEntry for the payload shape and the SEC-01 security notice.
         self.dlq: list[DLQEntry] = []
         self._dlq_lock = threading.Lock()
+        self._dlq_dropped = 0
+        self._failure_count = 0
+        self._last_failure_time: float | None = None
+        self._last_success_time: float | None = None
+        self._flush_active = False
 
         # Threading/Worker state
         self._worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="NanaSQLite-v2Engine")
@@ -234,21 +241,42 @@ class V2Engine:
             value.  Do not log ``item`` in production for unencrypted databases.
             See :class:`DLQEntry` for the full security notice.
         """
-        with self._dlq_lock:
+        # Serialize failure publication with new writes and retries. A newer
+        # staged operation must win even if it arrived while this row failed.
+        with self._staging_lock, self._dlq_lock:
+            if isinstance(item, tuple) and len(item) == 2 and isinstance(item[1], dict):
+                table_key, op = item
+                newer = self._staging_buffer.get(table_key)
+                if newer is not None and newer is not op:
+                    op["superseded"] = True
+            self._failure_count += 1
+            self._last_failure_time = time.time()
             if self._max_dlq_size is not None and len(self.dlq) >= self._max_dlq_size:
-                oldest = self.dlq.pop(0)
+                self.dlq.pop(0)
+                self._dlq_dropped += 1
                 logger.warning(
-                    "NanaSQLite DLQ full (max=%d); evicting oldest entry: %s",
+                    "NanaSQLite DLQ full (max=%d); evicting oldest entry",
                     self._max_dlq_size,
-                    oldest.error_msg,
                 )
             self.dlq.append(DLQEntry(error_msg=error_msg, item=item, timestamp=time.time()))
         if self._enable_metrics:
             with self._metrics_lock:
                 self._metrics["dlq_errors"] += 1
-        logger.error("NanaSQLite DLQ Entry: %s", error_msg)
+        logger.error("NanaSQLite write failed; inspect get_dlq() in a trusted context")
 
     # ==================== KVS Lane (Lane 1) Public API ====================
+
+    def _supersede_failed_write(self, table_key: tuple[str, str]) -> None:
+        """Called under staging lock; only the failure path scans the bounded DLQ."""
+        in_flight = self._flushing_buffer.get(table_key)
+        if in_flight is not None:
+            in_flight["superseded"] = True
+        if self.dlq:
+            with self._dlq_lock:
+                for entry in self.dlq:
+                    item = entry.item
+                    if isinstance(item, tuple) and len(item) == 2 and item[0] == table_key:
+                        item[1]["superseded"] = True
 
     def kvs_set(self, table_name: str, key: str, value: Any) -> None:
         """Queue a set operation in the staging buffer."""
@@ -258,6 +286,10 @@ class V2Engine:
         serialized_value = self._serialize(value)
 
         with self._staging_lock:
+            if self._flushing_buffer or self.dlq:
+                self._supersede_failed_write((table_name, key))
+            if not self._staging_buffer:
+                self._staging_since = time.monotonic()
             self._staging_buffer[(table_name, key)] = {"action": "set", "value": serialized_value}
             self._staging_changes += 1
 
@@ -267,6 +299,10 @@ class V2Engine:
         """Queue a delete operation in the staging buffer."""
         _validate_table_name(table_name)
         with self._staging_lock:
+            if self._flushing_buffer or self.dlq:
+                self._supersede_failed_write((table_name, key))
+            if not self._staging_buffer:
+                self._staging_since = time.monotonic()
             self._staging_buffer[(table_name, key)] = {"action": "delete"}
             self._staging_changes += 1
 
@@ -367,7 +403,26 @@ class V2Engine:
         # Release the guard *before* the flush so that any writes arriving
         # during the flush can schedule a follow-up submission.
         self._flush_pending.release()
-        self._perform_flush()
+        with self._staging_lock:
+            had_work = bool(self._staging_buffer)
+        had_work = had_work or not self._strict_queue.empty()
+        with self._dlq_lock:
+            failures_before = self._failure_count
+            self._flush_active = True
+        try:
+            self._perform_flush()
+        except Exception:
+            with self._dlq_lock:
+                self._failure_count += 1
+                self._last_failure_time = time.time()
+            raise
+        else:
+            with self._dlq_lock:
+                if had_work and self._failure_count == failures_before:
+                    self._last_success_time = time.time()
+        finally:
+            with self._dlq_lock:
+                self._flush_active = False
 
     def _perform_flush(self) -> None:
         """
@@ -384,6 +439,7 @@ class V2Engine:
             current_buffer = self._staging_buffer
             self._staging_buffer = {}
             self._staging_changes = 0
+            self._staging_since = None
             # Publish as flushing_buffer while the DB write is in flight.
             self._flushing_buffer = current_buffer
 
@@ -401,7 +457,8 @@ class V2Engine:
                 except Exception as e:
                     # If a chunk fails, we enter a recovery mode for that specific chunk
                     logger.warning(
-                        "NanaSQLite v2 Engine: Chunk transaction failed, entering DLQ recovery. Error: %s", e
+                        "NanaSQLite v2 Engine: Chunk transaction failed, entering DLQ recovery. Error type: %s",
+                        type(e).__name__,
                     )
                     self._recover_chunk_via_dlq(chunk)
 
@@ -459,11 +516,10 @@ class V2Engine:
                         )
                     flushed_count += len(sets) + len(deletes)
 
+                cursor.execute("COMMIT;")
                 if self._enable_metrics:
                     with self._metrics_lock:
                         self._metrics["kvs_items_flushed"] += flushed_count
-
-                cursor.execute("COMMIT;")
             except Exception:
                 cursor.execute("ROLLBACK;")
                 raise
@@ -496,17 +552,16 @@ class V2Engine:
                     elif task.task_type == TASK_EXECUTEMANY:
                         cursor.executemany(task.sql, task.parameters)  # type: ignore
 
+                    cursor.execute("COMMIT;")
                     if self._enable_metrics:
                         with self._metrics_lock:
                             self._metrics["strict_tasks_executed"] += 1
-
-                    cursor.execute("COMMIT;")
 
                     if task.on_success:
                         try:
                             task.on_success()
                         except Exception as cb_err:
-                            logger.error("Error in on_success callback: %s", cb_err)
+                            logger.error("Error in on_success callback: %s", type(cb_err).__name__)
 
                 except Exception as e:
                     cursor.execute("ROLLBACK;")
@@ -514,7 +569,7 @@ class V2Engine:
                         try:
                             task.on_error(e)
                         except Exception as handler_err:
-                            logger.error("Error in on_error callback: %s", handler_err)
+                            logger.error("Error in on_error callback: %s", type(handler_err).__name__)
                     self._add_to_dlq(f"StrictTask failed: {e}", task)
 
             except Exception as e:
@@ -523,7 +578,7 @@ class V2Engine:
                     try:
                         task.on_error(e)
                     except Exception as handler_err:
-                        logger.error("Error in on_error callback: %s", handler_err)
+                        logger.error("Error in on_error callback: %s", type(handler_err).__name__)
                 self._add_to_dlq(f"StrictTask transaction start failed: {e}", task)
 
             finally:
@@ -549,8 +604,10 @@ class V2Engine:
                         ((table_name, key), op),
                     )
                     continue
+                started = False
                 try:
                     cursor.execute("BEGIN IMMEDIATE TRANSACTION;")
+                    started = True
                     if op["action"] == "set":
                         cursor.execute(
                             f"INSERT OR REPLACE INTO {table_name} (key, value) VALUES (?, ?)", (key, op["value"])
@@ -558,13 +615,17 @@ class V2Engine:
                     elif op["action"] == "delete":
                         cursor.execute(f"DELETE FROM {table_name} WHERE key = ?", (key,))  # nosec
 
+                    cursor.execute("COMMIT;")
                     if self._enable_metrics:
                         with self._metrics_lock:
                             self._metrics["kvs_items_flushed"] += 1
-
-                    cursor.execute("COMMIT;")
                 except Exception as e:
-                    cursor.execute("ROLLBACK;")
+                    # BEGIN can fail under a real writer lock. Rolling back a
+                    # transaction that never started hides the original error
+                    # and prevents the remaining failed rows reaching the DLQ.
+                    if started and not self._connection.getautocommit():
+                        with contextlib.suppress(apsw.Error):
+                            cursor.execute("ROLLBACK;")
                     self._add_to_dlq(f"KVS Poison Pill row '{key}' failed: {e}", ((table_name, key), op))
         finally:
             if lock_acquired and self._shared_lock is not None:
@@ -575,7 +636,7 @@ class V2Engine:
 
         Each entry is a dict with the following keys:
 
-        - ``"error"`` (*str*): human-readable error description.
+        - ``"error"`` (*str*): human-readable error description (may contain secrets).
         - ``"item"`` (*Any*): the failed payload.  For KVS failures this is
           ``((table_name, key), op)`` where ``op["value"]`` is the serialised
           (possibly plaintext) database value.  See :class:`DLQEntry` for the
@@ -595,7 +656,7 @@ class V2Engine:
 
         Each entry contains only:
 
-        - ``"error"`` (*str*): human-readable error description.
+        - ``"error"`` (*str*): fixed code ``write_failed``, never raw exception text.
         - ``"timestamp"`` (*float*): ``time.time()`` at the time of failure.
 
         .. note:: **B6 — DLQ payload exposure fix**
@@ -603,7 +664,40 @@ class V2Engine:
             the output may be forwarded to untrusted consumers.
         """
         with self._dlq_lock:
-            return [{"error": e.error_msg, "timestamp": e.timestamp} for e in self.dlq]
+            # Exception text can contain SQL, keys or application values too.
+            return [{"error": "write_failed", "timestamp": e.timestamp} for e in self.dlq]
+
+    def get_status(self) -> dict[str, Any]:
+        """Payload-free, best-effort engine snapshot, independent of metrics.
+
+        Counts describe distinct staged KVS keys and queued SQL tasks. A running
+        flush may include SQL work already removed from the queue. Components
+        are sampled under separate locks; this is not a durability barrier.
+        """
+        with self._staging_lock:
+            pending = len(self._staging_buffer)
+            flushing = len(self._flushing_buffer)
+            oldest = self._staging_since
+        # Only diagnostics traverse the priority queue; enqueue stays O(log n).
+        with self._strict_queue.mutex:
+            queued_sql = len(self._strict_queue.queue)
+            for task in self._strict_queue.queue:
+                oldest = task.queued_at if oldest is None else min(oldest, task.queued_at)
+        age = max(0.0, time.monotonic() - oldest) if oldest is not None else None
+        with self._dlq_lock:
+            return {
+                "mode": "write_back",
+                "pending_kvs_count": pending,
+                "flushing_kvs_count": flushing,
+                "pending_sql_count": queued_sql,
+                "oldest_pending_age_seconds": age,
+                "flush_active": self._flush_active,
+                "failed_count": len(self.dlq),
+                "failure_count": self._failure_count,
+                "dropped_failure_count": self._dlq_dropped,
+                "last_failure_time": self._last_failure_time,
+                "last_successful_flush_time": self._last_success_time,
+            }
 
     def retry_dlq(self) -> None:
         """
@@ -611,22 +705,26 @@ class V2Engine:
         Note: KVS items are moved back to the staging buffer,
         and StrictTasks are re-enqueued.
         """
-        with self._dlq_lock:
+        with self._staging_lock, self._dlq_lock:
             items = list(self.dlq)
             self.dlq.clear()
 
-        for entry in items:
-            item = entry.item
-            if isinstance(item, StrictTask):
-                self._strict_queue.put(item)
-            elif isinstance(item, tuple) and len(item) == 2 and isinstance(item[1], dict) and "action" in item[1]:
-                # It's a KVS row ((table_name, key), op)
-                table_key, op = item
-                with self._staging_lock:
+            for entry in items:
+                item = entry.item
+                if isinstance(item, StrictTask):
+                    item.queued_at = time.monotonic()
+                    self._strict_queue.put(item)
+                elif isinstance(item, tuple) and len(item) == 2 and isinstance(item[1], dict) and "action" in item[1]:
+                    # It's a KVS row ((table_name, key), op)
+                    table_key, op = item
+                    if op.get("superseded"):
+                        continue
+                    if not self._staging_buffer:
+                        self._staging_since = time.monotonic()
                     self._staging_buffer[table_key] = op
                     self._staging_changes += 1
-            else:
-                logger.warning("NanaSQLite v2 Engine: Unknown item type in DLQ, cannot retry: %s", item)
+                else:
+                    logger.warning("NanaSQLite v2 Engine: Unknown item type in DLQ, cannot retry")
 
         self._check_auto_flush()
 
@@ -670,14 +768,14 @@ class V2Engine:
         try:
             self._worker.shutdown(wait=True, cancel_futures=True)
         except Exception as e:
-            logger.warning("NanaSQLite v2 Engine: Error during worker shutdown: %s", e)
+            logger.warning("NanaSQLite v2 Engine: Error during worker shutdown: %s", type(e).__name__)
 
         # Ensure final data is flushed synchronously on main/exit thread.
         # This is safe because the worker thread is now finished.
         try:
             self._perform_flush()
         except Exception as e:
-            logger.error("NanaSQLite v2 Engine: Final flush failed during shutdown: %s", e)
+            logger.error("NanaSQLite v2 Engine: Final flush failed during shutdown: %s", type(e).__name__)
 
         # Clear any remaining strict tasks to prevent deadlocks (e.g., if _perform_flush failed entirely)
         if not self._strict_queue.empty():
@@ -694,7 +792,7 @@ class V2Engine:
                             # Do not let a buggy on_error callback break shutdown, but log it for observability.
                             logger.warning(
                                 "NanaSQLite v2 Engine: on_error callback failed during shutdown: %s",
-                                callback_exc,
+                                type(callback_exc).__name__,
                             )
                 except queue.Empty:
                     break

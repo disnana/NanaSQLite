@@ -1,0 +1,1558 @@
+{
+  "schema_version": 2,
+  "baseline_revision": "58f0dd3df22e27cb20dba4997cf8dfe2f5dbb784",
+  "source_sha256": {
+    "baseline": "664503c2b72e4c13bdd564a1816857d41418279c8e8acff6fe8f2312bcfc8f64",
+    "candidate": "c7b889435d8195294a425eb5d07569d41f36cadda637040590e72e018df4a83a"
+  },
+  "parameters": {
+    "repeats": 7,
+    "rows": 3000,
+    "operations": 100000,
+    "writes": 3000,
+    "seed": 20260905
+  },
+  "method": "fresh process and DB per sample; AB/BA; separate timing/memory; GC enabled; warm OS cache",
+  "summary": {
+    "baseline": {
+      "disk_insert": {
+        "ns_per_operation": {
+          "n": 7,
+          "median": 148166.46666666667,
+          "min": 126056.86666666667,
+          "max": 278547.3,
+          "mad": 14855.466666666674
+        },
+        "seconds": {
+          "n": 7,
+          "median": 0.4444994,
+          "min": 0.3781706,
+          "max": 0.8356419,
+          "mad": 0.044566400000000006
+        }
+      },
+      "disk_update": {
+        "ns_per_operation": {
+          "n": 7,
+          "median": 176303.76666666666,
+          "min": 147939.26666666666,
+          "max": 2522213.433333333,
+          "mad": 20276.666666666657
+        },
+        "seconds": {
+          "n": 7,
+          "median": 0.5289113,
+          "min": 0.4438178,
+          "max": 7.5666403,
+          "mad": 0.060829999999999995
+        }
+      },
+      "v2_accept": {
+        "ns_per_operation": {
+          "n": 7,
+          "median": 1450.1,
+          "min": 1401.2,
+          "max": 1621.6666666666667,
+          "mad": 21.86666666666656
+        },
+        "seconds": {
+          "n": 7,
+          "median": 0.0043503,
+          "min": 0.0042036,
+          "max": 0.004865,
+          "mad": 6.559999999999986e-05
+        }
+      },
+      "v2_durable": {
+        "ns_per_operation": {
+          "n": 7,
+          "median": 5071.3,
+          "min": 4471.2,
+          "max": 21410.4,
+          "mad": 600.1000000000004
+        },
+        "seconds": {
+          "n": 7,
+          "median": 0.0152139,
+          "min": 0.0134136,
+          "max": 0.0642312,
+          "mad": 0.0018003000000000012
+        }
+      }
+    },
+    "candidate": {
+      "disk_insert": {
+        "ns_per_operation": {
+          "n": 7,
+          "median": 222672.23333333334,
+          "min": 130229.83333333333,
+          "max": 262320.8,
+          "mad": 39648.56666666665
+        },
+        "seconds": {
+          "n": 7,
+          "median": 0.6680167,
+          "min": 0.3906895,
+          "max": 0.7869624,
+          "mad": 0.11894569999999993
+        }
+      },
+      "disk_update": {
+        "ns_per_operation": {
+          "n": 7,
+          "median": 180970.8,
+          "min": 148303.83333333334,
+          "max": 1983496.8666666667,
+          "mad": 32666.966666666645
+        },
+        "seconds": {
+          "n": 7,
+          "median": 0.5429124,
+          "min": 0.4449115,
+          "max": 5.9504906,
+          "mad": 0.09800089999999995
+        }
+      },
+      "v2_accept": {
+        "ns_per_operation": {
+          "n": 7,
+          "median": 1614.2,
+          "min": 1540.7,
+          "max": 1651.6333333333334,
+          "mad": 29.833333333333485
+        },
+        "seconds": {
+          "n": 7,
+          "median": 0.0048426,
+          "min": 0.0046221,
+          "max": 0.0049549,
+          "mad": 8.950000000000017e-05
+        }
+      },
+      "v2_durable": {
+        "ns_per_operation": {
+          "n": 7,
+          "median": 7755.966666666666,
+          "min": 4830.133333333333,
+          "max": 15725.633333333333,
+          "mad": 2925.833333333333
+        },
+        "seconds": {
+          "n": 7,
+          "median": 0.0232679,
+          "min": 0.0144904,
+          "max": 0.0471769,
+          "mad": 0.0087775
+        }
+      }
+    }
+  },
+  "paired_ratios": {
+    "disk_insert": {
+      "n": 7,
+      "median": 1.0609114526683219,
+      "min": 0.5063880832208151,
+      "max": 1.8957430852636348,
+      "samples": [
+        0.917711030468966,
+        1.8957430852636348,
+        1.7704464842922172,
+        1.681594426443247,
+        0.8595831409077614,
+        1.0609114526683219,
+        0.5063880832208151
+      ]
+    },
+    "disk_update": {
+      "n": 7,
+      "median": 0.972728241867385,
+      "min": 0.6720876458907955,
+      "max": 1.4191775585961035,
+      "samples": [
+        1.079696893635181,
+        0.972728241867385,
+        0.8977872708799763,
+        0.7864111896530882,
+        0.6720876458907955,
+        1.0264715463632559,
+        1.4191775585961035
+      ]
+    },
+    "v2_accept": {
+      "n": 7,
+      "median": 1.1060588785259846,
+      "min": 0.9500719424460431,
+      "max": 1.178727757160529,
+      "samples": [
+        1.178727757160529,
+        1.1081756015590356,
+        1.0181897646152884,
+        1.129917401651967,
+        1.0925913155414568,
+        1.1060588785259846,
+        0.9500719424460431
+      ]
+    },
+    "v2_durable": {
+      "n": 7,
+      "median": 1.1672481577918579,
+      "min": 0.4665868439656899,
+      "max": 2.9683381046102464,
+      "samples": [
+        1.029125799876423,
+        2.9683381046102464,
+        1.1672481577918579,
+        1.4041128646580583,
+        0.734485732790295,
+        1.5293843130295321,
+        0.4665868439656899
+      ]
+    }
+  },
+  "samples": [
+    {
+      "seconds": 0.0140803,
+      "ns_per_operation": 4693.433333333333,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "v2_durable",
+      "phase": "time",
+      "repeat": 0
+    },
+    {
+      "seconds": 0.0144904,
+      "ns_per_operation": 4830.133333333333,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "v2_durable",
+      "phase": "time",
+      "repeat": 0
+    },
+    {
+      "seconds": 0.4438178,
+      "ns_per_operation": 147939.26666666666,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "disk_update",
+      "phase": "time",
+      "repeat": 0
+    },
+    {
+      "seconds": 0.4791887,
+      "ns_per_operation": 159729.56666666668,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "disk_update",
+      "phase": "time",
+      "repeat": 0
+    },
+    {
+      "seconds": 0.4257217,
+      "ns_per_operation": 141907.23333333334,
+      "operations": 3000,
+      "verified_rows": 6000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "disk_insert",
+      "phase": "time",
+      "repeat": 0
+    },
+    {
+      "seconds": 0.3906895,
+      "ns_per_operation": 130229.83333333333,
+      "operations": 3000,
+      "verified_rows": 6000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "disk_insert",
+      "phase": "time",
+      "repeat": 0
+    },
+    {
+      "seconds": 0.0042036,
+      "ns_per_operation": 1401.2,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "v2_accept",
+      "phase": "time",
+      "repeat": 0
+    },
+    {
+      "seconds": 0.0049549,
+      "ns_per_operation": 1651.6333333333334,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "v2_accept",
+      "phase": "time",
+      "repeat": 0
+    },
+    {
+      "seconds": 0.4553159,
+      "ns_per_operation": 151771.96666666667,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "disk_update",
+      "phase": "time",
+      "repeat": 1
+    },
+    {
+      "seconds": 0.4680813,
+      "ns_per_operation": 156027.1,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "disk_update",
+      "phase": "time",
+      "repeat": 1
+    },
+    {
+      "seconds": 0.0047482,
+      "ns_per_operation": 1582.7333333333333,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "v2_accept",
+      "phase": "time",
+      "repeat": 1
+    },
+    {
+      "seconds": 0.0042847,
+      "ns_per_operation": 1428.2333333333333,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "v2_accept",
+      "phase": "time",
+      "repeat": 1
+    },
+    {
+      "seconds": 0.7169143,
+      "ns_per_operation": 238971.43333333332,
+      "operations": 3000,
+      "verified_rows": 6000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "disk_insert",
+      "phase": "time",
+      "repeat": 1
+    },
+    {
+      "seconds": 0.3781706,
+      "ns_per_operation": 126056.86666666667,
+      "operations": 3000,
+      "verified_rows": 6000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "disk_insert",
+      "phase": "time",
+      "repeat": 1
+    },
+    {
+      "seconds": 0.0398161,
+      "ns_per_operation": 13272.033333333333,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "v2_durable",
+      "phase": "time",
+      "repeat": 1
+    },
+    {
+      "seconds": 0.0134136,
+      "ns_per_operation": 4471.2,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "v2_durable",
+      "phase": "time",
+      "repeat": 1
+    },
+    {
+      "seconds": 0.0048049,
+      "ns_per_operation": 1601.6333333333334,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "v2_accept",
+      "phase": "time",
+      "repeat": 2
+    },
+    {
+      "seconds": 0.0048923,
+      "ns_per_operation": 1630.7666666666667,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "v2_accept",
+      "phase": "time",
+      "repeat": 2
+    },
+    {
+      "seconds": 0.0135571,
+      "ns_per_operation": 4519.033333333334,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "v2_durable",
+      "phase": "time",
+      "repeat": 2
+    },
+    {
+      "seconds": 0.0158245,
+      "ns_per_operation": 5274.833333333333,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "v2_durable",
+      "phase": "time",
+      "repeat": 2
+    },
+    {
+      "seconds": 0.4955645,
+      "ns_per_operation": 165188.16666666666,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "disk_update",
+      "phase": "time",
+      "repeat": 2
+    },
+    {
+      "seconds": 0.4449115,
+      "ns_per_operation": 148303.83333333334,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "disk_update",
+      "phase": "time",
+      "repeat": 2
+    },
+    {
+      "seconds": 0.4444994,
+      "ns_per_operation": 148166.46666666667,
+      "operations": 3000,
+      "verified_rows": 6000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "disk_insert",
+      "phase": "time",
+      "repeat": 2
+    },
+    {
+      "seconds": 0.7869624,
+      "ns_per_operation": 262320.8,
+      "operations": 3000,
+      "verified_rows": 6000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "disk_insert",
+      "phase": "time",
+      "repeat": 2
+    },
+    {
+      "seconds": 0.0390488,
+      "ns_per_operation": 13016.266666666666,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "v2_durable",
+      "phase": "time",
+      "repeat": 3
+    },
+    {
+      "seconds": 0.0278103,
+      "ns_per_operation": 9270.1,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "v2_durable",
+      "phase": "time",
+      "repeat": 3
+    },
+    {
+      "seconds": 0.0048426,
+      "ns_per_operation": 1614.2,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "v2_accept",
+      "phase": "time",
+      "repeat": 3
+    },
+    {
+      "seconds": 0.0042858,
+      "ns_per_operation": 1428.6,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "v2_accept",
+      "phase": "time",
+      "repeat": 3
+    },
+    {
+      "seconds": 0.7666315,
+      "ns_per_operation": 255543.83333333334,
+      "operations": 3000,
+      "verified_rows": 6000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "disk_insert",
+      "phase": "time",
+      "repeat": 3
+    },
+    {
+      "seconds": 0.4558956,
+      "ns_per_operation": 151965.2,
+      "operations": 3000,
+      "verified_rows": 6000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "disk_insert",
+      "phase": "time",
+      "repeat": 3
+    },
+    {
+      "seconds": 5.9504906,
+      "ns_per_operation": 1983496.8666666667,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "disk_update",
+      "phase": "time",
+      "repeat": 3
+    },
+    {
+      "seconds": 7.5666403,
+      "ns_per_operation": 2522213.433333333,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "disk_update",
+      "phase": "time",
+      "repeat": 3
+    },
+    {
+      "seconds": 3.0310514,
+      "ns_per_operation": 1010350.4666666667,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "disk_update",
+      "phase": "time",
+      "repeat": 4
+    },
+    {
+      "seconds": 2.0371322,
+      "ns_per_operation": 679044.0666666667,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "disk_update",
+      "phase": "time",
+      "repeat": 4
+    },
+    {
+      "seconds": 0.0642312,
+      "ns_per_operation": 21410.4,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "v2_durable",
+      "phase": "time",
+      "repeat": 4
+    },
+    {
+      "seconds": 0.0471769,
+      "ns_per_operation": 15725.633333333333,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "v2_durable",
+      "phase": "time",
+      "repeat": 4
+    },
+    {
+      "seconds": 0.0043503,
+      "ns_per_operation": 1450.1,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "v2_accept",
+      "phase": "time",
+      "repeat": 4
+    },
+    {
+      "seconds": 0.0047531,
+      "ns_per_operation": 1584.3666666666666,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "v2_accept",
+      "phase": "time",
+      "repeat": 4
+    },
+    {
+      "seconds": 0.7771403,
+      "ns_per_operation": 259046.76666666666,
+      "operations": 3000,
+      "verified_rows": 6000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "disk_insert",
+      "phase": "time",
+      "repeat": 4
+    },
+    {
+      "seconds": 0.6680167,
+      "ns_per_operation": 222672.23333333334,
+      "operations": 3000,
+      "verified_rows": 6000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "disk_insert",
+      "phase": "time",
+      "repeat": 4
+    },
+    {
+      "seconds": 0.0232679,
+      "ns_per_operation": 7755.966666666666,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "v2_durable",
+      "phase": "time",
+      "repeat": 5
+    },
+    {
+      "seconds": 0.0152139,
+      "ns_per_operation": 5071.3,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "v2_durable",
+      "phase": "time",
+      "repeat": 5
+    },
+    {
+      "seconds": 0.4242935,
+      "ns_per_operation": 141431.16666666666,
+      "operations": 3000,
+      "verified_rows": 6000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "disk_insert",
+      "phase": "time",
+      "repeat": 5
+    },
+    {
+      "seconds": 0.399933,
+      "ns_per_operation": 133311.0,
+      "operations": 3000,
+      "verified_rows": 6000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "disk_insert",
+      "phase": "time",
+      "repeat": 5
+    },
+    {
+      "seconds": 0.0048504,
+      "ns_per_operation": 1616.8,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "v2_accept",
+      "phase": "time",
+      "repeat": 5
+    },
+    {
+      "seconds": 0.0043853,
+      "ns_per_operation": 1461.7666666666667,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "v2_accept",
+      "phase": "time",
+      "repeat": 5
+    },
+    {
+      "seconds": 0.5429124,
+      "ns_per_operation": 180970.8,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "disk_update",
+      "phase": "time",
+      "repeat": 5
+    },
+    {
+      "seconds": 0.5289113,
+      "ns_per_operation": 176303.76666666666,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "disk_update",
+      "phase": "time",
+      "repeat": 5
+    },
+    {
+      "seconds": 0.8356419,
+      "ns_per_operation": 278547.3,
+      "operations": 3000,
+      "verified_rows": 6000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "disk_insert",
+      "phase": "time",
+      "repeat": 6
+    },
+    {
+      "seconds": 0.4231591,
+      "ns_per_operation": 141053.03333333333,
+      "operations": 3000,
+      "verified_rows": 6000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "disk_insert",
+      "phase": "time",
+      "repeat": 6
+    },
+    {
+      "seconds": 0.0489418,
+      "ns_per_operation": 16313.933333333332,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "v2_durable",
+      "phase": "time",
+      "repeat": 6
+    },
+    {
+      "seconds": 0.0228356,
+      "ns_per_operation": 7611.866666666667,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "v2_durable",
+      "phase": "time",
+      "repeat": 6
+    },
+    {
+      "seconds": 0.004865,
+      "ns_per_operation": 1621.6666666666667,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "v2_accept",
+      "phase": "time",
+      "repeat": 6
+    },
+    {
+      "seconds": 0.0046221,
+      "ns_per_operation": 1540.7,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "v2_accept",
+      "phase": "time",
+      "repeat": 6
+    },
+    {
+      "seconds": 0.5410428,
+      "ns_per_operation": 180347.6,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "baseline",
+      "case": "disk_update",
+      "phase": "time",
+      "repeat": 6
+    },
+    {
+      "seconds": 0.7678358,
+      "ns_per_operation": 255945.26666666666,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "D:\\data-backup\\code\\コード保存\\NanaSQLite\\scratch\\bench-db"
+      },
+      "label": "candidate",
+      "case": "disk_update",
+      "phase": "time",
+      "repeat": 6
+    }
+  ]
+}

@@ -26,8 +26,10 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
+import math
 import queue
 import weakref
+from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from typing import Any
@@ -55,6 +57,23 @@ from .core import (
 )
 from .exceptions import NanaSQLiteClosedError, NanaSQLiteDatabaseError
 from .protocols import NanaHook
+
+
+class _Admission:
+    """Shared across wrappers using the same executor; event-loop owned."""
+
+    def __init__(self, limit: int | None) -> None:
+        self.semaphore = asyncio.Semaphore(limit) if limit is not None else None
+        self.active: set[asyncio.Future] = set()
+        self.closing = False
+
+    def completed(self, future: asyncio.Future) -> None:
+        self.active.discard(future)
+        if self.semaphore is not None:
+            self.semaphore.release()
+        # A cancelled caller cannot observe the worker's eventual exception.
+        if not future.cancelled():
+            future.exception()
 
 
 class AsyncNanaSQLite:
@@ -126,6 +145,11 @@ class AsyncNanaSQLite:
             cache_strategy: キャッシュ戦略 (v1.1.0)
             encryption_key: 暗号化キー (v1.3.1)
             lock_timeout: ロック取得のタイムアウト秒数。Noneで無制限待機。
+            max_pending_operations: Optional positive bound on submitted executor
+                jobs (running plus queued), shared by table children.
+            admission_timeout: Positive timeout in seconds for admission only;
+                None waits indefinitely. Requires max_pending_operations.
+            cache_consistency: "manual" (default) or "auto", inherited by children.
             validator: バリデーション用スキーマ
             v2_mode: Trueの場合、新しいV2エンジンの試験的機能を使用する
             v2_config: V2エンジンの構成オブジェクト
@@ -148,13 +172,37 @@ class AsyncNanaSQLite:
         # override coerce from kwargs if provided (v1 signature compatibility)
         coerce = kwargs.get("coerce", coerce)
         hooks = kwargs.get("hooks")
-        flush_mode = kwargs.get("flush_mode", "immediate")
-        flush_interval = kwargs.get("flush_interval", 3.0)
+        memory_first = bool(kwargs.get("memory_first", False))
+        flush_mode = kwargs.get("flush_mode", "time" if memory_first else "immediate")
+        flush_interval = kwargs.get("flush_interval", kwargs.get("memory_flush_interval", 5.0) if memory_first else 3.0)
         flush_count = kwargs.get("flush_count", 100)
         v2_chunk_size = kwargs.get("v2_chunk_size", 1000)
         v2_max_dlq_size = kwargs.get("v2_max_dlq_size", 1000)
         v2_enable_metrics = kwargs.get("v2_enable_metrics", False)
         warn_duplicate_table_instance = kwargs.get("warn_duplicate_table_instance", True)
+        self._cache_consistency = kwargs.get("cache_consistency", "manual")
+        self._memory_first = bool(kwargs.get("memory_first", False))
+        max_pending = kwargs.get("max_pending_operations")
+        admission_timeout = kwargs.get("admission_timeout")
+        if max_pending is not None and (
+            isinstance(max_pending, bool) or not isinstance(max_pending, int) or max_pending <= 0
+        ):
+            raise ValueError("max_pending_operations must be a positive integer or None")
+        if admission_timeout is not None and (
+            isinstance(admission_timeout, bool)
+            or not isinstance(admission_timeout, (int, float))
+            or not math.isfinite(admission_timeout)
+            or admission_timeout <= 0
+        ):
+            raise ValueError("admission_timeout must be a positive finite number or None")
+        if admission_timeout is not None and max_pending is None:
+            raise ValueError("admission_timeout requires max_pending_operations")
+        # Unbounded jobs must be drained too, including cancelled callers.
+        self._admission = _Admission(max_pending)
+        self._admission_timeout = admission_timeout
+        self._closing = False
+        self._close_task: asyncio.Task | None = None
+        self._initialization_task: asyncio.Task | None = None
 
         self._db_path = db_path
         self._table = table
@@ -248,8 +296,34 @@ class AsyncNanaSQLite:
             self._hooks_raw.append(hook)
 
     async def _ensure_initialized(self) -> None:
+        """Shield lazy connection creation from cancellation of the first caller."""
+        if self._closed or self._closing:
+            if not getattr(self, "_is_connection_owner", True):
+                raise NanaSQLiteClosedError(f"Parent database connection is closed (table: {self._table!r})")
+            raise NanaSQLiteClosedError("Database connection is closing or closed")
+        if self._admission is not None and self._admission.closing:
+            raise NanaSQLiteClosedError("Parent database connection is closing or closed")
+        task = self._initialization_task
+        if task is not None and not task.done():
+            await asyncio.shield(task)
+            return
+        if self._db is not None:
+            return
+        task = asyncio.create_task(self._initialize())
+        self._initialization_task = task
+        # Observe failure even if every waiting caller has been cancelled.
+        task.add_done_callback(self._initialization_completed)
+        await asyncio.shield(task)
+
+    def _initialization_completed(self, task: asyncio.Task) -> None:
+        if not task.cancelled():
+            task.exception()
+        if self._initialization_task is task:
+            self._initialization_task = None
+
+    async def _initialize(self) -> None:
         """Ensure the underlying sync database is initialized"""
-        if self._closed:
+        if self._closed or self._closing:
             if not getattr(self, "_is_connection_owner", True):
                 raise NanaSQLiteClosedError(f"Parent database connection is closed (table: {self._table!r})")
             raise NanaSQLiteClosedError("Database connection is closed")
@@ -263,6 +337,8 @@ class AsyncNanaSQLite:
 
         async with self._init_lock:
             # Check again inside lock
+            if self._closed or self._closing:
+                raise NanaSQLiteClosedError("Database is closing or closed")
             if self._db is not None:
                 return
 
@@ -300,6 +376,8 @@ class AsyncNanaSQLite:
                     v2_max_dlq_size=self._v2_max_dlq_size,
                     v2_enable_metrics=self._v2_enable_metrics,
                     warn_duplicate_table_instance=self._warn_duplicate_table_instance,
+                    cache_consistency=self._cache_consistency,
+                    memory_first=self._memory_first,
                 ),
             )
 
@@ -347,15 +425,68 @@ class AsyncNanaSQLite:
             pool.put(conn)
 
     async def _run_in_executor(self, func, *args):
-        """Run a synchronous function in the executor"""
-        await self._ensure_initialized()
+        """Bound submitted work; cancellation never frees a running worker slot.
+
+        Admission timeout means no work was submitted. After submission,
+        cancellation does not undo a write: inspect its result before retrying.
+        The bound covers executor jobs, not user-created waiting coroutines or
+        the separate v2 write-back buffer.
+        """
+        # Public operations already initialize before resolving the bound DB
+        # method. Avoid a second coroutine round-trip on every executor call.
+        if self._db is None or self._initialization_task is not None:
+            await self._ensure_initialized()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, func, *args)
+        admission = self._admission
+        semaphore = admission.semaphore
+        if semaphore is not None:
+            if self._admission_timeout is None:
+                await semaphore.acquire()
+            else:
+                await asyncio.wait_for(semaphore.acquire(), self._admission_timeout)
+        try:
+            if self._closed or self._closing or admission.closing:
+                raise NanaSQLiteClosedError("Database is closing or closed")
+            future = loop.run_in_executor(self._executor, func, *args)
+        except BaseException:
+            if semaphore is not None:
+                semaphore.release()
+            raise
+        admission.active.add(future)
+        future.add_done_callback(admission.completed)
+        return await asyncio.shield(future)
+
+    async def aget_status(self) -> dict[str, Any]:
+        """Return payload-free persistence diagnostics."""
+        await self._ensure_initialized()
+        return await self._run_in_executor(self._db.get_status)
+
+    async def aget_dlq_summary(self) -> list[dict[str, Any]]:
+        """Return redacted failure codes and timestamps."""
+        await self._ensure_initialized()
+        return await self._run_in_executor(self._db.get_dlq_summary)
+
+    async def aiter_items(self, batch_size: int = 1000) -> AsyncIterator[tuple[str, Any]]:
+        """Async keyset iteration; see NanaSQLite.iter_items for consistency rules."""
+        if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size <= 0:
+            raise ValueError("batch_size must be a positive integer")
+        await self._ensure_initialized()
+        await self._run_in_executor(self._db._prepare_iteration)
+        after = None
+        while True:
+            page = await self._run_in_executor(self._db._iter_items_page, after, batch_size)
+            if not page:
+                return
+            after = page[-1][0]
+            for item in page:
+                yield item
+            if len(page) < batch_size:
+                return
 
     def _try_get_unbounded_cache_hit(self, key: str, default: Any = None) -> tuple[bool, Any]:
         """Return a cached unbounded value without crossing the executor boundary."""
         db = self._db
-        if db is None or db._lru_mode or db._has_hooks:
+        if db is None or db._cache_consistency == "auto" or db._lru_mode or db._has_hooks:
             return False, None
         try:
             return True, db._data[key]
@@ -367,7 +498,7 @@ class AsyncNanaSQLite:
     def _try_contains_unbounded_cache_hit(self, key: str) -> tuple[bool, bool]:
         """Return cached unbounded containment knowledge when available."""
         db = self._db
-        if db is None or db._lru_mode:
+        if db is None or db._cache_consistency == "auto" or db._lru_mode:
             return False, False
         try:
             _ = db._data[key]
@@ -380,15 +511,22 @@ class AsyncNanaSQLite:
     def _try_batch_get_unbounded_cache_hit(self, keys: list[str]) -> tuple[bool, dict[str, Any]]:
         """Return batch_get results without executor when every key is cache-known."""
         db = self._db
-        if db is None or db._lru_mode or db._has_hooks:
+        if db is None or db._cache_consistency == "auto" or db._lru_mode or db._has_hooks:
             return False, {}
 
+        cache_data = db._data
+        absent = db._absent_keys
+        if not absent:
+            try:
+                return True, {key: cache_data[key] for key in keys}
+            except KeyError:
+                return False, {}
         results = {}
         for key in keys:
             try:
-                results[key] = db._data[key]
+                results[key] = cache_data[key]
             except KeyError:
-                if key not in db._absent_keys:
+                if key not in absent:
                     return False, {}
         return True, results
 
@@ -410,11 +548,14 @@ class AsyncNanaSQLite:
             >>> config = await db.aget("config", {})
         """
         await self._ensure_initialized()
-        cache_hit, value = self._try_get_unbounded_cache_hit(key, default)
-        if cache_hit:
-            return value
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.get, key, default)
+        db = self._db
+        if db._cache_consistency == "manual" and not db._lru_mode and not db._has_hooks:
+            try:
+                return db._data[key]
+            except KeyError:
+                if key in db._absent_keys:
+                    return default
+        return await self._run_in_executor(db.get, key, default)
 
     async def aset(self, key: str, value: Any) -> None:
         """
@@ -428,8 +569,7 @@ class AsyncNanaSQLite:
             >>> await db.aset("user", {"name": "Nana", "age": 20})
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.__setitem__, key, value)
+        await self._run_in_executor(self._db.__setitem__, key, value)
 
     async def adelete(self, key: str) -> None:
         """
@@ -445,8 +585,7 @@ class AsyncNanaSQLite:
             >>> await db.adelete("old_data")
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.__delitem__, key)
+        await self._run_in_executor(self._db.__delitem__, key)
 
     async def acontains(self, key: str) -> bool:
         """
@@ -468,8 +607,7 @@ class AsyncNanaSQLite:
         cache_hit, exists = self._try_contains_unbounded_cache_hit(key)
         if cache_hit:
             return exists
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.__contains__, key)
+        return await self._run_in_executor(self._db.__contains__, key)
 
     async def alen(self) -> int:
         """
@@ -482,8 +620,7 @@ class AsyncNanaSQLite:
             >>> count = await db.alen()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.__len__)
+        return await self._run_in_executor(self._db.__len__)
 
     async def akeys(self) -> list[str]:
         """
@@ -496,8 +633,7 @@ class AsyncNanaSQLite:
             >>> keys = await db.akeys()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.keys)
+        return await self._run_in_executor(self._db.keys)
 
     async def avalues(self) -> list[Any]:
         """
@@ -510,8 +646,7 @@ class AsyncNanaSQLite:
             >>> values = await db.avalues()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.values)
+        return await self._run_in_executor(self._db.values)
 
     async def aitems(self) -> list[tuple[str, Any]]:
         """
@@ -524,8 +659,7 @@ class AsyncNanaSQLite:
             >>> items = await db.aitems()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.items)
+        return await self._run_in_executor(self._db.items)
 
     async def apop(self, key: str, *args) -> Any:
         """
@@ -543,8 +677,7 @@ class AsyncNanaSQLite:
             >>> value = await db.apop("maybe_missing", "default")
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.pop, key, *args)
+        return await self._run_in_executor(self._db.pop, key, *args)
 
     async def aupdate(self, mapping: dict | None = None, **kwargs) -> None:
         """
@@ -559,13 +692,12 @@ class AsyncNanaSQLite:
             >>> await db.aupdate(key3="value3", key4="value4")
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
 
         # Create a wrapper function that captures kwargs
         def update_wrapper():
             self._db.update(mapping, **kwargs)
 
-        await loop.run_in_executor(self._executor, update_wrapper)
+        await self._run_in_executor(update_wrapper)
 
     async def aflush(self, wait: bool = False) -> None:
         """
@@ -576,13 +708,12 @@ class AsyncNanaSQLite:
             >>> await db.aflush(wait=True)
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
 
         # Create a tiny closure to pass the keyword argument to flush
         def _flush_wrapper():
             self._db.flush(wait=wait)
 
-        await loop.run_in_executor(self._executor, _flush_wrapper)
+        await self._run_in_executor(_flush_wrapper)
 
     async def aclear(self) -> None:
         """
@@ -592,8 +723,7 @@ class AsyncNanaSQLite:
             >>> await db.aclear()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.clear)
+        await self._run_in_executor(self._db.clear)
 
     # ==================== v2 DLQ / Metrics API ====================
 
@@ -606,8 +736,7 @@ class AsyncNanaSQLite:
             >>> failed = await db.aget_dlq()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.get_dlq)
+        return await self._run_in_executor(self._db.get_dlq)
 
     async def aretry_dlq(self) -> None:
         """
@@ -618,8 +747,7 @@ class AsyncNanaSQLite:
             >>> await db.aretry_dlq()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.retry_dlq)
+        await self._run_in_executor(self._db.retry_dlq)
 
     async def aclear_dlq(self) -> None:
         """
@@ -630,8 +758,7 @@ class AsyncNanaSQLite:
             >>> await db.aclear_dlq()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.clear_dlq)
+        await self._run_in_executor(self._db.clear_dlq)
 
     async def aget_v2_metrics(self) -> dict[str, Any]:
         """
@@ -643,8 +770,7 @@ class AsyncNanaSQLite:
             >>> print(metrics["flush_count"])
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.get_v2_metrics)
+        return await self._run_in_executor(self._db.get_v2_metrics)
 
     async def asetdefault(self, key: str, default: Any = None) -> Any:
         """
@@ -661,8 +787,7 @@ class AsyncNanaSQLite:
             >>> value = await db.asetdefault("config", {})
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.setdefault, key, default)
+        return await self._run_in_executor(self._db.setdefault, key, default)
 
     async def aupsert(
         self,
@@ -684,9 +809,8 @@ class AsyncNanaSQLite:
             >>> await db.aupsert("user:1", {"name": "Nana"})
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
         func = functools.partial(self._db.upsert, table_name, data, conflict_columns=conflict_columns)
-        return await loop.run_in_executor(self._executor, func)
+        return await self._run_in_executor(func)
 
     # Alias for consistency
     upsert = aupsert
@@ -701,8 +825,7 @@ class AsyncNanaSQLite:
             >>> await db.load_all()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.load_all)
+        await self._run_in_executor(self._db.load_all)
 
     async def refresh(self, key: str | None = None) -> None:
         """
@@ -716,8 +839,7 @@ class AsyncNanaSQLite:
             >>> await db.refresh()  # 全キャッシュ更新
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.refresh, key)
+        await self._run_in_executor(self._db.refresh, key)
 
     async def is_cached(self, key: str) -> bool:
         """
@@ -733,8 +855,7 @@ class AsyncNanaSQLite:
             >>> cached = await db.is_cached("user")
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.is_cached, key)
+        return await self._run_in_executor(self._db.is_cached, key)
 
     async def batch_update(self, mapping: dict[str, Any]) -> None:
         """
@@ -751,8 +872,7 @@ class AsyncNanaSQLite:
             ... })
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.batch_update, mapping)
+        await self._run_in_executor(self._db.batch_update, mapping)
 
     async def batch_update_partial(self, mapping: dict[str, Any]) -> dict[str, str]:
         """
@@ -768,8 +888,7 @@ class AsyncNanaSQLite:
             拒否されたキー -> エラーメッセージ のdict
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.batch_update_partial, mapping)
+        return await self._run_in_executor(self._db.batch_update_partial, mapping)
 
     async def aincrement(
         self,
@@ -781,7 +900,6 @@ class AsyncNanaSQLite:
     ) -> Any:
         """Atomically increment a numeric value or top-level numeric dict field."""
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
         operation = functools.partial(
             self._db.increment,
             key,
@@ -789,14 +907,13 @@ class AsyncNanaSQLite:
             field=field,
             default=default,
         )
-        return await loop.run_in_executor(self._executor, operation)
+        return await self._run_in_executor(operation)
 
     async def apatch(self, key: str, changes: dict[str, Any], *, create: bool = False) -> Any:
         """Atomically apply a shallow dictionary merge and return the stored value."""
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
         operation = functools.partial(self._db.patch, key, changes, create=create)
-        return await loop.run_in_executor(self._executor, operation)
+        return await self._run_in_executor(operation)
 
     async def batch_delete(self, keys: list[str]) -> None:
         """
@@ -809,8 +926,7 @@ class AsyncNanaSQLite:
             >>> await db.batch_delete(["key1", "key2", "key3"])
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.batch_delete, keys)
+        await self._run_in_executor(self._db.batch_delete, keys)
 
     async def to_dict(self) -> dict:
         """
@@ -823,8 +939,7 @@ class AsyncNanaSQLite:
             >>> data = await db.to_dict()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.to_dict)
+        return await self._run_in_executor(self._db.to_dict)
 
     async def copy(self) -> dict:
         """
@@ -837,8 +952,7 @@ class AsyncNanaSQLite:
             >>> data_copy = await db.copy()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.copy)
+        return await self._run_in_executor(self._db.copy)
 
     async def get_fresh(self, key: str, default: Any = None) -> Any:
         """
@@ -855,8 +969,7 @@ class AsyncNanaSQLite:
             >>> value = await db.get_fresh("key")
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.get_fresh, key, default)
+        return await self._run_in_executor(self._db.get_fresh, key, default)
 
     async def abatch_get(self, keys: list[str]) -> dict[str, Any]:
         """
@@ -875,8 +988,7 @@ class AsyncNanaSQLite:
         cache_hit, results = self._try_batch_get_unbounded_cache_hit(keys)
         if cache_hit:
             return results
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.batch_get, keys)
+        return await self._run_in_executor(self._db.batch_get, keys)
 
     # ==================== Async Pydantic Support ====================
 
@@ -897,8 +1009,7 @@ class AsyncNanaSQLite:
             >>> await db.set_model("user", user)
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.set_model, key, model)
+        await self._run_in_executor(self._db.set_model, key, model)
 
     async def get_model(self, key: str, model_class: type = None) -> Any:
         """
@@ -915,8 +1026,7 @@ class AsyncNanaSQLite:
             >>> user = await db.get_model("user", User)
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.get_model, key, model_class)
+        return await self._run_in_executor(self._db.get_model, key, model_class)
 
     # ==================== Async SQL Execution ====================
 
@@ -935,8 +1045,7 @@ class AsyncNanaSQLite:
             >>> cursor = await db.execute("SELECT * FROM data WHERE key LIKE ?", ("user%",))
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.execute, sql, parameters)
+        return await self._run_in_executor(self._db.execute, sql, parameters)
 
     async def execute_many(self, sql: str, parameters_list: list[tuple]) -> None:
         """
@@ -953,8 +1062,7 @@ class AsyncNanaSQLite:
             ... )
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.execute_many, sql, parameters_list)
+        await self._run_in_executor(self._db.execute_many, sql, parameters_list)
 
     async def fetch_one(self, sql: str, parameters: tuple | None = None) -> tuple | None:
         """
@@ -977,8 +1085,7 @@ class AsyncNanaSQLite:
                 cursor = conn.execute(sql, parameters)
                 return cursor.fetchone()
 
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, _fetch_one_impl)
+        return await self._run_in_executor(_fetch_one_impl)
 
     async def fetch_all(self, sql: str, parameters: tuple | None = None) -> list[tuple]:
         """
@@ -1001,8 +1108,7 @@ class AsyncNanaSQLite:
                 cursor = conn.execute(sql, parameters)
                 return list(cursor)
 
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, _fetch_all_impl)
+        return await self._run_in_executor(_fetch_all_impl)
 
     # ==================== Async SQLite Wrapper Functions ====================
 
@@ -1026,10 +1132,7 @@ class AsyncNanaSQLite:
             ... })
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor, self._db.create_table, table_name, columns, if_not_exists, primary_key
-        )
+        await self._run_in_executor(self._db.create_table, table_name, columns, if_not_exists, primary_key)
 
     async def create_index(
         self, index_name: str, table_name: str, columns: list[str], unique: bool = False, if_not_exists: bool = True
@@ -1048,10 +1151,7 @@ class AsyncNanaSQLite:
             >>> await db.create_index("idx_users_email", "users", ["email"], unique=True)
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor, self._db.create_index, index_name, table_name, columns, unique, if_not_exists
-        )
+        await self._run_in_executor(self._db.create_index, index_name, table_name, columns, unique, if_not_exists)
 
     async def query(
         self,
@@ -1096,9 +1196,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
 
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
+        return await self._run_in_executor(
             self._shared_query_impl,
             table_name,
             columns,
@@ -1162,9 +1260,7 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
 
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
+        return await self._run_in_executor(
             self._shared_query_impl,
             table_name,
             columns,
@@ -1194,8 +1290,7 @@ class AsyncNanaSQLite:
             >>> exists = await db.table_exists("users")
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.table_exists, table_name)
+        return await self._run_in_executor(self._db.table_exists, table_name)
 
     async def list_tables(self) -> list[str]:
         """
@@ -1208,8 +1303,7 @@ class AsyncNanaSQLite:
             >>> tables = await db.list_tables()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.list_tables)
+        return await self._run_in_executor(self._db.list_tables)
 
     async def drop_table(self, table_name: str, if_exists: bool = True) -> None:
         """
@@ -1223,8 +1317,7 @@ class AsyncNanaSQLite:
             >>> await db.drop_table("old_table")
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.drop_table, table_name, if_exists)
+        await self._run_in_executor(self._db.drop_table, table_name, if_exists)
 
     async def drop_index(self, index_name: str, if_exists: bool = True) -> None:
         """
@@ -1238,8 +1331,7 @@ class AsyncNanaSQLite:
             >>> await db.drop_index("idx_users_email")
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.drop_index, index_name, if_exists)
+        await self._run_in_executor(self._db.drop_index, index_name, if_exists)
 
     async def sql_insert(self, table_name: str, data: dict) -> int:
         """
@@ -1260,8 +1352,7 @@ class AsyncNanaSQLite:
             ... })
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.sql_insert, table_name, data)
+        return await self._run_in_executor(self._db.sql_insert, table_name, data)
 
     async def sql_update(self, table_name: str, data: dict, where: str, parameters: tuple | None = None) -> int:
         """
@@ -1284,8 +1375,7 @@ class AsyncNanaSQLite:
             ... )
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.sql_update, table_name, data, where, parameters)
+        return await self._run_in_executor(self._db.sql_update, table_name, data, where, parameters)
 
     async def sql_delete(self, table_name: str, where: str, parameters: tuple | None = None) -> int:
         """
@@ -1303,8 +1393,7 @@ class AsyncNanaSQLite:
             >>> count = await db.sql_delete("users", "age < ?", (18,))
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.sql_delete, table_name, where, parameters)
+        return await self._run_in_executor(self._db.sql_delete, table_name, where, parameters)
 
     async def count(
         self,
@@ -1335,9 +1424,7 @@ class AsyncNanaSQLite:
             >>> count = await db.count("users", "age < ?", (18,))
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
+        return await self._run_in_executor(
             self._db.count,
             table_name,
             where,
@@ -1356,8 +1443,7 @@ class AsyncNanaSQLite:
             >>> await db.vacuum()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.vacuum)
+        await self._run_in_executor(self._db.vacuum)
 
     # ==================== Transaction Control ====================
 
@@ -1375,8 +1461,7 @@ class AsyncNanaSQLite:
             ...     await db.rollback()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.begin_transaction)
+        await self._run_in_executor(self._db.begin_transaction)
 
     async def commit(self) -> None:
         """
@@ -1386,8 +1471,7 @@ class AsyncNanaSQLite:
             >>> await db.commit()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.commit)
+        await self._run_in_executor(self._db.commit)
 
     async def rollback(self) -> None:
         """
@@ -1397,8 +1481,7 @@ class AsyncNanaSQLite:
             >>> await db.rollback()
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.rollback)
+        await self._run_in_executor(self._db.rollback)
 
     async def in_transaction(self) -> bool:
         """
@@ -1412,8 +1495,7 @@ class AsyncNanaSQLite:
             >>> print(f"In transaction: {status}")
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.in_transaction)
+        return await self._run_in_executor(self._db.in_transaction)
 
     def transaction(self):
         """
@@ -1447,14 +1529,33 @@ class AsyncNanaSQLite:
         """
         if self._db is None:
             return
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.clear_cache)
+        await self._run_in_executor(self._db.clear_cache)
 
     async def clear_cache(self) -> None:
         """aclear_cache のエイリアス"""
         await self.aclear_cache()
 
     async def close(self) -> None:
+        """Drain accepted work and close; caller cancellation is shielded."""
+        if self._close_task is None:
+            self._closing = True
+            if self._owns_executor and self._admission is not None:
+                self._admission.closing = True
+            self._close_task = asyncio.create_task(self._close_recoverable())
+        await asyncio.shield(self._close_task)
+
+    async def _close_recoverable(self) -> None:
+        try:
+            await self._close_impl()
+        except BaseException:
+            if not self._closed:
+                self._closing = False
+                if self._owns_executor:
+                    self._admission.closing = False
+                self._close_task = None
+            raise
+
+    async def _close_impl(self) -> None:
         """
         非同期でデータベース接続を閉じる
 
@@ -1465,6 +1566,16 @@ class AsyncNanaSQLite:
         """
         if self._closed:
             return
+
+        if self._initialization_task is not None:
+            await asyncio.gather(asyncio.shield(self._initialization_task), return_exceptions=True)
+        if self._init_lock is not None:
+            async with self._init_lock:
+                pass
+        if self._admission is not None:
+            active = tuple(self._admission.active)
+            if active:
+                await asyncio.gather(*(asyncio.shield(f) for f in active), return_exceptions=True)
 
         if self._db is not None:
             loop = asyncio.get_running_loop()
@@ -1594,8 +1705,7 @@ class AsyncNanaSQLite:
         await self._ensure_initialized()
 
         loop = asyncio.get_running_loop()
-        sub_db = await loop.run_in_executor(
-            self._executor,
+        sub_db = await self._run_in_executor(
             lambda: self._db.table(
                 table_name,
                 validator=validator,
@@ -1616,6 +1726,14 @@ class AsyncNanaSQLite:
         async_sub_db._thread_name_prefix = self._thread_name_prefix + f"_{table_name}"
         async_sub_db._db = sub_db  # 接続を共有した同期版DBを設定
         async_sub_db._closed = False  # クローズ状態を初期化
+        async_sub_db._closing = False
+        async_sub_db._close_task = None
+        async_sub_db._initialization_task = None
+        async_sub_db._admission = self._admission
+        async_sub_db._admission_timeout = self._admission_timeout
+        async_sub_db._cache_consistency = self._cache_consistency
+        async_sub_db._memory_first = sub_db._memory_first
+        async_sub_db._init_lock = None
         async_sub_db._loop = loop  # イベントループを共有
         async_sub_db._executor = self._executor  # 同じエグゼキューターを共有
         async_sub_db._owns_executor = False  # エグゼキューターは所有しない
@@ -1699,7 +1817,6 @@ class AsyncNanaSQLite:
             allow_incomplete: DLQ が残る状態でのバックアップを許可する
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
         operation = functools.partial(
             self._db.backup,
             target_path,
@@ -1707,7 +1824,7 @@ class AsyncNanaSQLite:
             flush=flush,
             allow_incomplete=allow_incomplete,
         )
-        await loop.run_in_executor(self._executor, operation)
+        await self._run_in_executor(operation)
 
     async def arestore(self, source_path: str) -> None:
         """
@@ -1717,8 +1834,7 @@ class AsyncNanaSQLite:
             source_path: リストア元のファイルパス
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._db.restore, source_path)
+        await self._run_in_executor(self._db.restore, source_path)
 
     async def apragma(self, pragma_name: str, value: Any = None) -> Any:
         """
@@ -1732,8 +1848,7 @@ class AsyncNanaSQLite:
             PRAGMAの結果
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.pragma, pragma_name, value)
+        return await self._run_in_executor(self._db.pragma, pragma_name, value)
 
     async def aget_table_schema(self, table_name: str | None = None) -> list[dict]:
         """
@@ -1746,8 +1861,7 @@ class AsyncNanaSQLite:
             スキーマ情報のリスト
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.get_table_schema, table_name)
+        return await self._run_in_executor(self._db.get_table_schema, table_name)
 
     async def alist_indexes(self, table_name: str | None = None) -> list[str]:
         """
@@ -1760,8 +1874,7 @@ class AsyncNanaSQLite:
             インデックス名のリスト
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.list_indexes, table_name)
+        return await self._run_in_executor(self._db.list_indexes, table_name)
 
     async def aalter_table_add_column(self, table_name: str, column_name: str, column_type: str) -> None:
         """
@@ -1773,10 +1886,7 @@ class AsyncNanaSQLite:
             column_type: カラムの型定義
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor, self._db.alter_table_add_column, table_name, column_name, column_type
-        )
+        await self._run_in_executor(self._db.alter_table_add_column, table_name, column_name, column_type)
 
     async def aupsert(
         self, table_name: str | Any = None, data: Any = None, conflict_columns: list[str] | None = None
@@ -1793,8 +1903,7 @@ class AsyncNanaSQLite:
             挿入/更新されたROWID。キー/値ペア指定時はNone。
         """
         await self._ensure_initialized()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._db.upsert, table_name, data, conflict_columns)
+        return await self._run_in_executor(self._db.upsert, table_name, data, conflict_columns)
 
     acreate_table = create_table
     acreate_index = create_index
