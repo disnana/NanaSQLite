@@ -154,5 +154,5 @@ jobs:
 
       - name: Publish to PyPI
         # Docker image tags are published for releases, not arbitrary commit SHAs.
-        uses: pypa/gh-action-pypi-publish@v1.14.1
+        uses: pypa/gh-action-pypi-publish@v1.14.2
         # API キー不要。OIDC で自動認証される。

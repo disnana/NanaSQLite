@@ -526,7 +526,7 @@ jobs:
     - name: Publish to PyPI
       # This Docker action resolves its image from the action ref; use its signed
       # release tag rather than a commit SHA, which has no matching GHCR manifest.
-      uses: pypa/gh-action-pypi-publish@v1.14.1
+      uses: pypa/gh-action-pypi-publish@v1.14.2
 
   # ============================================
   # Release - Main branch only, after publish
