@@ -925,7 +925,7 @@ class TestAsyncCacheStrategyBenchmarks:
 
     @pytest.mark.parametrize("strategy_name", ["unbounded", "lru", "fifo", "ttl"])
     def test_async_cache_read_hit(self, benchmark, async_cache_dbs, strategy_name):
-        """非同期キャッシュ読み込み性能（ヒット）"""
+        """100件のキャッシュヒット。接続作成・初回ロード・終了は計測外。"""
         cache_dir, strategies = async_cache_dbs
         strategy, size = strategies[strategy_name]
 
@@ -939,23 +939,29 @@ class TestAsyncCacheStrategyBenchmarks:
 
         from nanasqlite import AsyncNanaSQLite
 
-        # Pre-fill
+        # Keep the same initialized instance across rounds. Reopening here
+        # measured cold DB reads and connection lifecycle, despite the name.
         async def setup():
-            async with AsyncNanaSQLite(db_path, cache_strategy=strategy, **kw) as db:
-                for i in range(100):
-                    await db.aset(f"r_{i}", i)
+            db = AsyncNanaSQLite(db_path, cache_strategy=strategy, **kw)
+            await db.abatch_update({f"r_{i}": i for i in range(100)})
+            return db
 
-        run_async(setup())
+        db = run_async(setup())
+        keys = [f"r_{i}" for i in range(100)]
 
         def read_op():
             async def _read():
-                async with AsyncNanaSQLite(db_path, cache_strategy=strategy, **kw) as db:
-                    for i in range(100):
-                        await db.aget(f"r_{i}")
+                total = 0
+                for key in keys:
+                    total += await db.aget(key)
+                return total
 
-            run_async(_read())
+            return run_async(_read())
 
-        benchmark(read_op)
+        try:
+            assert benchmark(read_op) == sum(range(100))
+        finally:
+            run_async(db.close())
 
     def test_async_lru_eviction(self, benchmark, async_cache_dbs):
         """非同期LRU退避コスト"""

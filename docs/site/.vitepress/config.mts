@@ -45,6 +45,7 @@ export default defineConfig({
                 text: '運用・セキュリティ',
                 items: [
                     { text: '性能・最適化', link: '/performance_tuning' },
+                    { text: '保存状態・高負荷制御', link: '/operations' },
                     { text: 'ベストプラクティス', link: '/best_practices' },
                     { text: 'セキュリティ監査', link: '/security_audit' }
                 ]
@@ -108,6 +109,7 @@ export default defineConfig({
                         text: 'Operations & Security',
                         items: [
                             { text: 'Performance Tuning', link: '/en/performance_tuning' },
+                            { text: 'Persistence & Load Control', link: '/en/operations' },
                             { text: 'Best Practices', link: '/en/best_practices' },
                             { text: 'Security Audit', link: '/en/security_audit' }
                         ]

@@ -28,6 +28,8 @@ def parse_single_benchmark(filepath):
 
 def load_previous_benchmark():
     """Load previous benchmark data from gh-pages branch if available."""
+    if os.environ.get("BENCHMARK_COMPARE_PREVIOUS", "true").lower() == "false":
+        return {}
     try:
         # Try to get the benchmark data from gh-pages branch
         bench_path = os.environ.get("BENCH_DATA_PATH", "dev/bench/data.js")

@@ -19,7 +19,7 @@ This conclusion assumes applications do not pass untrusted input directly as SQL
 - Reviewed every dynamic SQL construction path, including identifier, column-type, expression, and PRAGMA validation.
 - Reviewed AES-GCM / ChaCha20-Poly1305 use, backup/restore integrity checks and atomic replacement, plus Async/V2 boundaries.
 - `python -m tox -e lint,type` — PASS
-- `python -m pytest tests -x -q` — **1051 passed, 12 skipped**
+- `python -m pytest tests -q` — **1062 passed, 12 skipped**
 
 ## Verified controls
 
@@ -29,7 +29,7 @@ This conclusion assumes applications do not pass untrusted input directly as SQL
 | Column types | Character and parenthesis-depth validation rejects injected definitions |
 | SQL expressions | Checks structural SQL, subquery keywords, and unapproved functions |
 | PRAGMA | Separate read and write allowlists |
-| Encrypted values | AEAD uses random nonces and never falls back to plaintext after decryption failure |
+| Encrypted values | AEAD uses random nonces and rejects plaintext rows by default; legacy plaintext requires an explicit migration opt-in |
 | Backup / restore | Integrity checks, temporary files with atomic replacement, and WAL/SHM handling |
 | V2 direct use | Safe table-name validation is also enforced within V2 Engine |
 
@@ -56,5 +56,7 @@ Limit request concurrency at the service boundary (for example, with a semaphore
 ## Notes and follow-up
 
 The current AEAD format does not bind metadata with AAD. This is not a present vulnerability; a future AAD design should introduce a versioned format while retaining readable legacy data.
+
+When AEAD is enabled, non-bytes rows are rejected by default. Applications migrating an older plaintext database may temporarily set `allow_legacy_plaintext=True`, re-save each migrated value, and then disable the option.
 
 Dependency CVEs are outside this source-code audit and should be checked separately against the release lockfile.

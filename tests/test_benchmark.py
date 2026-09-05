@@ -124,12 +124,13 @@ class TestReadBenchmarks:
                 # キャッシュにないキーを順番に取得していく
                 key = keys[counter[0] % 1000]
                 result = db[key]
-                # キャッシュをクリアして次のラウンドに備える（refresh()を使用）
-                db.refresh()
                 counter[0] += 1
                 return result
 
-            benchmark(read_uncached)
+            # Explicit one-iteration rounds exclude cache-clearing cost and
+            # ensure the very first sample is cold too (OS pages remain warm).
+            result = benchmark.pedantic(read_uncached, setup=db.clear_cache, rounds=100, iterations=1)
+            assert result == {"data": "value"}
         finally:
             db.close()
 

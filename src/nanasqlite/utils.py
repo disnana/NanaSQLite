@@ -240,7 +240,7 @@ class ExpiringDict(collections.abc.MutableMapping):
                 key_expired = True
                 value = self._data.pop(key, None)
                 self._exptimes.pop(key, None)
-                if value is not None and self._on_expire:
+                if self._on_expire is not None:
                     callback_args = (key, value)
             else:
                 result = self._data[key]  # may raise KeyError if absent
@@ -328,6 +328,26 @@ class ExpiringDict(collections.abc.MutableMapping):
         if self._mode == ExpirationMode.SCHEDULER:
             self._stop_event.clear()
             self._start_scheduler()
+
+    def close(self) -> None:
+        """Stop expiration workers without restarting them.
+
+        ``clear()`` intentionally restarts the scheduler because the mapping
+        remains usable after a cache clear.  Database shutdown needs a
+        terminal operation instead; otherwise clearing a TTL cache during
+        ``NanaSQLite.close()`` would leak a new daemon thread.
+        """
+        with self._lock:
+            for key in tuple(set(self._timers) | set(self._async_tasks)):
+                self._cancel_timer(key)
+            self._data.clear()
+            self._exptimes.clear()
+            self._scheduler_running = False
+            self._stop_event.set()
+        if self._scheduler_thread and self._scheduler_thread.is_alive():
+            if self._scheduler_thread is not threading.current_thread():
+                self._scheduler_thread.join(timeout=2.0)
+        self._scheduler_thread = None
 
     def __del__(self):
         try:

@@ -21,7 +21,7 @@ import warnings
 import weakref
 from collections.abc import Callable, Iterator, MutableMapping
 from dataclasses import dataclass
-from functools import lru_cache
+from functools import lru_cache, wraps
 from typing import TYPE_CHECKING, Any, Literal
 
 import apsw
@@ -93,6 +93,98 @@ def _validate_finite_number(value: Any, name: str) -> int | float:
     if not math.isfinite(value):
         raise NanaSQLiteValidationError(f"{name} must be finite")
     return value
+
+
+def _skip_sql_prefix(sql: str, start: int = 0) -> int:
+    """Skip whitespace and SQL comments before the first statement token."""
+    length = len(sql)
+    index = start
+    while index < length:
+        while index < length and sql[index].isspace():
+            index += 1
+        if sql.startswith("--", index):
+            newline = sql.find("\n", index + 2)
+            index = length if newline < 0 else newline + 1
+            continue
+        if sql.startswith("/*", index):
+            comment_end = sql.find("*/", index + 2)
+            index = length if comment_end < 0 else comment_end + 2
+            continue
+        break
+    return index
+
+
+def _sql_statement_keyword(sql: str) -> str:
+    """Return the effective top-level SQL keyword.
+
+    A simple ``startswith`` check is not sufficient here: callers may put
+    comments before a statement, and a read-only CTE starts with ``WITH``.
+    The scanner deliberately understands only SQL quoting/comments and
+    parentheses; it does not attempt to validate the complete SQL grammar.
+    """
+    index = _skip_sql_prefix(sql)
+    word_match = re.match(r"[A-Za-z_]\w*", sql[index:])
+    if word_match is None:
+        return ""
+    first_word = word_match.group(0).upper()
+    if first_word != "WITH":
+        return first_word
+
+    index += word_match.end()
+    depth = 0
+    cte_body_closed = False
+    length = len(sql)
+    while index < length:
+        index = _skip_sql_prefix(sql, index)
+        if index >= length:
+            break
+
+        char = sql[index]
+        if char in ("'", '"', "`", "["):
+            closing = "]" if char == "[" else char
+            index += 1
+            while index < length:
+                if sql[index] == closing:
+                    # SQL escapes quote characters by doubling them.
+                    if index + 1 < length and sql[index + 1] == closing and closing != "]":
+                        index += 2
+                        continue
+                    index += 1
+                    break
+                index += 1
+            continue
+        if char == "(":
+            depth += 1
+            index += 1
+            continue
+        if char == ")":
+            if depth > 0:
+                depth -= 1
+                if depth == 0:
+                    cte_body_closed = True
+            index += 1
+            continue
+        word_match = re.match(r"[A-Za-z_]\w*", sql[index:])
+        if word_match is not None:
+            word = word_match.group(0).upper()
+            if depth == 0 and cte_body_closed and word in {
+                "SELECT",
+                "INSERT",
+                "UPDATE",
+                "DELETE",
+                "REPLACE",
+                "VALUES",
+            }:
+                return word
+            index += word_match.end()
+            continue
+        index += 1
+    return first_word
+
+
+def _is_read_sql(sql: str) -> bool:
+    """Return whether *sql* is a statement whose rows can be read directly."""
+    return _sql_statement_keyword(sql) in {"SELECT", "PRAGMA", "EXPLAIN", "VALUES"}
 
 
 def _apply_increment_value(
@@ -200,6 +292,28 @@ class V2Config:
     max_dlq_size: int | None = 1000
     enable_metrics: bool = False
 
+    def __post_init__(self) -> None:
+        """Reject invalid scheduling values before an engine is created."""
+        if self.flush_mode not in ("immediate", "count", "time", "manual"):
+            raise ValueError(f"Invalid flush_mode: {self.flush_mode}")
+        if (
+            isinstance(self.flush_interval, bool)
+            or not isinstance(self.flush_interval, (int, float))
+            or not math.isfinite(self.flush_interval)
+            or self.flush_interval <= 0
+        ):
+            raise ValueError("flush_interval must be a positive finite number")
+        if isinstance(self.flush_count, bool) or not isinstance(self.flush_count, int) or self.flush_count <= 0:
+            raise ValueError("flush_count must be a positive integer")
+        if isinstance(self.chunk_size, bool) or not isinstance(self.chunk_size, int) or self.chunk_size <= 0:
+            raise ValueError("chunk_size must be a positive integer")
+        if self.max_dlq_size is not None and (
+            isinstance(self.max_dlq_size, bool)
+            or not isinstance(self.max_dlq_size, int)
+            or self.max_dlq_size <= 0
+        ):
+            raise ValueError("max_dlq_size must be None or a positive integer")
+
 
 class _TimedLockContext:
     """
@@ -221,6 +335,55 @@ class _TimedLockContext:
 
     def __exit__(self, *args: object) -> None:
         self._lock.release()
+
+
+def _coherent_cache(method):
+    """Keep freshness checks and cache use in one shared-connection lock."""
+    # Avoid allocating *args/**kwargs on the default dict hot paths.
+    if method.__name__ == "__getitem__":
+        @wraps(method)
+        def read(self, key):
+            if self._cache_consistency == "auto":
+                with self._acquire_lock():
+                    self._sync_cache_version()
+                    return method(self, key)
+            # Preserve the pre-feature positive-cache hot path without an
+            # extra function call. Misses and all hook/eviction semantics stay
+            # in the original implementation.
+            if not self._lru_mode and not self._has_hooks:
+                try:
+                    return self._data[key]
+                except KeyError:
+                    pass
+            return method(self, key)
+        return read
+    if method.__name__ == "__setitem__":
+        @wraps(method)
+        def write(self, key, value):
+            if self._cache_consistency != "auto":
+                return method(self, key, value)
+            with self._acquire_lock():
+                self._sync_cache_version()
+                return method(self, key, value)
+        return write
+    if method.__name__ in ("__getitem__", "__contains__", "__delitem__"):
+        @wraps(method)
+        def keyed(self, key):
+            if self._cache_consistency != "auto":
+                return method(self, key)
+            with self._acquire_lock():
+                self._sync_cache_version()
+                return method(self, key)
+        return keyed
+
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        if self._cache_consistency != "auto":
+            return method(self, *args, **kwargs)
+        with self._acquire_lock():
+            self._sync_cache_version()
+            return method(self, *args, **kwargs)
+    return wrapped
 
 
 class NanaSQLite(MutableMapping):
@@ -281,6 +444,9 @@ class NanaSQLite(MutableMapping):
             flush_count: v2のcountモード時の書き込み閾値
             v2_chunk_size: v2フラッシュ時のトランザクション最大件数
             v2_enable_metrics: True の場合、v2エンジンのフラッシュメトリクスを収集する（オプション）
+            allow_legacy_plaintext: AEAD有効時に旧平文行の読み込みを許可する（移行時のみ）
+            cache_consistency: "manual" (default) or "auto". Auto polls for
+                external/shared-connection changes and requires immediate persistence.
             _shared_connection: 内部用：共有する接続
             _shared_lock: 内部用：共有するロック
         """
@@ -288,6 +454,7 @@ class NanaSQLite(MutableMapping):
         # Extract parameters from kwargs for backward compatibility and internal use
         encryption_key = kwargs.get("encryption_key")
         encryption_mode = kwargs.get("encryption_mode", "aes-gcm")
+        allow_legacy_plaintext = bool(kwargs.get("allow_legacy_plaintext", False))
         hooks = kwargs.get("hooks")
         cache_strategy = kwargs.get("cache_strategy", CacheType.UNBOUNDED)
         lock_timeout = kwargs.get("lock_timeout")
@@ -305,6 +472,14 @@ class NanaSQLite(MutableMapping):
         forbidden_sql_functions = kwargs.get("forbidden_sql_functions")
         max_clause_length = kwargs.get("max_clause_length", 1000)
         memory_first = bool(kwargs.get("memory_first", False))
+        self._cache_consistency = kwargs.get("cache_consistency", "manual")
+        if self._cache_consistency not in ("manual", "auto"):
+            raise NanaSQLiteValidationError("cache_consistency must be 'manual' or 'auto'")
+        if self._cache_consistency == "auto" and (v2_mode or memory_first or cache_persistence_ttl):
+            raise NanaSQLiteValidationError(
+                "Automatic cache consistency requires immediate persistence without persistence TTL"
+            )
+        self._cache_version: tuple[int, int, bool] | None = None
         memory_flush_interval = kwargs.get("memory_flush_interval", 5.0)
         _shared_connection = kwargs.get("_shared_connection")
         _shared_lock = kwargs.get("_shared_lock")
@@ -337,23 +512,17 @@ class NanaSQLite(MutableMapping):
         # time.  These strings include the (constant) quoted table name and are
         # reconstructed on every call as f-strings otherwise, adding measurable
         # overhead to the write/read/delete/contains hot paths.
-        self._sql_kv_insert: str = (
-            f"INSERT OR REPLACE INTO {sanitized_table} (key, value) VALUES (?, ?)"  # nosec
-        )
+        self._sql_kv_insert: str = f"INSERT OR REPLACE INTO {sanitized_table} (key, value) VALUES (?, ?)"  # nosec
         self._sql_kv_delete: str = f"DELETE FROM {sanitized_table} WHERE key = ?"  # nosec
         self._sql_kv_select: str = f"SELECT value FROM {sanitized_table} WHERE key = ?"  # nosec
-        self._sql_kv_contains: str = (
-            f"SELECT 1 FROM {sanitized_table} WHERE key = ? LIMIT 1"  # nosec
-        )
+        self._sql_kv_contains: str = f"SELECT 1 FROM {sanitized_table} WHERE key = ? LIMIT 1"  # nosec
         self._sql_kv_select_all: str = f"SELECT key, value FROM {sanitized_table}"  # nosec
         self._sql_kv_count: str = f"SELECT COUNT(*) FROM {sanitized_table}"  # nosec
         # PERF-E: Pre-compute SELECT key query used by _get_all_keys_from_db() (keys() / __iter__).
         self._sql_kv_select_keys: str = f"SELECT key FROM {sanitized_table}"  # nosec
         # ``sanitized_table`` is produced by _sanitize_identifier() and is quoted
         # exactly once above. JSON paths and keys remain bound parameters.
-        self._sql_kv_json_extract: str = (
-            f"SELECT json_extract(value, ?) FROM {sanitized_table} WHERE key = ?"  # nosec B608
-        )
+        self._sql_kv_json_extract: str = f"SELECT json_extract(value, ?) FROM {sanitized_table} WHERE key = ?"  # nosec B608
         # lock_timeout を __init__ で一度だけ検証・正規化する（_acquire_lock の高頻度パスでの検証を省く）
         if lock_timeout is not None:
             invalid = (
@@ -374,10 +543,13 @@ class NanaSQLite(MutableMapping):
         # Encryption setup
         self._encryption_key = encryption_key
         self._encryption_mode = encryption_mode
+        self._allow_legacy_plaintext = allow_legacy_plaintext
         self._fernet: Fernet | None = None
         self._aead: AESGCM | ChaCha20Poly1305 | None = None
 
-        if encryption_key:
+        if encryption_key is not None:
+            if not isinstance(encryption_key, (str, bytes)) or not encryption_key:
+                raise NanaSQLiteValidationError("encryption_key must be a non-empty str or bytes value")
             if not HAS_CRYPTOGRAPHY:
                 raise ImportError(
                     "Encryption requires the 'cryptography' library. "
@@ -431,6 +603,18 @@ class NanaSQLite(MutableMapping):
             v2_chunk_size = v2_config.chunk_size
             v2_max_dlq_size = v2_config.max_dlq_size
             v2_enable_metrics = v2_config.enable_metrics
+
+        # Validate before opening a SQLite connection so invalid direct v2
+        # arguments cannot leave a partially initialized connection behind.
+        if v2_mode:
+            V2Config(
+                flush_mode=flush_mode,
+                flush_interval=flush_interval,
+                flush_count=flush_count,
+                chunk_size=v2_chunk_size,
+                max_dlq_size=v2_max_dlq_size,
+                enable_metrics=v2_enable_metrics,
+            )
 
         self._v2_mode = v2_mode
         self._v2_enable_metrics_raw = v2_enable_metrics
@@ -598,6 +782,17 @@ class NanaSQLite(MutableMapping):
                 self._v2_engine = _shared_v2_engine
             else:
                 self._v2_engine = self._create_v2_engine()
+
+        # Bind coherence only for opted-in ordinary methods, preserving the
+        # default cached get/batch hot paths. Python special methods are
+        # dispatched on the class and use the decorator directly.
+        if self._cache_consistency == "auto":
+            for name in (
+                "get", "_get_raw", "setdefault", "batch_get", "load_all", "is_cached",
+                "batch_update", "batch_update_partial", "batch_delete", "pop", "popitem",
+            ):
+                method = getattr(self, name)
+                setattr(self, name, _coherent_cache(method.__func__).__get__(self, type(self)))
 
         # 一括ロード
         if bulk_load:
@@ -1008,6 +1203,11 @@ class NanaSQLite(MutableMapping):
         """
         self._parent_closed = True
         self._unregister_table_instance()
+        close_cache = getattr(self._cache, "close", None)
+        if close_cache is not None:
+            close_cache()
+        else:
+            self._cache.clear()
 
     def _serialize(self, value: Any) -> bytes | str:
         """シリアライズ (JSON -> Encryption if enabled)"""
@@ -1051,8 +1251,14 @@ class NanaSQLite(MutableMapping):
 
         if self._aead:
             if not isinstance(value, bytes):
+                if not self._allow_legacy_plaintext:
+                    raise NanaSQLiteDatabaseError(
+                        "AEAD encryption is enabled but the database contains a legacy plaintext value. "
+                        "Use allow_legacy_plaintext=True only during an explicit migration."
+                    )
                 logger.warning(
-                    "AEAD encryption is enabled but received non-bytes data; treating as unencrypted legacy value"
+                    "AEAD encryption is enabled but received non-bytes data; treating it as an explicitly allowed "
+                    "unencrypted legacy value"
                 )
                 if HAS_ORJSON:
                     return orjson.loads(value)
@@ -1131,6 +1337,80 @@ class NanaSQLite(MutableMapping):
             if self._absent_keys:
                 self._absent_keys.discard(key)
 
+    def _sync_cache_version(self) -> None:
+        """Invalidate on other-connection commits and shared-connection writes.
+
+        Polls on access, not in a background thread. This provides freshness at
+        the check, not a snapshot spanning concurrent reads and writes.
+        """
+        self._check_connection()
+        with self._acquire_lock():
+            version = (
+                self._connection.execute("PRAGMA data_version").fetchone()[0],
+                self._connection.total_changes(),
+                self._connection.getautocommit(),
+            )
+            # Do not reuse transactional cache entries: a shared wrapper may
+            # roll back and begin another transaction without changing totals.
+            if version != self._cache_version or not version[2]:
+                self.clear_cache()
+                self._cache_version = version
+                self._invalidate_hook_indexes()
+
+    def _iter_items_page(self, after: str | None, batch_size: int) -> list[tuple[str, Any]]:
+        """Read and decode one bounded page without populating the cache."""
+        self._check_connection()
+        if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size <= 0:
+            raise NanaSQLiteValidationError("batch_size must be a positive integer")
+        with self._acquire_lock():
+            cursor = self._connection.cursor()
+            try:
+                if after is None:
+                    cursor.execute(f"SELECT key, value FROM {self._safe_table} ORDER BY key LIMIT ?", (batch_size,))
+                else:
+                    cursor.execute(
+                        f"SELECT key, value FROM {self._safe_table} WHERE key > ? ORDER BY key LIMIT ?",
+                        (after, batch_size),
+                    )
+                rows = list(cursor)
+            finally:
+                cursor.close()
+            result = []
+            for key, raw in rows:
+                value = self._deserialize(raw)
+                for hook in self._hooks:
+                    value = hook.after_read(self, key, value)
+                result.append((key, value))
+            return result
+
+    def _prepare_iteration(self) -> None:
+        self._check_connection()
+        if self._v2_mode and self._v2_engine:
+            self._v2_engine.flush(wait=True)
+            if self._v2_engine.get_status()["failed_count"]:
+                raise NanaSQLiteDatabaseError("Cannot iterate with unresolved failed writes")
+
+    def iter_items(self, batch_size: int = 1000) -> Iterator[tuple[str, Any]]:
+        """Yield persisted KVS pairs in key order using bounded keyset pages.
+
+        Flushes write-back data first and rejects unresolved failed writes.
+        Applies decryption and read hooks without filling the cache. No cursor
+        or lock survives a yield. Concurrent changes may affect later pages;
+        use a verified backup when a stable export snapshot is required.
+        """
+        if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size <= 0:
+            raise NanaSQLiteValidationError("batch_size must be a positive integer")
+        self._prepare_iteration()
+        after = None
+        while True:
+            page = self._iter_items_page(after, batch_size)
+            if not page:
+                return
+            after = page[-1][0]
+            yield from page
+            if len(page) < batch_size:
+                return
+
     def _ensure_cached(self, key: str) -> bool:
         """
         キーがキャッシュにない場合、DBから読み込む（遅延ロード）
@@ -1195,6 +1475,7 @@ class NanaSQLite(MutableMapping):
 
     # ==================== Dict Interface ====================
 
+    @_coherent_cache
     def __getitem__(self, key: str) -> Any:
         """dict[key] - 遅延ロード後、メモリから取得"""
         if not self._lru_mode:
@@ -1234,6 +1515,7 @@ class NanaSQLite(MutableMapping):
                 val = hook.after_read(self, key, val)
         return val
 
+    @_coherent_cache
     def __setitem__(self, key: str, value: Any) -> None:
         """dict[key] = value - 即時書き込み + メモリ更新"""
         self._check_connection()
@@ -1283,6 +1565,7 @@ class NanaSQLite(MutableMapping):
 
                 self._update_cache(key, value)
 
+    @_coherent_cache
     def __delitem__(self, key: str) -> None:
         """del dict[key] - 即時削除"""
         self._check_connection()
@@ -1332,6 +1615,7 @@ class NanaSQLite(MutableMapping):
                     self._data.pop(key, None)
                     self._absent_keys.add(key)
 
+    @_coherent_cache
     def __contains__(self, key: str) -> bool:
         """
         key in dict - キーの存在確認
@@ -1360,6 +1644,9 @@ class NanaSQLite(MutableMapping):
                 self._absent_keys.add(key)
             return False
 
+        if self._v2_mode and self._v2_engine:
+            self._v2_engine.flush(wait=True)
+
         # Lightweight existence check against DB
         with self._acquire_lock():
             cursor = self._connection.execute(self._sql_kv_contains, (key,))
@@ -1372,8 +1659,11 @@ class NanaSQLite(MutableMapping):
 
     def __len__(self) -> int:
         """len(dict) - DBの実際の件数を返す"""
+        self._check_connection()
         if self._memory_first and self._all_loaded and not self._lru_mode:
             return len(self._data)
+        if self._v2_mode and self._v2_engine:
+            self._v2_engine.flush(wait=True)
         with self._acquire_lock():
             cursor = self._connection.execute(self._sql_kv_count)
             return cursor.fetchone()[0]
@@ -1389,8 +1679,11 @@ class NanaSQLite(MutableMapping):
 
     def keys(self) -> list:
         """全キーを取得（DBから）"""
+        self._check_connection()
         if self._memory_first and self._all_loaded and not self._lru_mode:
             return list(self._data.keys())
+        if self._v2_mode and self._v2_engine:
+            self._v2_engine.flush(wait=True)
         return self._get_all_keys_from_db()
 
     def values(self) -> list:
@@ -1492,7 +1785,8 @@ class NanaSQLite(MutableMapping):
             >>> db.execute("UPDATE data SET value = ? WHERE key = ?", ('"new"', "key"))
             >>> value = db.get_fresh("key")  # DBから最新値を取得
         """
-        if self._memory_first and self._v2_engine:
+        self._check_connection()
+        if self._v2_mode and self._v2_engine:
             self._v2_engine.flush(wait=True)
 
         # DBから直接読み込み
@@ -1534,6 +1828,20 @@ class NanaSQLite(MutableMapping):
         if not keys:
             return {}
 
+        if not self._lru_mode and not self._has_hooks:
+            cache_data = self._data
+            absent = self._absent_keys
+            try:
+                if not absent:
+                    return {key: cache_data[key] for key in keys}
+                # Preserve positive-cache precedence, including mixed known
+                # absences. Unknown keys still fall through to DB/staging.
+                return {key: cache_data[key] for key in keys
+                        if key in cache_data or key not in absent}
+            except KeyError:
+                # Mixed/cold batches still use the existing DB/staging path.
+                pass
+
         results = {}
         missing_keys = []
 
@@ -1567,6 +1875,11 @@ class NanaSQLite(MutableMapping):
                 missing_keys.append(key)
 
         if not missing_keys:
+            if self._has_hooks:
+                for key, value in results.items():
+                    for hook in self._hooks:
+                        value = hook.after_read(self, key, value)
+                    results[key] = value
             return results
 
         if self._memory_first and self._all_loaded:
@@ -1804,6 +2117,34 @@ class NanaSQLite(MutableMapping):
             return self._v2_engine.get_dlq()
         return []
 
+    def get_dlq_summary(self) -> list[dict[str, Any]]:
+        """Return failure codes and timestamps, excluding payloads and error text."""
+        self._check_connection()
+        return self._v2_engine.get_dlq_summary() if self._v2_engine else []
+
+    def get_status(self) -> dict[str, Any]:
+        """Return a payload-free engine-wide snapshot (shared by table children).
+
+        Immediate mode has no write-back queue; flush timestamps are None.
+        This is diagnostic information, not proof that a transaction committed.
+        """
+        self._check_connection()
+        if self._v2_engine:
+            return self._v2_engine.get_status()
+        return {
+            "mode": "immediate",
+            "oldest_pending_age_seconds": None,
+            "pending_kvs_count": 0,
+            "flushing_kvs_count": 0,
+            "pending_sql_count": 0,
+            "flush_active": False,
+            "failed_count": 0,
+            "failure_count": 0,
+            "dropped_failure_count": 0,
+            "last_failure_time": None,
+            "last_successful_flush_time": None,
+        }
+
     def retry_dlq(self) -> None:
         """
         [v2 Feature] デッドレターキュー（DLQ）内の全アイテムを再試行キューに戻します。
@@ -1929,6 +2270,48 @@ class NanaSQLite(MutableMapping):
             return key in self._data or key in self._absent_keys
         return self._cache.is_cached(key)
 
+    def _batch_old_values(self, keys: Iterator[str]) -> dict[str, Any]:
+        """Return existing values for hook callbacks, excluding missing keys."""
+        if not self._has_hooks:
+            return {}
+        missing = object()
+        old_values: dict[str, Any] = {}
+        for key in keys:
+            value = self._get_raw(key, missing)
+            if value is not missing:
+                old_values[key] = value
+        return old_values
+
+    def _validate_batch_hooks(self, mapping: dict[str, Any]) -> None:
+        """Run optional cross-item validation hooks for an already transformed batch."""
+        if not self._has_hooks:
+            return
+        for hook in self._hooks:
+            validator = getattr(hook, "validate_batch_write", None)
+            if validator is not None:
+                validator(self, mapping)
+
+    def _notify_batch_write_success(self, mapping: dict[str, Any], old_values: dict[str, Any]) -> None:
+        """Notify hooks after a batch write has been accepted/committed."""
+        if not self._has_hooks:
+            return
+        for key, value in mapping.items():
+            old_value = old_values.get(key)
+            for hook in self._hooks:
+                callback = getattr(hook, "on_write_success", None)
+                if callback is not None:
+                    callback(self, key, value, old_value)
+
+    def _notify_batch_delete_success(self, old_values: dict[str, Any]) -> None:
+        """Notify hooks for keys that actually existed and were deleted."""
+        if not self._has_hooks:
+            return
+        for key, old_value in old_values.items():
+            for hook in self._hooks:
+                callback = getattr(hook, "on_delete_success", None)
+                if callback is not None:
+                    callback(self, key, old_value)
+
     def batch_update(self, mapping: dict[str, Any]) -> None:
         """
         一括書き込み（トランザクション + executemany使用で超高速）
@@ -1957,6 +2340,7 @@ class NanaSQLite(MutableMapping):
         # In v2 mode, hooks run outside the lock (v2 uses its own concurrency model, same
         # as __setitem__ v2 path).
         if self._v2_mode and self._v2_engine:
+            old_values = self._batch_old_values(iter(mapping))
             if hooks:
                 # BUG-02 fix: コピーオンライトでフック変換を確実に適用する。
                 # 等値比較 (!=) ではなく同一性比較 (is not) を使用することで、
@@ -1973,18 +2357,20 @@ class NanaSQLite(MutableMapping):
                         processed_mapping[k] = new_v
                 if processed_mapping is not None:
                     mapping = processed_mapping
+            self._validate_batch_hooks(mapping)
             for key, value in mapping.items():
                 self._v2_engine.kvs_set(self._safe_table, key, value)
-            # See __setitem__ comment: no explicit lock needed for pure in-memory updates in v2 mode.
-            if self._lru_mode:
-                for key, value in mapping.items():
-                    self._cache.set(key, value)
-            else:
-                # PERF-23: dict.update() is ~6x faster than a per-key loop for Unbounded mode.
-                self._data.update(mapping)
-                # PERF-23: guard against empty-set overhead (common for write-heavy workloads).
-                if self._absent_keys:
-                    self._absent_keys.difference_update(mapping.keys())
+            self._notify_batch_write_success(mapping, old_values)
+            with self._acquire_lock():
+                if self._lru_mode:
+                    for key, value in mapping.items():
+                        self._cache.set(key, value)
+                else:
+                    # PERF-23: dict.update() is ~6x faster than a per-key loop for Unbounded mode.
+                    self._data.update(mapping)
+                    # PERF-23: guard against empty-set overhead (common for write-heavy workloads).
+                    if self._absent_keys:
+                        self._absent_keys.difference_update(mapping.keys())
             return
 
         # non-v2 path: SEC-05 consistency — hooks run inside the lock so that uniqueness
@@ -2008,25 +2394,27 @@ class NanaSQLite(MutableMapping):
                         nv2_processed[k] = new_v
                 if nv2_processed is not None:
                     mapping = nv2_processed
+            old_values = self._batch_old_values(iter(mapping))
+            self._validate_batch_hooks(mapping)
             params = [(key, self._serialize(value)) for key, value in mapping.items()]
             cursor = self._connection.cursor()
             cursor.execute(_BEGIN_IMMEDIATE)
             try:
                 cursor.executemany(self._sql_kv_insert, params)
-                # キャッシュ更新
-                if self._lru_mode:
-                    for key, value in mapping.items():
-                        self._cache.set(key, value)
-                else:
-                    # PERF-23: dict.update() is ~6x faster than a per-key assignment loop.
-                    self._data.update(mapping)
-                    # PERF-23: guard absent_keys update (empty for write-heavy workloads).
-                    if self._absent_keys:
-                        self._absent_keys.difference_update(mapping.keys())
                 cursor.execute("COMMIT")
             except Exception:
                 cursor.execute("ROLLBACK")
                 raise
+            self._notify_batch_write_success(mapping, old_values)
+            if self._lru_mode:
+                for key, value in mapping.items():
+                    self._cache.set(key, value)
+            else:
+                # PERF-23: dict.update() is ~6x faster than a per-key assignment loop.
+                self._data.update(mapping)
+                # PERF-23: guard absent_keys update (empty for write-heavy workloads).
+                if self._absent_keys:
+                    self._absent_keys.difference_update(mapping.keys())
 
     def batch_update_partial(self, mapping: dict[str, Any]) -> dict[str, str]:
         """
@@ -2073,6 +2461,17 @@ class NanaSQLite(MutableMapping):
                 failed[key] = self._format_partial_batch_error_message(key, exc)
                 continue
 
+            # Validate against values accepted earlier in this same partial
+            # batch.  A failing key is isolated and does not invalidate the
+            # other accepted entries.
+            candidate_mapping = dict(accepted_values)
+            candidate_mapping[key] = value
+            try:
+                self._validate_batch_hooks(candidate_mapping)
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                failed[key] = self._format_key_validation_error_message(key, exc)
+                continue
+
             params.append((key, serialized))
             accepted_values[key] = value
 
@@ -2081,8 +2480,10 @@ class NanaSQLite(MutableMapping):
 
         # v2 Architecture: Route to background staging buffer instead of blocking DB write
         if self._v2_mode and self._v2_engine:
+            old_values = self._batch_old_values(iter(accepted_values))
             for key, _ in params:
                 self._v2_engine.kvs_set(self._safe_table, key, accepted_values[key])
+            self._notify_batch_write_success(accepted_values, old_values)
             # PERF-F: In v2 mode the cache update is a pure in-memory operation.
             # LRU/TTL caches need their own lock because ExpiringDict is not
             # thread-safe on its own.  Unbounded mode (_data + _absent_keys) is
@@ -2100,23 +2501,25 @@ class NanaSQLite(MutableMapping):
             return failed
 
         with self._acquire_lock():
+            old_values = self._batch_old_values(iter(accepted_values))
             cursor = self._connection.cursor()
             cursor.execute(_BEGIN_IMMEDIATE)
             try:
                 cursor.executemany(self._sql_kv_insert, params)
-                if self._lru_mode:
-                    for key, value in accepted_values.items():
-                        self._cache.set(key, value)
-                else:
-                    # PERF-24: dict.update() is ~6x faster than a per-key assignment loop.
-                    self._data.update(accepted_values)
-                    # PERF-24: guard absent_keys update (empty for write-heavy workloads).
-                    if self._absent_keys:
-                        self._absent_keys.difference_update(accepted_values.keys())
                 cursor.execute("COMMIT")
             except Exception:
                 cursor.execute("ROLLBACK")
                 raise
+            self._notify_batch_write_success(accepted_values, old_values)
+            if self._lru_mode:
+                for key, value in accepted_values.items():
+                    self._cache.set(key, value)
+            else:
+                # PERF-24: dict.update() is ~6x faster than a per-key assignment loop.
+                self._data.update(accepted_values)
+                # PERF-24: guard absent_keys update (empty for write-heavy workloads).
+                if self._absent_keys:
+                    self._absent_keys.difference_update(accepted_values.keys())
 
         return failed
 
@@ -2138,40 +2541,42 @@ class NanaSQLite(MutableMapping):
 
         # v2 Architecture: Route to background staging buffer instead of blocking DB write
         if self._v2_mode and self._v2_engine:
+            old_values = self._batch_old_values(iter(keys))
             # v2 mode: hooks run outside the lock (same as __delitem__ v2 path).
             # PERF-22: Only iterate keys for before_delete hooks; skip entirely when
             # no hooks are registered (the common case).
             if self._has_hooks:
-                for key in keys:
-                    if self._ensure_cached(key):
-                        for hook in self._hooks:
-                            hook.before_delete(self, key)
+                for key in old_values:
+                    for hook in self._hooks:
+                        hook.before_delete(self, key)
             for key in keys:
                 self._v2_engine.kvs_delete(self._safe_table, key)
-            # See __setitem__ comment: no explicit lock needed for pure in-memory updates in v2 mode.
-            if self._lru_mode:
-                for key in keys:
-                    self._cache.delete(key)
-            else:
-                # PERF-25: batch pop + single set.update() call instead of per-key
-                # pop + add, which avoids repeated hash computations.
-                for key in keys:
-                    self._data.pop(key, None)
-                self._absent_keys.update(keys)
+            self._notify_batch_delete_success(old_values)
+            with self._acquire_lock():
+                # See __setitem__ comment: cache mutation is protected for LRU/TTL strategies.
+                if self._lru_mode:
+                    for key in keys:
+                        self._cache.delete(key)
+                else:
+                    # PERF-25: batch pop + single set.update() call instead of per-key
+                    # pop + add, which avoids repeated hash computations.
+                    for key in keys:
+                        self._data.pop(key, None)
+                    self._absent_keys.update(keys)
             return
 
         # SEC-05 (BUG-03 batch_delete fix): hooks are called inside the lock for
         # consistency with __delitem__ non-v2 path.  self._lock is a threading.RLock
         # so reentrant calls from hooks succeed without deadlock.
         with self._acquire_lock():
+            old_values = self._batch_old_values(iter(keys))
             # PERF-22: Only iterate keys for before_delete hooks; skip entirely when
             # no hooks are registered (the common case).  This avoids O(n) Python
             # function-call overhead per key when hooks are absent.
             if self._has_hooks:
-                for key in keys:
-                    if self._ensure_cached(key):
-                        for hook in self._hooks:
-                            hook.before_delete(self, key)
+                for key in old_values:
+                    for hook in self._hooks:
+                        hook.before_delete(self, key)
             cursor = self._connection.cursor()
             cursor.execute(_BEGIN_IMMEDIATE)
             try:
@@ -2191,6 +2596,7 @@ class NanaSQLite(MutableMapping):
             except Exception:
                 cursor.execute("ROLLBACK")
                 raise
+            self._notify_batch_delete_success(old_values)
 
     def to_dict(self) -> dict:
         """全データをPython dictとして取得"""
@@ -2614,7 +3020,11 @@ class NanaSQLite(MutableMapping):
         self._is_closed = True
 
         # Stop background cache threads (e.g., ExpiringDict scheduler for TTL cache)
-        self._cache.clear()
+        close_cache = getattr(self._cache, "close", None)
+        if close_cache is not None:
+            close_cache()
+        else:
+            self._cache.clear()
 
         if self._is_connection_owner:
             try:
@@ -2747,13 +3157,7 @@ class NanaSQLite(MutableMapping):
         # and execute directly on the main connection so that results are
         # immediately available to the caller.
         if self._v2_mode and self._v2_engine:
-            _sql_stripped = sql.strip().upper()
-            _is_read_query = (
-                _sql_stripped.startswith("SELECT")
-                or _sql_stripped.startswith("PRAGMA")
-                or _sql_stripped.startswith("EXPLAIN")
-            )
-            if not _is_read_query:
+            if not _is_read_sql(sql):
                 event = threading.Event()
                 exception = None
 
@@ -2776,6 +3180,7 @@ class NanaSQLite(MutableMapping):
 
                 with self._acquire_lock():
                     return self._connection.cursor()
+            self._v2_engine.flush(wait=True)
 
         try:
             with self._acquire_lock():
@@ -2784,6 +3189,64 @@ class NanaSQLite(MutableMapping):
                 return self._connection.execute(sql, parameters)
         except apsw.Error as e:
             raise NanaSQLiteDatabaseError(f"Failed to execute SQL: {e}", original_error=e) from e
+
+    def _execute_and_capture(
+        self,
+        sql: str,
+        parameters: tuple | None,
+        capture: Callable[[], Any],
+    ) -> Any:
+        """Execute SQL and read connection-local state while it is protected.
+
+        SQLite's ``changes()`` and ``last_insert_rowid()`` are connection-local
+        values.  Reading them after releasing NanaSQLite's lock lets another
+        thread overwrite the value before the caller observes it.  In v2 the
+        capture callback runs inside the strict-lane worker while its shared
+        lock is still held.
+        """
+        self._check_connection()
+
+        if self._v2_mode and self._v2_engine:
+            event = threading.Event()
+            result: list[Any] = []
+            exception: list[Exception] = []
+
+            def _on_error(error: Exception) -> None:
+                exception.append(error)
+                event.set()
+
+            def _on_success() -> None:
+                try:
+                    result.append(capture())
+                except Exception as error:  # pragma: no cover - connection errors are environment-specific
+                    exception.append(error)
+                finally:
+                    event.set()
+
+            self._v2_engine.enqueue_strict_task(
+                task_type="execute",
+                sql=sql,
+                parameters=parameters,
+                on_success=_on_success,
+                on_error=_on_error,
+            )
+            event.wait()
+            if exception:
+                error = exception[0]
+                raise NanaSQLiteDatabaseError(
+                    f"Failed to execute SQL and capture its result: {error}", original_error=error
+                ) from error
+            return result[0]
+
+        try:
+            with self._acquire_lock():
+                if parameters is None:
+                    self._connection.execute(sql)
+                else:
+                    self._connection.execute(sql, parameters)
+                return capture()
+        except apsw.Error as error:
+            raise NanaSQLiteDatabaseError(f"Failed to execute SQL: {error}", original_error=error) from error
 
     def execute_many(self, sql: str, parameters_list: list[tuple]) -> None:
         """
@@ -2914,7 +3377,11 @@ class NanaSQLite(MutableMapping):
             # The new regex keeps all reasonable column-type characters (including
             # SQL constraint keywords, numeric defaults, REFERENCES, etc.) but
             # explicitly excludes ' and " which have no safe use in type strings.
-            _col_type_str = str(col_type)
+            if not isinstance(col_type, str):
+                raise NanaSQLiteValidationError(
+                    f"Column type for '{col_name}' must be a string, not {type(col_type).__name__}"
+                )
+            _col_type_str = col_type
             if not re.match(r"^[\w\s(),=<>!@#%.]+$", _col_type_str):
                 raise NanaSQLiteValidationError(
                     f"Invalid or dangerous column type for '{col_name}': "
@@ -2937,7 +3404,7 @@ class NanaSQLite(MutableMapping):
                 raise NanaSQLiteValidationError(
                     f"Invalid or dangerous column type for '{col_name}': parentheses are not balanced."
                 )
-            column_defs.append(f"{safe_col_name} {col_type}")
+            column_defs.append(f"{safe_col_name} {_col_type_str}")
 
         if primary_key:
             safe_pk = self._sanitize_identifier(primary_key)
@@ -3191,7 +3658,9 @@ class NanaSQLite(MutableMapping):
         # Whitelist-based validation for column_type to prevent SQL injection.
         # Allows standard SQLite type names with optional length/precision specifiers.
         # e.g. "TEXT", "INTEGER", "VARCHAR(255)", "DECIMAL(10,2)", "DOUBLE PRECISION"
-        if not re.match(r"^[A-Za-z]\w*(?:\s+\w+)*(\s*\([\d,\s]+\))?$", column_type):
+        if not isinstance(column_type, str) or not re.match(
+            r"^[A-Za-z]\w*(?:\s+\w+)*(\s*\([\d,\s]+\))?$", column_type
+        ):
             raise ValueError(f"Invalid or dangerous column type: {column_type}")
 
         sql = f"ALTER TABLE {safe_table_name} ADD COLUMN {safe_column_name} {column_type}"
@@ -3204,8 +3673,19 @@ class NanaSQLite(MutableMapping):
                     stripped = stripped[1:-1]
                 # Escape single quotes for SQL string literal (double them: ' becomes '')
                 escaped_default = stripped.replace("'", "''")
-                default = f"'{escaped_default}'"
-            sql += f" DEFAULT {default}"
+                default_sql = f"'{escaped_default}'"
+            elif isinstance(default, bool):
+                default_sql = "1" if default else "0"
+            elif isinstance(default, (int, float)):
+                if isinstance(default, float) and not math.isfinite(default):
+                    raise NanaSQLiteValidationError("default must be a finite number")
+                default_sql = str(default)
+            else:
+                raise NanaSQLiteValidationError(
+                    "default must be a string, bool, int, or finite float; "
+                    f"arbitrary {type(default).__name__} objects are not accepted"
+                )
+            sql += f" DEFAULT {default_sql}"
         self.execute(sql)
 
     def get_table_schema(self, table_name: str | None = None) -> list[dict]:
@@ -3296,9 +3776,7 @@ class NanaSQLite(MutableMapping):
         columns_sql = ", ".join(safe_columns)
 
         sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders})"  # nosec
-        self.execute(sql, tuple(values))
-
-        return self.get_last_insert_rowid()
+        return int(self._execute_and_capture(sql, tuple(values), self._connection.last_insert_rowid))
 
     def sql_update(self, table_name: str, data: dict, where: str, parameters: tuple | None = None) -> int:
         """
@@ -3333,8 +3811,7 @@ class NanaSQLite(MutableMapping):
         if parameters:
             values.extend(parameters)
 
-        self.execute(sql, tuple(values))
-        return self._connection.changes()
+        return int(self._execute_and_capture(sql, tuple(values), self._connection.changes))
 
     def sql_delete(self, table_name: str, where: str, parameters: tuple | None = None) -> int:
         """
@@ -3355,8 +3832,7 @@ class NanaSQLite(MutableMapping):
         # SEC-02 fix: validate WHERE clause for consistency with other query methods.
         self._validate_expression(where, context="where")
         sql = f"DELETE FROM {safe_table_name} WHERE {where}"  # nosec
-        self.execute(sql, parameters)
-        return self._connection.changes()
+        return int(self._execute_and_capture(sql, parameters, self._connection.changes))
 
     def upsert(self, table_name: str | Any = None, data: Any = None, conflict_columns: list[str] | None = None) -> int | None:
         """
@@ -3430,12 +3906,15 @@ class NanaSQLite(MutableMapping):
                 # 全カラムが競合カラムの場合は、何もしない（既存データを保持）
                 sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders}) "  # nosec
                 sql += f"ON CONFLICT({conflict_cols_sql}) DO NOTHING"  # nosec
-                self.execute(sql, tuple(values))
-                # When DO NOTHING is triggered, no row is inserted, return 0
-                # Check only the most recent operation's change count
-                if self._connection.changes() == 0:
+                changes, rowid = self._execute_and_capture(
+                    sql,
+                    tuple(values),
+                    lambda: (self._connection.changes(), self._connection.last_insert_rowid()),
+                )
+                # When DO NOTHING is triggered, no row is inserted, return 0.
+                if changes == 0:
                     return 0
-                return self.get_last_insert_rowid()
+                return int(rowid)
 
             sql = f"INSERT INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders}) "  # nosec
             sql += f"ON CONFLICT({conflict_cols_sql}) DO UPDATE SET {update_clause}"  # nosec
@@ -3443,8 +3922,7 @@ class NanaSQLite(MutableMapping):
             # INSERT OR REPLACE
             sql = f"INSERT OR REPLACE INTO {safe_table_name} ({columns_sql}) VALUES ({placeholders})"  # nosec
 
-        self.execute(sql, tuple(values))
-        return self.get_last_insert_rowid()
+        return int(self._execute_and_capture(sql, tuple(values), self._connection.last_insert_rowid))
 
     def count(
         self,
@@ -3767,7 +4245,9 @@ class NanaSQLite(MutableMapping):
             >>> db.sql_insert("users", {"name": "Alice"})
             >>> rowid = db.get_last_insert_rowid()
         """
-        return self._connection.last_insert_rowid()
+        self._check_connection()
+        with self._acquire_lock():
+            return self._connection.last_insert_rowid()
 
     def pragma(self, pragma_name: str, value: Any = None) -> Any:
         """
@@ -4199,6 +4679,7 @@ class NanaSQLite(MutableMapping):
                 cache_ttl=ttl,
                 cache_persistence_ttl=persist_ttl,
                 lock_timeout=self._lock_timeout,
+                allow_legacy_plaintext=self._allow_legacy_plaintext,
                 validator=resolved_validator,
                 coerce=resolved_coerce,
                 hooks=resolved_hooks,
@@ -4208,6 +4689,7 @@ class NanaSQLite(MutableMapping):
                 memory_first=resolved_memory_first,
                 memory_flush_interval=self._memory_flush_interval_raw,
                 warn_duplicate_table_instance=resolved_warn_duplicate,
+                cache_consistency=self._cache_consistency,
                 _shared_connection=self._connection,
                 _shared_lock=self._lock,
                 _shared_v2_engine=self._v2_engine,

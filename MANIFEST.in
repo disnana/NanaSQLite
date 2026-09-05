@@ -1,2 +1,3 @@
 include src/nanasqlite/py.typed
+include scripts/benchmark_operational.py
 recursive-include src/nanasqlite *.py

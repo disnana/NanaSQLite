@@ -31,6 +31,10 @@ with NanaSQLite("secure.db", encryption_key=raw_key) as db:
     data = db["secret"]
 ```
 
+### Migrating legacy plaintext data
+
+With AEAD (`aes-gcm` or `chacha20`), plaintext rows are rejected by default. During an explicit migration only, set `allow_legacy_plaintext=True`, read and re-save each value with the encryption key, then disable the option for normal operation.
+
 ### ChaCha20-Poly1305
 
 ```python

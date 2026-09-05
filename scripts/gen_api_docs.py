@@ -408,6 +408,8 @@ def generate_changelog_md():
         return
 
     content = changelog_path.read_text(encoding="utf-8")
+    # Repository-relative docs links become site-root links after relocation.
+    content = content.replace("](docs/site/", "](/")
 
     # VitePress frontmatter to show H3 in the right outline
     frontmatter = "---\noutline: [2, 3]\n---\n\n"

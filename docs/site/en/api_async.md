@@ -63,11 +63,7 @@ and performance in high-load scenarios.
 def close() -> None
 ```
 
-::: tip Example
-```python
-    await db.close()
-```
-:::
+Drain accepted work and close; caller cancellation is shielded.
 
 
 ---
@@ -1241,6 +1237,39 @@ def add_hook(hook: NanaHook) -> None
 |---|---|---|
 | `hook` | `NanaHook` | Any object implementing the NanaHook protocol. |
 
+
+
+---
+
+### `aget_status`
+
+```python
+def aget_status() -> dict[str, Any]
+```
+
+Return payload-free persistence diagnostics.
+
+
+---
+
+### `aget_dlq_summary`
+
+```python
+def aget_dlq_summary() -> list[dict[str, Any]]
+```
+
+Return redacted failure codes and timestamps.
+
+
+---
+
+### `aiter_items`
+
+```python
+def aiter_items(batch_size: int = 1000) -> AsyncIterator[tuple[str, Any]]
+```
+
+Async keyset iteration; see NanaSQLite.iter_items for consistency rules.
 
 
 ---

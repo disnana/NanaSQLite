@@ -4,6 +4,24 @@ outline: [2, 3]
 
 # Changelog
 
+### [1.6.1] - 2026-09-05
+
+- docsのPostCSS・nanoid・Browserslistを修正版へ更新し、Bun Auditの指摘を解消しました。 / Update vulnerable docs dependencies and pass Bun Audit.
+
+- Optimize ordinary batch reads while retaining dict storage: extend the sync fast path to known absences and reduce async batch loop overhead.
+
+- Recover every failed row after a SQLite write lock, and skip superseded KVS failures during DLQ retry.
+- Apply read hooks on fully cached batch reads and optimize the default hook-free batch path.
+- Drain cancelled unbounded asynchronous writes on close and permit recovery after transaction-related close failures.
+- Compare revisions in the same Actions job using isolated file databases, separate timing/allocation runs, and persisted-value verification.
+
+- Added `get_status()` / `aget_status()` and redacted `get_dlq_summary()` / `aget_dlq_summary()` for queue counts/age, in-flight work, failure totals and DLQ evictions.
+- Added shared async `max_pending_operations` and `admission_timeout`. Cancellation after submission retains capacity until the worker finishes; initialization and shutdown are shielded from caller cancellation.
+- Added `iter_items()` / `aiter_items()` for bounded keyset iteration with decryption and read hooks, without filling the cache.
+- Added opt-in `cache_consistency="auto"` for immediate persistence, invalidating stale values, negative entries and hook indexes after external commits or shared-connection changes. Default remains `manual`.
+- Engine `get_dlq_summary()` now returns fixed `write_failed` codes instead of potentially sensitive exception text. Trusted callers can still inspect `get_dlq()`.
+- See the [operations guide](/en/operations.md) for consistency and cancellation contracts.
+
 ### [1.6.0] - 2026-07-22
 
 #### Stability and data protection
