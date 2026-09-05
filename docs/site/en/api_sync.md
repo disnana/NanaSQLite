@@ -1420,6 +1420,47 @@ def add_hook(hook: NanaHook) -> None
 
 ---
 
+### `iter_items`
+
+```python
+def iter_items(batch_size: int = 1000) -> Iterator[tuple[str, Any]]
+```
+
+Yield persisted KVS pairs in key order using bounded keyset pages.
+
+Flushes write-back data first and rejects unresolved failed writes.
+Applies decryption and read hooks without filling the cache. No cursor
+or lock survives a yield. Concurrent changes may affect later pages;
+use a verified backup when a stable export snapshot is required.
+
+
+---
+
+### `get_dlq_summary`
+
+```python
+def get_dlq_summary() -> list[dict[str, Any]]
+```
+
+Return failure codes and timestamps, excluding payloads and error text.
+
+
+---
+
+### `get_status`
+
+```python
+def get_status() -> dict[str, Any]
+```
+
+Return a payload-free engine-wide snapshot (shared by table children).
+
+Immediate mode has no write-back queue; flush timestamps are None.
+This is diagnostic information, not proof that a transaction committed.
+
+
+---
+
 ### `export_table_to_dict`
 
 ```python

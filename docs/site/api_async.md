@@ -62,15 +62,7 @@ class AsyncNanaSQLite(db_path: str, table: str = 'data', bulk_load: bool = False
 def close() -> None
 ```
 
-非同期でデータベース接続を閉じる
 
-スレッドプールエグゼキューターもシャットダウンします。
-
-::: tip 使用例
-```python
-    await db.close()
-```
-:::
 
 
 ---
@@ -1414,6 +1406,39 @@ def add_hook(hook: NanaHook) -> None
 | 引数名 | 型 | 説明 |
 |---|---|---|
 | `hook` | `NanaHook` | Any object implementing the NanaHook protocol. |
+
+
+
+---
+
+### `aget_status`
+
+```python
+def aget_status() -> dict[str, Any]
+```
+
+
+
+
+---
+
+### `aget_dlq_summary`
+
+```python
+def aget_dlq_summary() -> list[dict[str, Any]]
+```
+
+
+
+
+---
+
+### `aiter_items`
+
+```python
+def aiter_items(batch_size: int = 1000) -> AsyncIterator[tuple[str, Any]]
+```
+
 
 
 

@@ -51,14 +51,33 @@ def test_external_write_lock_recovers_every_failed_row(tmp_path):
     path = str(tmp_path / "locked.db")
     with NanaSQLite(path, v2_mode=True, flush_mode="manual") as db:
         db.pragma("busy_timeout", 1)
-        with closing(sqlite3.connect(path)) as blocker:
-            blocker.execute("BEGIN IMMEDIATE")
+        # A separate process is essential: same-process SQLite libraries may
+        # share POSIX advisory-lock ownership instead of contending.
+        code = "\n".join([
+            "import sqlite3, sys",
+            "with sqlite3.connect(sys.argv[1]) as connection:",
+            " connection.execute('BEGIN IMMEDIATE')",
+            " print('locked', flush=True)",
+            " sys.stdin.readline()",
+            " connection.rollback()",
+        ])
+        blocker = subprocess.Popen(
+            [sys.executable, "-c", code, path], stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        try:
+            assert blocker.stdout.readline().strip() == "locked"
             db.batch_update({"a": 1, "b": 2, "c": 3})
+            db.flush(wait=True)
+            assert db.get_status()["failed_count"] == 3
+        finally:
             try:
-                db.flush(wait=True)
-                assert db.get_status()["failed_count"] == 3
-            finally:
-                blocker.rollback()
+                _, error = blocker.communicate("release\n", timeout=5)
+            except subprocess.TimeoutExpired:
+                blocker.kill()
+                blocker.communicate()
+                raise
+        assert blocker.returncode == 0, error
         db.retry_dlq()
         db.flush(wait=True)
         assert db.get_status()["failed_count"] == 0

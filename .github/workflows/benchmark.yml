@@ -301,6 +301,9 @@ jobs:
         python-version: '3.11'
     
     - name: Generate Combined Benchmark Summary
+      env:
+        # Different historical runners cannot establish a paired regression.
+        BENCHMARK_COMPARE_PREVIOUS: 'false'
       id: benchmark-results
       if: needs.should-run.outputs.run_benchmark == 'true'
       run: |

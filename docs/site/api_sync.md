@@ -1649,6 +1649,39 @@ def add_hook(hook: NanaHook) -> None
 
 ---
 
+### `iter_items`
+
+```python
+def iter_items(batch_size: int = 1000) -> Iterator[tuple[str, Any]]
+```
+
+
+
+
+---
+
+### `get_dlq_summary`
+
+```python
+def get_dlq_summary() -> list[dict[str, Any]]
+```
+
+
+
+
+---
+
+### `get_status`
+
+```python
+def get_status() -> dict[str, Any]
+```
+
+
+
+
+---
+
 ### `export_table_to_dict`
 
 ```python
