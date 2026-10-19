@@ -338,13 +338,13 @@ def main(args):
         args.db_dir = args.db_dir.resolve()
         args.db_dir.mkdir(parents=True, exist_ok=True)
     rng = random.Random(args.seed)
-    revision = subprocess.check_output(
+    revision = None if args.baseline_source else subprocess.check_output(
         ["git", "rev-parse", "--verify", "--end-of-options", args.baseline_ref + "^{commit}"], cwd=ROOT, text=True,
     ).strip()
     samples = []
     with tempfile.TemporaryDirectory(prefix="nanasqlite-reference-") as temporary:
         baseline = Path(temporary) / "src"
-        paths = subprocess.check_output(["git", "ls-tree", "-r", "--name-only", revision, "src/nanasqlite"], cwd=ROOT, text=True).splitlines()
+        paths = [] if args.baseline_source else subprocess.check_output(["git", "ls-tree", "-r", "--name-only", revision, "src/nanasqlite"], cwd=ROOT, text=True).splitlines()
         for name in paths:
             target = Path(temporary) / name
             target.parent.mkdir(parents=True, exist_ok=True)
