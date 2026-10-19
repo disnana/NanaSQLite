@@ -3530,7 +3530,7 @@ class TestPerf02V154BaseHookPatternRevalidation:
             with patch.object(BaseHook, "_validate_regex_pattern") as mock_validate:
                 hook = BaseHook(key_pattern=compiled)
                 # コンパイル済み Pattern でも pattern.pattern テキストを検証する（セキュリティ要件）
-                mock_validate.assert_called_once_with(compiled.pattern)
+                mock_validate.assert_called_once_with(compiled.pattern, compiled.flags)
                 # compiled Pattern オブジェクトをそのまま再利用する（再コンパイルしない）
                 assert hook._key_regex is compiled
 

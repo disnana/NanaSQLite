@@ -1,0 +1,802 @@
+{
+  "schema_version": 2,
+  "baseline_revision": "df9f9469905e7ea4dfce4531f0d6d15c3e268f84",
+  "baseline_source": null,
+  "source_sha256": {
+    "baseline": "b83a2152feca6b460d68066cd392a50cecf52faa4cd5020eebdadf655dd20236",
+    "candidate": "4e0c1bae6da2898bf7930fc0cc6f5c1402e7a0588b5c621691d9ae37b11f1197"
+  },
+  "parameters": {
+    "repeats": 15,
+    "rows": 3000,
+    "operations": 100000,
+    "writes": 300,
+    "seed": 20260905
+  },
+  "method": "fresh process and DB per sample; AB/BA; separate timing/memory; GC enabled; warm OS cache",
+  "summary": {
+    "baseline": {
+      "export_encrypted": {
+        "ns_per_operation": {
+          "n": 15,
+          "median": 2876.633333333333,
+          "min": 2565.4,
+          "max": 4429.4,
+          "mad": 185.79999999999973
+        },
+        "seconds": {
+          "n": 15,
+          "median": 0.0086299,
+          "min": 0.0076962,
+          "max": 0.0132882,
+          "mad": 0.0005573999999999996
+        }
+      }
+    },
+    "candidate": {
+      "export_encrypted": {
+        "ns_per_operation": {
+          "n": 15,
+          "median": 2625.233333333333,
+          "min": 2511.866666666667,
+          "max": 3483.5,
+          "mad": 77.16666666666652
+        },
+        "seconds": {
+          "n": 15,
+          "median": 0.0078757,
+          "min": 0.0075356,
+          "max": 0.0104505,
+          "mad": 0.00023149999999999907
+        }
+      }
+    }
+  },
+  "paired_ratios": {
+    "export_encrypted": {
+      "n": 15,
+      "median": 0.9469433261071538,
+      "min": 0.7864496320043347,
+      "max": 1.1673553182089862,
+      "samples": [
+        0.903339411898792,
+        0.8952472540204848,
+        0.9809029075416696,
+        0.9469433261071538,
+        0.871364330652311,
+        1.1673553182089862,
+        0.866350122440533,
+        0.7864496320043347,
+        1.017337254549424,
+        0.9817748912352434,
+        1.043749640783953,
+        1.011830959802547,
+        0.9767989577069552,
+        0.8537124353181852,
+        0.8973568748309082
+      ]
+    }
+  },
+  "samples": [
+    {
+      "seconds": 0.008774,
+      "ns_per_operation": 2924.6666666666665,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "baseline",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 0
+    },
+    {
+      "seconds": 0.0079259,
+      "ns_per_operation": 2641.9666666666667,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "candidate",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 0
+    },
+    {
+      "seconds": 0.0077267,
+      "ns_per_operation": 2575.5666666666666,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "candidate",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 1
+    },
+    {
+      "seconds": 0.0086308,
+      "ns_per_operation": 2876.9333333333334,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "baseline",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 1
+    },
+    {
+      "seconds": 0.0080274,
+      "ns_per_operation": 2675.8,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "baseline",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 2
+    },
+    {
+      "seconds": 0.0078741,
+      "ns_per_operation": 2624.7,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "candidate",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 2
+    },
+    {
+      "seconds": 0.0076442,
+      "ns_per_operation": 2548.0666666666666,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "candidate",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 3
+    },
+    {
+      "seconds": 0.0080725,
+      "ns_per_operation": 2690.8333333333335,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "baseline",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 3
+    },
+    {
+      "seconds": 0.0093621,
+      "ns_per_operation": 3120.7,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "baseline",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 4
+    },
+    {
+      "seconds": 0.0081578,
+      "ns_per_operation": 2719.266666666667,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "candidate",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 4
+    },
+    {
+      "seconds": 0.0089842,
+      "ns_per_operation": 2994.733333333333,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "candidate",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 5
+    },
+    {
+      "seconds": 0.0076962,
+      "ns_per_operation": 2565.4,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "baseline",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 5
+    },
+    {
+      "seconds": 0.0086981,
+      "ns_per_operation": 2899.366666666667,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "baseline",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 6
+    },
+    {
+      "seconds": 0.0075356,
+      "ns_per_operation": 2511.866666666667,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "candidate",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 6
+    },
+    {
+      "seconds": 0.0104505,
+      "ns_per_operation": 3483.5,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "candidate",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 7
+    },
+    {
+      "seconds": 0.0132882,
+      "ns_per_operation": 4429.4,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "baseline",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 7
+    },
+    {
+      "seconds": 0.0077867,
+      "ns_per_operation": 2595.5666666666666,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "baseline",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 8
+    },
+    {
+      "seconds": 0.0079217,
+      "ns_per_operation": 2640.5666666666666,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "candidate",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 8
+    },
+    {
+      "seconds": 0.0078757,
+      "ns_per_operation": 2625.233333333333,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "candidate",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 9
+    },
+    {
+      "seconds": 0.0080219,
+      "ns_per_operation": 2673.9666666666667,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "baseline",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 9
+    },
+    {
+      "seconds": 0.0086995,
+      "ns_per_operation": 2899.8333333333335,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "baseline",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 10
+    },
+    {
+      "seconds": 0.0090801,
+      "ns_per_operation": 3026.7,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "candidate",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 10
+    },
+    {
+      "seconds": 0.008732,
+      "ns_per_operation": 2910.6666666666665,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "candidate",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 11
+    },
+    {
+      "seconds": 0.0086299,
+      "ns_per_operation": 2876.633333333333,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "baseline",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 11
+    },
+    {
+      "seconds": 0.0079824,
+      "ns_per_operation": 2660.8,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "baseline",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 12
+    },
+    {
+      "seconds": 0.0077972,
+      "ns_per_operation": 2599.0666666666666,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "candidate",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 12
+    },
+    {
+      "seconds": 0.0078037,
+      "ns_per_operation": 2601.233333333333,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "candidate",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 13
+    },
+    {
+      "seconds": 0.0091409,
+      "ns_per_operation": 3046.9666666666667,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "baseline",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 13
+    },
+    {
+      "seconds": 0.0085013,
+      "ns_per_operation": 2833.766666666667,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "baseline",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 14
+    },
+    {
+      "seconds": 0.0076287,
+      "ns_per_operation": 2542.9,
+      "operations": 3000,
+      "verified_rows": 3000,
+      "environment": {
+        "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+        "platform": "Windows-10-10.0.26200-SP0",
+        "apsw": "3.53.1.0",
+        "sqlite": "3.53.1",
+        "orjson": true,
+        "gc_enabled": true,
+        "pragmas": {
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "page_size": 4096
+        },
+        "database_directory": "C:\\Users\\msi-z\\AppData\\Local\\Temp"
+      },
+      "label": "candidate",
+      "case": "export_encrypted",
+      "phase": "time",
+      "repeat": 14
+    }
+  ]
+}

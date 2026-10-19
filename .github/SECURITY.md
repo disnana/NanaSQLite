@@ -57,7 +57,9 @@ NanaSQLite は複数のセキュリティ層を備えています（v1.2.0以降
 
 - **厳格なSQL検証 (Strict SQL Validation):** 未許可のSQL関数の実行を防止します。
 - **ReDoS対策 (ReDoS Protection):** SQL句の最大文字数制限により過負荷攻撃を防ぎます。また `pip install nanasqlite[re2]` で `google-re2`（線形時間保証）を使用可能です。
-- **保存データの暗号化 (Encryption at Rest):** `cryptography` ライブラリによる `AES-GCM`、`ChaCha20Poly1305`、`Fernet` をサポートします。
+- **保存データの暗号化 (Encryption at Rest):** `cryptography` ライブラリによる `AES-GCM`、`ChaCha20Poly1305`、`Fernet` をサポートします。`table()` の子・孫も親の暗号化設定と SQL 検証設定を継承します。以前の子テーブルに保存された平文は自動変換されません。
+- **部分更新の一意性:** 即時保存モードでは `batch_update_partial()` の検証からコミットまで共有ロックを保持します。別接続・別プロセスや v2 の段階的な保存に対する厳密な一意性は保証しません。
+- **フックの正規表現:** 標準 `re` では構文木を使い、反復内の可変反復・分岐を保守的に拒否します。安全な式も拒否する場合があり、線形時間の保証ではありません。RE2 と、明示的な `re_fallback=True` による警告付きフォールバックの契約は変わりません。
 
 \pagebreak
 
@@ -119,5 +121,7 @@ We currently provide security updates for the following versions:
 NanaSQLite is designed with multiple security layers (v1.2.0+):
 
 - **Strict SQL Validation:** Prevents execution of unauthorized SQL functions.
-- **ReDoS Protection:** Maximum clause length limits prevent regex denial-of-service attacks. Install `pip install nanasqlite[re2]` to enable the `google-re2` engine (linear-time complexity guarantee).
+- **ReDoS Protection:** SQL clause lengths are limited. Install `pip install nanasqlite[re2]` to enable the `google-re2` engine (linear-time complexity guarantee). The standard `re` hook filter conservatively rejects variable repetitions and branches inside repeated groups using the parsed structure; this may reject safe patterns and does not guarantee linear time. Explicit `re_fallback=True` retains its warning and disables RE2 protection for that pattern.
+- **Child table settings:** Children and grandchildren inherit encryption and SQL validation settings. Previously stored child-table plaintext is not automatically migrated.
+- **Partial batch uniqueness:** Immediate-mode `batch_update_partial()` holds the shared lock from validation through commit. Strict uniqueness across separate connections/processes or staged v2 writes is not guaranteed.
 - **Encryption at Rest:** Data-at-rest encryption via `AES-GCM`, `ChaCha20Poly1305`, and `Fernet` through the `cryptography` library.

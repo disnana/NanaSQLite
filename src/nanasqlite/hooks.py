@@ -6,6 +6,7 @@ import threading
 import warnings
 import weakref
 from collections.abc import Hashable
+from importlib import import_module
 from re import Pattern
 from typing import Any, Callable
 
@@ -60,9 +61,7 @@ class BaseHook:
                 # Preserve the original flags (IGNORECASE, MULTILINE, etc.) when
                 # re-compiling with RE2.  If RE2 does not support a given flag it
                 # will raise re2.error, which is handled by the re_fallback logic.
-                self._key_regex = self._compile_re2(
-                    key_pattern.pattern, re_fallback, flags=key_pattern.flags
-                )
+                self._key_regex = self._compile_re2(key_pattern.pattern, re_fallback, flags=key_pattern.flags)
             else:
                 self._key_regex = key_pattern
         else:
@@ -76,7 +75,7 @@ class BaseHook:
                 # ただし、コンパイル済み Pattern を経由して ReDoS ブラックリストを
                 # バイパスできないよう、pattern.pattern（元のパターン文字列）に
                 # 対しては必ずバリデーションを実行する（セキュリティ要件）。
-                self._validate_regex_pattern(key_pattern.pattern)
+                self._validate_regex_pattern(key_pattern.pattern, key_pattern.flags)
                 self._key_regex = key_pattern
             else:
                 self._key_regex = key_pattern
@@ -120,9 +119,7 @@ class BaseHook:
                 _val = getattr(re, _name, 0)
                 if unsupported & _val:
                     unsupported_names.append(f"re.{_name}")
-            unsupported_desc = (
-                ", ".join(unsupported_names) if unsupported_names else hex(unsupported)
-            )
+            unsupported_desc = ", ".join(unsupported_names) if unsupported_names else hex(unsupported)
             msg = (
                 f"RE2 cannot preserve Python re flags ({unsupported_desc}) "
                 f"for pattern {pattern!r}. "
@@ -172,27 +169,52 @@ class BaseHook:
                 return re.compile(pattern, flags)
             raise
 
-    def _validate_regex_pattern(self, pattern: str) -> None:
+    def _validate_regex_pattern(self, pattern: str, flags: int = 0) -> None:
         """Validate regex patterns to prevent ReDoS attacks.
 
         This check is only performed when google-re2 is NOT available.
         When RE2 is active, all patterns are inherently safe (linear-time).
         """
-        # Check for known dangerous patterns
-        dangerous_patterns = [
-            r'\([^)]*\+\)[*+]',     # (a+)+ or (a+)*
-            r'\([^)]*\*\)[*+]',     # (a*)+ or (a*)*
-            r'\([^|]*\|[^|]*\)\*',  # (a|b)*
-            r'\([^|]*\|[^|]*\)\+',  # (a|b)+
-        ]
+        # 構文木で検証し、brace repeat・非捕捉 group・VERBOSE の別表記も扱う。
+        # This is a conservative risk check, not a linear-time guarantee.
+        try:
+            parser = import_module("re._parser")
+        except ImportError:  # Python 3.9 / 3.10
+            parser = import_module("sre_parse")
 
-        for dangerous in dangerous_patterns:
-            if re.search(dangerous, pattern):
-                raise NanaSQLiteValidationError(
-                    f"Potentially dangerous regex pattern detected: {pattern}. "
-                    "This pattern may cause ReDoS (Regular Expression Denial of Service) attacks. "
-                    "Install google-re2 (pip install nanasqlite[re2]) for linear-time regex matching."
-                )
+        def risky(nodes: Any, in_repeat: bool = False) -> bool:
+            for op, arg in nodes:
+                kind = str(op)
+                if kind in ("MAX_REPEAT", "MIN_REPEAT", "POSSESSIVE_REPEAT"):
+                    minimum, maximum, child = arg
+                    variable = minimum != maximum
+                    if variable and in_repeat:
+                        return True
+                    if risky(child, in_repeat or maximum > 1):
+                        return True
+                elif kind == "SUBPATTERN":
+                    if risky(arg[-1], in_repeat):
+                        return True
+                elif kind == "BRANCH":
+                    if in_repeat or any(risky(branch, in_repeat) for branch in arg[1]):
+                        return True
+                elif kind in ("ASSERT", "ASSERT_NOT"):
+                    if risky(arg[1], in_repeat):
+                        return True
+                elif kind == "GROUPREF_EXISTS":
+                    if risky(arg[1], in_repeat) or (arg[2] is not None and risky(arg[2], in_repeat)):
+                        return True
+                elif kind == "ATOMIC_GROUP":
+                    if risky(arg, in_repeat):
+                        return True
+            return False
+
+        if risky(parser.parse(pattern, flags)):
+            raise NanaSQLiteValidationError(
+                f"Potentially dangerous regex pattern detected: {pattern}. "
+                "This pattern may cause ReDoS (Regular Expression Denial of Service) attacks. "
+                "Install google-re2 (pip install nanasqlite[re2]) for linear-time regex matching."
+            )
 
     def _should_run(self, key: str) -> bool:
         """Determines if the hook should run for the given key."""
@@ -257,6 +279,7 @@ class CheckHook(BaseHook):
         if not self.check_func(key, value):
             raise NanaSQLiteValidationError(self.error_msg)
         return value
+
 
 class UniqueHook(BaseHook):
     """Ensures a specific field in a dictionary value is unique across the table.

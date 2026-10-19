@@ -2,6 +2,21 @@
 
 These APIs are available starting in v1.6.1. Existing settings remain the default.
 
+In v1.6.2, `table()` children and grandchildren inherit encryption and SQL validation settings. Existing child-table plaintext is not automatically migrated. Before migration, back up the database, read values using the previous settings, rewrite them using encryption, and verify both persisted ciphertext and successful decryption.
+
+### Encrypting existing child tables
+
+1. Stop application writes, flush pending work and resolve the DLQ. Create a verified `backup()` and perform the migration on a working copy.
+2. Enumerate affected child and grandchild tables. Open each plaintext table directly with `NanaSQLite(working_path, table=table_name)` without an encryption key, read all keys and values, and close it. Only open the affected plaintext table, even if its parent is already encrypted.
+3. Open the same table directly in immediate mode with the correct `encryption_key` and `encryption_mode`, rewrite all values with `batch_update()`, and close it. For data too large to hold in memory, stream with `iter_items()` into a separate destination database in bounded batches.
+4. Reopen with encryption enabled and compare the count and every key/value. Use standard `sqlite3` to check that persisted `value` cells are ciphertext BLOBs before switching the application to the working database.
+
+This procedure assumes that the entire affected table is plaintext. Do not read mixed plaintext/ciphertext tables without a key. AEAD's `allow_legacy_plaintext=True` is only for explicit migration; disable it afterwards. This option does not apply to Fernet. Use migration connections without hooks, then restore application table settings and hooks after verification. Restart from the backup if migration fails.
+
+Rewriting rows does not guarantee erasure of plaintext from the original database, backups, WAL, or free pages. When moving to another database, also migrate other required tables and schema, and manage retention and disposal of old files, including backups.
+
+The immediate-mode `batch_update_partial()` lock covers operations sharing the instance and connection. It does not add strict uniqueness across independent connections, processes, or staged v2 writes. Standard `re` screening does not guarantee execution time for every pattern; use `nanasqlite[re2]` when linear-time matching is required.
+
 ## Persistence diagnostics
 
 Use `db.get_status()` / `await db.aget_status()` without enabling metrics. Table children report the shared engine's state. Immediate mode has zero queue counts and `None` timestamps.

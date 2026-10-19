@@ -8,6 +8,38 @@ and handle edge cases in SQL parsing.
 
 from __future__ import annotations
 
+import re
+
+_SQL_TOKENS = re.compile(
+    r"--[^\n]*|/\*.*?\*/|'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|"
+    r"`(?:``|[^`])*`|\[[^\]]*\]|[a-zA-Z_]\w*|[^\s]",
+    re.DOTALL,
+)
+
+
+def find_sql_functions(sql: str) -> list[str]:
+    """引用形式も含めて関数呼び出しを抽出する (SQLite callable tokens).
+
+    Quoted data is a single token, so parentheses inside literals never look
+    like calls. A quoted token followed by '(' is checked conservatively.
+    """
+    tokens = [m.group() for m in _SQL_TOKENS.finditer(sql) if not m.group().startswith(("--", "/*"))]
+    functions = []
+    for token, following in zip(tokens, tokens[1:]):
+        if following != "(":
+            continue
+        if token[0] in "'\"`":
+            quote = token[0]
+            name = token[1:-1].replace(quote * 2, quote)
+        elif token.startswith("["):
+            name = token[1:-1]
+        elif re.fullmatch(r"[a-zA-Z_]\w*", token):
+            name = token
+        else:
+            continue
+        functions.append(name)
+    return functions
+
 
 def sanitize_sql_for_function_scan(sql: str) -> str:
     """
@@ -167,7 +199,6 @@ def sanitize_sql_for_function_scan(sql: str) -> str:
 _SAFE_SQL_CHARS: frozenset[str] = frozenset(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_ ,.()'=<>!+-*/\"|?:@$`[]"
 )
-
 
 
 def fast_validate_sql_chars(expr: str) -> bool:

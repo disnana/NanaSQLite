@@ -6,6 +6,14 @@
 
 ## 日本語
 
+### [1.6.2] - 2026-10-19
+
+- 子・孫テーブルでも親の暗号化と SQL 検証設定が適用されるよう修正しました。既存の平文データの移行方法は[運用ガイド](docs/site/operations.md)を参照してください。自動変換は行いません。
+- 引用符付き SQL 関数でも関数制限を適用し、正規表現フックでは繰り返しや条件分岐を組み合わせた危険なパターンの検出を強化しました。
+- 即時保存の部分更新で、一意性の検証から保存までを同じロックで保護します。別接続・別プロセスやv2の保存待ち書き込みへの保証は追加しません。
+- RPI の self-hosted ベンチマークを main の push・手動実行に限定しました。PR のベンチマークは既存の hosted ワークフローで実行します。
+- ソース配布からのビルドに必要な setuptools の下限を修正し、READMEの公開済み機能の案内を更新しました。
+
 ### [1.6.1] - 2026-09-05
 
 - docsのPostCSS・nanoid・Browserslistを修正版へ更新し、Bun Auditの指摘を解消しました。 / Update vulnerable docs dependencies and pass Bun Audit.
@@ -1343,6 +1351,14 @@
 
 
 ## English
+
+### [1.6.2] - 2026-10-19
+
+- Child and grandchild tables inherit encryption and SQL validation settings. Quoted SQLite function names can no longer bypass function policies. Existing plaintext is not automatically migrated.
+- Standard `re` hook filters inspect parsed nested repetitions, including brace repetitions and conditional branches. Immediate partial updates hold the shared lock from uniqueness validation through commit.
+- Self-hosted RPI benchmarks require main push or manual dispatch. Existing hosted PR benchmarks remain available.
+- Document migration of existing plaintext child tables, including verification and retained plaintext limitations, in the [operations guide](docs/site/en/operations.md). Partial-update locking does not add strict uniqueness across independent connections, processes, or staged v2 writes.
+- Correct the minimum setuptools build requirement and update the README to describe already released v1.6.1 features.
 
 ### [1.6.1] - 2026-09-05
 

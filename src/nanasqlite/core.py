@@ -20,6 +20,7 @@ import threading
 import warnings
 import weakref
 from collections.abc import Callable, Iterator, MutableMapping
+from contextlib import nullcontext
 from dataclasses import dataclass
 from functools import lru_cache, wraps
 from typing import TYPE_CHECKING, Any, Literal
@@ -52,7 +53,7 @@ from .exceptions import (
     NanaSQLiteTransactionError,
     NanaSQLiteValidationError,
 )
-from .sql_utils import fast_validate_sql_chars, sanitize_sql_for_function_scan
+from .sql_utils import fast_validate_sql_chars, find_sql_functions, sanitize_sql_for_function_scan
 from .v2_engine import V2Engine
 
 try:
@@ -1173,8 +1174,7 @@ class NanaSQLite(MutableMapping):
         if "(" not in expr:
             return
 
-        sanitized_expr = sanitize_sql_for_function_scan(expr)
-        matches = re.findall(r"([a-zA-Z_]\w*)\s*\(", sanitized_expr)
+        matches = find_sql_functions(expr)
 
         for func in matches:
             func_upper = func.upper()
@@ -2434,6 +2434,12 @@ class NanaSQLite(MutableMapping):
             >>> failed = db.batch_update_partial({"ok": 1, "bad": object()})
             >>> print(failed)
         """
+        # 検証から保存まで同じロックを保持し、他の writer による競合を防ぐ。
+        # v2 retains its existing staged-write / non-strict uniqueness contract.
+        with nullcontext() if self._v2_mode else self._acquire_lock():
+            return self._batch_update_partial_impl(mapping)
+
+    def _batch_update_partial_impl(self, mapping: dict[str, Any]) -> dict[str, str]:
         if not mapping:
             return {}
 
@@ -4679,7 +4685,13 @@ class NanaSQLite(MutableMapping):
                 cache_ttl=ttl,
                 cache_persistence_ttl=persist_ttl,
                 lock_timeout=self._lock_timeout,
+                encryption_key=self._encryption_key,
+                encryption_mode=self._encryption_mode,
                 allow_legacy_plaintext=self._allow_legacy_plaintext,
+                strict_sql_validation=self.strict_sql_validation,
+                allowed_sql_functions=set(self.allowed_sql_functions),
+                forbidden_sql_functions=set(self.forbidden_sql_functions),
+                max_clause_length=self.max_clause_length,
                 validator=resolved_validator,
                 coerce=resolved_coerce,
                 hooks=resolved_hooks,
