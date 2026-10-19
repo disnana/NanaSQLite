@@ -4,6 +4,15 @@ outline: [2, 3]
 
 # Changelog
 
+### [1.6.2] - 2026-10-19
+
+- Child and grandchild tables inherit encryption and SQL validation settings. Quoted SQLite function names can no longer bypass function policies. Existing plaintext is not automatically migrated.
+- Standard `re` hook filters inspect parsed nested repetitions, including brace repetitions and conditional branches. Immediate partial updates hold the shared lock from uniqueness validation through commit.
+- Self-hosted RPI benchmarks require main push or manual dispatch. Existing hosted PR benchmarks remain available.
+- Document migration of existing plaintext child tables, including verification and retained plaintext limitations, in the [operations guide](/en/operations.md). Partial-update locking does not add strict uniqueness across independent connections, processes, or staged v2 writes.
+- Correct the minimum setuptools build requirement and update the README to describe already released v1.6.1 features.
+- Update Vue and source-map-js used by documentation tooling to patched versions and resolve dependency audit findings.
+
 ### [1.6.1] - 2026-09-05
 
 - docsのPostCSS・nanoid・Browserslistを修正版へ更新し、Bun Auditの指摘を解消しました。 / Update vulnerable docs dependencies and pass Bun Audit.

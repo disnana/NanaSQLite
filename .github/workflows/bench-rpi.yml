@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 concurrency:
@@ -55,7 +53,7 @@ jobs:
   # ============================================
   build:
     needs: should-run
-    if: needs.should-run.outputs.run_benchmark == 'true'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.should-run.outputs.run_benchmark == 'true'
     runs-on: [self-hosted, rpi]
     outputs:
       image_tag: ${{ steps.tag.outputs.tag }}
@@ -74,7 +72,7 @@ jobs:
   # ============================================
   benchmark:
     needs: [should-run, build]
-    if: needs.should-run.outputs.run_benchmark == 'true'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.should-run.outputs.run_benchmark == 'true'
     runs-on: [self-hosted, rpi]
     timeout-minutes: 15
     steps:
@@ -101,7 +99,7 @@ jobs:
   # ============================================
   async-benchmark:
     needs: [should-run, build]
-    if: needs.should-run.outputs.run_benchmark == 'true'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.should-run.outputs.run_benchmark == 'true'
     runs-on: [self-hosted, rpi]
     timeout-minutes: 15
     steps:
@@ -128,7 +126,7 @@ jobs:
   # ============================================
   cleanup:
     needs: [build, benchmark, async-benchmark]
-    if: always()
+    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.build.result == 'success'
     runs-on: [self-hosted, rpi]
     steps:
       - name: Remove benchmark image

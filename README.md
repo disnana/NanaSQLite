@@ -8,7 +8,7 @@
 
 **A dict-like SQLite wrapper with instant persistence and intelligent caching.**
 
-Next release: persistence diagnostics, bounded async admission, streaming reads,
+Available since v1.6.1: persistence diagnostics, bounded async admission, streaming reads,
 and opt-in automatic cache consistency. [English guide](docs/site/en/operations.md) /
 [日本語ガイド](docs/site/operations.md).
 
