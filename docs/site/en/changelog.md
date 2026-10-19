@@ -11,6 +11,7 @@ outline: [2, 3]
 - Self-hosted RPI benchmarks require main push or manual dispatch. Existing hosted PR benchmarks remain available.
 - Document migration of existing plaintext child tables, including verification and retained plaintext limitations, in the [operations guide](/en/operations.md). Partial-update locking does not add strict uniqueness across independent connections, processes, or staged v2 writes.
 - Correct the minimum setuptools build requirement and update the README to describe already released v1.6.1 features.
+- Update Vue and source-map-js used by documentation tooling to patched versions and resolve dependency audit findings.
 
 ### [1.6.1] - 2026-09-05
 

@@ -13,6 +13,7 @@
 - 即時保存の部分更新で、一意性の検証から保存までを同じロックで保護します。別接続・別プロセスやv2の保存待ち書き込みへの保証は追加しません。
 - RPI の self-hosted ベンチマークを main の push・手動実行に限定しました。PR のベンチマークは既存の hosted ワークフローで実行します。
 - ソース配布からのビルドに必要な setuptools の下限を修正し、READMEの公開済み機能の案内を更新しました。
+- ドキュメント生成で使うVueとsource-map-jsを修正版へ更新し、依存関係監査の指摘を解消しました。
 
 ### [1.6.1] - 2026-09-05
 
@@ -1359,6 +1360,7 @@
 - Self-hosted RPI benchmarks require main push or manual dispatch. Existing hosted PR benchmarks remain available.
 - Document migration of existing plaintext child tables, including verification and retained plaintext limitations, in the [operations guide](docs/site/en/operations.md). Partial-update locking does not add strict uniqueness across independent connections, processes, or staged v2 writes.
 - Correct the minimum setuptools build requirement and update the README to describe already released v1.6.1 features.
+- Update Vue and source-map-js used by documentation tooling to patched versions and resolve dependency audit findings.
 
 ### [1.6.1] - 2026-09-05
 
