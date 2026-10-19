@@ -8,6 +8,10 @@ import platform
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+
+from benchmark_operational import CASES
+from benchmark_operational import main as run_paired
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -65,13 +69,12 @@ def main():
             after = results["candidate"][name]["stats"]["median"]
             lines.append(f"| {name} | {before * 1e6:.3f} | {after * 1e6:.3f} | {after / before:.3f} |")
     (args.output / "original-suite-comparison.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "benchmark_operational.py"),
-         "--baseline-source", str(sources["baseline"]), "--source", str(sources["candidate"]),
-         "--repeats", "7", "--db-dir", "/dev/shm",
-         "--output", str(args.output / "paired.json"), "--markdown", str(args.output / "paired.md")],
-        check=True, cwd=ROOT, timeout=1800,
-    )
+    run_paired(SimpleNamespace(
+        baseline_source=sources["baseline"], source=sources["candidate"],
+        baseline_ref=None, repeats=7, db_dir=Path("/dev/shm"), cases=list(CASES),
+        rows=3000, operations=100000, writes=300, seed=20260905,
+        output=args.output / "paired.json", markdown=args.output / "paired.md",
+    ))
 
 
 if __name__ == "__main__":
