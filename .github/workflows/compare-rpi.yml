@@ -1,0 +1,63 @@
+name: RPI v1.6.1 vs v1.6.2 comparison
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rpi-release-comparison
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, rpi]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Prepare immutable release snapshots and shared image
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESULTS="$RUNNER_TEMP/rpi-release-comparison-$GITHUB_RUN_ID"
+          mkdir -p "$RESULTS/sources/baseline" "$RESULTS/sources/candidate" "$RESULTS/output"
+          git rev-parse 'v1.6.1^{commit}' 'v1.6.2^{commit}' > "$RESULTS/output/revisions.txt"
+          git diff --exit-code v1.6.1 v1.6.2 -- Dockerfile tests/test_benchmark.py tests/test_async_benchmark.py
+          git archive v1.6.1 src/nanasqlite | tar -xf - -C "$RESULTS/sources/baseline"
+          git archive v1.6.2 src/nanasqlite | tar -xf - -C "$RESULTS/sources/candidate"
+          echo "RESULTS=$RESULTS" >> "$GITHUB_ENV"
+          echo "COMPARE_IMAGE=sqlite-rpi-compare:$GITHUB_RUN_ID" >> "$GITHUB_ENV"
+          docker build --iidfile "$RESULTS/output/image-id.txt" -t "sqlite-rpi-compare:$GITHUB_RUN_ID" .
+          docker image inspect "sqlite-rpi-compare:$GITHUB_RUN_ID" > "$RESULTS/output/image-inspect.json"
+          uname -a > "$RESULTS/output/host.txt"
+          lscpu >> "$RESULTS/output/host.txt"
+
+      - name: Run both releases sequentially in the same offline container
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network none -e USE_RAMDISK=1 -e PYTHONHASHSEED=0 \
+            -e NANASQLITE_SUPPRESS_MP_WARNING=1 \
+            -v "$RESULTS/sources:/sources:ro" -v "$RESULTS/output:/results" \
+            "$COMPARE_IMAGE" python scripts/benchmark_rpi_compare.py \
+            --baseline-source /sources/baseline/src --candidate-source /sources/candidate/src --output /results
+          cat "$RESULTS/output/paired.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload all measurements and environment
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: rpi-v161-v162-comparison
+          path: ${{ runner.temp }}/rpi-release-comparison-${{ github.run_id }}/output/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove comparison image
+        if: always() && env.COMPARE_IMAGE != ''
+        shell: bash
+        run: docker image rm "$COMPARE_IMAGE"

@@ -60,3 +60,23 @@ def test_requested_source_cannot_silently_fall_back_to_installed_package(tmp_pat
     args.source = tmp_path / "missing-source"
     with pytest.raises(AssertionError, match="requested source"):
         benchmark.worker(args)
+
+
+def test_snapshot_comparison_does_not_require_git(tmp_path, monkeypatch):
+    def forbidden_git(*args, **kwargs):
+        raise AssertionError("Snapshot comparison must work without git installed")
+
+    output = tmp_path / "comparison.json"
+    monkeypatch.setattr(benchmark.subprocess, "check_output", forbidden_git)
+    monkeypatch.setattr(benchmark.sys, "argv", [
+        "benchmark_operational.py", "--baseline-source", str(ROOT / "src"),
+        "--source", str(ROOT / "src"), "--repeats", "1", "--cases", "cached_get",
+        "--rows", "9", "--operations", "20", "--writes", "3", "--output", str(output),
+    ])
+    benchmark.main(benchmark.parse_args())
+    import json
+
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["baseline_revision"] is None
+    assert report["source_sha256"]["baseline"] == report["source_sha256"]["candidate"]
+    assert {sample["label"] for sample in report["samples"]} == {"baseline", "candidate"}
