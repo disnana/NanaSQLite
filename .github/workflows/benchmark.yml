@@ -91,7 +91,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install one shared dependency environment
@@ -159,7 +159,7 @@ jobs:
         enable-cache: true
     
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
     
@@ -217,7 +217,7 @@ jobs:
         enable-cache: true
     
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
     
@@ -296,7 +296,7 @@ jobs:
     
     - name: Set up Python
       if: needs.should-run.outputs.run_benchmark == 'true'
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: '3.11'
     
