@@ -27,6 +27,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any, Callable, Literal
 
 import apsw
@@ -48,12 +49,17 @@ TASK_EXECUTEMANY = "executemany"
 
 def _is_safe_table_name(table_name: str) -> bool:
     """Return True when table_name is a sanitized quoted or plain identifier."""
-    return bool(_QUOTED_TABLE_NAME_RE.match(table_name) or _UNQUOTED_TABLE_NAME_RE.match(table_name))
+    return bool(_QUOTED_TABLE_NAME_RE.fullmatch(table_name) or _UNQUOTED_TABLE_NAME_RE.fullmatch(table_name))
+
+
+_cached_safe_table_name = lru_cache(maxsize=128)(_is_safe_table_name)
 
 
 def _validate_table_name(table_name: str) -> None:
     """Validate table_name before it is interpolated into v2 SQL fragments."""
-    if not _is_safe_table_name(table_name):
+    # Repeated writes normally share a short, immutable table identifier.
+    check = _cached_safe_table_name if type(table_name) is str and len(table_name) <= 128 else _is_safe_table_name
+    if not check(table_name):
         raise ValueError(f"Invalid or unsafe table name: {table_name}")
 
 
@@ -150,6 +156,7 @@ class V2Engine:
         if isinstance(max_chunk_size, bool) or not isinstance(max_chunk_size, int) or max_chunk_size <= 0:
             raise ValueError("max_chunk_size must be a positive integer")
         self._flush_mode = flush_mode
+        self._flush_on_write = flush_mode in ("immediate", "count")
         self._flush_interval = flush_interval
         self._flush_count = flush_count
         self._max_chunk_size = max_chunk_size
@@ -301,7 +308,8 @@ class V2Engine:
             if publish is not None:
                 publish(key, value)
 
-        self._check_auto_flush()
+        if self._flush_on_write:
+            self._check_auto_flush()
 
     def kvs_delete(
         self, table_name: str, key: str, *, publish: Callable[[str], None] | None = None
@@ -319,7 +327,8 @@ class V2Engine:
             if publish is not None:
                 publish(key)
 
-        self._check_auto_flush()
+        if self._flush_on_write:
+            self._check_auto_flush()
 
     def kvs_get_staging(self, table_name: str, key: str) -> dict[str, Any] | None:
         """Read a single item from the staging buffer or the flushing buffer.
@@ -576,13 +585,15 @@ class V2Engine:
         table_ops: dict[str, dict[str, list]] = {}
 
         for (table_name, key), op in kvs_chunk:
-            _validate_table_name(table_name)
-            if table_name not in table_ops:
-                table_ops[table_name] = {"sets": [], "deletes": []}
+            ops = table_ops.get(table_name)
+            if ops is None:
+                _validate_table_name(table_name)
+                ops = {"sets": [], "deletes": []}
+                table_ops[table_name] = ops
             if op["action"] == "set":
-                table_ops[table_name]["sets"].append((key, op["value"]))
+                ops["sets"].append((key, op["value"]))
             elif op["action"] == "delete":
-                table_ops[table_name]["deletes"].append((key,))
+                ops["deletes"].append((key,))
 
         cursor = self._connection.cursor()
         lock_acquired = False

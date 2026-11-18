@@ -223,6 +223,19 @@ def test_bounded_snapshot_includes_in_flight_and_newer_staging(tmp_path, monkeyp
         assert child.to_dict() == {"other": 4}
 
 
+def test_v2_repeated_table_validation_and_mixed_chunk(tmp_path):
+    with NanaSQLite(str(tmp_path / "tables.db"), v2_mode=True, flush_mode="manual") as db:
+        with db.table("short_name") as short, db.table("table_" + "x" * 150) as long_table:
+            for table in (short, long_table, short):
+                table["record"] = table._table
+            for invalid in ("two names", "short_name\n"):
+                with pytest.raises(ValueError, match="table name"):
+                    db._v2_engine.kvs_set(invalid, "record", 1)
+            db.flush(wait=True, check_errors=True)
+            assert short.get_fresh("record") == short._table
+            assert long_table.get_fresh("record") == long_table._table
+
+
 @pytest.mark.parametrize("use_index", [False, True])
 def test_unique_hook_checks_rows_outside_cache(tmp_path, use_index):
     path = str(tmp_path / "bounded-unique.db")
