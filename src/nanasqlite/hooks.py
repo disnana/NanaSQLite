@@ -335,6 +335,8 @@ class UniqueHook(BaseHook):
         # ライフサイクル外でのDB変更などで同一フィールド値を持つキーが複数存在する場合、
         # そのフィールド値を記録する。該当値については O(N) スキャンにフォールバックする。
         self._duplicate_field_values: set[Hashable] = set()
+        self._v2_indexed_fields: dict[str, Hashable] = {}
+        self._index_revision = 0
         self._index_built: bool = False
         # インデックスを構築した DB インスタンスへの弱参照。
         # 別の DB インスタンスで使用された場合に自動的に再構築するために使用する。
@@ -355,6 +357,8 @@ class UniqueHook(BaseHook):
             self._index_built = False
             self._value_to_key.clear()
             self._duplicate_field_values.clear()
+            self._v2_indexed_fields.clear()
+            self._index_revision += 1
             self._bound_db_ref = None
 
     def _extract_field(self, key: str, value: Any) -> Any:
@@ -394,6 +398,10 @@ class UniqueHook(BaseHook):
             except TypeError:
                 # アンハッシュ可能な値（dict, list など）はインデックス不可のためスキップ
                 pass
+        self._v2_indexed_fields = (
+            {key: field for field, key in self._value_to_key.items()} if getattr(db, "_v2_engine", None) else {}
+        )
+        self._index_revision += 1
         self._index_built = True
         # インデックスを構築した DB インスタンスへの弱参照を保存する。
         # 別の DB インスタンスで使用された場合に自動的に再構築するために使用する。
@@ -500,9 +508,48 @@ class UniqueHook(BaseHook):
             if any(existing_value == check_val for existing_value in existing_values):
                 raise NanaSQLiteValidationError("Unique constraint violation: duplicate value detected")
 
+    def _reconcile_v2_index(self, db: Any, key: str) -> None:
+        """Reconcile from the current value when callbacks complete out of order."""
+        missing = object()
+        while True:
+            with self._index_lock:
+                if not self._index_built or self._bound_db_ref is None or self._bound_db_ref() is not db:
+                    return
+                revision = self._index_revision
+            # Reading a cold value can need the connection lock. Keep it
+            # outside the index lock, then recheck for a concurrent update.
+            current = db._get_raw(key, missing)
+            field = None if current is missing else self._extract_field(key, current)
+            if field is not None:
+                try:
+                    hash(field)
+                except TypeError:
+                    field = None
+            with self._index_lock:
+                if revision != self._index_revision:
+                    continue
+                previous = self._v2_indexed_fields.pop(key, missing)
+                if previous is not missing and self._value_to_key.get(previous) == key:
+                    del self._value_to_key[previous]
+                if field is not None and field not in self._duplicate_field_values:
+                    owner = self._value_to_key.get(field)
+                    if owner is not None and owner != key:
+                        self._v2_indexed_fields.pop(owner, None)
+                        del self._value_to_key[field]
+                        self._duplicate_field_values.add(field)
+                    else:
+                        self._value_to_key[field] = key
+                        self._v2_indexed_fields[key] = field
+                self._index_revision += 1
+                return
+
     def on_write_success(self, db: Any, key: str, value: Any, old_value: Any) -> None:
         """DB 書き込み成功時に逆引きインデックスを更新する。"""
         if not self.use_index or not self._should_run(key):
+            return
+
+        if getattr(db, "_v2_engine", None):
+            self._reconcile_v2_index(db, key)
             return
 
         with self._index_lock:
@@ -537,6 +584,10 @@ class UniqueHook(BaseHook):
     def on_delete_success(self, db: Any, key: str, old_value: Any) -> None:
         """DB 削除成功時に逆引きインデックスからエントリを除去する。"""
         if not self.use_index or not self._should_run(key):
+            return
+
+        if getattr(db, "_v2_engine", None):
+            self._reconcile_v2_index(db, key)
             return
 
         with self._index_lock:

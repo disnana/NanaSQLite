@@ -54,6 +54,7 @@ from .core import (
     IDENTIFIER_PATTERN,
     NanaSQLite,
     V2Config,
+    _is_read_sql,
 )
 from .exceptions import NanaSQLiteClosedError, NanaSQLiteDatabaseError
 from .protocols import NanaHook
@@ -699,7 +700,7 @@ class AsyncNanaSQLite:
 
         await self._run_in_executor(update_wrapper)
 
-    async def aflush(self, wait: bool = False) -> None:
+    async def aflush(self, wait: bool = False, *, check_errors: bool = False) -> None:
         """
         [v2 Feature] 非同期でv2エンジンのバックグラウンドバッファとキューをSQLiteに明示的にフラッシュする。
         v2_modeがFalseの場合は何もしない。
@@ -711,7 +712,7 @@ class AsyncNanaSQLite:
 
         # Create a tiny closure to pass the keyword argument to flush
         def _flush_wrapper():
-            self._db.flush(wait=wait)
+            self._db.flush(wait=wait, check_errors=check_errors)
 
         await self._run_in_executor(_flush_wrapper)
 
@@ -1081,6 +1082,8 @@ class AsyncNanaSQLite:
         await self._ensure_initialized()
 
         def _fetch_one_impl():
+            if self._db._v2_engine and _is_read_sql(sql):
+                self._db._v2_engine.flush(wait=True, skip_if_idle=True)
             with self._read_connection() as conn:
                 cursor = conn.execute(sql, parameters)
                 return cursor.fetchone()
@@ -1104,6 +1107,8 @@ class AsyncNanaSQLite:
         await self._ensure_initialized()
 
         def _fetch_all_impl():
+            if self._db._v2_engine and _is_read_sql(sql):
+                self._db._v2_engine.flush(wait=True, skip_if_idle=True)
             with self._read_connection() as conn:
                 cursor = conn.execute(sql, parameters)
                 return list(cursor)
@@ -1152,6 +1157,16 @@ class AsyncNanaSQLite:
         """
         await self._ensure_initialized()
         await self._run_in_executor(self._db.create_index, index_name, table_name, columns, unique, if_not_exists)
+
+    async def create_json_index(self, path: str, *, order_by_key: bool = True) -> str:
+        """Create an opt-in JSON expression index in the executor."""
+        await self._ensure_initialized()
+        return await self._run_in_executor(functools.partial(self._db.create_json_index, path, order_by_key=order_by_key))
+
+    async def find_by(self, path: str, value: str | int | float | None, *, limit: int = 100) -> list[str]:
+        """Find keys by scalar JSON value in committed rows."""
+        await self._ensure_initialized()
+        return await self._run_in_executor(functools.partial(self._db.find_by, path, value, limit=limit))
 
     async def query(
         self,
@@ -1991,7 +2006,9 @@ class AsyncNanaSQLite:
         if offset is not None:
             sql += f" OFFSET {offset}"
 
-        # Execute on pool
+        # Match the synchronous query's write-back barrier before using the pool.
+        if self._db._v2_engine:
+            self._db._v2_engine.flush(wait=True, skip_if_idle=True)
         try:
             with self._read_connection() as conn:
                 cursor = conn.cursor()
