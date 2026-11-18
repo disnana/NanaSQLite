@@ -337,6 +337,15 @@ class V2Engine:
         operation = self._staging_buffer.get(table_key)
         return operation if operation is not None else self._flushing_buffer.get(table_key)
 
+    def pending_table_operations(self, table_name: str) -> dict[str, dict[str, Any]]:
+        """Snapshot accepted KVS changes while the caller holds the connection lock."""
+        with self._staging_lock:
+            return {
+                key: operation
+                for buffer in (self._flushing_buffer, self._staging_buffer)
+                for (table, key), operation in buffer.items() if table == table_name
+            }
+
     def publish_cache_read(
         self,
         table_name: str,

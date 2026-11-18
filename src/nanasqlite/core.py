@@ -81,6 +81,24 @@ _BEGIN_IMMEDIATE = "BEGIN IMMEDIATE"
 _NEGATIVE_CACHE_LIMIT = 4096
 _BATCH_GET_CHUNK_SIZE = 900
 _BATCH_GET_FULL_PLACEHOLDERS = ",".join("?" for _ in range(_BATCH_GET_CHUNK_SIZE))
+_JSON_PATH_STEP = re.compile(r'\.(?:"(?:[^"\\]|\\.)*"|[^".\[][^.\[]*)|\[(?:[0-9]+|#(?:-[0-9]+)?)\]', re.DOTALL)
+
+
+def _quote_json_path(path: str) -> str:
+    # SQLite stops walking a path at the first missing member. An invalid suffix
+    # can otherwise survive CREATE INDEX and break a later insert or update.
+    if not path.startswith("$") or "\x00" in path:
+        raise NanaSQLiteValidationError("path must be a SQLite JSON path starting with '$'")
+    offset = 1
+    while offset < len(path):
+        step = _JSON_PATH_STEP.match(path, offset)
+        if step is None:
+            raise NanaSQLiteValidationError("invalid SQLite JSON path")
+        offset = step.end()
+    return "'" + path.replace("'", "''") + "'"
+
+
+_cached_json_path = lru_cache(maxsize=128)(_quote_json_path)
 
 
 def _integrity_check_ok(rows: Any) -> bool:
@@ -1062,6 +1080,13 @@ class NanaSQLite(MutableMapping):
         if not expr:
             return
 
+        max_len = self.max_clause_length
+        if max_len and len(expr) > max_len:
+            msg = f"SQL expression exceeds maximum length of {max_len} characters."
+            if strict or (strict is None and self.strict_sql_validation):
+                raise NanaSQLiteValidationError(msg)
+            warnings.warn(msg, UserWarning, stacklevel=2)
+
         # 0.5. Strict identifier validation for ORDER BY and GROUP BY (F-003)
         # These clauses do not support parameters (?) for column names, so we must
         # strictly validate that the input contains only allowed characters for
@@ -1125,25 +1150,20 @@ class NanaSQLite(MutableMapping):
         # string literals and comments, so these markers survive sanitization; checking
         # the raw text here provides an explicit early-exit guard.
         raw_expr = str(expr)
-        if _STRUCTURAL_INJECTION_RE.search(raw_expr):
+        structural_marker = _STRUCTURAL_INJECTION_RE.search(raw_expr)
+        if structural_marker:
             if strict or (strict is None and self.strict_sql_validation):
                 raise ValueError(full_msg)
             warnings.warn(full_msg, UserWarning, stacklevel=2)
         # Mask string literals before searching to avoid false positives on words
         # like DELETE inside a legitimate data value.
-        sanitized_for_dangerous = sanitize_sql_for_function_scan(raw_expr)
+        sanitized_for_dangerous = (
+            sanitize_sql_for_function_scan(raw_expr) if structural_marker or "'" in raw_expr or '"' in raw_expr else raw_expr
+        )
         if _DANGEROUS_SQL_RE.search(sanitized_for_dangerous):
             if strict or (strict is None and self.strict_sql_validation):
                 raise ValueError(full_msg)
             warnings.warn(full_msg, UserWarning, stacklevel=2)
-
-        # 1. 長さ制限 (ReDoS対策)
-        max_len = self.max_clause_length
-        if max_len and len(expr) > max_len:
-            msg = f"SQL expression exceeds maximum length of {max_len} characters."
-            if strict or (strict is None and self.strict_sql_validation):
-                raise NanaSQLiteValidationError(msg)
-            warnings.warn(msg, UserWarning, stacklevel=2)
 
         # 2. 禁止リストの整理 (メソッド指定を優先、なければインスタンス設定)
         forbidden_list = set(forbidden) if forbidden is not None else self.forbidden_sql_functions
@@ -1152,6 +1172,9 @@ class NanaSQLite(MutableMapping):
             if strict or (strict is None and self.strict_sql_validation):
                 raise NanaSQLiteValidationError(msg)
             warnings.warn(msg, UserWarning, stacklevel=2)
+            return
+
+        if "(" not in expr:
             return
 
         # 3. 許可リストの整理
@@ -1167,17 +1190,10 @@ class NanaSQLite(MutableMapping):
         effective_allowed -= forbidden_list
 
         # 4. 関数呼び出しの抽出
-        # PERF-10: Skip the function-scan entirely when the expression contains no
-        # '(' character.  The vast majority of WHERE clauses ("id = ?",
-        # "email = ?", etc.) have no function calls, so the sanitize+findall
-        # overhead would be wasted.
         # 文字列リテラルやコメントをマスクした上で関数呼び出しを検索
         # これにより、SELECT 'COUNT(' ... のようなパターンでの誤検知を防ぐ
         # Note: sanitize_sql_for_function_scan() preserves double-quoted identifier
         # content so that "FUNC"() patterns are detected.
-        if "(" not in expr:
-            return
-
         matches = find_sql_functions(expr)
 
         for func in matches:
@@ -1723,24 +1739,49 @@ class NanaSQLite(MutableMapping):
             self._v2_engine.flush(wait=True)
         return self._get_all_keys_from_db()
 
-    def values(self) -> list:
-        """全値を取得（一括ロードしてからメモリから）"""
+    def _mapping_data(self) -> MutableMapping[str, Any]:
+        """Return all raw KVS values, even when the cache can evict entries."""
         self._check_connection()
-        self.load_all()
-        # PERF-13: In Unbounded mode, MISSING is never stored in _data, so skip
-        # the per-element predicate and return a plain list directly.
-        if not self._lru_mode:
-            return list(self._data.values())
-        return [v for v in self._cache.get_data().values() if v is not MISSING]
+        if not self._use_cache_set:
+            self.load_all()
+            return self._data
+        return self._read_all_values()
+
+    def _read_all_values(self) -> dict[str, Any]:
+        engine = self._v2_engine
+        if engine and not self._all_loaded:
+            engine.flush(wait=True, skip_if_idle=True)
+        with self._acquire_lock():
+            if self._cache_persistence_ttl_raw and self._cache_strategy_raw == CacheType.TTL:
+                # Honor due persistent expirations before reading the backing rows.
+                list(self._data)
+            values = {key: self._deserialize(raw) for key, raw in self._connection.execute(self._sql_kv_select_all)}
+            if engine:
+                for key, op in engine.pending_table_operations(self._safe_table).items():
+                    if op["action"] == "set":
+                        values[key] = self._deserialize(op["value"])
+                    else:
+                        values.pop(key, None)
+            if not self._all_loaded:
+                if engine:
+                    # Subsequent staging can race the read above. Only publish rows
+                    # with no newer or in-flight operation, just like batch_get.
+                    engine.publish_cache_reads(self._safe_table, list(values), values, self._update_cache_batch,
+                                               self._mark_cached_missing)
+                else:
+                    self._update_cache_batch(values)
+                if not self._lru_mode:
+                    self._absent_keys.clear()
+                self._all_loaded = True
+            return values
+
+    def values(self) -> list:
+        """全値を取得"""
+        return list(self._mapping_data().values())
 
     def items(self) -> list:
-        """全アイテムを取得（一括ロードしてからメモリから）"""
-        self._check_connection()
-        self.load_all()
-        # PERF-13: Same Unbounded-mode optimisation as values() and to_dict().
-        if not self._lru_mode:
-            return list(self._data.items())
-        return [(k, v) for k, v in self._cache.get_data().items() if v is not MISSING]
+        """全アイテムを取得"""
+        return list(self._mapping_data().items())
 
     def get(self, key: str, default: Any = None) -> Any:
         """dict.get(key, default)"""
@@ -2251,29 +2292,8 @@ class NanaSQLite(MutableMapping):
 
     def load_all(self) -> None:
         """一括読み込み: 全データをメモリに展開"""
-        if self._all_loaded:
-            return
-
-        # v2 Architecture: Flush background buffer to ensure we load the latest state
-        if self._v2_mode and self._v2_engine:
-            self._v2_engine.flush(wait=True)
-
-        with self._acquire_lock():
-            cursor = self._connection.execute(self._sql_kv_select_all)
-            rows = list(cursor)  # ロック内でフェッチ
-
-        if self._use_cache_set:
-            for key, value in rows:
-                self._cache.set(key, self._deserialize(value))
-        else:
-            # PERF-34: default unbounded cache has no eviction side effects, so
-            # bulk-populate the backing dict directly instead of dispatching
-            # through cache.set() once per row.
-            self._data.update((key, self._deserialize(value)) for key, value in rows)
-
-        if not self._lru_mode:
-            self._absent_keys.clear()
-        self._all_loaded = True
+        if not self._all_loaded:
+            self._read_all_values()
 
     def refresh(self, key: str | None = None) -> None:
         """
@@ -2426,15 +2446,7 @@ class NanaSQLite(MutableMapping):
                 cursor.execute("ROLLBACK")
                 raise
             self._notify_batch_write_success(mapping, old_values)
-            if self._lru_mode:
-                for key, value in mapping.items():
-                    self._cache.set(key, value)
-            else:
-                # PERF-23: dict.update() is ~6x faster than a per-key assignment loop.
-                self._data.update(mapping)
-                # PERF-23: guard absent_keys update (empty for write-heavy workloads).
-                if self._absent_keys:
-                    self._absent_keys.difference_update(mapping.keys())
+            self._update_cache_batch(mapping)
 
     def batch_update_partial(self, mapping: dict[str, Any]) -> dict[str, str]:
         """
@@ -2523,15 +2535,7 @@ class NanaSQLite(MutableMapping):
                 cursor.execute("ROLLBACK")
                 raise
             self._notify_batch_write_success(accepted_values, old_values)
-            if self._lru_mode:
-                for key, value in accepted_values.items():
-                    self._cache.set(key, value)
-            else:
-                # PERF-24: dict.update() is ~6x faster than a per-key assignment loop.
-                self._data.update(accepted_values)
-                # PERF-24: guard absent_keys update (empty for write-heavy workloads).
-                if self._absent_keys:
-                    self._absent_keys.difference_update(accepted_values.keys())
+            self._update_cache_batch(accepted_values)
 
         return failed
 
@@ -2601,20 +2605,7 @@ class NanaSQLite(MutableMapping):
 
     def to_dict(self) -> dict:
         """全データをPython dictとして取得"""
-        self._check_connection()
-        self.load_all()
-        # BUG-03 fix: filter out MISSING sentinels that may be present in LRU/TTL
-        # mode as negative-cache entries (keys known to be absent).  Without this
-        # filter, callers would receive {key: <MISSING>} in the result dict which
-        # is inconsistent with items() and other API methods.
-        #
-        # PERF-08: In Unbounded mode, MISSING is never stored in _data (absent keys
-        # are tracked in a separate _absent_keys set), so we can skip the per-item
-        # filter and use dict() directly — O(n) vs O(n) but without a Python-level
-        # predicate call per element.
-        if not self._lru_mode:
-            return dict(self._data)
-        return {k: v for k, v in self._data.items() if v is not MISSING}
+        return dict(self._mapping_data())
 
     def copy(self) -> dict:
         """浅いコピーを作成（標準dictを返す）"""
@@ -4533,16 +4524,18 @@ class NanaSQLite(MutableMapping):
     def _json_path_literal(self, path: str) -> str:
         if not self._no_encrypt:
             raise NanaSQLiteDatabaseError("JSON field search is unavailable with encryption")
-        if not isinstance(path, str) or not (path == "$" or path.startswith(("$.", "$["))) or "\x00" in path:
+        if not isinstance(path, str):
             raise NanaSQLiteValidationError("path must be a SQLite JSON path starting with '$'")
-        quoted_path = path.replace("'", "''")
-        return f"'{quoted_path}'"
+        # Long user-supplied paths remain valid without occupying the shared cache.
+        return _cached_json_path(path) if len(path) <= 256 else _quote_json_path(path)
 
-    def create_json_index(self, path: str, *, order_by_key: bool = True) -> str:
-        """Create an opt-in JSON expression index and return its SQLite name."""
+    def create_json_index(self, path: str, *, order_by_key: bool = True, include_type: bool = False) -> str:
+        """Index a JSON field. Include its type to cover searches with ambiguous SQLite scalar values."""
         path_literal = self._json_path_literal(path)
         expression = f"json_extract(value, {path_literal})"
         index_columns = f"{expression}, key" if order_by_key else expression
+        if include_type:
+            index_columns += f", json_type(value, {path_literal})"
         digest = hashlib.sha256(f"{self._safe_table}:{index_columns}".encode()).hexdigest()[:24]
         name = f"nanasqlite_json_{digest}"
         self.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {self._safe_table} ({index_columns})")
@@ -4551,7 +4544,9 @@ class NanaSQLite(MutableMapping):
     def find_by(self, path: str, value: str | int | float | None, *, limit: int = 100) -> list[str]:
         """Find keys by scalar JSON value in key order.
 
-        Reads SQLite rows visible to this connection. None matches JSON null and missing paths.
+        Booleans match only JSON booleans. Integer and real values compare numerically.
+        None matches JSON null and missing paths. Non-finite filters are rejected.
+        Reads SQLite rows visible to this connection.
         Call flush(wait=True, check_errors=True) first to include buffered writes.
         """
         self._check_connection()
@@ -4563,8 +4558,18 @@ class NanaSQLite(MutableMapping):
             raise NanaSQLiteValidationError("value must be a scalar JSON value")
         predicate = f"{expression} IS ?"
         if isinstance(value, str):
-            # json_extract also returns text for arrays and objects.
-            predicate += f" AND json_type(value, {path_literal}) = 'text'"
+            # JSON arrays/objects are the only other text results of json_extract.
+            # Regular strings can use the covering index without loading the JSON.
+            if value.startswith(("[", "{")):
+                predicate += f" AND json_type(value, {path_literal}) = 'text'"
+        elif isinstance(value, bool):
+            boolean_type = "true" if value else "false"
+            predicate += f" AND json_type(value, {path_literal}) = '{boolean_type}'"
+        elif value is not None:
+            if isinstance(value, float) and not math.isfinite(value):
+                raise NanaSQLiteValidationError("value must be finite")
+            if value in (0, 1):
+                predicate += f" AND json_type(value, {path_literal}) IN ('integer', 'real')"
         sql = f"SELECT key FROM {self._safe_table} WHERE {predicate} ORDER BY key LIMIT ?"  # nosec B608
         try:
             with self._acquire_lock():

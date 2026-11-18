@@ -89,6 +89,15 @@ with NanaSQLite("mydata.db") as db:
     db["temp"] = "value"
 ```
 
+To search a JSON field repeatedly, create its index once. SQLite maintains it on writes.
+
+```python
+db.create_json_index("$.status")
+keys = db.find_by("$.status", "active", limit=20)
+```
+
+Results are ordered by key. Booleans are distinct from numbers. `None` matches both JSON null and an absent field. For boolean-heavy searches or text that looks like a JSON container, `include_type=True` stores the JSON type in the index at extra write and storage cost. With v2 buffered writes, call `db.flush(wait=True, check_errors=True)` before searching for pending changes.
+
 ### 📚 Documentation
 
 - **[Official Documentation Website ↗](https://nanasqlite.disnana.com/)** (Best Experience)
@@ -339,6 +348,15 @@ results = db.batch_get(["k1", "k2"])
 with NanaSQLite("mydata.db") as db:
     db["temp"] = "value"
 ```
+
+JSON フィールドを繰り返し検索する場合は、最初に一度だけ索引を作ります。以後の更新と削除は SQLite が索引に反映します。
+
+```python
+db.create_json_index("$.status")
+keys = db.find_by("$.status", "active", limit=20)
+```
+
+結果はキー順です。真偽値と数値は区別し、`None` は JSON の null とフィールド未設定の両方に一致します。真偽値や JSON の配列・オブジェクトに似た文字列を頻繁に検索する場合は、`include_type=True` で型も索引に保存できます。その分、書き込み時間と容量が増えます。v2 の保存待ちの変更を検索する場合は、先に `db.flush(wait=True, check_errors=True)` を呼びます。
 
 ### 📚 ドキュメント
 

@@ -6,6 +6,7 @@ from threading import Event
 import apsw
 import pytest
 
+import nanasqlite.core as core
 from nanasqlite import (
     AsyncNanaSQLite,
     NanaSQLite,
@@ -99,6 +100,138 @@ def test_json_index_uses_existing_rows_and_tracks_writes(tmp_path):
     with NanaSQLite(path) as db:
         assert db.find_by(field, "ok") == []
         assert db.find_by(field, "updated") == ["a"]
+
+
+@pytest.mark.parametrize("index_options", [None, {}, {"include_type": True}, {"include_type": True, "order_by_key": False}])
+def test_find_by_distinguishes_json_scalars(tmp_path, index_options):
+    with NanaSQLite(str(tmp_path / "scalars.db")) as db:
+        db.batch_update({
+            "bool-false": False, "bool-true": True, "zero": 0, "one": 1, "real-one": 1.0,
+            "null": None, "str-zero": "0", "array": [1], "str-array": "[1]",
+            "object": {"x": 2}, "str-object": '{"x":2}', "text": "active",
+        })
+        if index_options is not None:
+            db.create_json_index("$", **index_options)
+        for value, keys in [
+            (False, ["bool-false"]), (True, ["bool-true"]), (0, ["zero"]), (1, ["one", "real-one"]),
+            (1.0, ["one", "real-one"]), (None, ["null"]), ("0", ["str-zero"]), ("[1]", ["str-array"]),
+            ('{"x":2}', ["str-object"]), ("active", ["text"]),
+        ]:
+            assert db.find_by("$", value) == keys
+        for value in (float("nan"), float("inf"), -float("inf")):
+            with pytest.raises(NanaSQLiteValidationError, match="finite"):
+                db.find_by("$", value)
+
+
+async def test_async_type_covering_index_and_bounded_mapping(tmp_path):
+    path = str(tmp_path / "async-index.db")
+    async with AsyncNanaSQLite(path, cache_strategy="lru", cache_size=1) as db:
+        await db.abatch_update({"bool": {"flag": True}, "one": {"flag": 1}, "zero": {"flag": 0}})
+        index = await db.create_json_index("$.flag", include_type=True)
+        assert await db.find_by("$.flag", True) == ["bool"]
+        assert len(await db.to_dict()) == len(await db.aitems()) == len(await db.avalues()) == 3
+    with NanaSQLite(path) as db:
+        plan = db.fetch_all(
+            "EXPLAIN QUERY PLAN SELECT key FROM data WHERE json_extract(value,'$.flag') IS ? "
+            "AND json_type(value,'$.flag') = 'true' ORDER BY key LIMIT ?", (True, 20),
+        )
+        assert any(index in row[-1] for row in plan)
+        assert not any("TEMP B-TREE" in row[-1] for row in plan)
+
+
+@pytest.mark.parametrize("path", ["$.", "$.items[", "$.items[3].", '$."open', "$.items[#-]"])
+def test_invalid_path_never_installs_an_index(tmp_path, path):
+    with NanaSQLite(str(tmp_path / "paths.db")) as db:
+        with pytest.raises(NanaSQLiteValidationError):
+            db.create_json_index(path)
+        with pytest.raises(NanaSQLiteValidationError):
+            db.find_by(path, None)
+        assert not db.fetch_all("SELECT name FROM sqlite_schema WHERE name GLOB 'nanasqlite_json_*'")
+        db["sample"] = {"items": [0, 1, 2, 3]}
+        assert db["sample"]["items"][-1] == 3
+
+
+@pytest.mark.parametrize(("path", "wanted"), [
+    ('$."a.b"[0].name', "first"), ('$."a.b"[#-1].name', "last"), ('$."a.b"[#]', None),
+    ('$.""', "empty"), ("$.所有者's", "owner"), ("$." + "a" * 300, "long"),
+])
+def test_valid_sqlite_paths_keep_working(tmp_path, path, wanted):
+    with NanaSQLite(str(tmp_path / "valid.db")) as db:
+        db.create_json_index(path)
+        db["sample"] = {"a.b": [{"name": "first"}, {"name": "last"}], "": "empty", "所有者's": "owner", "a" * 300: "long"}
+        assert db.find_by(path, wanted) == ["sample"]
+        assert db.get_by_path("sample", path) == wanted
+
+
+def test_strict_clause_limit_precedes_scanning(tmp_path, monkeypatch):
+    def unexpected_scan(_):
+        pytest.fail("the strict length check must run before scanning the expression")
+
+    with NanaSQLite(str(tmp_path / "length.db"), max_clause_length=8) as db:
+        monkeypatch.setattr(core, "fast_validate_sql_chars", unexpected_scan)
+        with pytest.raises(NanaSQLiteValidationError, match="maximum length"):
+            db.query(where="key = key")
+
+
+@pytest.mark.parametrize("strategy", ["unbounded", "lru", "ttl"])
+@pytest.mark.parametrize("v2", [False, True])
+def test_complete_mapping_with_evicting_cache(tmp_path, strategy, v2):
+    path = str(tmp_path / "bounded.db")
+    with NanaSQLite(path, cache_strategy=strategy, cache_size=2, cache_ttl=100,
+                    v2_mode=v2, flush_mode="manual") as db:
+        expected = {"a": 1, "b": 2, "c": 3, "d": 4, "e": 5}
+        db.batch_update(expected)
+        assert db._cache.size <= 2
+        assert dict(db.items()) == expected
+        assert db.batch_update_partial({"b": 7, "f": 6}) == {}
+        expected.update({"b": 7, "f": 6})
+        del db["d"]
+        del expected["d"]
+        assert sorted(db.values()) == sorted(expected.values())
+        assert db.to_dict() == expected
+        assert db.get("missing") is None
+        assert db.copy() == expected
+        assert db._cache.size <= 2
+    with NanaSQLite(path) as reopened:
+        assert reopened.to_dict() == expected
+
+
+def test_bounded_snapshot_includes_in_flight_and_newer_staging(tmp_path, monkeypatch):
+    with NanaSQLite(str(tmp_path / "flush.db"), cache_strategy="lru", cache_size=1,
+                    v2_mode=True, flush_mode="manual") as db, db.table("child") as child:
+        assert db.to_dict() == {}
+        entered, resume = Event(), Event()
+        process = db._v2_engine._process_kvs_chunk
+
+        def pause(chunk):
+            entered.set()
+            assert resume.wait(3)
+            process(chunk)
+
+        monkeypatch.setattr(db._v2_engine, "_process_kvs_chunk", pause)
+        db.batch_update({"change": 1, "retain": 2, "delete": 3})
+        child["other"] = 4
+        db.flush()
+        try:
+            assert entered.wait(3)
+            db["change"] = 5
+            del db["delete"]
+            assert db.to_dict() == {"change": 5, "retain": 2}
+        finally:
+            resume.set()
+        db.flush(wait=True, check_errors=True)
+        assert child.to_dict() == {"other": 4}
+
+
+@pytest.mark.parametrize("use_index", [False, True])
+def test_unique_hook_checks_rows_outside_cache(tmp_path, use_index):
+    path = str(tmp_path / "bounded-unique.db")
+    with NanaSQLite(path) as db:
+        db.batch_update({str(i): {"name": f"name-{i}"} for i in range(5)})
+    with NanaSQLite(path, cache_strategy="lru", cache_size=2, hooks=[UniqueHook("name", use_index=use_index)]) as db:
+        with pytest.raises(NanaSQLiteValidationError, match="duplicate"):
+            db["new"] = {"name": "name-0"}
+        assert "new" not in db
 
 
 def test_negative_cache_is_bounded(tmp_path):

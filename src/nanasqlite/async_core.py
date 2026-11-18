@@ -1158,10 +1158,12 @@ class AsyncNanaSQLite:
         await self._ensure_initialized()
         await self._run_in_executor(self._db.create_index, index_name, table_name, columns, unique, if_not_exists)
 
-    async def create_json_index(self, path: str, *, order_by_key: bool = True) -> str:
+    async def create_json_index(self, path: str, *, order_by_key: bool = True, include_type: bool = False) -> str:
         """Create an opt-in JSON expression index in the executor."""
         await self._ensure_initialized()
-        return await self._run_in_executor(functools.partial(self._db.create_json_index, path, order_by_key=order_by_key))
+        return await self._run_in_executor(
+            functools.partial(self._db.create_json_index, path, order_by_key=order_by_key, include_type=include_type)
+        )
 
     async def find_by(self, path: str, value: str | int | float | None, *, limit: int = 100) -> list[str]:
         """Find keys by scalar JSON value in committed rows."""
