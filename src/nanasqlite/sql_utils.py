@@ -17,6 +17,14 @@ _SQL_TOKENS = re.compile(
 )
 
 
+def kvs_upsert_sql(safe_table: str) -> str:
+    """Build a key-only upsert for an already validated KVS table identifier."""
+    return (
+        f"INSERT OR ABORT INTO {safe_table} (key, value) VALUES (?, ?) "  # nosec
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    )
+
+
 def find_sql_functions(sql: str) -> list[str]:
     """引用形式も含めて関数呼び出しを抽出する (SQLite callable tokens).
 

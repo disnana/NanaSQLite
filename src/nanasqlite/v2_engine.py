@@ -25,6 +25,7 @@ import queue
 import re
 import threading
 import time
+from collections.abc import Collection
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -33,6 +34,7 @@ from typing import Any, Callable, Literal
 import apsw
 
 from .exceptions import NanaSQLiteClosedError, NanaSQLiteDatabaseError
+from .sql_utils import kvs_upsert_sql
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +197,7 @@ class V2Engine:
         # Threading/Worker state
         self._worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="NanaSQLite-v2Engine")
         self._running = True
+        self._shutdown_complete = threading.Event()
         self._flush_event = threading.Event()
         self._timer_thread: threading.Thread | None = None
 
@@ -215,6 +218,8 @@ class V2Engine:
         # write would pile up thousands of queued tasks and make
         # shutdown(wait=True) block for a long time.
         self._flush_pending = threading.Lock()
+        # Serialize a manual caller doing its own KVS flush with the executor and shutdown.
+        self._drain_lock = threading.Lock()
 
         # Start timer if time mode
         if self._flush_mode == "time":
@@ -377,7 +382,7 @@ class V2Engine:
     def publish_cache_reads(
         self,
         table_name: str,
-        keys: list[str],
+        keys: Collection[str],
         values: dict[str, Any],
         publish: Callable[[dict[str, Any]], None],
         mark_missing: Callable[[str], None],
@@ -458,7 +463,7 @@ class V2Engine:
             if not wait and not self._running:
                 return
             self._check_running()
-            if skip_if_idle and not self._staging_buffer and self._strict_queue.empty():
+            if skip_if_idle and not check_errors and not self._staging_buffer and self._strict_queue.empty():
                 # The worker marks itself active before removing any staged
                 # work; a task already taken from either lane is still covered.
                 with self._dlq_lock:
@@ -472,17 +477,30 @@ class V2Engine:
                 if not wait and not self._staging_buffer and self._strict_queue.empty():
                     return
 
-            # Keep submission and shutdown ordered. A waiter joins the actual
-            # queued flush so an exception from the worker also reaches it.
-            if self._flush_pending.acquire(blocking=False):
-                try:
-                    self._queued_flush = self._worker.submit(self._run_flush)
-                except BaseException:
-                    self._flush_pending.release()
-                    raise
-            future = self._queued_flush
+            # A manual caller already waiting for persistence can do its own
+            # KVS I/O. Never overtake queued work or run strict SQL callbacks
+            # on the caller. All waits for the drain lock happen outside staging.
+            inline = (
+                wait and self._flush_mode == "manual" and bool(self._staging_buffer)
+                and self._strict_queue.empty() and not self._flush_pending.locked()
+                and self._drain_lock.acquire(blocking=False)
+            )
+            future = None
+            if not inline:
+                if self._flush_pending.acquire(blocking=False):
+                    try:
+                        self._queued_flush = self._worker.submit(self._run_flush)
+                    except BaseException:
+                        self._flush_pending.release()
+                        raise
+                future = self._queued_flush
 
-        if wait:
+        if inline:
+            try:
+                self._flush_with_status(background=False)
+            finally:
+                self._drain_lock.release()
+        elif wait and future is not None:
             future.result()
         if check_errors:
             with self._dlq_lock:
@@ -494,18 +512,21 @@ class V2Engine:
                     raise NanaSQLiteDatabaseError("v2 flush has unresolved write failures")
 
     def _run_flush(self) -> None:
-        """Executor entry point: release the pending-guard then flush."""
-        # Release the guard *before* the flush so that any writes arriving
-        # during the flush can schedule a follow-up submission.
+        with self._drain_lock:
+            self._flush_with_status(background=True)
+
+    def _flush_with_status(self, *, background: bool) -> None:
         with self._staging_lock:
-            self._flush_pending.release()
+            if background:
+                # Subsequent writes can now schedule one follow-up flush.
+                self._flush_pending.release()
             had_work = bool(self._staging_buffer)
         had_work = had_work or not self._strict_queue.empty()
         with self._dlq_lock:
             failures_before = self._failure_count
             self._flush_active = True
         try:
-            self._perform_flush()
+            self._perform_flush(process_strict=background)
         except Exception:
             with self._dlq_lock:
                 self._failure_count += 1
@@ -519,12 +540,8 @@ class V2Engine:
             with self._dlq_lock:
                 self._flush_active = False
 
-    def _perform_flush(self) -> None:
-        """
-        The actual flush logic executed by the single background thread.
-        Combines Lane 1 (KVS) and Lane 2 (Strict Queue) into a single transaction.
-        Implements chunking and DLQ error handling.
-        """
+    def _perform_flush(self, *, process_strict: bool = True) -> None:
+        """Persist a KVS snapshot in chunks, then optionally drain the strict SQL queue."""
         start_time = time.time() if self._enable_metrics else 0.0
 
         # 1. Capture current snapshot of staging buffer and move it to
@@ -569,8 +586,8 @@ class V2Engine:
         with self._staging_lock:
             self._flushing_buffer = {}
 
-        # Process all remaining Strict Lane tasks
-        self._process_all_strict_tasks()
+        if process_strict:
+            self._process_all_strict_tasks()
 
         if self._enable_metrics:
             flush_duration_ms = (time.time() - start_time) * 1000
@@ -609,10 +626,7 @@ class V2Engine:
                     sets = ops["sets"]
                     deletes = ops["deletes"]
                     if sets:
-                        cursor.executemany(
-                            f"INSERT OR REPLACE INTO {table_name} (key, value) VALUES (?, ?)",  # nosec
-                            sets,
-                        )
+                        cursor.executemany(kvs_upsert_sql(table_name), sets)
                     if deletes:
                         cursor.executemany(
                             f"DELETE FROM {table_name} WHERE key = ?",  # nosec
@@ -715,9 +729,7 @@ class V2Engine:
                     cursor.execute("BEGIN IMMEDIATE TRANSACTION;")
                     started = True
                     if op["action"] == "set":
-                        cursor.execute(
-                            f"INSERT OR REPLACE INTO {table_name} (key, value) VALUES (?, ?)", (key, op["value"])
-                        )  # nosec
+                        cursor.execute(kvs_upsert_sql(table_name), (key, op["value"]))
                     elif op["action"] == "delete":
                         cursor.execute(f"DELETE FROM {table_name} WHERE key = ?", (key,))  # nosec
 
@@ -854,12 +866,19 @@ class V2Engine:
 
     def shutdown(self) -> None:
         """Gracefully shutdown the engine, forcing a synchronous final flush."""
-        # Use a lock to ensure only one thread performs shutdown
         with self._staging_lock:
-            if not self._running:
-                return
+            first = self._running
             self._running = False
+        if not first:
+            # Another close must not close the shared connection mid-flush.
+            self._shutdown_complete.wait()
+            return
+        try:
+            self._finish_shutdown()
+        finally:
+            self._shutdown_complete.set()
 
+    def _finish_shutdown(self) -> None:
         # Wake up the timer thread to let it exit
         if self._timer_thread:
             self._flush_event.set()
@@ -877,10 +896,10 @@ class V2Engine:
         except Exception as e:
             logger.warning("NanaSQLite v2 Engine: Error during worker shutdown: %s", type(e).__name__)
 
-        # Ensure final data is flushed synchronously on main/exit thread.
-        # This is safe because the worker thread is now finished.
+        # Also wait for any manual caller still writing on this connection.
         try:
-            self._perform_flush()
+            with self._drain_lock:
+                self._perform_flush()
         except Exception as e:
             logger.error("NanaSQLite v2 Engine: Final flush failed during shutdown: %s", type(e).__name__)
 

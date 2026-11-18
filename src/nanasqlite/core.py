@@ -54,7 +54,7 @@ from .exceptions import (
     NanaSQLiteTransactionError,
     NanaSQLiteValidationError,
 )
-from .sql_utils import fast_validate_sql_chars, find_sql_functions, sanitize_sql_for_function_scan
+from .sql_utils import fast_validate_sql_chars, find_sql_functions, kvs_upsert_sql, sanitize_sql_for_function_scan
 from .v2_engine import V2Engine
 
 try:
@@ -533,7 +533,7 @@ class NanaSQLite(MutableMapping):
         # time.  These strings include the (constant) quoted table name and are
         # reconstructed on every call as f-strings otherwise, adding measurable
         # overhead to the write/read/delete/contains hot paths.
-        self._sql_kv_insert: str = f"INSERT OR REPLACE INTO {sanitized_table} (key, value) VALUES (?, ?)"  # nosec
+        self._sql_kv_insert = kvs_upsert_sql(sanitized_table)
         self._sql_kv_delete: str = f"DELETE FROM {sanitized_table} WHERE key = ?"  # nosec
         self._sql_kv_select: str = f"SELECT value FROM {sanitized_table} WHERE key = ?"  # nosec
         self._sql_kv_contains: str = f"SELECT 1 FROM {sanitized_table} WHERE key = ? LIMIT 1"  # nosec
@@ -1755,18 +1755,22 @@ class NanaSQLite(MutableMapping):
             if self._cache_persistence_ttl_raw and self._cache_strategy_raw == CacheType.TTL:
                 # Honor due persistent expirations before reading the backing rows.
                 list(self._data)
-            values = {key: self._deserialize(raw) for key, raw in self._connection.execute(self._sql_kv_select_all)}
+            decode = self._deserialize
+            if self._no_encrypt and getattr(decode, "__func__", None) is NanaSQLite._deserialize:
+                # The default plaintext path only parses JSON. Select its decoder once per scan.
+                decode = orjson.loads if HAS_ORJSON else json.loads
+            values = {key: decode(raw) for key, raw in self._connection.execute(self._sql_kv_select_all)}
             if engine:
                 for key, op in engine.pending_table_operations(self._safe_table).items():
                     if op["action"] == "set":
-                        values[key] = self._deserialize(op["value"])
+                        values[key] = decode(op["value"])
                     else:
                         values.pop(key, None)
             if not self._all_loaded:
                 if engine:
                     # Subsequent staging can race the read above. Only publish rows
                     # with no newer or in-flight operation, just like batch_get.
-                    engine.publish_cache_reads(self._safe_table, list(values), values, self._update_cache_batch,
+                    engine.publish_cache_reads(self._safe_table, values.keys(), values, self._update_cache_batch,
                                                self._mark_cached_missing)
                 else:
                     self._update_cache_batch(values)

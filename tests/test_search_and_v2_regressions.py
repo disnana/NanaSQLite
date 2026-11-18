@@ -1,7 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from contextlib import closing
-from threading import Event
+from threading import Event, get_ident
 
 import apsw
 import pytest
@@ -42,11 +42,126 @@ def test_v2_checked_flush_reports_busy_and_can_retry(tmp_path):
         with pytest.raises(NanaSQLiteDatabaseError, match="unresolved"):
             db.flush(wait=True, check_errors=True)
         assert db.get_status()["failed_count"] == 1
+        with pytest.raises(NanaSQLiteDatabaseError, match="unresolved"):
+            db._v2_engine.flush(wait=True, check_errors=True, skip_if_idle=True)
         blocker.execute("ROLLBACK")
         db.retry_dlq()
         db.flush(wait=True, check_errors=True)
     with NanaSQLite(path) as db:
         assert db["key"] == 42
+
+
+def test_manual_wait_commits_without_submitting_to_executor(tmp_path, monkeypatch):
+    path = str(tmp_path / "manual.db")
+    with NanaSQLite(path, v2_mode=True, flush_mode="manual") as db:
+        def unexpected_submission(*args, **kwargs):
+            pytest.fail("a manual KVS-only flush submitted a background task")
+
+        monkeypatch.setattr(db._v2_engine._worker, "submit", unexpected_submission)
+        db["key"] = 42
+        db.flush(wait=True, check_errors=True)
+        assert db.get_status()["last_successful_flush_time"] is not None
+        with closing(apsw.Connection(path)) as reader:
+            assert reader.execute("SELECT value FROM data WHERE key = 'key'").fetchone() == ("42",)
+
+
+@pytest.mark.parametrize("v2", [False, True])
+def test_kvs_upsert_preserves_other_keys_on_unique_conflict(tmp_path, v2):
+    path = str(tmp_path / "unique.db")
+    with NanaSQLite(path, v2_mode=v2, flush_mode="manual") as db:
+        db.execute("CREATE UNIQUE INDEX one_email ON data(json_extract(value, '$.email'))")
+        db["alice"] = {"email": "a"}
+        db["bob"] = {"email": "b"}
+        db.flush(wait=True, check_errors=True)
+        alice_rowid = db.fetch_one("SELECT rowid FROM data WHERE key='alice'")
+        db["alice"] = {"email": "a2"}
+        db.flush(wait=True, check_errors=True)
+        assert db.fetch_one("SELECT rowid FROM data WHERE key='alice'") == alice_rowid
+
+        conflicts = {"alice": {"email": "b"}, "new": {"email": "b"}, "independent": {"email": "c"}}
+        if v2:
+            db.batch_update(conflicts)
+            with pytest.raises(NanaSQLiteDatabaseError, match="unresolved"):
+                db.flush(wait=True, check_errors=True)
+            assert db.get_status()["failed_count"] == 2
+            db.retry_dlq()
+            with pytest.raises(NanaSQLiteDatabaseError, match="unresolved"):
+                db.flush(wait=True, check_errors=True)
+        else:
+            with pytest.raises(apsw.ConstraintError):
+                db.batch_update(conflicts)
+            with pytest.raises(apsw.ConstraintError):
+                db["new"] = {"email": "b"}
+    with NanaSQLite(path) as reopened:
+        expected = {"alice": {"email": "a2"}, "bob": {"email": "b"}}
+        if v2:
+            expected["independent"] = {"email": "c"}
+        assert reopened.to_dict() == expected
+
+
+def test_bulk_read_uses_custom_decoder(tmp_path):
+    class CustomDecoder(NanaSQLite):
+        def _deserialize(self, value):
+            return ("decoded", super()._deserialize(value))
+
+    path = str(tmp_path / "decoder.db")
+    with NanaSQLite(path) as db:
+        db["key"] = 42
+    with CustomDecoder(path) as db:
+        assert db.items() == [("key", ("decoded", 42))]
+
+
+@pytest.mark.parametrize("close_during_flush", [False, True])
+def test_manual_flush_serializes_follow_up_work(tmp_path, monkeypatch, close_during_flush):
+    path = str(tmp_path / "follow-up.db")
+    with NanaSQLite(path, v2_mode=True, flush_mode="manual") as db, ThreadPoolExecutor(3) as callers:
+        engine = db._v2_engine
+        started, resume = Event(), Event()
+        process = engine._process_kvs_chunk
+        writers, callbacks = [], []
+
+        def pause_first(chunk):
+            writers.append(get_ident())
+            if len(writers) == 1:
+                started.set()
+                assert resume.wait(5)
+            process(chunk)
+
+        monkeypatch.setattr(engine, "_process_kvs_chunk", pause_first)
+        db["key"] = 1
+        first = callers.submit(db.flush, wait=True, check_errors=True)
+        try:
+            assert started.wait(5)
+            assert db.get_status()["flush_active"]
+            db["key"] = 2
+            if close_during_flush:
+                follow_up = callers.submit(db.close)
+            else:
+                engine.enqueue_strict_task(
+                    "execute", "CREATE TABLE saved AS SELECT value FROM data",
+                    on_success=lambda: callbacks.append(get_ident()),
+                )
+                follow_up = callers.submit(db.flush, wait=True, check_errors=True)
+            with pytest.raises(FutureTimeoutError):
+                follow_up.result(timeout=0.05)
+            if close_during_flush:
+                second_close = callers.submit(db.close)
+                with pytest.raises(FutureTimeoutError):
+                    second_close.result(timeout=0.05)
+        finally:
+            resume.set()
+        first.result(timeout=5)
+        follow_up.result(timeout=5)
+        if close_during_flush:
+            second_close.result(timeout=5)
+        assert len(writers) == 2
+        if not close_during_flush:
+            assert callbacks == [writers[1]]
+            assert writers[0] != writers[1]
+    with closing(apsw.Connection(path)) as reader:
+        assert reader.execute("SELECT value FROM data").fetchone() == ("2",)
+        if not close_during_flush:
+            assert reader.execute("SELECT value FROM saved").fetchone() == ("2",)
 
 
 @pytest.mark.asyncio

@@ -6,6 +6,15 @@
 
 ## 日本語
 
+### [1.7.0] - 2026-11-18
+
+- JSON フィールドに索引を作る `create_json_index()` と、一致するキーをキー順に返す `find_by()` を同期・非同期 API に追加しました。索引は任意で、更新と削除は SQLite が反映します。真偽値と数値を区別し、`include_type=True` で JSON 型も索引に記録できます。
+- KVS で追加の `UNIQUE` 制約に抵触したとき、別のキーの既存行が削除される不具合を修正しました。同じキーへの再代入は SQLite の UPDATE として処理し、rowid を保持します。独自のトリガーで上書きを監視する場合は UPDATE を対象にしてください。
+- v2 の手動モードでは、競合のない KVS の `flush(wait=True)` を呼び出し元で完了できるようにし、初回保存のワーカー起動待ちを省きました。`check_errors=True` を指定すると未解決の保存失敗を例外で確認できます。複数の呼び出し元が同時に閉じる場合も、保存完了まで接続を保持します。
+- v2 の子テーブルを閉じると親の保存が止まる問題、並行読み書きで古い値がキャッシュに戻る問題、非同期 SQL 読み取りで保存待ちの変更が見えない問題を修正しました。JSON パス取得でも真偽値・文字列・配列・オブジェクトの型を保持します。
+- 容量制限付きキャッシュでも `items()`、`values()`、`to_dict()` が全件を返し、`UniqueHook` がキャッシュから外れた行の重複を検出します。平文の全件読み取りでは JSON デコーダーを走査ごとに選択します。
+- 不正な JSON パスは索引の作成前に拒否し、strict モードの SQL 句長制限は式の走査前に適用します。ドキュメント生成で使う picomatch では繰り返し extglob を無効化しました。
+
 ### [1.6.2] - 2026-10-19
 
 - 子・孫テーブルでも親の暗号化と SQL 検証設定が適用されるよう修正しました。既存の平文データの移行方法は[運用ガイド](docs/site/operations.md)を参照してください。自動変換は行いません。
@@ -1352,6 +1361,15 @@
 
 
 ## English
+
+### [1.7.0] - 2026-11-18
+
+- Added sync and async `create_json_index()` and `find_by()` to index JSON fields and return matching keys in key order. SQLite maintains each opt-in index on writes and deletes. Boolean and numeric filters are distinct. Pass `include_type=True` to store the JSON type in the index.
+- Fixed KVS writes deleting a different key's row on a secondary `UNIQUE` constraint conflict. Reassigning the same key now performs a SQLite UPDATE and preserves its rowid. Custom triggers that monitor overwrites should handle UPDATE.
+- In manual v2 mode, a waiting caller can persist an uncontended KVS batch directly, avoiding worker startup on its first save. `flush(wait=True, check_errors=True)` reports unresolved write failures. Concurrent callers closing the database wait for persistence before releasing the connection.
+- Fixed closing a v2 child table stopping its parent's writes, stale cache values after concurrent reads and writes, and visibility of buffered writes in async SQL reads. JSON path reads preserve booleans, strings, arrays and objects.
+- Fixed incomplete `items()`, `values()` and `to_dict()` results with an evicting cache, including `UniqueHook` missing duplicates outside the cache. Full plaintext reads select the JSON decoder once per scan.
+- Invalid JSON paths are rejected before index creation. Strict SQL clause length limits are applied before scanning expressions. Disabled repeated extglobs in picomatch for the documentation build.
 
 ### [1.6.2] - 2026-10-19
 
