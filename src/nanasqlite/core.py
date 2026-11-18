@@ -1747,6 +1747,13 @@ class NanaSQLite(MutableMapping):
             return self._data
         return self._read_all_values()
 
+    def _bulk_decoder(self) -> Callable[[bytes | str], Any]:
+        """Choose the default plaintext parser once, preserving custom and encrypted decoding."""
+        decode = self._deserialize
+        if self._no_encrypt and getattr(decode, "__func__", None) is NanaSQLite._deserialize:
+            return orjson.loads if HAS_ORJSON else json.loads
+        return decode
+
     def _read_all_values(self) -> dict[str, Any]:
         engine = self._v2_engine
         if engine and not self._all_loaded:
@@ -1755,10 +1762,7 @@ class NanaSQLite(MutableMapping):
             if self._cache_persistence_ttl_raw and self._cache_strategy_raw == CacheType.TTL:
                 # Honor due persistent expirations before reading the backing rows.
                 list(self._data)
-            decode = self._deserialize
-            if self._no_encrypt and getattr(decode, "__func__", None) is NanaSQLite._deserialize:
-                # The default plaintext path only parses JSON. Select its decoder once per scan.
-                decode = orjson.loads if HAS_ORJSON else json.loads
+            decode = self._bulk_decoder()
             values = {key: decode(raw) for key, raw in self._connection.execute(self._sql_kv_select_all)}
             if engine:
                 for key, op in engine.pending_table_operations(self._safe_table).items():
@@ -1966,34 +1970,27 @@ class NanaSQLite(MutableMapping):
         # SQLite has a limit on the number of variables (parameters) in a single query.
         # Default is usually 999. We chunk the query to stay well under this limit.
 
-        db_found_keys = set()
+        absent_from_db: list[str] = []
         with self._acquire_lock():
+            decode = self._bulk_decoder()
             for i in range(0, len(missing_keys), _BATCH_GET_CHUNK_SIZE):
                 chunk = missing_keys[i : i + _BATCH_GET_CHUNK_SIZE]
-                placeholders = (
-                    _BATCH_GET_FULL_PLACEHOLDERS
-                    if len(chunk) == _BATCH_GET_CHUNK_SIZE
-                    else ",".join("?" for _ in chunk)
-                )
+                placeholders = _BATCH_GET_FULL_PLACEHOLDERS[: 2 * len(chunk) - 1]
                 sql = f"SELECT key, value FROM {self._safe_table} WHERE key IN ({placeholders})"  # nosec
 
                 cursor = self._connection.execute(sql, tuple(chunk))
+                values = {key: decode(raw) for key, raw in cursor}
                 if engine:
-                    values = {key: self._deserialize(raw) for key, raw in cursor}
                     engine.publish_cache_reads(self._safe_table, chunk, values, self._update_cache_batch,
                                                self._mark_cached_missing)
-                    results.update(values)
                 else:
-                    for key, val_str in cursor:
-                        value = self._deserialize(val_str)
-                        self._update_cache(key, value)
-                        results[key] = value
-                        db_found_keys.add(key)
+                    self._update_cache_batch(values)
+                    if len(values) < len(chunk):
+                        absent_from_db.extend(key for key in chunk if key not in values)
+                results.update(values)
 
-            if not engine:
-                for key in missing_keys:
-                    if key not in db_found_keys:
-                        self._mark_cached_missing(key)
+            for key in absent_from_db:
+                self._mark_cached_missing(key)
 
         # Apply after_read hooks
         if self._has_hooks:

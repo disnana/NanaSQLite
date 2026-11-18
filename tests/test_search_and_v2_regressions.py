@@ -99,7 +99,7 @@ def test_kvs_upsert_preserves_other_keys_on_unique_conflict(tmp_path, v2):
         assert reopened.to_dict() == expected
 
 
-def test_bulk_read_uses_custom_decoder(tmp_path):
+def test_bulk_read_uses_custom_decoder(tmp_path, monkeypatch):
     class CustomDecoder(NanaSQLite):
         def _deserialize(self, value):
             return ("decoded", super()._deserialize(value))
@@ -109,6 +109,11 @@ def test_bulk_read_uses_custom_decoder(tmp_path):
         db["key"] = 42
     with CustomDecoder(path) as db:
         assert db.items() == [("key", ("decoded", 42))]
+        db.clear_cache()
+        monkeypatch.setattr(core, "_BATCH_GET_CHUNK_SIZE", 3)
+        keys = ["missing", "key", "key", "missing", "key"]
+        assert db.batch_get(keys) == {"key": ("decoded", 42)}
+        assert db.batch_get(keys) == {"key": ("decoded", 42)}
 
 
 @pytest.mark.parametrize("close_during_flush", [False, True])

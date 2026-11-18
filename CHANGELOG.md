@@ -12,7 +12,7 @@
 - KVS で追加の `UNIQUE` 制約に抵触したとき、別のキーの既存行が削除される不具合を修正しました。同じキーへの再代入は SQLite の UPDATE として処理し、rowid を保持します。独自のトリガーで上書きを監視する場合は UPDATE を対象にしてください。
 - v2 の手動モードでは、競合のない KVS の `flush(wait=True)` を呼び出し元で完了できるようにし、初回保存のワーカー起動待ちを省きました。`check_errors=True` を指定すると未解決の保存失敗を例外で確認できます。複数の呼び出し元が同時に閉じる場合も、保存完了まで接続を保持します。
 - v2 の子テーブルを閉じると親の保存が止まる問題、並行読み書きで古い値がキャッシュに戻る問題、非同期 SQL 読み取りで保存待ちの変更が見えない問題を修正しました。JSON パス取得でも真偽値・文字列・配列・オブジェクトの型を保持します。
-- 容量制限付きキャッシュでも `items()`、`values()`、`to_dict()` が全件を返し、`UniqueHook` がキャッシュから外れた行の重複を検出します。平文の全件読み取りでは JSON デコーダーを走査ごとに選択します。
+- 容量制限付きキャッシュでも `items()`、`values()`、`to_dict()` が全件を返し、`UniqueHook` がキャッシュから外れた行の重複を検出します。平文の一括読み取りと全件列挙では JSON デコーダーを走査ごとに選択し、`batch_get()` は SQLite から読んだ行をまとめてキャッシュに反映します。
 - 不正な JSON パスは索引の作成前に拒否し、strict モードの SQL 句長制限は式の走査前に適用します。ドキュメント生成で使う picomatch では繰り返し extglob を無効化しました。
 
 ### [1.6.2] - 2026-10-19
@@ -1368,7 +1368,7 @@
 - Fixed KVS writes deleting a different key's row on a secondary `UNIQUE` constraint conflict. Reassigning the same key now performs a SQLite UPDATE and preserves its rowid. Custom triggers that monitor overwrites should handle UPDATE.
 - In manual v2 mode, a waiting caller can persist an uncontended KVS batch directly, avoiding worker startup on its first save. `flush(wait=True, check_errors=True)` reports unresolved write failures. Concurrent callers closing the database wait for persistence before releasing the connection.
 - Fixed closing a v2 child table stopping its parent's writes, stale cache values after concurrent reads and writes, and visibility of buffered writes in async SQL reads. JSON path reads preserve booleans, strings, arrays and objects.
-- Fixed incomplete `items()`, `values()` and `to_dict()` results with an evicting cache, including `UniqueHook` missing duplicates outside the cache. Full plaintext reads select the JSON decoder once per scan.
+- Fixed incomplete `items()`, `values()` and `to_dict()` results with an evicting cache, including `UniqueHook` missing duplicates outside the cache. Plaintext batch and full reads select the JSON decoder once per scan, and `batch_get()` adds rows read from SQLite to the cache in bulk.
 - Invalid JSON paths are rejected before index creation. Strict SQL clause length limits are applied before scanning expressions. Disabled repeated extglobs in picomatch for the documentation build.
 
 ### [1.6.2] - 2026-10-19

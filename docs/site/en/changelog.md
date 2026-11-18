@@ -10,7 +10,7 @@ outline: [2, 3]
 - Fixed KVS writes deleting a different key's row on a secondary `UNIQUE` constraint conflict. Reassigning the same key now performs a SQLite UPDATE and preserves its rowid. Custom triggers that monitor overwrites should handle UPDATE.
 - In manual v2 mode, a waiting caller can persist an uncontended KVS batch directly, avoiding worker startup on its first save. `flush(wait=True, check_errors=True)` reports unresolved write failures. Concurrent callers closing the database wait for persistence before releasing the connection.
 - Fixed closing a v2 child table stopping its parent's writes, stale cache values after concurrent reads and writes, and visibility of buffered writes in async SQL reads. JSON path reads preserve booleans, strings, arrays and objects.
-- Fixed incomplete `items()`, `values()` and `to_dict()` results with an evicting cache, including `UniqueHook` missing duplicates outside the cache. Full plaintext reads select the JSON decoder once per scan.
+- Fixed incomplete `items()`, `values()` and `to_dict()` results with an evicting cache, including `UniqueHook` missing duplicates outside the cache. Plaintext batch and full reads select the JSON decoder once per scan, and `batch_get()` adds rows read from SQLite to the cache in bulk.
 - Invalid JSON paths are rejected before index creation. Strict SQL clause length limits are applied before scanning expressions. Disabled repeated extglobs in picomatch for the documentation build.
 
 ### [1.6.2] - 2026-10-19
