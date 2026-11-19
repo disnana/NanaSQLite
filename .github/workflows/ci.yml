@@ -21,7 +21,7 @@ jobs:
   # ============================================
   # Should-Run Check - Determines if CI is needed
   # main push / workflow_dispatch: 常に実行
-  # PR: src/ tests/ pyproject.toml tox.ini の変更時のみ実行
+  # PR: ソース、テスト、開発設定、CI ワークフローの変更時に実行
   # ============================================
   should-run:
     name: Check if CI needed
@@ -57,12 +57,12 @@ jobs:
         echo "Changed files:"
         echo "$CHANGED"
 
-        if echo "$CHANGED" | grep -qE '^(src|tests)/|^pyproject\.toml$|^tox\.ini$'; then
+        if echo "$CHANGED" | grep -qE '^(src|tests)/|^(pyproject\.toml|tox\.ini|\.github/workflows/ci\.yml)$'; then
           echo "run_ci=true" >> $GITHUB_OUTPUT
-          echo "→ src/tests changed: CI required"
+          echo "→ CI inputs changed: CI required"
         else
           echo "run_ci=false" >> $GITHUB_OUTPUT
-          echo "→ no src/tests changes: CI skipped"
+          echo "→ no CI inputs changed: CI skipped"
         fi
 
   # ============================================
@@ -113,8 +113,9 @@ jobs:
 
   # ============================================
   # Test Job - Matrix based on branch
-  # main: Python 3.9-3.14 × all OS
-  # other: Python 3.13 × each OS (limited)
+  # main: Python 3.10-3.14 on Linux, with selected macOS and Windows jobs
+  # PR: Python 3.13 on each OS
+  # Python 3.9 runs on Ubuntu 24.04 for both main and PRs.
   # ============================================
   test:
     name: Test (py${{ matrix.python-version }}, ${{ matrix.os }})
@@ -126,11 +127,13 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ${{ github.ref == 'refs/heads/main' && fromJSON('["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]') || fromJSON('["3.13"]') }}
+        python-version: ${{ github.ref == 'refs/heads/main' && fromJSON('["3.10", "3.11", "3.12", "3.13", "3.14"]') || fromJSON('["3.13"]') }}
+        include:
+          # actions/setup-python has no Python 3.9 build for Ubuntu 26.04.
+          - os: ubuntu-24.04
+            python-version: "3.9"
         exclude:
           # macOS: limit to 2 popular versions (3.11, 3.13)
-          - os: macos-latest
-            python-version: "3.9"
           - os: macos-latest
             python-version: "3.10"
           - os: macos-latest
@@ -138,8 +141,6 @@ jobs:
           - os: macos-latest
             python-version: "3.14"
           # Windows: limit to 2 popular versions (3.11, 3.13)
-          - os: windows-latest
-            python-version: "3.9"
           - os: windows-latest
             python-version: "3.10"
           - os: windows-latest
