@@ -23,7 +23,7 @@ Hooks can respond to the following five events:
 Useful built-in hooks are available in the `nanasqlite.hooks` module.
 
 ### UniqueHook
-Enforces uniqueness of a specific field.
+Checks a field for duplicates across keys before accepting a write.
 
 ```python
 from nanasqlite.hooks import UniqueHook
@@ -34,6 +34,17 @@ db.add_hook(UniqueHook("email"))
 db["user1"] = {"email": "alice@example.com"}
 db["user2"] = {"email": "alice@example.com"} # Raises NanaSQLiteValidationError
 ```
+
+Concurrent v2 writes can both pass the hook check. From v1.7.0, add a SQLite UNIQUE index on a plaintext JSON field to enforce uniqueness at persistence time. Resolve existing duplicates before creating the index.
+
+```python
+with NanaSQLite("users.db", v2_mode=True, flush_mode="manual") as db:
+    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS unique_email ON data(json_extract(value, '$.email'))")
+    db["user1"] = {"email": "alice@example.com"}
+    db.flush(wait=True, check_errors=True)
+```
+
+A conflict with another key preserves the persisted row. Immediate writes raise `apsw.ConstraintError`. In v2 the failed write enters the dead letter queue and the checked flush above raises `NanaSQLiteDatabaseError`. SQLite UNIQUE indexes allow multiple NULLs.
 
 ### CheckHook
 Validates values using a custom function. This is essentially a programmatic version of SQLite's `CHECK` constraint.

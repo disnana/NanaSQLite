@@ -23,7 +23,7 @@
 すぐに使える便利なフックが `nanasqlite.hooks` モジュールに用意されています。
 
 ### UniqueHook
-特定のフィールドの一意性を保証します。
+書き込み前に、指定したフィールドが他のキーと重複していないか検査します。
 
 ```python
 from nanasqlite.hooks import UniqueHook
@@ -34,6 +34,17 @@ db.add_hook(UniqueHook("email"))
 db["user1"] = {"email": "alice@example.com"}
 db["user2"] = {"email": "alice@example.com"} # NanaSQLiteValidationError
 ```
+
+v2 では並行する書き込みが両方とも事前検査を通ることがあります。v1.7.0 以降で保存時にも一意性が必要な場合は、平文 JSON の対象フィールドに SQLite の UNIQUE 索引を追加します。既存の重複は索引作成前に解消してください。
+
+```python
+with NanaSQLite("users.db", v2_mode=True, flush_mode="manual") as db:
+    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS unique_email ON data(json_extract(value, '$.email'))")
+    db["user1"] = {"email": "alice@example.com"}
+    db.flush(wait=True, check_errors=True)
+```
+
+別キーと競合すると、保存済みの行を保持します。即時保存では書き込み時に `apsw.ConstraintError` が発生します。v2 では失敗した書き込みが DLQ に入り、上記のフラッシュで `NanaSQLiteDatabaseError` が発生します。SQLite の UNIQUE 索引は複数の NULL を許容します。
 
 ### CheckHook
 カスタム関数による値の検証を行います。SQLite の `CHECK` 制約のコード版です。

@@ -25,11 +25,16 @@ import queue
 import re
 import threading
 import time
+from collections.abc import Collection
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any, Callable, Literal
 
 import apsw
+
+from .exceptions import NanaSQLiteClosedError, NanaSQLiteDatabaseError
+from .sql_utils import kvs_upsert_sql
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +51,17 @@ TASK_EXECUTEMANY = "executemany"
 
 def _is_safe_table_name(table_name: str) -> bool:
     """Return True when table_name is a sanitized quoted or plain identifier."""
-    return bool(_QUOTED_TABLE_NAME_RE.match(table_name) or _UNQUOTED_TABLE_NAME_RE.match(table_name))
+    return bool(_QUOTED_TABLE_NAME_RE.fullmatch(table_name) or _UNQUOTED_TABLE_NAME_RE.fullmatch(table_name))
+
+
+_cached_safe_table_name = lru_cache(maxsize=128)(_is_safe_table_name)
 
 
 def _validate_table_name(table_name: str) -> None:
     """Validate table_name before it is interpolated into v2 SQL fragments."""
-    if not _is_safe_table_name(table_name):
+    # Repeated writes normally share a short, immutable table identifier.
+    check = _cached_safe_table_name if type(table_name) is str and len(table_name) <= 128 else _is_safe_table_name
+    if not check(table_name):
         raise ValueError(f"Invalid or unsafe table name: {table_name}")
 
 
@@ -148,6 +158,7 @@ class V2Engine:
         if isinstance(max_chunk_size, bool) or not isinstance(max_chunk_size, int) or max_chunk_size <= 0:
             raise ValueError("max_chunk_size must be a positive integer")
         self._flush_mode = flush_mode
+        self._flush_on_write = flush_mode in ("immediate", "count")
         self._flush_interval = flush_interval
         self._flush_count = flush_count
         self._max_chunk_size = max_chunk_size
@@ -186,6 +197,7 @@ class V2Engine:
         # Threading/Worker state
         self._worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="NanaSQLite-v2Engine")
         self._running = True
+        self._shutdown_complete = threading.Event()
         self._flush_event = threading.Event()
         self._timer_thread: threading.Thread | None = None
 
@@ -206,6 +218,8 @@ class V2Engine:
         # write would pile up thousands of queued tasks and make
         # shutdown(wait=True) block for a long time.
         self._flush_pending = threading.Lock()
+        # Serialize a manual caller doing its own KVS flush with the executor and shutdown.
+        self._drain_lock = threading.Lock()
 
         # Start timer if time mode
         if self._flush_mode == "time":
@@ -278,7 +292,9 @@ class V2Engine:
                     if isinstance(item, tuple) and len(item) == 2 and item[0] == table_key:
                         item[1]["superseded"] = True
 
-    def kvs_set(self, table_name: str, key: str, value: Any) -> None:
+    def kvs_set(
+        self, table_name: str, key: str, value: Any, *, publish: Callable[[str, Any], None] | None = None
+    ) -> None:
         """Queue a set operation in the staging buffer."""
         _validate_table_name(table_name)
         # Serialize immediately on the calling thread to catch type errors early
@@ -286,27 +302,38 @@ class V2Engine:
         serialized_value = self._serialize(value)
 
         with self._staging_lock:
+            self._check_running()
             if self._flushing_buffer or self.dlq:
                 self._supersede_failed_write((table_name, key))
             if not self._staging_buffer:
                 self._staging_since = time.monotonic()
             self._staging_buffer[(table_name, key)] = {"action": "set", "value": serialized_value}
             self._staging_changes += 1
+            # Publish the local cache in staging order. User hooks run later.
+            if publish is not None:
+                publish(key, value)
 
-        self._check_auto_flush()
+        if self._flush_on_write:
+            self._check_auto_flush()
 
-    def kvs_delete(self, table_name: str, key: str) -> None:
+    def kvs_delete(
+        self, table_name: str, key: str, *, publish: Callable[[str], None] | None = None
+    ) -> None:
         """Queue a delete operation in the staging buffer."""
         _validate_table_name(table_name)
         with self._staging_lock:
+            self._check_running()
             if self._flushing_buffer or self.dlq:
                 self._supersede_failed_write((table_name, key))
             if not self._staging_buffer:
                 self._staging_since = time.monotonic()
             self._staging_buffer[(table_name, key)] = {"action": "delete"}
             self._staging_changes += 1
+            if publish is not None:
+                publish(key)
 
-        self._check_auto_flush()
+        if self._flush_on_write:
+            self._check_auto_flush()
 
     def kvs_get_staging(self, table_name: str, key: str) -> dict[str, Any] | None:
         """Read a single item from the staging buffer or the flushing buffer.
@@ -318,10 +345,63 @@ class V2Engine:
         """
         _validate_table_name(table_name)
         with self._staging_lock:
-            result = self._staging_buffer.get((table_name, key))
-            if result is None:
-                result = self._flushing_buffer.get((table_name, key))
-            return result
+            return self._current_kvs_operation((table_name, key))
+
+    def _current_kvs_operation(self, table_key: tuple[str, str]) -> dict[str, Any] | None:
+        operation = self._staging_buffer.get(table_key)
+        return operation if operation is not None else self._flushing_buffer.get(table_key)
+
+    def pending_table_operations(self, table_name: str) -> dict[str, dict[str, Any]]:
+        """Snapshot accepted KVS changes while the caller holds the connection lock."""
+        with self._staging_lock:
+            return {
+                key: operation
+                for buffer in (self._flushing_buffer, self._staging_buffer)
+                for (table, key), operation in buffer.items() if table == table_name
+            }
+
+    def publish_cache_read(
+        self,
+        table_name: str,
+        key: str,
+        operation: dict[str, Any] | None,
+        publish: Callable[..., None],
+        *args: Any,
+    ) -> bool:
+        """Publish a read only if the staging entry it observed is still current.
+
+        The caller holds the connection lock, keeping committed data stable
+        until the cache update. None represents a read from SQLite.
+        """
+        with self._staging_lock:
+            if self._current_kvs_operation((table_name, key)) is not operation:
+                return False
+            publish(key, *args)
+            return True
+
+    def publish_cache_reads(
+        self,
+        table_name: str,
+        keys: Collection[str],
+        values: dict[str, Any],
+        publish: Callable[[dict[str, Any]], None],
+        mark_missing: Callable[[str], None],
+    ) -> None:
+        """Publish a chunk of SQLite results under one acquisition of the staging lock."""
+        with self._staging_lock:
+            if not self._staging_buffer and not self._flushing_buffer:
+                publish(values)
+                if len(values) != len(keys):
+                    for key in keys:
+                        if key not in values:
+                            mark_missing(key)
+                return
+
+            current = self._current_kvs_operation
+            publish({key: value for key, value in values.items() if current((table_name, key)) is None})
+            for key in keys:
+                if key not in values and current((table_name, key)) is None:
+                    mark_missing(key)
 
     def _check_auto_flush(self) -> None:
         """Trigger auto-flush based on the current mode."""
@@ -357,7 +437,9 @@ class V2Engine:
             on_success=on_success,
             on_error=on_error,
         )
-        self._strict_queue.put(task)
+        with self._staging_lock:
+            self._check_running()
+            self._strict_queue.put(task)
 
         # Strict tasks must always trigger a flush immediately, regardless of
         # the configured flush_mode.  Both execute() and execute_many() use
@@ -368,49 +450,83 @@ class V2Engine:
 
     # ==================== Flush / Sync API ====================
 
-    def flush(self, wait: bool = False) -> None:
-        """Trigger an asynchronous flush operation on the background worker."""
+    def _check_running(self) -> None:
         if not self._running:
-            return
+            raise NanaSQLiteClosedError("V2 engine is closed")
 
-        # Reset timer if in time mode
-        if self._flush_mode == "time":
-            self._flush_event.set()
-            if not wait:
-                with self._staging_lock:
-                    has_kvs_changes = bool(self._staging_buffer)
-                if not has_kvs_changes and self._strict_queue.empty():
+    def flush(self, wait: bool = False, *, check_errors: bool = False, skip_if_idle: bool = False) -> None:
+        """Schedule a flush and optionally wait for successful persistence."""
+        if check_errors and not wait:
+            raise ValueError("check_errors requires wait=True")
+
+        with self._staging_lock:
+            if not wait and not self._running:
+                return
+            self._check_running()
+            if skip_if_idle and not check_errors and not self._staging_buffer and self._strict_queue.empty():
+                # The worker marks itself active before removing any staged
+                # work; a task already taken from either lane is still covered.
+                with self._dlq_lock:
+                    if not self._flush_active:
+                        return
+            if check_errors:
+                with self._dlq_lock:
+                    failures_before = self._failure_count
+            if self._flush_mode == "time":
+                self._flush_event.set()
+                if not wait and not self._staging_buffer and self._strict_queue.empty():
                     return
 
-        # Coalesce concurrent flush requests: only submit one _perform_flush to
-        # the executor at a time.  If a submission is already queued (lock is
-        # held), subsequent calls are no-ops — the already-queued future will
-        # process all pending writes when it runs.
-        future = None
-        if self._flush_pending.acquire(blocking=False):
-            future = self._worker.submit(self._run_flush)
+            # A manual caller already waiting for persistence can do its own
+            # KVS I/O. Never overtake queued work or run strict SQL callbacks
+            # on the caller. All waits for the drain lock happen outside staging.
+            inline = (
+                wait and self._flush_mode == "manual" and bool(self._staging_buffer)
+                and self._strict_queue.empty() and not self._flush_pending.locked()
+                and self._drain_lock.acquire(blocking=False)
+            )
+            future = None
+            if not inline:
+                if self._flush_pending.acquire(blocking=False):
+                    try:
+                        self._queued_flush = self._worker.submit(self._run_flush)
+                    except BaseException:
+                        self._flush_pending.release()
+                        raise
+                future = self._queued_flush
 
-        if wait:
-            if future:
-                future.result()
-            else:
-                # If a flush is currently pending/running, we wait for it to finish
-                # by submitting a dummy task to the single-worker executor.
-                self._worker.submit(lambda: None).result()
+        if inline:
+            try:
+                self._flush_with_status(background=False)
+            finally:
+                self._drain_lock.release()
+        elif wait and future is not None:
+            future.result()
+        if check_errors:
+            with self._dlq_lock:
+                unresolved = any(
+                    isinstance(entry.item, StrictTask) or not entry.item[1].get("superseded", False)
+                    for entry in self.dlq
+                )
+                if self._failure_count != failures_before or unresolved or self._dlq_dropped:
+                    raise NanaSQLiteDatabaseError("v2 flush has unresolved write failures")
 
     def _run_flush(self) -> None:
-        """Executor entry point: release the pending-guard then flush."""
-        # Release the guard *before* the flush so that any writes arriving
-        # during the flush can schedule a follow-up submission.
-        self._flush_pending.release()
+        with self._drain_lock:
+            self._flush_with_status(background=True)
+
+    def _flush_with_status(self, *, background: bool) -> None:
         with self._staging_lock:
+            if background:
+                # Subsequent writes can now schedule one follow-up flush.
+                self._flush_pending.release()
             had_work = bool(self._staging_buffer)
         had_work = had_work or not self._strict_queue.empty()
         with self._dlq_lock:
             failures_before = self._failure_count
             self._flush_active = True
         try:
-            self._perform_flush()
+            self._perform_flush(process_strict=background)
         except Exception:
             with self._dlq_lock:
                 self._failure_count += 1
@@ -424,12 +540,8 @@ class V2Engine:
             with self._dlq_lock:
                 self._flush_active = False
 
-    def _perform_flush(self) -> None:
-        """
-        The actual flush logic executed by the single background thread.
-        Combines Lane 1 (KVS) and Lane 2 (Strict Queue) into a single transaction.
-        Implements chunking and DLQ error handling.
-        """
+    def _perform_flush(self, *, process_strict: bool = True) -> None:
+        """Persist a KVS snapshot in chunks, then optionally drain the strict SQL queue."""
         start_time = time.time() if self._enable_metrics else 0.0
 
         # 1. Capture current snapshot of staging buffer and move it to
@@ -453,7 +565,14 @@ class V2Engine:
                 chunk = kvs_items[i : i + chunk_size]
                 # Create a localized transaction per chunk
                 try:
-                    self._process_kvs_chunk(chunk)
+                    try:
+                        self._process_kvs_chunk(chunk)
+                    except apsw.BusyError:
+                        time.sleep(0.005)
+                        self._process_kvs_chunk(chunk)
+                except apsw.BusyError as e:
+                    for item in chunk:
+                        self._add_to_dlq(f"KVS chunk remained busy: {e}", item)
                 except Exception as e:
                     # If a chunk fails, we enter a recovery mode for that specific chunk
                     logger.warning(
@@ -467,8 +586,8 @@ class V2Engine:
         with self._staging_lock:
             self._flushing_buffer = {}
 
-        # Process all remaining Strict Lane tasks
-        self._process_all_strict_tasks()
+        if process_strict:
+            self._process_all_strict_tasks()
 
         if self._enable_metrics:
             flush_duration_ms = (time.time() - start_time) * 1000
@@ -483,13 +602,15 @@ class V2Engine:
         table_ops: dict[str, dict[str, list]] = {}
 
         for (table_name, key), op in kvs_chunk:
-            _validate_table_name(table_name)
-            if table_name not in table_ops:
-                table_ops[table_name] = {"sets": [], "deletes": []}
+            ops = table_ops.get(table_name)
+            if ops is None:
+                _validate_table_name(table_name)
+                ops = {"sets": [], "deletes": []}
+                table_ops[table_name] = ops
             if op["action"] == "set":
-                table_ops[table_name]["sets"].append((key, op["value"]))
+                ops["sets"].append((key, op["value"]))
             elif op["action"] == "delete":
-                table_ops[table_name]["deletes"].append((key,))
+                ops["deletes"].append((key,))
 
         cursor = self._connection.cursor()
         lock_acquired = False
@@ -505,10 +626,7 @@ class V2Engine:
                     sets = ops["sets"]
                     deletes = ops["deletes"]
                     if sets:
-                        cursor.executemany(
-                            f"INSERT OR REPLACE INTO {table_name} (key, value) VALUES (?, ?)",  # nosec
-                            sets,
-                        )
+                        cursor.executemany(kvs_upsert_sql(table_name), sets)
                     if deletes:
                         cursor.executemany(
                             f"DELETE FROM {table_name} WHERE key = ?",  # nosec
@@ -521,7 +639,9 @@ class V2Engine:
                     with self._metrics_lock:
                         self._metrics["kvs_items_flushed"] += flushed_count
             except Exception:
-                cursor.execute("ROLLBACK;")
+                if not self._connection.getautocommit():
+                    with contextlib.suppress(apsw.Error):
+                        cursor.execute("ROLLBACK;")
                 raise
         finally:
             if lock_acquired and self._shared_lock is not None:
@@ -609,9 +729,7 @@ class V2Engine:
                     cursor.execute("BEGIN IMMEDIATE TRANSACTION;")
                     started = True
                     if op["action"] == "set":
-                        cursor.execute(
-                            f"INSERT OR REPLACE INTO {table_name} (key, value) VALUES (?, ?)", (key, op["value"])
-                        )  # nosec
+                        cursor.execute(kvs_upsert_sql(table_name), (key, op["value"]))
                     elif op["action"] == "delete":
                         cursor.execute(f"DELETE FROM {table_name} WHERE key = ?", (key,))  # nosec
 
@@ -706,6 +824,7 @@ class V2Engine:
         and StrictTasks are re-enqueued.
         """
         with self._staging_lock, self._dlq_lock:
+            self._check_running()
             items = list(self.dlq)
             self.dlq.clear()
 
@@ -747,12 +866,19 @@ class V2Engine:
 
     def shutdown(self) -> None:
         """Gracefully shutdown the engine, forcing a synchronous final flush."""
-        # Use a lock to ensure only one thread performs shutdown
         with self._staging_lock:
-            if not self._running:
-                return
+            first = self._running
             self._running = False
+        if not first:
+            # Another close must not close the shared connection mid-flush.
+            self._shutdown_complete.wait()
+            return
+        try:
+            self._finish_shutdown()
+        finally:
+            self._shutdown_complete.set()
 
+    def _finish_shutdown(self) -> None:
         # Wake up the timer thread to let it exit
         if self._timer_thread:
             self._flush_event.set()
@@ -763,24 +889,22 @@ class V2Engine:
             atexit.unregister(self.shutdown)
 
         # Shutdown worker executor.
-        # cancel_futures=True ensures we don't start new flushes if they were already queued.
-        # wait=True ensures the current flush (if any) is finished before we do the final sync flush.
+        # Drain scheduled flushes before the final synchronous flush so their
+        # waiting callers receive the corresponding result.
         try:
-            self._worker.shutdown(wait=True, cancel_futures=True)
+            self._worker.shutdown(wait=True)
         except Exception as e:
             logger.warning("NanaSQLite v2 Engine: Error during worker shutdown: %s", type(e).__name__)
 
-        # Ensure final data is flushed synchronously on main/exit thread.
-        # This is safe because the worker thread is now finished.
+        # Also wait for any manual caller still writing on this connection.
         try:
-            self._perform_flush()
+            with self._drain_lock:
+                self._perform_flush()
         except Exception as e:
             logger.error("NanaSQLite v2 Engine: Final flush failed during shutdown: %s", type(e).__name__)
 
         # Clear any remaining strict tasks to prevent deadlocks (e.g., if _perform_flush failed entirely)
         if not self._strict_queue.empty():
-            from .exceptions import NanaSQLiteClosedError
-
             shutdown_err = NanaSQLiteClosedError("V2Engine shut down before task could complete.")
             while not self._strict_queue.empty():
                 try:
